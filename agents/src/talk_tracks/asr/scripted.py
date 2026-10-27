@@ -54,5 +54,5 @@ class ScriptedAsr:
     def __init__(self, script: list[ScriptedLine]) -> None:
         self._script = script
 
-    async def open(self, language: str) -> AsrSession:
+    async def open(self, language: str, offset_ms: int = 0) -> AsrSession:
         return ScriptedAsrSession(self._script)

@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
 from talk_tracks.asr.scripted import ScriptedAsr, ScriptedLine
 from talk_tracks.contracts import ENVELOPE, AgentInfo, CaptionsState, SlideFrame, Usage
 from talk_tracks.cores.captions import CaptionsCore
@@ -98,6 +99,37 @@ async def test_failing_model_does_not_stop_the_track() -> None:
     tr = ListSink()
     await run_translate(states(cap), Flaky(), publisher("translate-tr", tr), "tr")
     assert len(tr.envelopes()[-1].state.lines) == 2
+
+
+async def test_asr_opens_on_first_audio_and_reopens_after_a_failure() -> None:
+    class Session:
+        def __init__(self, fail_at_ms: int | None) -> None:
+            self.fail_at_ms = fail_at_ms
+
+        async def feed(self, pcm16k: NDArray[np.int16], end_ms: int) -> list[AsrEvent]:
+            if self.fail_at_ms is not None and end_ms >= self.fail_at_ms:
+                raise RuntimeError("stream closed")
+            return [AsrFinal(f"to {end_ms}", end_ms - 100, end_ms)] if end_ms % 1000 == 0 else []
+
+        async def close(self) -> list[AsrEvent]:
+            return []
+
+    class Provider:
+        def __init__(self) -> None:
+            self.offsets: list[int] = []
+
+        async def open(self, language: str, offset_ms: int = 0) -> AsrSession:
+            self.offsets.append(offset_ms)
+            return Session(6_500 if len(self.offsets) == 1 else None)
+
+    async def late_audio() -> AsyncIterator[tuple[NDArray[np.int16], int]]:
+        for end_ms in range(5_100, 8_100, 100):  # the talk was already 5 s in when the agent started
+            yield np.zeros(1600, dtype=np.int16), end_ms
+
+    provider, sink = Provider(), ListSink()
+    await run_captions(late_audio(), provider, publisher("captions", sink), "en")
+    assert provider.offsets == [5_000, 6_500]  # first chunk's start; then the chunk after the failure at 6.5 s
+    assert [x.text for x in sink.envelopes()[-1].state.lines] == ["to 6000", "to 7000", "to 8000"]
 
 
 async def test_heartbeat_repeats_state_with_same_seq() -> None:

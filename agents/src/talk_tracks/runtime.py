@@ -11,7 +11,8 @@ from collections.abc import AsyncIterator, Callable
 import numpy as np
 from numpy.typing import NDArray
 
-from .asr.base import AsrProvider, AsrSession
+from .asr.base import AsrEvent, AsrProvider, AsrSession
+from .audio import SAMPLE_RATE
 from .contracts import CaptionLine, CaptionsState, SlideFrame
 from .cores.captions import CaptionsCore
 from .cores.outline import OutlineCore
@@ -43,22 +44,36 @@ async def run_captions(
     *,
     next_id: int = 0,
 ) -> None:
-    """Audio (pcm, media end ms) in; the captions state out. A line that finishes publishes at once."""
+    """Audio (pcm, media end ms) in; the captions state out. A line that finishes publishes at once.
+
+    The ASR session opens on the first audio, so its clock starts at that chunk's media time, and reopens on the next
+    chunk after any failure (a dropped stream, the server's session cap): captions pause for a moment, never stop.
+    """
     core = CaptionsCore(lang, next_id)
-    session: AsrSession = await asr.open(lang)
+    session: AsrSession | None = None
     await pub.publish(core.state())
+
+    async def apply(events: list[AsrEvent]) -> None:
+        for event in events:
+            core.on_event(event)
+        if events:
+            await pub.publish(core.state())
+
     try:
         async for pcm, end_ms in audio:
-            changed = False
-            for event in await session.feed(pcm, end_ms):
-                core.on_event(event)
-                changed = True
-            if changed:
-                await pub.publish(core.state())
+            try:
+                if session is None:
+                    session = await asr.open(lang, offset_ms=max(0, end_ms - len(pcm) * 1000 // SAMPLE_RATE))
+                await apply(await session.feed(pcm, end_ms))
+            except Exception:
+                log.exception("ASR session failed; reopening on the next audio")
+                if session is not None:
+                    with contextlib.suppress(Exception):
+                        await apply(await session.close())
+                session = None
     finally:
-        for event in await session.close():
-            core.on_event(event)
-        await pub.publish(core.state())
+        if session is not None:
+            await apply(await session.close())
 
 
 async def run_translate(captions: AsyncIterator[CaptionsState], llm: Llm, pub: SnapshotPublisher, lang: str) -> None:

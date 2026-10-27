@@ -66,8 +66,8 @@ class MetaVoiceAsrSession:
             self.error = str(msg.get("message", msg))
 
     async def feed(self, pcm16k: NDArray[np.int16], end_ms: int) -> list[AsrEvent]:
-        if self.error:
-            raise MetaAsrError(self.error)
+        if self.error or self._reader.done():
+            raise MetaAsrError(self.error or "the server closed the stream")
         self._pending = np.concatenate([self._pending, pcm16k])
         while len(self._pending) >= FRAME_SAMPLES:
             frame, self._pending = self._pending[:FRAME_SAMPLES], self._pending[FRAME_SAMPLES:]

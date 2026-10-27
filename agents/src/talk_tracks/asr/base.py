@@ -35,4 +35,6 @@ class AsrSession(Protocol):
 
 
 class AsrProvider(Protocol):
-    async def open(self, language: str) -> AsrSession: ...
+    async def open(self, language: str, offset_ms: int = 0) -> AsrSession:
+        """Start a session whose audio begins at media time ``offset_ms``."""
+        ...
