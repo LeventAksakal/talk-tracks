@@ -23,7 +23,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .audio import read_varint
+from .audio import MAX_FILL_US, read_varint
 from .contracts import (
     CaptionsState,
     OutlineState,
@@ -38,7 +38,8 @@ from .recording import RecordedAgent, RecordedSnapshot, Recording, read_snapshot
 class MediaClock:
     """The speaker's media time, read from the teacher audio track (legacy container: a varint of microseconds first).
 
-    Keeps the newest time seen; ``ms`` is 0 until the first object.
+    Keeps the newest time seen (groups may arrive a little out of order); a time far behind it means the speaker's
+    publisher restarted its clock, and the clock follows. ``ms`` is 0 until the first object.
     """
 
     def __init__(self) -> None:
@@ -48,7 +49,7 @@ class MediaClock:
         if not payload:
             return None
         us, _ = read_varint(payload)
-        if self.us is None or us > self.us:
+        if self.us is None or us > self.us or us < self.us - MAX_FILL_US:
             self.us = us
         return us
 

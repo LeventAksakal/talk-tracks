@@ -43,8 +43,8 @@ from .runtime import HEARTBEAT_S, now_ms
 log = logging.getLogger("talk_tracks.demo")
 
 LECTURE_FILE = "lecture.mp4"
-VIDEO_QUEUE = 256  # about two GOPs held while nobody subscribes
-AUDIO_QUEUE = 64
+VIDEO_QUEUE = 64  # about one GOP: what a first subscriber gets first is at most ~2.5 s old
+AUDIO_QUEUE = 50  # 1 s of Opus
 CATALOG_QUEUE = 2
 
 Connect = Callable[[], contextlib.AbstractAsyncContextManager[Relay]]

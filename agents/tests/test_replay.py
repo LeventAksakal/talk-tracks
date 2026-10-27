@@ -81,6 +81,9 @@ def test_media_clock_reads_the_legacy_timestamp_and_keeps_the_newest() -> None:
     clock.observe(write_varint(1_980_000) + b"x")  # reordered group
     assert clock.ms == 2000
     assert clock.observe(b"") is None
+    clock.observe(write_varint(400_000_000) + b"x")
+    clock.observe(write_varint(20_000) + b"x")  # the looper or the speaker's browser restarted
+    assert clock.ms == 20
 
 
 def test_shift_moves_every_media_time_and_id() -> None:

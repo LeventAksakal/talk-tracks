@@ -47,6 +47,10 @@ docker compose -f deploy/compose.local.yml run --rm -e META_API_KEY captions cap
 Spend goes to the shared ledger (`TT_LEDGER`, default `data/ledger.jsonl`) and stops at `TT_SPEND_CEILING_USD`
 (default 100).
 
+## A looping demo room
+
+A recorded lecture replayed as a live room, with no model running: see [demo-rooms](demo-rooms.md).
+
 ## Checks
 
 From `agents/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, `uv run pytest -q`.
