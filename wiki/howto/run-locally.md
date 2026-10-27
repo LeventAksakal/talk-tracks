@@ -31,6 +31,9 @@ captions instance by themselves (the newest instance always wins).
 
 Stop everything with `docker compose -f deploy/compose.local.yml --profile dev down`.
 
+This relay lets anyone publish, which is fine on a laptop only. To run it as deployed, with signed tokens for
+publishers and open watching, add the `deploy/compose.auth.yml` overlay ([tokens.md](tokens.md)).
+
 ## One agent against the Meta API
 
 Drop `--fake` and pass the key through from your environment (`-e META_API_KEY` or `-e MODEL_API_KEY`, whichever

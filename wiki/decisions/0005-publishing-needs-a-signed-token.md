@@ -28,3 +28,19 @@ judge given a token can still run a live room. Watching, joining late and choosi
 * Bad, because a refused browser publish is silent (measured before the build), so the speaker console must confirm
   that its publish reached the relay.
 * Open: how judges get a token and what each token may spend (ticket "Live mode for judges").
+
+## Addendum, 2026-10-27: the relay needs an auth server to check tokens
+
+Found while building: moq-relay 0.17.8 has no token check of its own. It either applies `--auth-public` rules to every
+session or asks a server at `--auth-url`, never both. Signed tokens therefore need the third option above, a small
+auth server. It is the moq project's own reference server, `moq auth serve` (moq-cli 0.14.8, the release paired with
+the relay), not code of ours:
+
+* It verifies ES256 tokens against a public key; the private key that signs them stays off the repo.
+* `--public-subscribe 'talk/**'` keeps watching open to anyone without a token.
+* It runs beside the relay in the relay's network namespace (the relay speaks plain HTTP only to a loopback auth URL).
+
+Token scopes: a speaker token may publish `talk/<room>/teacher` and `talk/<room>/slides`; an agent token may publish
+`talk/<room>/agents/**`; both may subscribe to `talk/<room>/**`. How to sign them: `wiki/howto/tokens.md`.
+
+The decision itself stands (signed token to publish, open to watch); only "no extra service" no longer holds.
