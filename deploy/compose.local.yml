@@ -18,9 +18,11 @@ services:
   relay:
     image: talk-tracks-relay:0.17.8
     build: { context: ., dockerfile: Dockerfile.relay }
+    # The browser needs the web listener too: plain HTTP on the same port number (TCP) serves
+    # /certificate.sha256 for WebTransport certificate pinning and the WebSocket fallback.
     command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-public", "**",
-              "--log-level", "info"]
-    ports: ["4443:4443/udp"]
+              "--web-http-listen", "[::]:4443", "--log-level", "info"]
+    ports: ["${TT_RELAY_PORT:-4443}:4443/udp", "${TT_RELAY_PORT:-4443}:4443/tcp"]
 
   captions:
     <<: *agent
