@@ -49,3 +49,33 @@ class SnapshotFilter:
             return None
         self._seq = envelope.seq
         return envelope
+
+
+class RoomFollower:
+    """Every agent in a room at once, each at its newest instance: what a recorder or a viewer follows.
+
+    Paths are below ``talk/<room>/agents``: ``<agent>/<instance>``.
+    """
+
+    def __init__(self) -> None:
+        self._newest: dict[str, NewestInstance] = {}
+        self._filters: dict[str, SnapshotFilter] = {}
+
+    def offer(self, path: str) -> tuple[str, str] | None:
+        """An announced path. (agent, instance) when it is that agent's new newest instance, to read from now on."""
+        parts = path.split("/")
+        if len(parts) != 2 or not all(parts):
+            return None
+        agent, instance = parts
+        newest = self._newest.setdefault(agent, NewestInstance())
+        return (agent, instance) if newest.offer(instance) else None
+
+    def current(self, agent: str) -> str | None:
+        newest = self._newest.get(agent)
+        return newest.current if newest else None
+
+    def accept(self, agent: str, payload: bytes) -> Envelope | None:
+        """A payload read from one of ``agent``'s instances: its envelope if new and from the newest instance."""
+        snapshots = self._filters.setdefault(agent, SnapshotFilter())
+        envelope = snapshots.accept(payload, self.current(agent))
+        return envelope if envelope is not None and envelope.agent.name == agent else None

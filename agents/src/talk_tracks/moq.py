@@ -71,6 +71,10 @@ class TrackWriter:
     async def write(self, data: bytes) -> None:
         await asyncio.wait_for(self._writer.snapshot(data), WRITE_TIMEOUT_S)
 
+    async def append(self, data: bytes) -> None:
+        """Add an object to the current group (a video frame after its GOP's keyframe)."""
+        await asyncio.wait_for(self._writer.write(data), WRITE_TIMEOUT_S)
+
 
 class Relay:
     def __init__(self, session: Any) -> None:
@@ -81,8 +85,9 @@ class Relay:
     def closed(self) -> asyncio.Future[Any]:
         return self.session._moqt_session_closed
 
-    async def publish(self, namespace: str, track: str) -> TrackWriter:
-        spec = PublishSpec(track=TrackRef(namespace=namespace, name=track), buffer=WRITER_QUEUE, on_full="drop_oldest")
+    async def publish(self, namespace: str, track: str, *, queue: int = WRITER_QUEUE) -> TrackWriter:
+        """``queue`` bounds the objects held while nobody subscribes; the oldest group goes first."""
+        spec = PublishSpec(track=TrackRef(namespace=namespace, name=track), buffer=queue, on_full="drop_oldest")
         writer = self.agent.writer(spec)
         await writer.start()
         log.info("publishing %s/%s", namespace, track)

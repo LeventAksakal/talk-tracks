@@ -54,10 +54,19 @@ def summary(payload: bytes) -> str:
     env = ENVELOPE.validate_json(payload)
     state = env.state
     if isinstance(state, CaptionsState):
-        what = f"{len(state.lines)} lines, last {state.lines[-1].text!r}" if state.lines else "no lines"
+        last = state.lines[-1] if state.lines else None
+        what = (
+            f"{len(state.lines)} lines, last #{last.id} ending {last.end_ms / 1000:.1f} s {last.text!r}"
+            if last
+            else "no lines"
+        )
         what += f", interim {state.interim!r}" if state.interim else ""
     elif isinstance(state, TranslationState):
-        what = f"{len(state.lines)} lines, last {state.lines[-1].text!r}" if state.lines else "no lines"
+        what = (
+            f"{len(state.lines)} lines, last #{state.lines[-1].id} {state.lines[-1].text!r}"
+            if state.lines
+            else "no lines"
+        )
     elif isinstance(state, SlidesState):
         what = f"{len(state.slides)} slides"
     else:
@@ -66,20 +75,36 @@ def summary(payload: bytes) -> str:
 
 
 async def watch_room(relay: Relay, room: str) -> None:
-    """Print every agent snapshot published in the room, as a viewer would receive it."""
+    """Print every agent snapshot published in the room, as a viewer would receive it, with the speaker's media time
+    when the snapshot arrived (from the teacher audio), so you can see the tracks keep step with the talk."""
     from .contracts import agents_prefix
+    from .replay import MediaClock
 
     prefix = agents_prefix(room)
     following: dict[str, asyncio.Task[None]] = {}
+    clock = MediaClock()
+
+    async def media() -> None:
+        async for payload in relay.objects(teacher_path(room), "audio", idle_s=5.0):
+            clock.observe(payload)
 
     async def read(path: str) -> None:
         async for payload in relay.objects(f"{prefix}/{path}", "state"):
-            print(summary(payload), flush=True)
+            stamp = f"[media {clock.ms / 1000:8.1f} s] " if clock.us is not None else ""
+            print(stamp + summary(payload), flush=True)
 
-    async for path, active in relay.announced(prefix):
-        print(f"{'announced' if active else 'withdrawn'}: {path}", flush=True)
-        if active and path.count("/") == 1 and path not in following:
-            following[path] = asyncio.create_task(read(path))
+    teacher = asyncio.create_task(media())
+    try:
+        async for path, active in relay.announced(prefix):
+            print(f"{'announced' if active else 'withdrawn'}: {path}", flush=True)
+            if active and path.count("/") == 1 and path not in following:
+                following[path] = asyncio.create_task(read(path))
+            elif not active and path in following:
+                following.pop(path).cancel()
+    finally:
+        teacher.cancel()
+        for task in following.values():
+            task.cancel()
 
 
 async def run_dev(command: str, url: str, room: str, *, token: str | None, insecure: bool, wav: Path | None) -> None:

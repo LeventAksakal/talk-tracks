@@ -1,0 +1,10 @@
+# The moq project's CLI (moq-cli 0.14.8: the release that depends on moq-relay 0.17.8 and moq-tokio 0.19.29), used as
+# an independent hang/moq-lite client to check what a looped room publishes. `moq ... export fmp4` writes the teacher
+# broadcast to stdout, and ffprobe (in this image) reads it.
+# Build from deploy/: docker build -t talk-tracks-moq-cli:0.14.8 -f Dockerfile.moq-cli .
+FROM rust:1.95-bookworm AS build
+RUN cargo install moq-cli --version 0.14.8 --locked --no-default-features --features noq
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
+COPY --from=build /usr/local/cargo/bin/moq /usr/local/bin/moq
+ENTRYPOINT ["moq"]

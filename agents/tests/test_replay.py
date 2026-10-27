@@ -15,8 +15,17 @@ from talk_tracks.contracts import (
     TranslationState,
     Usage,
 )
+from talk_tracks.lecture import MediaPacket
 from talk_tracks.recording import RecordingWriter, load_manifest, read_snapshots
-from talk_tracks.replay import MediaClock, Timeline, id_stride, next_instance, shift_state
+from talk_tracks.replay import (
+    MediaClock,
+    Timeline,
+    event_us,
+    id_stride,
+    loop_events,
+    next_instance,
+    shift_state,
+)
 
 CAPTIONS = AgentInfo(name="captions", label="Captions (English)", model="fake")
 TRANSLATE = AgentInfo(name="translate-tr", label="Turkish translation", model="fake")
@@ -125,3 +134,15 @@ def test_next_instance_is_the_clock_but_always_newer() -> None:
     assert next_instance(None, 1_700_000_000_000) == "1700000000000"
     assert next_instance("1700000000000", 1_700_000_000_000) == "1700000000001"
     assert next_instance("1700000000000", 1_700_000_005_000) == "1700000005000"
+
+
+def test_loop_events_put_cues_and_media_on_one_clock(tmp_path: Path) -> None:
+    directory = record(tmp_path)
+    timeline = Timeline(directory, load_manifest(directory), duration_ms=5000)
+    media = [MediaPacket("video", us, us % 1_000_000 == 0, b"") for us in range(0, 5_000_000, 500_000)]
+    events = list(loop_events(media, timeline.cues(timeline.plan(0))))
+    assert len(events) == len(media) + 6
+    times = [event_us(e) for e in events]
+    assert times == sorted(times)
+    first_second = [type(e).__name__ for e in events if event_us(e) == 1_000_000]
+    assert first_second == ["Cue", "MediaPacket"]  # the state goes out before the frame it belongs to

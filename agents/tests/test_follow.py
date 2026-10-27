@@ -1,6 +1,6 @@
 from talk_tracks.contracts import ENVELOPE, AgentInfo, Envelope, Usage
 from talk_tracks.cores.captions import CaptionsCore
-from talk_tracks.follow import NewestInstance, SnapshotFilter
+from talk_tracks.follow import NewestInstance, RoomFollower, SnapshotFilter
 
 
 def envelope(instance: str, seq: int) -> bytes:
@@ -35,3 +35,17 @@ def test_snapshots_pass_once_in_order_and_only_from_the_followed_instance() -> N
         f.accept(envelope("2000", 1), "2000"),  # replacement starts its own sequence
     ]
     assert [(e.instance, e.seq) if e else None for e in seen] == [("1000", 1), None, ("1000", 2), None, ("2000", 1)]
+
+
+def test_room_follower_tracks_the_newest_instance_per_agent() -> None:
+    room = RoomFollower()
+    assert room.offer("captions/1000") == ("captions", "1000")
+    assert room.offer("translate-tr/500") == ("translate-tr", "500")  # agents are independent
+    assert room.offer("captions/900") is None
+    assert room.offer("captions") is None and room.offer("captions/1000/state") is None
+    assert room.accept("captions", envelope("1000", 1)) is not None
+    assert room.accept("captions", envelope("1000", 1)) is None  # heartbeat
+    assert room.offer("captions/2000") == ("captions", "2000")  # the next loop, or a replacement
+    assert room.accept("captions", envelope("1000", 5)) is None  # the old instance, still draining
+    assert room.accept("captions", envelope("2000", 1)) is not None
+    assert room.accept("chapters", envelope("2000", 1)) is None  # a captions envelope on another agent's path

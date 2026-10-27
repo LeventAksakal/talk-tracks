@@ -1,0 +1,9 @@
+# ffmpeg with the two scripts the demo rooms need: prepare-lecture (any video to the looper's MP4) and test-clip (a
+# synthetic lecture). Build from deploy/: docker build -t talk-tracks-media:dev -f Dockerfile.media .
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+COPY media/prepare-lecture.sh /usr/local/bin/prepare-lecture
+COPY media/test-clip.sh /usr/local/bin/test-clip
+RUN chmod +x /usr/local/bin/prepare-lecture /usr/local/bin/test-clip
+WORKDIR /data

@@ -45,3 +45,27 @@ services:
     profiles: [dev]
     restart: "no"
     command: ["watch", "--insecure"]
+
+  # Demo rooms (wiki/howto/demo-rooms.md). Lectures and recordings live in data/demo/<lecture>/ (not in git).
+  # TT_LECTURE names the lecture folder; agents and generate use TT_ROOM, the looping room is TT_DEMO_ROOM.
+  media:
+    image: talk-tracks-media:dev
+    build: { context: ., dockerfile: Dockerfile.media }
+    profiles: [demo]
+    volumes: ["../data/demo:/data"]
+    entrypoint: ["sh", "-c"]
+  generate:
+    <<: *agent
+    profiles: [demo]
+    restart: "no"
+    volumes: ["../data/demo:/data"]
+    command: ["generate", "--insecure", "--media", "/data/${TT_LECTURE:-test}/lecture.mp4",
+              "--out", "/data/${TT_LECTURE:-test}"]
+  looper:
+    <<: *agent
+    profiles: [demo]
+    volumes: ["../data/demo:/data:ro"]
+    environment:
+      TT_RELAY: moqt://relay:4443
+      TT_ROOM: ${TT_DEMO_ROOM:-demo}
+    command: ["loop", "--insecure", "--recording", "/data/${TT_LECTURE:-test}"]

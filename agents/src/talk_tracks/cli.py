@@ -2,7 +2,9 @@
 
 Agents: ``captions`` (speech to text), ``translate`` (one language per process), ``describe`` (slide descriptions),
 ``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio like the speaker's browser,
-``watch`` prints what the agents publish.
+``watch`` prints what the agents publish. Demo rooms (see wiki/howto/demo-rooms.md): ``play`` publishes a lecture file
+as the speaker, ``record`` records a room's agent tracks, ``generate`` does both at once, ``loop`` replays a recording
+as a live room, forever.
 
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_TOKEN, TT_LEDGER (default data/ledger.jsonl),
 TT_SPEND_CEILING_USD (default 100) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed.
@@ -28,6 +30,7 @@ from .llm.meta import language_name
 
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "watch")
+DEMO = ("play", "record", "generate", "loop")
 
 FAKE_SENTENCES = [
     "Media over QUIC lets one relay fan out many named tracks.",
@@ -120,7 +123,13 @@ async def run_agent(args: argparse.Namespace) -> None:
 
 
 async def main_async(args: argparse.Namespace) -> None:
-    task = asyncio.ensure_future(run_agent(args) if args.agent in AGENTS else _dev(args))
+    if args.agent in AGENTS:
+        work = run_agent(args)
+    elif args.agent in DEMO:
+        work = _demo(args)
+    else:
+        work = _dev(args)
+    task = asyncio.ensure_future(work)
     # SIGTERM (docker stop) closes the session cleanly, so the relay withdraws our tracks at once.
     with contextlib.suppress(NotImplementedError):
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
@@ -134,9 +143,30 @@ async def _dev(args: argparse.Namespace) -> None:
     await run_dev(args.agent, args.relay, args.room, token=args.token, insecure=args.insecure, wav=args.wav)
 
 
+async def _demo(args: argparse.Namespace) -> None:
+    from . import demo
+
+    common: dict[str, Any] = {"token": args.token, "insecure": args.insecure}
+    if args.agent == "play":
+        await demo.play(args.relay, args.room, need(args.media, "--media"), loops=args.loops, **common)
+    elif args.agent == "record":
+        await demo.record(args.relay, args.room, need(args.out, "--out"), media=None, **common)
+    elif args.agent == "generate":
+        media, out = need(args.media, "--media"), need(args.out, "--out")
+        await demo.generate(args.relay, args.room, media, out, lead_in_s=args.lead_in_s, tail_s=args.tail_s, **common)
+    else:
+        await demo.loop(args.relay, args.room, need(args.recording, "--recording"), media=args.media, **common)
+
+
+def need(value: Path | None, flag: str) -> Path:
+    if value is None:
+        sys.exit(f"{flag} is required")
+    return value
+
+
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="talk_tracks", description=__doc__.splitlines()[0] if __doc__ else None)
-    p.add_argument("agent", choices=AGENTS + DEV)
+    p.add_argument("agent", choices=AGENTS + DEV + DEMO)
     p.add_argument("--relay", default=os.environ.get("TT_RELAY"), help="moqt://host:port or https://host:port/path")
     p.add_argument("--room", default=os.environ.get("TT_ROOM"))
     p.add_argument("--lang", default="en", help="language of the output (translate: the target language)")
@@ -144,6 +174,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--fake", action="store_true", help="scripted speech recognition and a fake model: no API calls")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
     p.add_argument("--wav", type=Path, default=None, help="teacher: a 16-bit WAV file to loop instead of a tone")
+    p.add_argument("--media", type=Path, default=None, help="play, generate, loop: the lecture (MP4, H.264 + Opus)")
+    p.add_argument("--out", type=Path, default=None, help="record, generate: the recording directory to write")
+    p.add_argument("--recording", type=Path, default=None, help="loop: the recording directory to replay")
+    p.add_argument("--loops", type=int, default=None, help="play: how many times (default: forever)")
+    p.add_argument("--lead-in-s", type=float, default=5.0, help="generate: wait before the lecture starts")
+    p.add_argument("--tail-s", type=float, default=15.0, help="generate: keep recording after the lecture ends")
     args = p.parse_args(argv)
     if not args.relay or not args.room:
         p.error("--relay and --room are required (or TT_RELAY and TT_ROOM)")

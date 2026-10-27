@@ -31,6 +31,7 @@ from .contracts import (
     State,
     TranslationState,
 )
+from .lecture import MediaPacket
 from .recording import RecordedAgent, RecordedSnapshot, Recording, read_snapshots
 
 
@@ -165,3 +166,20 @@ def next_instance(previous: str | None, now_ms: int) -> str:
     """A fresh instance name: the wall clock in ms, but always above the previous one (two restarts in one ms)."""
     floor = int(previous) + 1 if previous is not None and previous.isdigit() else 0
     return str(max(now_ms, floor))
+
+
+Event = MediaPacket | Cue
+
+
+def event_us(event: Event) -> int:
+    """Lecture time of an event in µs."""
+    return event.file_us if isinstance(event, MediaPacket) else event.at_ms * 1000
+
+
+def loop_events(media: Iterable[MediaPacket], cues: Iterable[Cue]) -> Iterator[Event]:
+    """One loop's media packets and cues on one lecture clock. A cue goes before media of the same instant, so a
+    track's state is out before the frame it belongs to."""
+    tagged_cues = ((cue.at_ms * 1000, 0, n, cue) for n, cue in enumerate(cues))
+    tagged_media = ((packet.file_us, 1, n, packet) for n, packet in enumerate(media))
+    for *_, event in heapq.merge(tagged_cues, tagged_media, key=lambda item: item[:3]):
+        yield event
