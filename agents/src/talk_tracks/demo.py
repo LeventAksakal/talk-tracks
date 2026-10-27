@@ -141,7 +141,9 @@ async def run_lecture(
     duration_ms = teacher.info.duration_ms
     beats = [asyncio.create_task(_every(HEARTBEAT_S, teacher.publish_catalog))]
     stacks: list[AsyncExitStack] = []
+    closing: set[asyncio.Task[None]] = set()
     previous: str | None = None
+    origin = time.monotonic()  # loop k starts at origin + k * duration: no drift over days of looping
     try:
         index = 0
         while loops is None or index < loops:
@@ -162,7 +164,7 @@ async def run_lecture(
             else:
                 log.info("loop %d: media from %d ms", index, plan.media_offset_ms)
             cues = timeline.cues(plan) if timeline else iter(())
-            start = time.monotonic()
+            start = origin + index * duration_ms / 1000
             first = True
             for event in loop_events(packets(lecture), cues):
                 await _at(start, event_us(event) / 1e6)
@@ -174,14 +176,19 @@ async def run_lecture(
                 except TimeoutError:
                     log.warning("write timed out at %d ms", event_us(event) // 1000)
                 if first and len(stacks) > 1:
-                    # The new loop's instances are out: withdraw the previous loop's.
-                    await stacks.pop(0).aclose()
+                    # The new loop's instances are out: withdraw the previous loop's, without holding up the media.
+                    task = asyncio.create_task(stacks.pop(0).aclose())
+                    closing.add(task)
+                    task.add_done_callback(closing.discard)
                 first = False
             await _at(start, duration_ms / 1000)
             index += 1
     finally:
         for task in beats:
             task.cancel()
+        for task in list(closing):
+            with contextlib.suppress(Exception):
+                await task
         for stack in stacks:
             with contextlib.suppress(Exception):
                 await stack.aclose()

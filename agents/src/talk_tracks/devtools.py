@@ -112,10 +112,12 @@ async def watch_room(relay: Relay, room: str) -> None:
     """Print every agent snapshot published in the room, as a viewer would receive it, with the speaker's media time
     when the snapshot arrived (from the teacher audio), so you can see the tracks keep step with the talk."""
     from .contracts import agents_prefix
+    from .follow import RoomFollower
     from .replay import MediaClock
 
     prefix = agents_prefix(room)
-    following: dict[str, asyncio.Task[None]] = {}
+    following: dict[str, asyncio.Task[None]] = {}  # agent -> the reader of its newest instance
+    newest = RoomFollower()
     clock = MediaClock()
 
     async def media() -> None:
@@ -131,10 +133,12 @@ async def watch_room(relay: Relay, room: str) -> None:
     try:
         async for path, active in relay.announced(prefix):
             print(f"{'announced' if active else 'withdrawn'}: {path}", flush=True)
-            if active and path.count("/") == 1 and path not in following:
-                following[path] = asyncio.create_task(read(path))
-            elif not active and path in following:
-                following.pop(path).cancel()
+            found = newest.offer(path) if active else None
+            if found is not None:
+                agent, _ = found
+                if agent in following:
+                    following[agent].cancel()  # replaced (a restart, or the next loop of a demo room)
+                following[agent] = asyncio.create_task(read(path))
     finally:
         teacher.cancel()
         for task in following.values():
