@@ -4,8 +4,9 @@
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
 #   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state and spend ledger
 #   TT_LOOPER_TOKEN  signed for the demo room; TT_AGENT_TOKEN signed for the live room
+#   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
 #   docker compose -f deploy/compose.vm.yml up -d
-#   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents (need META_API_KEY)
+#   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
 # Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
 name: talk-tracks
 
@@ -23,7 +24,12 @@ x-agent: &agent
     TT_LEDGER: /data/ledger.jsonl
     TT_STATE_DIR: /data/state
     TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
-    META_API_KEY: ${META_API_KEY:-}
+
+# Live agents call the Meta API: only they get the key, and the ledger in $TT_DATA holds them under the ceiling.
+x-live: &live
+  <<: *agent
+  profiles: [live]
+  env_file: ["${TT_SECRETS:-/nonexistent}/meta.env"]
 
 services:
   caddy:
@@ -77,20 +83,16 @@ services:
     command: ["loop", "--insecure", "--recording", "/data/demo/${TT_LECTURE:-test}"]
 
   captions:
-    <<: *agent
-    profiles: [live]
+    <<: *live
     command: ["captions", "--insecure"]
   translate-tr:
-    <<: *agent
-    profiles: [live]
+    <<: *live
     command: ["translate", "--lang", "tr", "--insecure"]
   describe:
-    <<: *agent
-    profiles: [live]
+    <<: *live
     command: ["describe", "--insecure"]
   chapters:
-    <<: *agent
-    profiles: [live]
+    <<: *live
     command: ["chapters", "--insecure"]
 
 volumes:
