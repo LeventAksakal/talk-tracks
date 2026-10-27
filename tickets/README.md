@@ -18,3 +18,5 @@ sets `status: closed`.
 | [0010](0010-plan.md) | How do we re-plan the remaining 8 days? | open |
 | [0011](0011-loop-caption-history.md) | Does a looped room's caption history carry into the next loop? | open |
 | [0012](0012-where-recordings-live.md) | Where do generated recordings live? | open |
+| [0013](0013-speaker-on-air-check.md) | How does the speaker console prove it is on air? | open |
+| [0014](0014-web-defaults.md) | Are the web app's working defaults right? | open |
