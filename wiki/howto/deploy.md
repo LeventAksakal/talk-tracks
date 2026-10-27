@@ -22,6 +22,11 @@ Nothing here is in git; the hostname, keys and tokens stay on the VM.
 | `~/talk-tracks/deploy/.env` | `TT_HOST`, `TT_KEYS`, `TT_DATA`, `TT_DEMO_ROOM`, `TT_LECTURE`, `TT_LIVE_ROOM`, `TT_LOOPER_TOKEN`, `TT_AGENT_TOKEN` (mode 600) |
 | `~/tt-keys` | `private.jwk` (mode 600, made on the VM, never copied off) and `public.jwk` |
 | `~/tt-data` | `demo/<lecture>/` recordings, the agents' `state/` and the spend ledger `ledger.jsonl` |
+| `~/tt-secrets/meta.env` | `META_API_KEY=...` (folder 700, file 600); compose passes it to the live agents only, never to the looper |
+
+The VM's ledger started with one line that carries over the laptop ledger's total ($0.2333 on 2026-10-27), so its
+$100 ceiling covers everything spent so far. The two ledgers do not see each other after that: run real-API work on
+the VM, or add a carry-over line for laptop spend.
 
 Caddy's certificate lives in the Docker volume `moq_caddy_data`, kept from the pre-event setup.
 
@@ -67,7 +72,15 @@ First deploy, replacing the pre-event relay setup:
 - These sessions were refused: one with no token, and one with a token signed by another key.
 - The WebSocket upgrade through Caddy answered 101.
 
-Live agents are not started: they need the Meta key on the VM.
+Then the live agents, with the key from `~/tt-secrets`:
+
+- A signed speaker stand-in played synthetic speech into room `live` from outside the VM.
+- Real captions came out, with the Turkish translation and chapters keeping pace.
+- The ASR was paid one minute ahead in the VM ledger.
+- About a minute and a half of speech cost about $0.03.
+- The looper container has no key in its environment.
+
+The live agents stay up and wait for a speaker. They spend only while someone publishes audio with a speaker token.
 
 ## Watch out
 
