@@ -1,11 +1,11 @@
 import { Badge, Banner, Button } from "@astryxdesign/core";
 import { useEffect, useRef, useState } from "react";
-import { FRAMES_TRACK, isValidRoom, slidesPath } from "../contracts/names";
+import { AUDIO_TRACK, FRAMES_TRACK, isValidRoom, slidesPath, teacherPath } from "../contracts/names";
 import type { AgentView } from "../room/store";
 import { useRoom } from "../room/useRoom";
 import { Link, useLocation } from "../router";
 import { type MicHandle, startMic } from "../speaker/mic";
-import { type MicState, type OnAir, onAirState } from "../speaker/onair";
+import { FRESH_AUDIO_MS, isOwnAudio, type MicState, type OnAir, onAirState } from "../speaker/onair";
 import { type SharedSlide, SlideSharer } from "../speaker/slides";
 import { useMoqTransport } from "../transport/useTransport";
 import { HealthDot } from "../viewer/panels";
@@ -41,20 +41,36 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
   const [micError, setMicError] = useState<string>();
   const micHandle = useRef<MicHandle | undefined>(undefined);
   const [startedAt, setStartedAt] = useState(0);
-  const [now, setNow] = useState(0);
-  const [liveAtStart, setLiveAtStart] = useState(false);
-  const [announcedSinceStart, setAnnouncedSinceStart] = useState(false);
+  const [clock, setClock] = useState<{ now: number; ownAt?: number; otherAt?: number }>({ now: 0 });
   const teacherLive = view?.teacherLive ?? false;
-  const prevTeacherLive = useRef(teacherLive);
+  // Arrival times (Date.now) of the newest audio frame the anonymous watcher got back from the
+  // relay: our own, and anyone else's on the same path. Refs, so 50 frames a second don't re-render;
+  // the one-second tick below reads them.
+  const ownAudioAt = useRef<number | undefined>(undefined);
+  const otherAudioAt = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    if (teacherLive && !prevTeacherLive.current && mic !== "off") setAnnouncedSinceStart(true);
-    prevTeacherLive.current = teacherLive;
-  }, [teacherLive, mic]);
+    if (!watcher || mic === "off" || mic === "error") return;
+    ownAudioAt.current = undefined;
+    otherAudioAt.current = undefined;
+    const sub = watcher.subscribe(
+      teacherPath(room),
+      AUDIO_TRACK,
+      ({ payload, receivedAt }) => {
+        if (isOwnAudio(payload, performance.now())) ownAudioAt.current = receivedAt;
+        else otherAudioAt.current = receivedAt;
+      },
+      { maxAgeMs: 0 },
+    );
+    return () => sub.close();
+  }, [watcher, room, mic]);
 
   useEffect(() => {
     if (mic === "off") return;
-    const t = setInterval(() => setNow(Date.now()), 1_000);
+    const t = setInterval(
+      () => setClock({ now: Date.now(), ownAt: ownAudioAt.current, otherAt: otherAudioAt.current }),
+      1_000,
+    );
     return () => clearInterval(t);
   }, [mic]);
 
@@ -64,10 +80,8 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
     if (!publisher) return;
     setMic("starting");
     setMicError(undefined);
-    setLiveAtStart(teacherLive);
-    setAnnouncedSinceStart(false);
     setStartedAt(Date.now());
-    setNow(Date.now());
+    setClock({ now: Date.now() });
     try {
       micHandle.current = await startMic(publisher, room, (e) => {
         setMic("error");
@@ -91,10 +105,9 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
     micError,
     publisherStatus,
     publisherError,
-    teacherLive,
-    announcedSinceStart,
-    liveAtStart,
-    elapsedMs: now - startedAt,
+    ownAudioAgoMs: clock.ownAt === undefined ? undefined : clock.now - clock.ownAt,
+    otherSpeaker: clock.otherAt !== undefined && clock.now - clock.otherAt < FRESH_AUDIO_MS,
+    elapsedMs: clock.now - startedAt,
   });
 
   return (
@@ -126,6 +139,10 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
           ) : (
             <Button label="Stop" variant="destructive" onClick={stopMicrophone} />
           )}
+          <p className="muted small" data-testid="relay-view">
+            As viewers see the relay: {teacherLive ? "a speaker broadcast is on air" : "no speaker broadcast"}
+            {view?.slidesLive ? ", slides shared" : ""}.
+          </p>
           <p className="muted">
             Viewers can watch at{" "}
             <Link href={`/watch/${room}`}>
