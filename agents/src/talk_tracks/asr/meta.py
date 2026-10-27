@@ -19,12 +19,17 @@ import websockets
 from numpy.typing import NDArray
 from websockets.asyncio.client import ClientConnection
 
+from talk_tracks.llm.ledger import BudgetExceededError, SpendLedger
+
 from .base import AsrEvent, AsrFinal, AsrPartial, AsrSession
 
 URL = "wss://api.meta.ai/v1/asr/realtime"
 MODEL = "muse-voice-transcribe-1.0"
 SAMPLE_RATE = 16_000
 FRAME_SAMPLES = SAMPLE_RATE * 80 // 1000  # 80 ms, as in Meta's examples
+# $0.18 per audio hour (Meta pricing, fetched 2026-10-24). Audio is paid to the ledger a minute ahead of sending it.
+USD_PER_MINUTE = 0.18 / 60
+MINUTE_SAMPLES = SAMPLE_RATE * 60
 
 
 class MetaAsrError(RuntimeError):
@@ -32,9 +37,12 @@ class MetaAsrError(RuntimeError):
 
 
 class MetaVoiceAsrSession:
-    def __init__(self, ws: ClientConnection, offset_ms: int) -> None:
+    def __init__(self, ws: ClientConnection, offset_ms: int, ledger: SpendLedger | None = None) -> None:
         self._ws = ws
         self._offset_ms = offset_ms
+        self._ledger = ledger
+        self._sent = 0
+        self._paid = 0
         self._events: asyncio.Queue[AsrEvent] = asyncio.Queue()
         self._turn_start: dict[int, int] = {}
         self._pending: NDArray[np.int16] = np.zeros(0, dtype=np.int16)
@@ -71,8 +79,16 @@ class MetaVoiceAsrSession:
         self._pending = np.concatenate([self._pending, pcm16k])
         while len(self._pending) >= FRAME_SAMPLES:
             frame, self._pending = self._pending[:FRAME_SAMPLES], self._pending[FRAME_SAMPLES:]
+            self._pay(len(frame))
             await self._ws.send(frame.tobytes())
         return self._drain()
+
+    def _pay(self, samples: int) -> None:
+        self._sent += samples
+        while self._ledger and self._paid < self._sent:
+            self._ledger.check(USD_PER_MINUTE)
+            self._ledger.record(USD_PER_MINUTE, f"asr {MODEL} 1 min")
+            self._paid += MINUTE_SAMPLES
 
     def _drain(self) -> list[AsrEvent]:
         out: list[AsrEvent] = []
@@ -86,8 +102,10 @@ class MetaVoiceAsrSession:
 
     async def close(self) -> list[AsrEvent]:
         if not self._reader.done():
-            if len(self._pending):
-                await self._ws.send(self._pending.tobytes())
+            with contextlib.suppress(BudgetExceededError):  # past the ceiling the tail is dropped, not sent
+                if len(self._pending):
+                    self._pay(len(self._pending))
+                    await self._ws.send(self._pending.tobytes())
             await self._ws.send(json.dumps({"type": "endStream"}))
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(asyncio.shield(self._reader), timeout=10)
@@ -101,13 +119,16 @@ class MetaVoiceAsrSession:
 class MetaVoiceAsr:
     """Opens one realtime session per call. ``offset_ms`` is the media time at which the session's audio starts."""
 
-    def __init__(self, api_key: str, *, url: str = URL) -> None:
+    def __init__(self, api_key: str, *, url: str = URL, ledger: SpendLedger | None = None) -> None:
         if not (url.startswith("wss://api.meta.ai/") or url.startswith("ws://127.0.0.1")):
             raise ValueError("the Meta API key is only ever sent to api.meta.ai (or a loopback test server)")
         self._key = api_key
         self._url = url
+        self._ledger = ledger
 
     async def open(self, language: str, offset_ms: int = 0) -> AsrSession:
+        if self._ledger:
+            self._ledger.check(USD_PER_MINUTE)
         ws = await websockets.connect(f"{self._url}?sessionId=tt-{uuid.uuid4()}", open_timeout=30, ping_interval=None)
         await ws.send(
             json.dumps(
@@ -123,4 +144,4 @@ class MetaVoiceAsr:
         if "sessionId" not in ack:
             await ws.close()
             raise MetaAsrError(f"handshake refused: {ack.get('message', 'no detail')}")
-        return MetaVoiceAsrSession(ws, offset_ms)
+        return MetaVoiceAsrSession(ws, offset_ms, self._ledger)

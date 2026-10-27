@@ -6,16 +6,26 @@ container)."""
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import time
 import wave
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .audio import OpusEncoder, write_varint
-from .contracts import ENVELOPE, CaptionsState, SlidesState, TranslationState, teacher_path
+from .contracts import (
+    ENVELOPE,
+    CaptionsState,
+    SlideFrame,
+    SlidesState,
+    TranslationState,
+    slides_path,
+    teacher_path,
+)
 from .moq import Relay, connect, until_closed
 
 log = logging.getLogger("talk_tracks.dev")
@@ -50,6 +60,30 @@ async def publish_teacher(relay: Relay, room: str, pcm48k: NDArray[np.int16]) ->
         await asyncio.sleep(max(0.0, start + i * 0.02 - time.monotonic()))
 
 
+async def publish_slides(relay: Relay, room: str, images: list[Path], every_s: float = 20.0) -> None:
+    """Show each image as a slide for ``every_s``, in a loop, on ``talk/<room>/slides`` track ``frames``.
+
+    The current slide is repeated every 2 s, as the speaker console does, so an agent that subscribes late gets it.
+    """
+    sink = await relay.publish(slides_path(room), "frames")
+    start = time.monotonic()
+    slide_id = 0
+    while True:
+        for path in images:
+            mime: Literal["image/png", "image/jpeg"] = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            frame = SlideFrame(
+                id=slide_id,
+                at_ms=int((time.monotonic() - start) * 1000),
+                mime=mime,
+                data_b64=base64.b64encode(path.read_bytes()).decode(),
+            )
+            shown = time.monotonic()
+            while time.monotonic() - shown < every_s:
+                await sink.write(frame.model_dump_json().encode())
+                await asyncio.sleep(2.0)
+            slide_id += 1
+
+
 def summary(payload: bytes) -> str:
     env = ENVELOPE.validate_json(payload)
     state = env.state
@@ -68,7 +102,7 @@ def summary(payload: bytes) -> str:
             else "no lines"
         )
     elif isinstance(state, SlidesState):
-        what = f"{len(state.slides)} slides"
+        what = f"{len(state.slides)} slides, last {state.slides[-1].description!r}" if state.slides else "no slides"
     else:
         what = f"{len(state.chapters)} chapters, {len(state.glossary)} terms"
     return f"{env.agent.name}/{env.instance} seq {env.seq} ${env.usage.cost_usd:.4f}: {what}"
@@ -107,9 +141,13 @@ async def watch_room(relay: Relay, room: str) -> None:
             task.cancel()
 
 
-async def run_dev(command: str, url: str, room: str, *, token: str | None, insecure: bool, wav: Path | None) -> None:
+async def run_dev(
+    command: str, url: str, room: str, *, token: str | None, insecure: bool, wav: Path | None, images: list[Path]
+) -> None:
     async with connect(url, token=token, insecure=insecure) as relay:
         if command == "teacher":
             await until_closed(relay, publish_teacher(relay, room, load_audio_48k(wav)))
+        elif command == "slides":
+            await until_closed(relay, publish_slides(relay, room, images))
         else:
             await until_closed(relay, watch_room(relay, room))

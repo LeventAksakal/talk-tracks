@@ -1,11 +1,13 @@
 import base64
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+from talk_tracks import statefile
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
 from talk_tracks.asr.scripted import ScriptedAsr, ScriptedLine
 from talk_tracks.contracts import ENVELOPE, AgentInfo, CaptionsState, SlideFrame, Usage
@@ -62,6 +64,45 @@ async def test_captions_end_to_end_with_scripted_asr() -> None:
     assert any(e.state.interim for e in envelopes)  # viewers saw partial text on the way
 
 
+async def test_restarted_captions_keep_their_lines_and_ids(tmp_path: Path) -> None:
+    path = tmp_path / "captions-dev-en.json"
+    first = ListSink()
+    await run_captions(
+        audio(3), ScriptedAsr(SCRIPT[:1]), publisher("captions", first), "en", save=lambda s: statefile.save(path, s)
+    )
+    later = [ScriptedLine(s.start_ms, s.end_ms, s.text) for s in SCRIPT[1:]]
+    second = ListSink()
+    await run_captions(
+        audio(7), ScriptedAsr(later), publisher("captions", second), "en", resume=statefile.load_captions(path)
+    )
+    lines = second.envelopes()[-1].state.lines
+    assert [line.id for line in lines] == [0, 1, 2]
+    assert lines[0].text == SCRIPT[0].text
+
+    # A translator that already did line 0 under the old instance translates only the new lines.
+    tr, llm = ListSink(), FakeLlm()
+
+    async def both() -> AsyncIterator[CaptionsState]:
+        async for state in states(first):
+            yield state
+        async for state in states(second):
+            yield state
+
+    await run_translate(both(), llm, publisher("translate-tr", tr, llm), "tr")
+    assert [line.id for line in tr.envelopes()[-1].state.lines] == [0, 1, 2]
+    assert llm.usage.requests == 3
+
+
+def test_a_stale_or_broken_state_file_is_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "s.json"
+    assert statefile.load_captions(path) is None
+    path.write_text("{", encoding="utf-8")
+    assert statefile.load_captions(path) is None
+    statefile.save(path, CaptionsCore("en").state())
+    assert statefile.load_captions(path) is not None
+    assert statefile.load_captions(path, max_age_s=-1) is None
+
+
 async def test_translate_outline_and_describe_follow_the_captions() -> None:
     cap = ListSink()
     await run_captions(audio(7), ScriptedAsr(SCRIPT), publisher("captions", cap), "en")
@@ -79,11 +120,14 @@ async def test_translate_outline_and_describe_follow_the_captions() -> None:
     sl, llm3 = ListSink(), FakeLlm()
 
     async def frames() -> AsyncIterator[SlideFrame]:
-        for i in (1, 1, 2):
-            yield SlideFrame(id=i, at_ms=i, mime="image/png", data_b64=base64.b64encode(b"png").decode())
+        # Slide 3 shows slide 1's image again: it reuses the description instead of paying for it twice.
+        for i, image in ((1, b"one"), (1, b"one"), (2, b"two"), (3, b"one")):
+            yield SlideFrame(id=i, at_ms=i, mime="image/png", data_b64=base64.b64encode(image).decode())
 
     await run_describe(frames(), llm3, publisher("describe", sl, llm3), "en")
-    assert [n.id for n in sl.envelopes()[-1].state.slides] == [1, 2]
+    notes = sl.envelopes()[-1].state.slides
+    assert [n.id for n in notes] == [1, 2, 3]
+    assert notes[2].description == notes[0].description
     assert llm3.usage.requests == 2
 
 

@@ -1,13 +1,14 @@
 """Command line: ``python -m talk_tracks <agent> --relay URL --room ROOM [--lang xx] [--fake]``.
 
 Agents: ``captions`` (speech to text), ``translate`` (one language per process), ``describe`` (slide descriptions),
-``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio like the speaker's browser,
-``watch`` prints what the agents publish. Demo rooms (see wiki/howto/demo-rooms.md): ``play`` publishes a lecture file
-as the speaker, ``record`` records a room's agent tracks, ``generate`` does both at once, ``loop`` replays a recording
-as a live room, forever.
+``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio and ``slides`` publishes
+slide images like the speaker's browser, ``watch`` prints what the agents publish. Demo rooms (see
+wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``record`` records a room's agent tracks,
+``generate`` does both at once, ``loop`` replays a recording as a live room, forever.
 
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_TOKEN, TT_LEDGER (default data/ledger.jsonl),
-TT_SPEND_CEILING_USD (default 100) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed.
+TT_SPEND_CEILING_USD (default 100), TT_STATE_DIR (default data/state: where captions keeps its lines across a
+restart) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from .llm.ledger import SpendLedger
 from .llm.meta import language_name
 
 AGENTS = ("captions", "translate", "describe", "chapters")
-DEV = ("teacher", "watch")
+DEV = ("teacher", "slides", "watch")
 DEMO = ("play", "record", "generate", "loop")
 
 FAKE_SENTENCES = [
@@ -47,6 +48,12 @@ def api_key() -> str:
     return key
 
 
+def spend_ledger() -> SpendLedger:
+    return SpendLedger(
+        Path(os.environ.get("TT_LEDGER", "data/ledger.jsonl")), float(os.environ.get("TT_SPEND_CEILING_USD", "100"))
+    )
+
+
 def make_llm(fake: bool) -> Llm:
     if fake:
         from .llm.fake import FakeLlm
@@ -54,10 +61,7 @@ def make_llm(fake: bool) -> Llm:
         return FakeLlm()
     from .llm.meta import MetaLlm
 
-    ledger = SpendLedger(
-        Path(os.environ.get("TT_LEDGER", "data/ledger.jsonl")), float(os.environ.get("TT_SPEND_CEILING_USD", "100"))
-    )
-    return MetaLlm(api_key(), ledger)
+    return MetaLlm(api_key(), spend_ledger())
 
 
 Work = Callable[[Any, Any], Coroutine[Any, Any, None]]  # (relay, publisher) -> the agent's loop
@@ -76,10 +80,21 @@ def build(args: argparse.Namespace) -> tuple[AgentInfo, Callable[[], Usage], Wor
         else:
             from .asr.meta import MODEL, MetaVoiceAsr
 
-            asr, model = MetaVoiceAsr(api_key()), MODEL
+            asr, model = MetaVoiceAsr(api_key(), ledger=spend_ledger()), MODEL
+
+        from . import statefile
+
+        saved = Path(os.environ.get("TT_STATE_DIR", "data/state")) / f"captions-{args.room}-{lang}.json"
 
         async def transcribe(relay: Any, pub: Any) -> None:
-            await runtime.run_captions(moq.teacher_audio(relay, args.room), asr, pub, lang)
+            await runtime.run_captions(
+                moq.teacher_audio(relay, args.room),
+                asr,
+                pub,
+                lang,
+                resume=statefile.load_captions(saved),
+                save=lambda state: statefile.save(saved, state),
+            )
 
         return AgentInfo(name="captions", label=f"Captions ({language_name(lang)})", model=model), Usage, transcribe
 
@@ -140,7 +155,15 @@ async def main_async(args: argparse.Namespace) -> None:
 async def _dev(args: argparse.Namespace) -> None:
     from .devtools import run_dev
 
-    await run_dev(args.agent, args.relay, args.room, token=args.token, insecure=args.insecure, wav=args.wav)
+    await run_dev(
+        args.agent,
+        args.relay,
+        args.room,
+        token=args.token,
+        insecure=args.insecure,
+        wav=args.wav,
+        images=args.image,
+    )
 
 
 async def _demo(args: argparse.Namespace) -> None:
@@ -174,6 +197,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--fake", action="store_true", help="scripted speech recognition and a fake model: no API calls")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
     p.add_argument("--wav", type=Path, default=None, help="teacher: a 16-bit WAV file to loop instead of a tone")
+    p.add_argument("--image", type=Path, action="append", default=[], help="slides: a PNG or JPEG slide (repeatable)")
     p.add_argument("--media", type=Path, default=None, help="play, generate, loop: the lecture (MP4, H.264 + Opus)")
     p.add_argument("--out", type=Path, default=None, help="record, generate: the recording directory to write")
     p.add_argument("--recording", type=Path, default=None, help="loop: the recording directory to replay")
@@ -183,6 +207,8 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     args = p.parse_args(argv)
     if not args.relay or not args.room:
         p.error("--relay and --room are required (or TT_RELAY and TT_ROOM)")
+    if args.agent == "slides" and not args.image:
+        p.error("slides needs at least one --image")
     args.room = parse_room(args.room)
     return args
 

@@ -1,0 +1,9 @@
+# The relay's auth server: `moq auth serve` from moq-cli 0.14.8, the release paired with moq-relay 0.17.8. It checks the
+# signed tokens that let a speaker or an agent publish, and lets anyone subscribe without one.
+# Build from deploy/: docker build -t talk-tracks-auth:0.14.8 -f Dockerfile.auth .
+FROM rust:1.95-bookworm AS build
+RUN cargo install moq-cli --version 0.14.8 --locked
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /usr/local/cargo/bin/moq /usr/local/bin/moq
+ENTRYPOINT ["moq"]

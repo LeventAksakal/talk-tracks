@@ -56,6 +56,14 @@ def test_slides_repeat_frames_are_free() -> None:
     assert core.state().slides[0].description == "A title slide"
 
 
+def test_slides_identical_image_reuses_its_description() -> None:
+    core = SlidesCore("en")
+    assert core.known(frame(1)) is None
+    core.add(frame(1), "A title slide")
+    assert core.known(frame(7)) == "A title slide"
+    assert core.known(SlideFrame(id=8, at_ms=8, mime="image/png", data_b64="AQ==")) is None
+
+
 def test_outline_due_by_lines_or_time() -> None:
     core = OutlineCore("en")
     core.add_lines([line(i) for i in range(EVERY_LINES - 1)])
