@@ -1,0 +1,393 @@
+{
+  "$defs": {
+    "AgentInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "description": "What a viewer sees in the track list",
+          "title": "Label",
+          "type": "string"
+        },
+        "model": {
+          "description": "Which model does the work, or 'none'",
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable agent name, for example captions or translate-tr",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "model"
+      ],
+      "title": "AgentInfo",
+      "type": "object"
+    },
+    "CaptionLine": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "id": {
+          "description": "Increases by one per line; stable across restarts",
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        },
+        "start_ms": {
+          "description": "Media time of the first word",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "start_ms",
+        "end_ms",
+        "text"
+      ],
+      "title": "CaptionLine",
+      "type": "object"
+    },
+    "CaptionsState": {
+      "additionalProperties": false,
+      "properties": {
+        "interim": {
+          "default": "",
+          "title": "Interim",
+          "type": "string"
+        },
+        "kind": {
+          "const": "captions",
+          "default": "captions",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/CaptionLine"
+          },
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lang",
+        "lines"
+      ],
+      "title": "CaptionsState",
+      "type": "object"
+    },
+    "Chapter": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "start_ms",
+        "title",
+        "summary"
+      ],
+      "title": "Chapter",
+      "type": "object"
+    },
+    "GlossaryTerm": {
+      "additionalProperties": false,
+      "properties": {
+        "definition": {
+          "title": "Definition",
+          "type": "string"
+        },
+        "term": {
+          "title": "Term",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "definition"
+      ],
+      "title": "GlossaryTerm",
+      "type": "object"
+    },
+    "OutlineState": {
+      "additionalProperties": false,
+      "properties": {
+        "chapters": {
+          "items": {
+            "$ref": "#/$defs/Chapter"
+          },
+          "title": "Chapters",
+          "type": "array"
+        },
+        "glossary": {
+          "items": {
+            "$ref": "#/$defs/GlossaryTerm"
+          },
+          "title": "Glossary",
+          "type": "array"
+        },
+        "kind": {
+          "const": "outline",
+          "default": "outline",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "recap": {
+          "default": "",
+          "title": "Recap",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lang",
+        "chapters",
+        "glossary"
+      ],
+      "title": "OutlineState",
+      "type": "object"
+    },
+    "SlideNote": {
+      "additionalProperties": false,
+      "properties": {
+        "at_ms": {
+          "description": "Media time when the slide appeared",
+          "minimum": 0,
+          "title": "At Ms",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "at_ms",
+        "description"
+      ],
+      "title": "SlideNote",
+      "type": "object"
+    },
+    "SlidesState": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "slides",
+          "default": "slides",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "slides": {
+          "items": {
+            "$ref": "#/$defs/SlideNote"
+          },
+          "title": "Slides",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lang",
+        "slides"
+      ],
+      "title": "SlidesState",
+      "type": "object"
+    },
+    "TranslatedLine": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The source caption line's id",
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "TranslatedLine",
+      "type": "object"
+    },
+    "TranslationState": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "translation",
+          "default": "translation",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/TranslatedLine"
+          },
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lang",
+        "lines"
+      ],
+      "title": "TranslationState",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "description": "Cumulative model usage of this agent instance: the load panel shows cost per track, not per viewer.",
+      "properties": {
+        "cost_usd": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "requests": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Requests",
+          "type": "integer"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "$ref": "#/$defs/AgentInfo"
+    },
+    "at_ms": {
+      "description": "Wall-clock time of publication",
+      "minimum": 0,
+      "title": "At Ms",
+      "type": "integer"
+    },
+    "instance": {
+      "description": "Start time of this agent process in ms; a replacement gets a new one",
+      "title": "Instance",
+      "type": "string"
+    },
+    "seq": {
+      "description": "Increases by one per state change; a heartbeat repeats the same seq",
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "state": {
+      "discriminator": {
+        "mapping": {
+          "captions": "#/$defs/CaptionsState",
+          "outline": "#/$defs/OutlineState",
+          "slides": "#/$defs/SlidesState",
+          "translation": "#/$defs/TranslationState"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CaptionsState"
+        },
+        {
+          "$ref": "#/$defs/TranslationState"
+        },
+        {
+          "$ref": "#/$defs/SlidesState"
+        },
+        {
+          "$ref": "#/$defs/OutlineState"
+        }
+      ],
+      "title": "State"
+    },
+    "usage": {
+      "$ref": "#/$defs/Usage"
+    },
+    "v": {
+      "const": 1,
+      "default": 1,
+      "title": "V",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "agent",
+    "instance",
+    "seq",
+    "at_ms",
+    "usage",
+    "state"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

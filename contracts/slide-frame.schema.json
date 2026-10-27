@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "at_ms": {
+      "description": "Media time when the slide appeared",
+      "minimum": 0,
+      "title": "At Ms",
+      "type": "integer"
+    },
+    "data_b64": {
+      "title": "Data B64",
+      "type": "string"
+    },
+    "id": {
+      "minimum": 0,
+      "title": "Id",
+      "type": "integer"
+    },
+    "mime": {
+      "enum": [
+        "image/jpeg",
+        "image/png"
+      ],
+      "title": "Mime",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "at_ms",
+    "mime",
+    "data_b64"
+  ],
+  "title": "SlideFrame",
+  "type": "object"
+}
