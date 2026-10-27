@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "AgentInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "description": "What a viewer sees in the track list",
+          "title": "Label",
+          "type": "string"
+        },
+        "model": {
+          "description": "Which model does the work, or 'none'",
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable agent name, for example captions or translate-tr",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "model"
+      ],
+      "title": "AgentInfo",
+      "type": "object"
+    },
+    "RecordedAgent": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "Path of the agent's snapshot lines, relative to the recording directory",
+          "title": "File",
+          "type": "string"
+        },
+        "first_media_ms": {
+          "minimum": 0,
+          "title": "First Media Ms",
+          "type": "integer"
+        },
+        "info": {
+          "$ref": "#/$defs/AgentInfo"
+        },
+        "last_media_ms": {
+          "minimum": 0,
+          "title": "Last Media Ms",
+          "type": "integer"
+        },
+        "snapshots": {
+          "minimum": 0,
+          "title": "Snapshots",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "info",
+        "file",
+        "snapshots",
+        "first_media_ms",
+        "last_media_ms"
+      ],
+      "title": "RecordedAgent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The manifest, ``recording.json``.",
+  "properties": {
+    "agents": {
+      "items": {
+        "$ref": "#/$defs/RecordedAgent"
+      },
+      "title": "Agents",
+      "type": "array"
+    },
+    "ended_wall_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unset while recording",
+      "title": "Ended Wall Ms"
+    },
+    "format": {
+      "const": "talk-tracks-recording",
+      "default": "talk-tracks-recording",
+      "title": "Format",
+      "type": "string"
+    },
+    "media": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The lecture file, relative to the recording directory; its time 0 is media time 0",
+      "title": "Media"
+    },
+    "media_first_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "First teacher media time seen",
+      "title": "Media First Ms"
+    },
+    "media_last_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Last teacher media time seen",
+      "title": "Media Last Ms"
+    },
+    "room": {
+      "description": "The room it was recorded in",
+      "title": "Room",
+      "type": "string"
+    },
+    "started_wall_ms": {
+      "minimum": 0,
+      "title": "Started Wall Ms",
+      "type": "integer"
+    },
+    "v": {
+      "const": 1,
+      "default": 1,
+      "title": "V",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "room",
+    "started_wall_ms"
+  ],
+  "title": "Recording",
+  "type": "object"
+}
