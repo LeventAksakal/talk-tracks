@@ -55,4 +55,19 @@ class ScriptedAsr:
         self._script = script
 
     async def open(self, language: str, offset_ms: int = 0) -> AsrSession:
-        return ScriptedAsrSession(self._script)
+        """Script times are relative to the session's start, like a real recogniser's."""
+        return ScriptedAsrSession(
+            [ScriptedLine(s.start_ms + offset_ms, s.end_ms + offset_ms, s.text) for s in self._script]
+        )
+
+
+def demo_script(
+    sentences: list[str], *, minutes: int = 120, line_ms: int = 3_000, gap_ms: int = 500
+) -> list[ScriptedLine]:
+    """Cycle ``sentences`` as caption lines for ``minutes``: the --fake captions agent needs no model and no speech."""
+    lines: list[ScriptedLine] = []
+    t = 0
+    while t < minutes * 60_000:
+        lines.append(ScriptedLine(t, t + line_ms, sentences[len(lines) % len(sentences)]))
+        t += line_ms + gap_ms
+    return lines

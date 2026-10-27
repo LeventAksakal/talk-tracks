@@ -65,3 +65,15 @@ def test_gap_in_media_time_is_filled_with_silence() -> None:
     total = sum(n for n, _ in chunks)
     assert total >= 16_000  # one second of media time came out as one second of samples
     assert chunks[-1][1] == 1_040
+
+
+def test_publisher_restart_resyncs_instead_of_dropping_everything() -> None:
+    frames = opus_frames(16)
+    asm = AudioAssembler()
+    ends: list[int] = []
+    for i in range(8):  # 40 s into the talk
+        ends.extend(end for _, end in asm.push(payload(40_000_000 + i * 20_000, frames[i])))
+    for i in range(8):  # the speaker's page reloaded: its clock starts at zero again
+        ends.extend(end for _, end in asm.push(payload(i * 20_000, frames[8 + i])))
+    ends.extend(end for _, end in asm.flush())
+    assert ends[-1] == 160  # the new clock is followed, not dropped as late

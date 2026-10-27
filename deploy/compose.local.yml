@@ -1,0 +1,47 @@
+# Local development: a relay and every agent in fake mode (scripted speech, fake model: no API calls, no cost).
+#   docker compose -f deploy/compose.local.yml up -d --build
+#   docker compose -f deploy/compose.local.yml --profile dev up teacher watch   # a stand-in speaker and viewer
+# Agents reach the relay over raw QUIC with its self-generated certificate, hence --insecure.
+name: talk-tracks
+
+x-agent: &agent
+  image: talk-tracks-agents:dev
+  build: ../agents
+  init: true  # Python as PID 1 ignores SIGTERM; a clean stop withdraws the agent's tracks at once
+  restart: unless-stopped  # aiomoqt does not reconnect: the process exits and comes back as a fresh instance
+  depends_on: [relay]
+  environment:
+    TT_RELAY: moqt://relay:4443
+    TT_ROOM: ${TT_ROOM:-dev}
+
+services:
+  relay:
+    image: talk-tracks-relay:0.17.8
+    build: { context: ., dockerfile: Dockerfile.relay }
+    command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-public", "**",
+              "--log-level", "info"]
+    ports: ["4443:4443/udp"]
+
+  captions:
+    <<: *agent
+    command: ["captions", "--fake", "--insecure"]
+  translate-tr:
+    <<: *agent
+    command: ["translate", "--lang", "tr", "--fake", "--insecure"]
+  describe:
+    <<: *agent
+    command: ["describe", "--fake", "--insecure"]
+  chapters:
+    <<: *agent
+    command: ["chapters", "--fake", "--insecure"]
+
+  teacher:
+    <<: *agent
+    profiles: [dev]
+    restart: "no"
+    command: ["teacher", "--insecure"]
+  watch:
+    <<: *agent
+    profiles: [dev]
+    restart: "no"
+    command: ["watch", "--insecure"]

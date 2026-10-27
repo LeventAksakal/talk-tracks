@@ -75,6 +75,26 @@ class OpusDecoder:
         return np.concatenate(out) if out else np.zeros(0, dtype=np.int16)
 
 
+class OpusEncoder:
+    """48 kHz mono PCM in, one Opus packet per 20 ms frame out. For test publishers that stand in for a browser."""
+
+    FRAME = 960
+
+    def __init__(self) -> None:
+        ctx = av.CodecContext.create("libopus", "w")
+        ctx.sample_rate, ctx.layout, ctx.format = 48_000, "mono", "s16"
+        ctx.open()
+        self._ctx = ctx
+        self._pts = 0
+
+    def encode(self, frame48k: NDArray[np.int16]) -> list[bytes]:
+        frame = av.AudioFrame.from_ndarray(frame48k.reshape(1, -1), format="s16", layout="mono")
+        frame.sample_rate = 48_000
+        frame.pts = self._pts
+        self._pts += len(frame48k)
+        return [bytes(p) for p in self._ctx.encode(frame)]
+
+
 class AudioAssembler:
     """Reorders frames by media time, decodes them and fills gaps, yielding (pcm, media end in ms)."""
 
@@ -86,9 +106,14 @@ class AudioAssembler:
 
     def push(self, payload: bytes) -> list[tuple[NDArray[np.int16], int]]:
         media_us, packet = split_legacy(payload)
+        out: list[tuple[NDArray[np.int16], int]] = []
+        newest = max((t for t, _, _ in self._heap), default=self._next_us)
+        if newest is not None and media_us < newest - MAX_FILL_US:
+            # Far behind everything so far: the speaker's publisher restarted its clock. Finish the old run first.
+            out = [self._emit() for _ in range(len(self._heap))]
+            self._next_us = None
         self._tie += 1
         heapq.heappush(self._heap, (media_us, self._tie, packet))
-        out: list[tuple[NDArray[np.int16], int]] = []
         while len(self._heap) > REORDER_FRAMES:
             out.append(self._emit())
         return [x for x in out if len(x[0])]
