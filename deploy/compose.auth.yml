@@ -5,7 +5,7 @@
 services:
   relay:
     command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-url", "http://127.0.0.1:4440/",
-              "--log-level", "info"]
+              "--web-http-listen", "[::]:4443", "--log-level", "info"]
 
   auth:
     image: talk-tracks-auth:0.14.8
