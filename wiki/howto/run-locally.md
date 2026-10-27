@@ -37,3 +37,5 @@ Spend goes to the shared ledger (`TT_LEDGER`, default `data/ledger.jsonl`) and s
 ## Checks
 
 From `agents/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, `uv run pytest -q`.
+
+The speaker console and viewer against this relay: [web.md](web.md).
