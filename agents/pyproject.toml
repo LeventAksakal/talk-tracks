@@ -1,0 +1,47 @@
+[project]
+name = "talk-tracks-agents"
+version = "0.1.0"
+description = "AI agents that publish derived tracks into a live Media over QUIC broadcast"
+requires-python = ">=3.13,<3.14"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "pydantic==2.14.1",
+  "httpx==0.28.1",
+  "numpy==2.5.4",
+  "av==19.0.2",
+  "websockets==17.3",
+]
+
+[project.optional-dependencies]
+moq = ["aiomoqt==0.13.1"]
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.17.2",
+  "pyright==1.1.414",
+  "jsonschema==4.26.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/talk_tracks"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
