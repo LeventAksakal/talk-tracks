@@ -1,0 +1,99 @@
+# The public VM (decision 0004, wiki/howto/deploy.md): Caddy, the relay behind the token auth server, the looping
+# demo room and, once the Meta key is on the box, live agents. Settings come from deploy/.env on the VM (not in git):
+#   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
+#   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
+#   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state and spend ledger
+#   TT_LOOPER_TOKEN  signed for the demo room; TT_AGENT_TOKEN signed for the live room
+#   docker compose -f deploy/compose.vm.yml up -d
+#   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents (need META_API_KEY)
+# Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
+name: talk-tracks
+
+x-agent: &agent
+  image: talk-tracks-agents:${TT_AGENTS_TAG:-dev}
+  build: ../agents
+  init: true
+  restart: unless-stopped
+  depends_on: [relay]
+  volumes: ["${TT_DATA:?}:/data"]
+  environment: &agent-env
+    TT_RELAY: moqt://relay:443
+    TT_ROOM: ${TT_LIVE_ROOM:-live}
+    TT_TOKEN: ${TT_AGENT_TOKEN:-}
+    TT_LEDGER: /data/ledger.jsonl
+    TT_STATE_DIR: /data/state
+    TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
+    META_API_KEY: ${META_API_KEY:-}
+
+services:
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    ports: ["80:80/tcp", "443:443/tcp"]
+    environment: [TT_HOST]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../web/dist:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # QUIC and WebTransport on UDP 443 with Caddy's certificate; the HTTPS listener on 8443 is reached only through
+  # Caddy (WebSocket fallback). The relay reads the certificate at start: restart it after Caddy renews.
+  relay:
+    image: talk-tracks-relay:0.17.8
+    build: { context: ., dockerfile: Dockerfile.relay }
+    restart: unless-stopped
+    depends_on: [caddy]
+    ports: ["443:443/udp"]
+    environment: [TT_HOST]
+    volumes: ["caddy_data:/caddy:ro"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          crt=$$(ls /caddy/caddy/certificates/*/$$TT_HOST/$$TT_HOST.crt 2>/dev/null | head -1)
+          [ -n "$$crt" ] && break
+          echo "waiting for the certificate of $$TT_HOST"; sleep 3
+        done
+        exec moq-relay --listen '[::]:443' --listen-tls-cert "$$crt" --listen-tls-key "$${crt%.crt}.key" \
+          --web-https-listen '[::]:8443' --web-https-cert "$$crt" --web-https-key "$${crt%.crt}.key" \
+          --auth-url http://127.0.0.1:4440/ --log-level info
+
+  auth:
+    image: talk-tracks-auth:0.14.8
+    build: { context: ., dockerfile: Dockerfile.auth }
+    network_mode: service:relay
+    restart: unless-stopped
+    command: ["auth", "serve", "--listen", "127.0.0.1:4440", "--key", "/keys/public.jwk",
+              "--public-subscribe", "talk/**"]
+    volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro"]
+
+  looper:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      TT_ROOM: ${TT_DEMO_ROOM:-demo}
+      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
+    command: ["loop", "--insecure", "--recording", "/data/demo/${TT_LECTURE:-test}"]
+
+  captions:
+    <<: *agent
+    profiles: [live]
+    command: ["captions", "--insecure"]
+  translate-tr:
+    <<: *agent
+    profiles: [live]
+    command: ["translate", "--lang", "tr", "--insecure"]
+  describe:
+    <<: *agent
+    profiles: [live]
+    command: ["describe", "--insecure"]
+  chapters:
+    <<: *agent
+    profiles: [live]
+    command: ["chapters", "--insecure"]
+
+volumes:
+  # The volume the pre-event stack already filled, so the certificate carries over.
+  caddy_data: { external: true, name: moq_caddy_data }
+  caddy_config: { external: true, name: moq_caddy_config }
