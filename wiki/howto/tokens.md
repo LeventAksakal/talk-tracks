@@ -23,6 +23,7 @@ time; a token is refused from then on, and a live session closes at that moment.
 |---|---|---|
 | Speaker of room `R` (browser console or the `teacher` / `slides` stand-ins) | `talk/R/teacher`, `talk/R/slides` | `talk/R/**` |
 | Agents of room `R` | `talk/R/agents/**` | `talk/R/**` |
+| Looper of demo room `R` (replays the lecture and every agent track) | `talk/R/teacher`, `talk/R/agents/**` | `talk/R/**` |
 | Viewers | nothing, no token | `talk/**` (anonymous) |
 
 ```bash
@@ -41,6 +42,14 @@ docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml up -d rela
 docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml --profile dev up -d teacher watch
 ```
 
+For a demo room, `generate` takes `TT_SPEAKER_TOKEN` (signed for the generation room) and `looper` takes
+`TT_LOOPER_TOKEN`.
+
+The auth server starts just after the relay; a session that arrives in that moment is refused (the relay answers 502).
+Agents restart by themselves; restart a stand-in that started too early.
+
 Checked on 2026-10-27: with these tokens the stack runs as in fake mode, and `watch` subscribes with no token. A
 session with no token, an agent token publishing `talk/dev/teacher`, and a token signed with another key are all
-refused (`announce ... unauthorized` for the first two, the session closed for the third).
+refused (`announce ... unauthorized` for the first two, the session closed for the third). The browser viewer
+watches `/watch/dev` and a looped `/watch/demo` (video, audio and every agent track) with no token, and the whole
+demo pipeline (prepare, generate, loop) runs with the tokens above.

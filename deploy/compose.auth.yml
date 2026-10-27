@@ -29,3 +29,13 @@ services:
       TT_RELAY: moqt://relay:4443
       TT_ROOM: ${TT_ROOM:-dev}
       TT_TOKEN: ${TT_SPEAKER_TOKEN:-}
+  generate:  # plays the lecture as the speaker of the generation room and records it
+    environment:
+      TT_RELAY: moqt://relay:4443
+      TT_ROOM: ${TT_ROOM:-dev}
+      TT_TOKEN: ${TT_SPEAKER_TOKEN:-}
+  looper:  # the speaker and every agent of the demo room
+    environment:
+      TT_RELAY: moqt://relay:4443
+      TT_ROOM: ${TT_DEMO_ROOM:-demo}
+      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
