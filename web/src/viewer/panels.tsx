@@ -58,7 +58,13 @@ export function TrackPicker({
                 value={a.subscribed}
                 onChange={(checked) => onToggle(a.name, checked)}
               />
-              <HealthDot health={a.subscribed ? a.health : "waiting"} />
+              {a.subscribed ? (
+                <HealthDot health={a.health} />
+              ) : (
+                <span className="health">
+                  <span className="health-text muted">Off</span>
+                </span>
+              )}
             </li>
           ))}
         </ul>
