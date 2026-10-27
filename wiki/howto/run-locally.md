@@ -49,7 +49,8 @@ Spend goes to the shared ledger (`TT_LEDGER`, default `data/ledger.jsonl`) and s
 
 ## A looping demo room
 
-A recorded lecture replayed as a live room, with no model running: see [demo-rooms](demo-rooms.md).
+A recorded lecture replayed as a live room, with no model running: see [demo-rooms](demo-rooms.md). The public VM
+runs the same stack: see [deploy](deploy.md).
 
 ## Checks
 
