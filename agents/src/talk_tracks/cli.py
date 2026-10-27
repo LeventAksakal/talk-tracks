@@ -44,6 +44,12 @@ def api_key() -> str:
     return key
 
 
+def spend_ledger() -> SpendLedger:
+    return SpendLedger(
+        Path(os.environ.get("TT_LEDGER", "data/ledger.jsonl")), float(os.environ.get("TT_SPEND_CEILING_USD", "100"))
+    )
+
+
 def make_llm(fake: bool) -> Llm:
     if fake:
         from .llm.fake import FakeLlm
@@ -51,10 +57,7 @@ def make_llm(fake: bool) -> Llm:
         return FakeLlm()
     from .llm.meta import MetaLlm
 
-    ledger = SpendLedger(
-        Path(os.environ.get("TT_LEDGER", "data/ledger.jsonl")), float(os.environ.get("TT_SPEND_CEILING_USD", "100"))
-    )
-    return MetaLlm(api_key(), ledger)
+    return MetaLlm(api_key(), spend_ledger())
 
 
 Work = Callable[[Any, Any], Coroutine[Any, Any, None]]  # (relay, publisher) -> the agent's loop
@@ -73,7 +76,7 @@ def build(args: argparse.Namespace) -> tuple[AgentInfo, Callable[[], Usage], Wor
         else:
             from .asr.meta import MODEL, MetaVoiceAsr
 
-            asr, model = MetaVoiceAsr(api_key()), MODEL
+            asr, model = MetaVoiceAsr(api_key(), ledger=spend_ledger()), MODEL
 
         async def transcribe(relay: Any, pub: Any) -> None:
             await runtime.run_captions(moq.teacher_audio(relay, args.room), asr, pub, lang)

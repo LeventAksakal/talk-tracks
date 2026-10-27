@@ -1,11 +1,14 @@
+import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
+import numpy as np
 import pytest
 
+from talk_tracks.asr.meta import SAMPLE_RATE, USD_PER_MINUTE, MetaVoiceAsrSession
 from talk_tracks.contracts import CaptionLine
 from talk_tracks.llm.ledger import BudgetExceededError, Prices, SpendLedger
 from talk_tracks.llm.meta import MetaLlm, MetaLlmError
@@ -110,6 +113,44 @@ def test_key_only_goes_to_meta_and_never_contributor(tmp_path: Path) -> None:
         MetaLlm("k", ledger, base_url="https://example.com/v1")
     with pytest.raises(ValueError):
         MetaLlm("k", ledger, model="muse-spark-1.3-contributor")
+
+
+async def test_asr_pays_each_audio_minute_before_sending_it(tmp_path: Path) -> None:
+    class Ws:
+        def __init__(self) -> None:
+            self.sent = 0
+            self.ended = asyncio.Event()
+
+        async def send(self, data: bytes | str) -> None:
+            if isinstance(data, str):
+                self.ended.set()
+            else:
+                self.sent += 1
+
+        async def __aiter__(self) -> AsyncIterator[str]:
+            await self.ended.wait()
+            return
+            yield
+
+        async def close(self) -> None:
+            pass
+
+    ledger = SpendLedger(tmp_path / "l.jsonl", USD_PER_MINUTE * 2.5)
+    ws = Ws()
+    session = MetaVoiceAsrSession(cast(Any, ws), 0, ledger)
+    second = np.zeros(SAMPLE_RATE, dtype=np.int16)
+    await session.feed(second, 1000)
+    assert ledger.total() == pytest.approx(USD_PER_MINUTE)
+    for t in range(2, 121):
+        await session.feed(second, t * 1000)
+    assert ledger.total() == pytest.approx(USD_PER_MINUTE * 2)
+    with pytest.raises(BudgetExceededError):
+        await session.feed(second, 122_000)
+    sent = ws.sent
+    with pytest.raises(BudgetExceededError):
+        await session.feed(second, 123_000)
+    assert ws.sent == sent
+    await session.close()
 
 
 def test_prices_cost() -> None:
