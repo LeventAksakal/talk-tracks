@@ -79,11 +79,14 @@ async def test_translate_outline_and_describe_follow_the_captions() -> None:
     sl, llm3 = ListSink(), FakeLlm()
 
     async def frames() -> AsyncIterator[SlideFrame]:
-        for i in (1, 1, 2):
-            yield SlideFrame(id=i, at_ms=i, mime="image/png", data_b64=base64.b64encode(b"png").decode())
+        # Slide 3 shows slide 1's image again: it reuses the description instead of paying for it twice.
+        for i, image in ((1, b"one"), (1, b"one"), (2, b"two"), (3, b"one")):
+            yield SlideFrame(id=i, at_ms=i, mime="image/png", data_b64=base64.b64encode(image).decode())
 
     await run_describe(frames(), llm3, publisher("describe", sl, llm3), "en")
-    assert [n.id for n in sl.envelopes()[-1].state.slides] == [1, 2]
+    notes = sl.envelopes()[-1].state.slides
+    assert [n.id for n in notes] == [1, 2, 3]
+    assert notes[2].description == notes[0].description
     assert llm3.usage.requests == 2
 
 

@@ -1,8 +1,8 @@
 """Command line: ``python -m talk_tracks <agent> --relay URL --room ROOM [--lang xx] [--fake]``.
 
 Agents: ``captions`` (speech to text), ``translate`` (one language per process), ``describe`` (slide descriptions),
-``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio like the speaker's browser,
-``watch`` prints what the agents publish.
+``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio and ``slides`` publishes
+slide images like the speaker's browser, ``watch`` prints what the agents publish.
 
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_TOKEN, TT_LEDGER (default data/ledger.jsonl),
 TT_SPEND_CEILING_USD (default 100) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed.
@@ -27,7 +27,7 @@ from .llm.ledger import SpendLedger
 from .llm.meta import language_name
 
 AGENTS = ("captions", "translate", "describe", "chapters")
-DEV = ("teacher", "watch")
+DEV = ("teacher", "slides", "watch")
 
 FAKE_SENTENCES = [
     "Media over QUIC lets one relay fan out many named tracks.",
@@ -131,7 +131,15 @@ async def main_async(args: argparse.Namespace) -> None:
 async def _dev(args: argparse.Namespace) -> None:
     from .devtools import run_dev
 
-    await run_dev(args.agent, args.relay, args.room, token=args.token, insecure=args.insecure, wav=args.wav)
+    await run_dev(
+        args.agent,
+        args.relay,
+        args.room,
+        token=args.token,
+        insecure=args.insecure,
+        wav=args.wav,
+        images=args.image,
+    )
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
@@ -144,9 +152,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--fake", action="store_true", help="scripted speech recognition and a fake model: no API calls")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
     p.add_argument("--wav", type=Path, default=None, help="teacher: a 16-bit WAV file to loop instead of a tone")
+    p.add_argument("--image", type=Path, action="append", default=[], help="slides: a PNG or JPEG slide (repeatable)")
     args = p.parse_args(argv)
     if not args.relay or not args.room:
         p.error("--relay and --room are required (or TT_RELAY and TT_ROOM)")
+    if args.agent == "slides" and not args.image:
+        p.error("slides needs at least one --image")
     args.room = parse_room(args.room)
     return args
 

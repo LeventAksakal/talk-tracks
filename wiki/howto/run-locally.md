@@ -16,6 +16,15 @@ docker compose -f deploy/compose.local.yml logs -f watch
 `teacher` stands in for the speaker's browser (a looping tone on `talk/dev/teacher`, track `audio`); `watch` stands in
 for a viewer and prints each agent snapshot as it arrives. The room is `dev`; set `TT_ROOM` to change it.
 
+Slides come from a second stand-in that shows each image for 20 s, in a loop, on `talk/dev/slides`, track `frames`.
+Put the images under `agents/data/` and mount it:
+
+```bash
+docker compose -f deploy/compose.local.yml --profile dev run -d -v ./agents/data:/app/data watch slides --insecure --image data/slide1.png
+```
+
+The describe agent pays once per distinct image: a slide shown again reuses its description.
+
 Try a failover: `docker kill talk-tracks-captions-1`, then
 `docker compose -f deploy/compose.local.yml up -d captions`. The translation and chapters agents follow the new
 captions instance by themselves (the newest instance always wins).

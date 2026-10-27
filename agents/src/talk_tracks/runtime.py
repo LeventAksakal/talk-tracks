@@ -101,11 +101,13 @@ async def run_describe(frames: AsyncIterator[SlideFrame], llm: Llm, pub: Snapsho
     async for frame in frames:
         if not core.wants(frame):
             continue
-        try:
-            text = await llm.describe_slide(base64.b64decode(frame.data_b64), frame.mime, lang=lang)
-        except Exception:
-            log.exception("describe failed for slide %s", frame.id)
-            continue
+        text = core.known(frame)
+        if text is None:
+            try:
+                text = await llm.describe_slide(base64.b64decode(frame.data_b64), frame.mime, lang=lang)
+            except Exception:
+                log.exception("describe failed for slide %s", frame.id)
+                continue
         core.add(frame, text)
         await pub.publish(core.state())
 

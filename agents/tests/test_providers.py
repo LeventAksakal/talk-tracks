@@ -91,6 +91,19 @@ async def test_truncated_output_is_an_error(tmp_path: Path) -> None:
         await m.translate("a", lang="tr", context=[])
 
 
+async def test_translate_retries_once_with_more_room_when_reasoning_hits_the_cap(tmp_path: Path) -> None:
+    caps: list[int] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        caps.append(body["max_completion_tokens"])
+        assert body["reasoning_effort"] == "minimal"
+        return reply("", finish="length") if len(caps) == 1 else reply("Uzun satir")
+
+    assert await make(tmp_path, handler).translate("a long line", lang="tr", context=[]) == "Uzun satir"
+    assert caps[1] == caps[0] * 4
+
+
 def test_key_only_goes_to_meta_and_never_contributor(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "l.jsonl", 1.0)
     with pytest.raises(ValueError):
