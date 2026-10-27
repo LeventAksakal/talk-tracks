@@ -28,14 +28,16 @@ from before the event is in this repository.
 | Path | What |
 |---|---|
 | `agents/` | Python agents (captions, translate, describe, chapters), the Meta providers, tests |
-| `web/` | Speaker console and viewer, Vue 3 + TypeScript |
-| `deploy/` | Relay and web server on a single VM |
+| `web/` | Speaker console and viewer, React 19 + TypeScript with Meta's Astryx design system |
+| `deploy/` | Relay, web server and agents on a single VM |
 | `contracts/` | JSON Schemas of every payload, generated from the Python models |
+| `wiki/` | Product, spec, stack, how-to and decision records ([index](wiki/README.md)) |
+| `tickets/` | Open questions waiting for the owner |
 
 ## Open-source parts
 
 moq-relay and the `@moq/*` browser libraries (MIT or Apache-2.0, by the moq.dev authors), aiomoqt, PyAV, NumPy,
-pydantic, httpx, websockets, Vue, Vite, Pinia. Licences are checked in `NOTICE`.
+pydantic, httpx, websockets, React, Vite, Astryx. Licences are checked in `NOTICE`.
 
 ## Licence
 
