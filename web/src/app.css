@@ -1,0 +1,332 @@
+/* Our own layout, on Astryx tokens (with fallbacks). Astryx components style themselves. */
+
+:root {
+  --tt-gap: var(--spacing-4, 16px);
+  --tt-radius: var(--radius-container, 12px);
+  --tt-border: var(--color-border, #d6d9de);
+  --tt-surface: var(--color-background-surface, #ffffff);
+  --tt-body: var(--color-background-body, #f4f5f7);
+  --tt-text: var(--color-text-primary, #1c1e21);
+  --tt-muted: var(--color-text-secondary, #5d6470);
+  --tt-focus: var(--color-border-emphasized, #0064e0);
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-body, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  background: var(--tt-body);
+  color: var(--tt-text);
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 3px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  inset-inline-start: 8px;
+  top: -48px;
+  padding: 8px 12px;
+  background: var(--tt-surface);
+  border: 2px solid var(--tt-focus);
+  border-radius: 8px;
+  z-index: 10;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+.muted {
+  color: var(--tt-muted);
+}
+.small {
+  font-size: 0.85em;
+}
+.page-pad {
+  padding: var(--tt-gap);
+}
+.hidden {
+  display: none;
+}
+
+/* --- landing --- */
+.landing {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px var(--tt-gap);
+}
+.landing-title {
+  font-size: 2.5rem;
+  margin: 0 0 8px;
+}
+.lead {
+  font-size: 1.15rem;
+}
+.join-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+.join-form > :first-child {
+  flex: 1 1 260px;
+}
+.landing-links {
+  padding-inline-start: 20px;
+}
+
+/* --- room header --- */
+.room-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-gap);
+  flex-wrap: wrap;
+  padding: 12px var(--tt-gap);
+  background: var(--tt-surface);
+  border-bottom: 1px solid var(--tt-border);
+}
+.room-title {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.room-title h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+.brand {
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+.demo-note {
+  margin: 0;
+  padding: 8px var(--tt-gap);
+  background: var(--color-background-blue, #e7f0ff);
+}
+
+/* --- panels --- */
+.panel {
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius);
+  padding: var(--tt-gap);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.panel-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.sub-title {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+}
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--tt-muted);
+}
+
+/* --- viewer --- */
+.viewer-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 360px);
+  gap: var(--tt-gap);
+  padding: var(--tt-gap);
+  align-items: start;
+}
+.viewer-side,
+.viewer-extra,
+.viewer-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-gap);
+  min-width: 0;
+}
+.text-tracks {
+  display: grid;
+  gap: var(--tt-gap);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.viewer-footer {
+  padding: 0 var(--tt-gap) var(--tt-gap);
+  font-size: 0.85rem;
+}
+@media (max-width: 1100px) {
+  .viewer-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* On narrow screens the text comes first, then the controls. */
+  .viewer-main {
+    order: -1;
+  }
+}
+
+.track-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.track-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scrolllog {
+  position: relative;
+}
+.scrolllog-body {
+  height: min(60vh, 520px);
+  overflow-y: auto;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 1.25rem;
+  line-height: 1.55;
+}
+.scrolllog-jump {
+  position: absolute;
+  inset-inline-end: 12px;
+  bottom: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--tt-border);
+  background: var(--tt-surface);
+  color: inherit;
+  cursor: pointer;
+}
+.line {
+  margin: 0 0 0.5em;
+}
+.interim {
+  color: var(--tt-muted);
+  font-style: italic;
+  border-inline-start: 3px solid var(--tt-border);
+  padding-inline-start: 8px;
+}
+.interim-mark {
+  margin-inline-start: 2px;
+}
+
+.slide-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.slide-card {
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.slide-card p {
+  margin: 8px 0 0;
+}
+.slide-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chapter-list {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.chapter-list p {
+  margin: 2px 0 8px;
+}
+.chapter-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--tt-muted);
+}
+.glossary {
+  margin: 0;
+}
+.glossary dt {
+  font-weight: 600;
+}
+.glossary dd {
+  margin: 0 0 8px;
+}
+.recap {
+  margin: 0;
+}
+
+.media-canvas {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+}
+
+/* --- speaker console --- */
+.console-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--tt-gap);
+  padding: var(--tt-gap);
+  align-items: start;
+}
+.roster {
+  grid-column: 1 / -1;
+}
+.roster-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.roster-table th,
+.roster-table td {
+  text-align: start;
+  padding: 8px;
+  border-bottom: 1px solid var(--tt-border);
+  vertical-align: top;
+}
+.roster-table tbody th {
+  font-weight: 500;
+}
+.roster-table .num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.slide-preview {
+  margin: 0;
+}
+.slide-preview img {
+  max-width: 100%;
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+}

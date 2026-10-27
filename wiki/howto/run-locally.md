@@ -54,3 +54,5 @@ A recorded lecture replayed as a live room, with no model running: see [demo-roo
 ## Checks
 
 From `agents/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, `uv run pytest -q`.
+
+The speaker console and viewer against this relay: [web.md](web.md).
