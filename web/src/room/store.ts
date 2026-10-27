@@ -267,7 +267,8 @@ export class RoomStore {
   }
 
   #health(entry: AgentEntry): Health {
-    if (entry.followed === undefined || !entry.instances.has(entry.followed)) return entry.everLive ? "gone" : "waiting";
+    if (entry.followed === undefined || !entry.instances.has(entry.followed))
+      return entry.everLive ? "gone" : "waiting";
     if (entry.lastObjectAt === undefined) return entry.subscribed ? "waiting" : entry.everLive ? "stale" : "waiting";
     return this.#now() - entry.lastObjectAt > this.#staleAfter ? "stale" : "live";
   }

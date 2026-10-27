@@ -12,7 +12,8 @@ export const FRAMES_TRACK = "frames";
 
 /** Every agent publishes `talk/<room>/agents/<agent>/<instance>`, track `state`. */
 export const agentsPrefix = (room: string) => `${ROOT}/${room}/agents`;
-export const agentPath = (room: string, agent: string, instance: string) => `${agentsPrefix(room)}/${agent}/${instance}`;
+export const agentPath = (room: string, agent: string, instance: string) =>
+  `${agentsPrefix(room)}/${agent}/${instance}`;
 export const STATE_TRACK = "state";
 
 /** Agents send a heartbeat every 2 s; an agent with no object for this long is stale. */

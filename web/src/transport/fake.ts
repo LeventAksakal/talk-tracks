@@ -30,6 +30,7 @@ export class FakeTransport implements Transport {
   #status: ConnectionStatus = "connected";
   #statusListeners = new Set<(status: ConnectionStatus, error?: Error) => void>();
   #now: () => number;
+  #cleanups: (() => void)[] = [];
 
   constructor(options: { now?: () => number } = {}) {
     this.#now = options.now ?? Date.now;
@@ -124,7 +125,13 @@ export class FakeTransport implements Transport {
     return { close: () => this.#statusListeners.delete(listener) };
   }
 
+  /** Run `fn` when the transport closes (e.g. stop a script driving it). */
+  onClose(fn: () => void): void {
+    this.#cleanups.push(fn);
+  }
+
   close(): void {
+    for (const fn of this.#cleanups.splice(0)) fn();
     this.#announceListeners.clear();
     this.#subscribers.clear();
     this.#statusListeners.clear();
