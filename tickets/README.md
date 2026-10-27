@@ -16,3 +16,5 @@ sets `status: closed`.
 | [0008](0008-pre-commit-checks.md) | What runs before each commit? | open |
 | [0009](0009-spend-ceiling.md) | Is the Meta spend ceiling still $100? | open |
 | [0010](0010-plan.md) | How do we re-plan the remaining 8 days? | open |
+| [0011](0011-loop-caption-history.md) | Does a looped room's caption history carry into the next loop? | open |
+| [0012](0012-where-recordings-live.md) | Where do generated recordings live? | open |
