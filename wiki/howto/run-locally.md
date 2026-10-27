@@ -27,7 +27,8 @@ The describe agent pays once per distinct image: a slide shown again reuses its 
 
 Try a failover: `docker kill talk-tracks-captions-1`, then
 `docker compose -f deploy/compose.local.yml up -d captions`. The translation and chapters agents follow the new
-captions instance by themselves (the newest instance always wins).
+captions instance by themselves (the newest instance always wins). The restarted captions agent resumes its lines
+and line ids from `data/state/` inside its container, so nothing is translated twice.
 
 Stop everything with `docker compose -f deploy/compose.local.yml --profile dev down`.
 

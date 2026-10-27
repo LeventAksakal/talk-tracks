@@ -5,7 +5,8 @@ Agents: ``captions`` (speech to text), ``translate`` (one language per process),
 slide images like the speaker's browser, ``watch`` prints what the agents publish.
 
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_TOKEN, TT_LEDGER (default data/ledger.jsonl),
-TT_SPEND_CEILING_USD (default 100) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed.
+TT_SPEND_CEILING_USD (default 100), TT_STATE_DIR (default data/state: where captions keeps its lines across a
+restart) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed.
 """
 
 from __future__ import annotations
@@ -78,8 +79,19 @@ def build(args: argparse.Namespace) -> tuple[AgentInfo, Callable[[], Usage], Wor
 
             asr, model = MetaVoiceAsr(api_key(), ledger=spend_ledger()), MODEL
 
+        from . import statefile
+
+        saved = Path(os.environ.get("TT_STATE_DIR", "data/state")) / f"captions-{args.room}-{lang}.json"
+
         async def transcribe(relay: Any, pub: Any) -> None:
-            await runtime.run_captions(moq.teacher_audio(relay, args.room), asr, pub, lang)
+            await runtime.run_captions(
+                moq.teacher_audio(relay, args.room),
+                asr,
+                pub,
+                lang,
+                resume=statefile.load_captions(saved),
+                save=lambda state: statefile.save(saved, state),
+            )
 
         return AgentInfo(name="captions", label=f"Captions ({language_name(lang)})", model=model), Usage, transcribe
 

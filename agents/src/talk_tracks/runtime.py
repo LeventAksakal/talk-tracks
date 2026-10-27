@@ -42,22 +42,25 @@ async def run_captions(
     pub: SnapshotPublisher,
     lang: str,
     *,
-    next_id: int = 0,
+    resume: CaptionsState | None = None,
+    save: Callable[[CaptionsState], None] | None = None,
 ) -> None:
     """Audio (pcm, media end ms) in; the captions state out. A line that finishes publishes at once.
 
     The ASR session opens on the first audio, so its clock starts at that chunk's media time, and reopens on the next
     chunk after any failure (a dropped stream, the server's session cap): captions pause for a moment, never stop.
+    ``resume`` is the state a previous run saved through ``save``: a restarted agent carries on with its lines and ids.
     """
-    core = CaptionsCore(lang, next_id)
+    core = CaptionsCore(lang, lines=resume.lines if resume else ())
     session: AsrSession | None = None
     await pub.publish(core.state())
 
     async def apply(events: list[AsrEvent]) -> None:
-        for event in events:
-            core.on_event(event)
+        made = [line for event in events if (line := core.on_event(event))]
         if events:
             await pub.publish(core.state())
+        if made and save:
+            save(core.state())
 
     try:
         async for pcm, end_ms in audio:
