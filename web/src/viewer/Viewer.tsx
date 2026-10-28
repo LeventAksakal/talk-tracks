@@ -1,12 +1,14 @@
 import { Badge, Switch } from "@astryxdesign/core";
 import { useState } from "react";
+import { toAgentView } from "../playback/agentViews";
+import type { Playback } from "../playback/playback";
+import { PlaybackBar } from "../playback/PlaybackBar";
+import { usePlayback, usePlaybackView } from "../playback/usePlayback";
 import type { AgentView, RoomStoreOptions, RoomView } from "../room/store";
 import { useRoom } from "../room/useRoom";
 import { Link } from "../router";
-import { MoqTransport } from "../transport/moq";
 import type { ConnectionStatus, Transport } from "../transport/types";
 import { CaptionsPanel, OutlinePanel, SlidesPanel, stateOf, TrackPicker, TranslationPanel } from "./panels";
-import { TeacherMedia } from "./TeacherMedia";
 
 /** Viewers start with every track but translations; the translation into their own language is on too. */
 export function viewerDefaults(
@@ -18,17 +20,39 @@ export function viewerDefaults(
   };
 }
 
-/** The viewer for one room, over any Transport: the live relay on /watch, the script on /demo. */
-export function Viewer({ transport, room, title }: { transport: Transport | undefined; room: string; title?: string }) {
+/**
+ * The viewer for one room, over any Transport: the live relay on /watch, the script on /demo. Speaker
+ * media and the sliced AI tracks (decision 0012) go through the playback layer, which rewinds them;
+ * `playback` overrides the one made for a relay transport (the offline rewind demo).
+ */
+export function Viewer({
+  transport,
+  room,
+  title,
+  playback: given,
+}: {
+  transport: Transport | undefined;
+  room: string;
+  title?: string;
+  playback?: Playback;
+}) {
   const [view, store] = useRoom(transport, room, viewerDefaults());
+  const own = usePlayback(given ? undefined : transport, room);
+  const playback = given ?? own;
+  const playbackView = usePlaybackView(playback);
   const [hideOriginal, setHideOriginal] = useState(false);
 
   if (!view || !store) return <p className="page-pad">Connecting…</p>;
 
-  const captions = view.agents.filter((a) => a.kind === "captions" && a.subscribed);
-  const translations = view.agents.filter((a) => a.kind === "translation" && a.subscribed);
-  const slides = view.agents.filter((a) => a.kind === "slides" && a.subscribed);
-  const outlines = view.agents.filter((a) => a.kind === "outline" && a.subscribed);
+  // A room on the sliced contract has its tracks in the playback layer; an older room in the RoomStore.
+  const sliced = playback !== undefined && playbackView !== undefined && playbackView.tracks.tracks.length > 0;
+  const agents = sliced ? playbackView.tracks.tracks.map((t) => toAgentView(t)) : view.agents;
+  const toggle = (name: string, on: boolean) =>
+    sliced ? playback.tracks.setEnabled(name, on) : store.setSubscribed(name, on);
+  const captions = agents.filter((a) => a.kind === "captions" && a.subscribed);
+  const translations = agents.filter((a) => a.kind === "translation" && a.subscribed);
+  const slides = agents.filter((a) => a.kind === "slides" && a.subscribed);
+  const outlines = agents.filter((a) => a.kind === "outline" && a.subscribed);
   const firstLine = stateOf(captions[0], "captions")?.lines[0]?.start_ms;
   const showCaptions = !(hideOriginal && translations.length > 0);
   const snapshots = view.agents.reduce((n, a) => n + a.historyLength, 0);
@@ -42,15 +66,13 @@ export function Viewer({ transport, room, title }: { transport: Transport | unde
           </Link>
           <h1>{title ?? `Room ${room}`}</h1>
         </div>
-        <LiveIndicator view={view} />
+        <LiveIndicator view={view} agents={agents} />
       </header>
 
       <div className="viewer-grid">
         <aside className="viewer-side" aria-label="Speaker and tracks">
-          {transport instanceof MoqTransport ? (
-            <TeacherMedia transport={transport} room={room} live={view.teacherLive} />
-          ) : null}
-          <TrackPicker agents={view.agents} onToggle={(name, on) => store.setSubscribed(name, on)} />
+          {playback && playbackView ? <PlaybackBar playback={playback} view={playbackView} /> : null}
+          <TrackPicker agents={agents} onToggle={toggle} />
           {translations.length > 0 ? (
             <section className="panel">
               <Switch
@@ -91,8 +113,8 @@ export function Viewer({ transport, room, title }: { transport: Transport | unde
   );
 }
 
-function LiveIndicator({ view }: { view: RoomView }) {
-  const anyLive = view.agents.some((a: AgentView) => a.health === "live");
+function LiveIndicator({ view, agents }: { view: RoomView; agents: readonly AgentView[] }) {
+  const anyLive = agents.some((a: AgentView) => a.health === "live");
   if (view.status === "failed") return <Badge variant="error" label="Offline" />;
   if (view.status !== "connected") return <Badge variant="warning" label="Connecting" />;
   return anyLive || view.teacherLive ? (

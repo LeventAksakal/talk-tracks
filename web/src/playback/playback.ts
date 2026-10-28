@@ -15,6 +15,8 @@ export interface PlaybackView {
 export interface PlaybackOptions extends AiTracksOptions {
   /** Rewound media this close to live, with nothing more archived, goes live by itself, ms. */
   catchUpMs?: number;
+  /** Run on close, after everything else (to stop whatever drives a fake room). */
+  onClose?: () => void;
 }
 
 export class Playback {
@@ -26,11 +28,13 @@ export class Playback {
   #listeners = new Set<() => void>();
   #view: PlaybackView | undefined;
   #disposers: (() => void)[] = [];
+  #onClose: (() => void) | undefined;
 
   constructor(source: HistorySource, media: SpeakerMedia, room: string, options: PlaybackOptions = {}) {
     this.media = media;
     this.tracks = new AiTracks(source, room, options);
     this.#catchUpMs = options.catchUpMs ?? 8_000;
+    this.#onClose = options.onClose;
     this.#disposers.push(this.tracks.subscribe(() => this.#changed()));
     this.#disposers.push(media.onChange(() => this.#onMedia()));
   }
@@ -113,6 +117,7 @@ export class Playback {
     this.tracks.close();
     this.media.close();
     this.#listeners.clear();
+    this.#onClose?.();
   }
 
   #onMedia(): void {

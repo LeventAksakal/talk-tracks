@@ -13,7 +13,7 @@ export interface TimelineView {
   position: number | undefined;
   /** The live edge, media ms. */
   liveEdge: number | undefined;
-  /** The earliest media time to seek to. */
+  /** The earliest media time to seek to: the archived media's start, or 0. */
   start: number;
   /** How far the playhead trails live, ms (0 when live). */
   behindMs: number;
@@ -56,8 +56,9 @@ export function buildTimeline(input: {
   mediaStatus: MediaStatus;
 }): TimelineView {
   const held = mergeRanges(input.held.flat());
-  const starts = [input.available[0]?.start, held[0]?.start].filter((x): x is number => x !== undefined);
-  const start = starts.length > 0 ? Math.min(...starts) : 0;
+  // The talk starts where its archived media does; with none, at media time 0 (AI slices from 0 are
+  // fetchable from the agents whether or not this viewer held them).
+  const start = input.available[0]?.start ?? 0;
   const behindMs =
     input.mode === "live" || input.position === undefined || input.liveEdge === undefined
       ? 0

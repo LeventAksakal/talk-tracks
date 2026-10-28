@@ -1,0 +1,46 @@
+/* The playback test bench (PlaybackBar). Plain on purpose: the UI lane designs the real control. */
+.playback-scrubber {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.playback-scrubber input[type="range"] {
+  width: 100%;
+}
+.playback-ranges {
+  position: relative;
+  height: 4px;
+  background: var(--tt-border);
+  border-radius: 2px;
+}
+.playback-ranges span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+}
+.playback-ranges.available span {
+  background: #6b8fd6;
+}
+.playback-ranges.held span {
+  background: #d69a3c;
+}
+.playback-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.playback-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.playback-missed {
+  border-top: 1px solid var(--tt-border);
+  padding-top: 8px;
+}
+.playback-transcript {
+  max-height: 240px;
+  overflow-y: auto;
+}
