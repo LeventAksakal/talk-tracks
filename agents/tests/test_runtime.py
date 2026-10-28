@@ -188,3 +188,13 @@ async def test_asr_opens_on_first_audio_and_reopens_after_a_failure(tmp_path: Pa
     assert provider.offsets == [5_000, 6_500]  # first chunk's start; then the chunk after the failure at 6.5 s
     assert finals(out) == ["to 6000", "to 7000", "to 8000"]
     assert out.groups() == [1, 2]
+
+
+async def test_a_paused_scripted_asr_finalises_only_the_line_it_was_hearing() -> None:
+    """Seen in the local run: closing the session on a pause made the whole two-hour demo script final at once."""
+    from talk_tracks.asr.scripted import demo_script
+
+    session = await ScriptedAsr(demo_script(["One two three four."])).open("en", offset_ms=10_000)
+    await session.feed(np.zeros(1600, dtype=np.int16), 11_000)  # a third of the way into the first line
+    closed = await session.close()
+    assert [(e.text, e.start_ms) for e in closed if isinstance(e, AsrFinal)] == [("One two", 10_000)]

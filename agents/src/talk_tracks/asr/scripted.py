@@ -45,7 +45,11 @@ class ScriptedAsrSession:
         return events
 
     async def close(self) -> list[AsrEvent]:
-        events: list[AsrEvent] = [AsrFinal(s.text, s.start_ms, s.end_ms) for s in self._script[self._next :]]
+        """Like a recogniser at the end of its audio: the line being heard is final; lines not yet spoken never are."""
+        events: list[AsrEvent] = []
+        if self._partial_words and self._next < len(self._script):
+            line = self._script[self._next]
+            events.append(AsrFinal(" ".join(line.text.split()[: self._partial_words]), line.start_ms, line.end_ms))
         self._next = len(self._script)
         return events
 
