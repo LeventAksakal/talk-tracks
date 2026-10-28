@@ -174,9 +174,6 @@ class _Source:
     def objects(self, group: int) -> list[bytes]:
         return [p.payload for p in self._sliced.published(self._agent, group, room_ms())]
 
-    def complete(self, group: int) -> bool:
-        return self._sliced.complete(self._agent, group, room_ms())
-
 
 def room_ms() -> int:
     """Media time of a looped room now (``replay``: wall time since ``EPOCH_MS``)."""

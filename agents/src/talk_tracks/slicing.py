@@ -433,17 +433,6 @@ class Room:
         """The objects of a group that are out by room media time ``now_ms``."""
         return tuple(p for p in self.group(agent, group) if p.media_ms <= now_ms)
 
-    def complete(self, agent: str, group: int, now_ms: int) -> bool:
-        """Whether a group is over at ``now_ms``: its slice has ended, or the next revision is out."""
-        where = self.locate(agent, group)
-        if where is None:
-            return False
-        track = self.agents[agent]
-        if track.track == ITEMS_TRACK:
-            return (group + 1) * SLICE_MS <= now_ms
-        following = self.group(agent, group + 1)
-        return bool(following) and following[0].media_ms <= now_ms
-
     def current(self, agent: str, now_ms: int) -> int | None:
         """The group open at ``now_ms`` (the newest one out), None before the first."""
         track = self.agents[agent]

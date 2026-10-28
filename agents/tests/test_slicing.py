@@ -175,7 +175,6 @@ def test_a_group_fills_as_the_room_clock_passes() -> None:
     g = 3 + 1  # loop 1, slice 1: media 16..20 s
     assert room.published("captions", g, 15_999) == ()
     assert len(room.published("captions", g, 16_000)) == 1  # the carry-in, at the slice start
-    assert not room.complete("captions", g, 19_999) and room.complete("captions", g, 20_000)
     assert room.current("captions", 17_000) == g
     # The outline: one group per revision, loop after loop.
     assert room.current("chapters", 50) is None
@@ -185,7 +184,6 @@ def test_a_group_fills_as_the_room_clock_passes() -> None:
     outline = SLICED.validate_json(room.group("chapters", 3)[0].payload)
     assert outline.kind == "snapshot" and isinstance(outline.body, OutlineSnapshot)
     assert outline.slice == (12_000 + 3000) // 4000 and outline.body.chapters[0].id == 5
-    assert not room.complete("chapters", 3, 24_099) and room.complete("chapters", 3, 24_100)
 
 
 def test_cues_open_each_group_before_its_items_on_the_lecture_clock() -> None:

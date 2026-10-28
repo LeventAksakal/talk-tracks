@@ -6,11 +6,18 @@ wiki/design/moq-track-system.md §9). aiomoqt's ``PublishedTrack`` answers it fr
 what it sent. ``ComputedTrack`` swaps that history for a ``GroupSource`` that rebuilds any group on demand, so a
 FETCH of any slice of a looped recording is answered, however old, without holding the room's past in memory.
 
-Two measured fixes are applied as in the spikes (``spikes/moqt/common.py``):
+Group numbers are set by the caller (the slice of the media clock), not counted by the writer. Three measured fixes:
 
-* ``fix_end``: for a whole-group FETCH aiomoqt reports End Object 2^62 + 1, which a QUIC varint cannot carry and the
-  relay rejects as "not found"; the End Location must be the group's last object plus one.
-* group numbers are set by the caller (the slice of the media clock), not counted by the writer.
+* ``fix_end`` (from the spikes, ``spikes/moqt/common.py``): for a whole-group FETCH aiomoqt reports End Object
+  2^62 + 1, which a QUIC varint cannot carry and the relay rejects as "not found"; the End Location must be the
+  group's last object plus one.
+* No End of Group object in a FETCH reply: moq-relay 0.17.8 fails the whole FETCH with code 18 "short buffer"
+  (probed 2026-10-28). A finished group's fetched copy ends after its last item.
+* ``from_next_group``: the relay subscribes upstream with the Largest Object filter. Started mid-group, a new
+  subscription gets the rest of that group, and the relay relabels it as the *next* group with object ids from 1,
+  then drops the real next group as a duplicate (probed 2026-10-28: slice k's tail arrived as group k + 1). Starting
+  every new subscription at the next group's object 0 avoids it; the group in progress stays reachable by a Joining
+  FETCH, which the history answers.
 
 Runs in the agents' Docker image only (aiomoqt has no Windows wheels).
 """
@@ -21,7 +28,7 @@ import asyncio
 from typing import Any, Protocol
 
 from aiomoqt.messages.data import FetchObject
-from aiomoqt.types import ObjectStatus
+from aiomoqt.types import FilterType
 
 from .moq import WRITE_TIMEOUT_S, TrackWriter
 
@@ -29,10 +36,6 @@ from .moq import WRITE_TIMEOUT_S, TrackWriter
 class GroupSource(Protocol):
     def objects(self, group: int) -> list[bytes]:
         """The objects of ``group`` published so far, in object order (none for a group not yet begun)."""
-        ...
-
-    def complete(self, group: int) -> bool:
-        """Whether ``group`` is over, so a FETCH of it ends with End of Group."""
         ...
 
 
@@ -51,6 +54,18 @@ def fix_end(track: Any) -> None:
     track._fetch_range = fixed
 
 
+def from_next_group(track: Any) -> None:
+    """Answer a Largest Object SUBSCRIBE as Next Group Start, so a new subscription never starts mid-group."""
+    orig = track._on_subscribe
+
+    async def on_subscribe(session: Any, msg: Any) -> None:
+        if getattr(msg, "filter_type", None) == FilterType.LATEST_OBJECT:
+            msg.filter_type = FilterType.NEXT_GROUP_START
+        await orig(session, msg)
+
+    track._on_subscribe = on_subscribe
+
+
 class ComputedHistory:
     """Stands in for aiomoqt's ``ObjectHistory``: nothing is kept, every FETCH is built from the source."""
 
@@ -65,15 +80,9 @@ class ComputedHistory:
     def add(self, *_args: Any, **_kwargs: Any) -> None:
         """Live objects are not kept: the source can build them again."""
 
-    def _group(self, group: int) -> list[tuple[int, bytes, Any]]:
-        objects = [(i, payload, ObjectStatus.NORMAL) for i, payload in enumerate(self._source.objects(group))]
-        if objects and self._source.complete(group):
-            objects.append((len(objects), b"", ObjectStatus.END_OF_GROUP))
-        return objects
-
     def last_object(self, group: int) -> int | None:
-        objects = self._group(group)
-        return objects[-1][0] if objects else None
+        objects = self._source.objects(group)
+        return len(objects) - 1 if objects else None
 
     def fetch(self, start: tuple[int, int], end: tuple[int, int], session: Any = None, **options: Any) -> list[Any]:
         """FetchObjects from ``start`` to ``end``, both (group, object) and inclusive; groups descend on request."""
@@ -81,9 +90,9 @@ class ComputedHistory:
         groups = range(start[0], end[0] + 1)
         out: list[Any] = []
         for group in reversed(groups) if options.get("descending") else groups:
-            for i, payload, status in self._group(group):
+            for i, payload in enumerate(self._source.objects(group)):
                 if start <= (group, i) <= end:
-                    out.append(FetchObject(group_id=group, object_id=i, status=status, payload=payload))
+                    out.append(FetchObject(group_id=group, object_id=i, payload=payload))
         return out
 
 
@@ -95,6 +104,7 @@ class ComputedTrack:
         self._track = self._writer._track
         self._track._history = ComputedHistory(source)
         fix_end(self._track)
+        from_next_group(self._track)
 
     async def open(self, group: int, payload: bytes) -> None:
         """Start ``group`` with ``payload`` as object 0; the group before it ends (End of Group on the stream)."""
