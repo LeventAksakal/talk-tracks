@@ -53,6 +53,21 @@ services:
     volumes: ["./textpub.py:/bench/textpub.py:ro"]
     networks: { bench: { ipv4_address: 172.29.0.13 } }
 
+  # A history track as decision 0012 shapes AI tracks: 4 s slices, live, and the origin of its own past by FETCH.
+  historypub:
+    image: ${BENCH_AGENTS_IMAGE:-talk-tracks-agents:dev}
+    init: true
+    depends_on: [relay]
+    restart: on-failure  # never comes back on its own: bench/run.sh stops it after each measurement
+    entrypoint: ["python", "/bench/historypub.py"]
+    environment:
+      BENCH_RELAY: moqt://relay:4443
+      BENCH_ARCHIVE_SLICES: ${BENCH_ARCHIVE_SLICES:-300}
+      # Each FETCH this origin serves, for bench/analyze.py; bench/run.sh sets the label.
+      BENCH_ORIGIN_LOG: /results/${BENCH_LABEL:-unlabelled}.origin.log
+    volumes: ["./historypub.py:/bench/historypub.py:ro", "./results:/results"]
+    networks: { bench: { ipv4_address: 172.29.0.14 } }
+
   # Netem on the servers' side: delay and loss on what they send to the viewer only (bench/netem.sh).
   netem-relay:
     image: talk-tracks-bench-viewer:dev
@@ -79,7 +94,7 @@ services:
     image: talk-tracks-bench-viewer:dev
     build: { context: ., dockerfile: Dockerfile.viewer }
     profiles: [run]
-    depends_on: [relay, mediamtx, source, textpub]
+    depends_on: [relay, mediamtx, source, textpub, historypub]
     ipc: host  # Chrome needs more shared memory than Docker's default 64 MB
     environment:
       BENCH_LABEL: ${BENCH_LABEL:-local}
