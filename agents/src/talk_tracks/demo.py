@@ -21,7 +21,7 @@ import json
 import logging
 import shutil
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
 
 from .contracts import Envelope, SlideFrame, agents_prefix, slides_path, teacher_path
@@ -37,12 +37,15 @@ from .lecture import (
     packets,
     probe,
 )
+from .lecture import clock as hang_clock
 from .moq import AUDIO_IDLE_S, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest, read_snapshots
 from .replay import EPOCH_MS, Cue, LoopPlan, MediaClock, event_us, loop_events, position
+from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
+from .room_catalog import RoomCatalog, catalog_path
 from .runtime import HEARTBEAT_S, now_ms
-from .slicing import Room, Template, cues
+from .slicing import Room, Template, cues, room_catalog
 from .slideshow import Crop, Slide, find_slides
 
 log = logging.getLogger("talk_tracks.demo")
@@ -55,10 +58,13 @@ SLIDE_REPEAT_S = 2.0  # the speaker console repeats the current slide this often
 
 
 class Teacher:
-    """The lecture's three tracks on ``talk/<room>/teacher``, written at real time on the room's media clock."""
+    """The lecture's three tracks on ``talk/<room>/teacher``, written at real time on the room's media clock.
 
-    def __init__(self, relay: Relay, room: str, info: LectureInfo) -> None:
-        self._relay, self._room, self.info = relay, room, info
+    ``wall_ms`` is the wall time of media time 0, which the catalog's hang ``clock`` carries: a looped room's
+    ``EPOCH_MS``, or, left None, the moment ``run_lecture`` starts playing."""
+
+    def __init__(self, relay: Relay, room: str, info: LectureInfo, *, wall_ms: int | None = None) -> None:
+        self._relay, self._room, self.info, self.wall_ms = relay, room, info, wall_ms
         self._catalog: TrackWriter | None = None
         self._video: TrackWriter | None = None
         self._audio: TrackWriter | None = None
@@ -80,7 +86,8 @@ class Teacher:
         if extra is not None:
             self._extra = extra
         assert self._catalog is not None
-        await self._catalog.write(json.dumps(catalog(self.info, self._extra), separators=(",", ":")).encode())
+        root = catalog(self.info, self._extra, wall_ms=self.wall_ms)
+        await self._catalog.write(json.dumps(root, separators=(",", ":")).encode())
 
     async def send(self, packet: MediaPacket, plan: LoopPlan) -> None:
         frame = legacy_frame(plan.media_us(packet.file_us), packet.data)
@@ -175,6 +182,23 @@ class _Source:
         return [p.payload for p in self._sliced.published(self._agent, group, room_ms())]
 
 
+class RoomCatalogTrack:
+    """A demo room's MSF catalog on ``talk/<room>/catalog`` (``room_catalog``). It never changes while the looper
+    runs, and is written again as a heartbeat, like the teacher's: a new subscription starts at the next group."""
+
+    def __init__(self, relay: Relay, room: str, catalog: RoomCatalog) -> None:
+        self._relay, self._room, self.catalog = relay, room, catalog
+        self._sink: TrackWriter | None = None
+
+    async def start(self) -> None:
+        self._sink = await self._relay.publish(catalog_path(self._room), ROOM_CATALOG_TRACK, queue=CATALOG_QUEUE)
+        await self.publish()
+
+    async def publish(self) -> None:
+        assert self._sink is not None
+        await self._sink.write(json.dumps(self.catalog.to_json(), separators=(",", ":")).encode())
+
+
 def room_ms() -> int:
     """Media time of a looped room now (``replay``: wall time since ``EPOCH_MS``)."""
     return now_ms() - EPOCH_MS
@@ -201,16 +225,21 @@ async def run_lecture(
     slides: SlideTrack | None = None,
     tracks: SlicedTracks | None = None,
     media_ms: int = 0,
+    beats: Sequence[Callable[[], Awaitable[None]]] = (),
 ) -> None:
     """Play the lecture ``loops`` times (None: forever) from room media time ``media_ms``, with the slide frames with
     ``slides`` and a recording's agent tracks with ``tracks``. With tracks a loop lasts the template's period and the
-    first one is joined in progress; without, a loop is the lecture."""
+    first one is joined in progress; without, a loop is the lecture. ``beats`` are repeated with the teacher's
+    catalog. Media time is placed on the wall clock at ``teacher.wall_ms``, set here when the teacher has none."""
     duration_ms = teacher.info.duration_ms
     template = tracks.sliced.template if tracks else None
     period_ms, stride = (template.period_ms, template.stride) if template else (duration_ms, 1)
     first, skip_ms = position(media_ms, period_ms)
-    beats = [asyncio.create_task(_every(HEARTBEAT_S, teacher.publish_catalog))]
-    origin = time.monotonic() - media_ms / 1000  # media time 0: loop k starts k periods later, no drift over days
+    if teacher.wall_ms is None:
+        teacher.wall_ms = now_ms() - media_ms
+    tasks = [asyncio.create_task(_every(HEARTBEAT_S, beat)) for beat in (teacher.publish_catalog, *beats)]
+    # media time 0 on the monotonic clock: loop k starts k periods later, no drift over days
+    origin = time.monotonic() - (now_ms() - teacher.wall_ms) / 1000
     show: asyncio.Task[None] | None = None
     try:
         index = first
@@ -238,7 +267,7 @@ async def run_lecture(
                 show.cancel()
             index += 1
     finally:
-        for task in [*beats, *([show] if show else [])]:
+        for task in [*tasks, *([show] if show else [])]:
             task.cancel()
 
 
@@ -363,12 +392,18 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
         room,
     )
     async with connect(url, token=token, insecure=insecure) as relay:
-        teacher = Teacher(relay, room, info)
+        teacher = Teacher(relay, room, info, wall_ms=EPOCH_MS)
         await teacher.start()
+        wall = hang_clock(EPOCH_MS)["wall"]
+        room_catalog_track = RoomCatalogTrack(relay, room, room_catalog(sliced.template, room, EPOCH_MS, wall))
+        await room_catalog_track.start()
         start = room_ms()
         tracks = SlicedTracks(relay, room, sliced)
         await tracks.start(start)
-        await until_closed(relay, run_lecture(teacher, loops=None, lecture=lecture, tracks=tracks, media_ms=start))
+        run = run_lecture(
+            teacher, loops=None, lecture=lecture, tracks=tracks, media_ms=start, beats=[room_catalog_track.publish]
+        )
+        await until_closed(relay, run)
 
 
 async def record(url: str, room: str, out: Path, *, media: str | None, token: str | None, insecure: bool) -> None:

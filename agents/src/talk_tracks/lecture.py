@@ -29,6 +29,8 @@ from .audio import write_varint
 VIDEO_TRACK = "video"
 AUDIO_TRACK = "audio"
 CATALOG_TRACK = "catalog.json"
+MOQ_EPOCH_MS = 1_577_836_800_000  # 2020-01-01T00:00:00Z, where hang's clock.wall counts from
+CLOCK_TIMESCALE = 1_000_000  # clock.wall in µs, hang's default
 
 
 @dataclass(frozen=True)
@@ -121,12 +123,23 @@ def legacy_frame(media_us: int, data: bytes) -> bytes:
     return write_varint(media_us) + data
 
 
-def catalog(info: LectureInfo, extra: dict[str, object] | None = None) -> dict[str, object]:
-    """The hang catalog of the teacher broadcast, as ``@moq/hang`` 0.5 validates it (``catalog/root.js``).
+def clock(wall_ms: int) -> dict[str, int]:
+    """hang's root ``clock`` for a broadcast whose PTS 0 is at Unix time ``wall_ms``: with it, a media timestamp maps
+    to wall time (``wallClockTime()`` in ``@moq/hang``), and so to room time (wiki/design/moq-track-system.md §4.5)."""
+    if wall_ms < MOQ_EPOCH_MS:
+        raise ValueError("hang's clock cannot say a time before 2020")
+    return {"wall": (wall_ms - MOQ_EPOCH_MS) * (CLOCK_TIMESCALE // 1000), "timescale": CLOCK_TIMESCALE}
+
+
+def catalog(
+    info: LectureInfo, extra: dict[str, object] | None = None, *, wall_ms: int | None = None
+) -> dict[str, object]:
+    """The hang catalog of the teacher broadcast, as ``@moq/hang`` 0.5 validates it (``catalog/root.js``), with the
+    root ``clock`` when ``wall_ms`` gives the wall time of PTS 0.
 
     ``extra`` adds application sections (the root is a loose object, so a player ignores what it does not know).
     """
-    root: dict[str, object] = {}
+    root: dict[str, object] = {} if wall_ms is None else {"clock": clock(wall_ms)}
     if info.video is not None:
         v = info.video
         rendition: dict[str, object] = {
