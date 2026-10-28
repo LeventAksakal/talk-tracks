@@ -3,7 +3,7 @@
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
 #   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state and spend ledger
-#   TT_LOOPER_TOKEN  signed for the demo room; TT_AGENT_TOKEN signed for the live room
+#   TT_LOOPER_TOKEN  signed for the demo rooms virus and dataviz; TT_AGENT_TOKEN signed for the live room
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
 #   docker compose -f deploy/compose.vm.yml up -d
 #   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
@@ -74,13 +74,22 @@ services:
               "--public-subscribe", "talk/**"]
     volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro"]
 
-  looper:
+  # One looping demo room per lecture (ticket 0001), named after it: the recording is $TT_DATA/demo/<room>/.
+  # TT_LOOPER_TOKEN is signed for both rooms (wiki/howto/tokens.md, one --publish pair per room).
+  looper-virus:
     <<: *agent
     environment:
       <<: *agent-env
-      TT_ROOM: ${TT_DEMO_ROOM:-demo}
+      TT_ROOM: virus
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/${TT_LECTURE:-test}"]
+    command: ["loop", "--insecure", "--recording", "/data/demo/virus"]
+  looper-dataviz:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      TT_ROOM: dataviz
+      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
+    command: ["loop", "--insecure", "--recording", "/data/demo/dataviz"]
 
   captions:
     <<: *live

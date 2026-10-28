@@ -39,6 +39,27 @@ from before the event is in this repository.
 moq-relay and the `@moq/*` browser libraries (MIT or Apache-2.0, by the moq.dev authors), aiomoqt, PyAV, NumPy,
 pydantic, httpx, websockets, React, Vite, Astryx. Licences are checked in `NOTICE`.
 
+## Demo lectures
+
+The public demo rooms loop two talks from Electromagnetic Field 2026, recorded by the EMF Video Team and C3VOC and
+published on media.ccc.de under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/):
+
+| Room | Talk | Speaker | Part used |
+|---|---|---|---|
+| `virus` | [You Are Part Virus: How Biological Viruses Hack Cells](https://media.ccc.de/v/emf2026-149-1-you-are-part-virus-how-biological-viruses-hack-cells) | Christopher Binny | 0:12.6–17:12.8 of the recording |
+| `dataviz` | [Data Visualisation: The Good, The Bad, The Ugly and the Beautiful](https://media.ccc.de/v/emf2026-241-1-data-visualisation-the-good-the-bad-the-ugly) | Charlotte Rutherford | 0:12.6–19:11.4, the whole talk |
+
+Changes made:
+
+- Each talk is trimmed: the EMF title card, sponsor logos and jingle at the start are cut, and so is the closing
+  licence card. The biology talk ends at a section break before its last part.
+- Each is re-encoded for streaming (720p H.264, mono Opus).
+- AI-generated tracks are added, made once by this project's agents with Meta models: captions, a Turkish
+  translation, slide descriptions, and chapters with a glossary and recap.
+
+The trimmed videos and the tracks derived from them are shared under CC BY-SA 4.0 too. The cuts are in
+`deploy/media/demo-lectures.sh`. The videos themselves are not in this repository.
+
 ## Licence
 
-Apache-2.0, see `LICENSE`.
+Apache-2.0, see `LICENSE`. The demo lectures and their derived tracks are CC BY-SA 4.0 (see above).

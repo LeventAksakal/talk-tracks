@@ -12,6 +12,23 @@ Three steps, all in Docker (see [run-locally](run-locally.md) for the relay and 
    agents publish into `data/demo/<lecture>/`. This is the only step that would cost API credit with real agents.
 3. **loop**: serve the recording in the public room, forever.
 
+## The two public rooms
+
+The VM loops two CC BY-SA 4.0 talks from EMF 2026 (ticket 0001, credited in the README), one room per lecture,
+named after it: `virus` and `dataviz` (`looper-virus` and `looper-dataviz` in `deploy/compose.vm.yml`). Each reads
+`$TT_DATA/demo/<room>/`. One looper token is signed for both rooms.
+
+`deploy/media/demo-lectures.sh` downloads each talk once from media.ccc.de and checks its SHA-256, so the cut
+timestamps always mean the same frames. It then trims and prepares it as `data/demo/<room>/lecture.mp4`:
+
+| Room | Cut (s of the source) | Start | End |
+|---|---|---|---|
+| `virus` | 12.60–1032.8 (17:00) | the title, sponsor and speaker cards end with a hard cut; speech starts at 13.0 | in a 3.6 s pause that closes a part; the "Taking Over" section slide follows at 1033.9 |
+| `dataviz` | 12.60–1151.4 (18:59) | the same cards; speech starts at 12.7 | the speaker's thanks end at 1150.4; then room sound and the EMF licence card at 1157.6 |
+
+The cuts were found with ffmpeg `silencedetect`, a 100 ms loudness envelope, scene detection and sampled frames.
+`prepare-lecture IN OUT [START END]` cuts in the same encode as the format change.
+
 ## All at once
 
 ```bash
