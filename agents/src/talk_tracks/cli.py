@@ -112,14 +112,12 @@ def build(args: argparse.Namespace, room: str) -> tuple[AgentInfo, Callable[[], 
         saved = Path(os.environ.get("TT_STATE_DIR", "data/state")) / f"captions-{room}-{lang}.json"
 
         async def transcribe(relay: Any, pub: Any, gate: Any) -> None:
-            await runtime.run_captions(
-                gated(gate, lambda: moq.teacher_audio(relay, room), f"captions {room}"),
-                asr,
-                pub,
-                lang,
-                resume=statefile.load_captions(saved),
-                save=lambda state: statefile.save(saved, state),
-            )
+            async with contextlib.aclosing(
+                gated(gate, lambda: moq.teacher_audio(relay, room), f"captions {room}")
+            ) as a:
+                await runtime.run_captions(
+                    a, asr, pub, lang, resume=statefile.load_captions(saved), save=lambda s: statefile.save(saved, s)
+                )
 
         return AgentInfo(name="captions", label=f"Captions ({language_name(lang)})", model=model), Usage, transcribe
 
@@ -131,15 +129,18 @@ def build(args: argparse.Namespace, room: str) -> tuple[AgentInfo, Callable[[], 
             if isinstance(envelope.state, CaptionsState):
                 yield envelope.state
 
+    # aclosing: an agent that stops at its cap closes its input at once, which releases the track it subscribed to.
     async def translate(relay: Any, pub: Any, gate: Any) -> None:
-        await runtime.run_translate(gated(gate, lambda: captions(relay), f"translate {room}"), llm, pub, lang)
+        async with contextlib.aclosing(gated(gate, lambda: captions(relay), f"translate {room}")) as lines:
+            await runtime.run_translate(lines, llm, pub, lang)
 
     async def describe(relay: Any, pub: Any, gate: Any) -> None:
-        frames = gated(gate, lambda: moq.slide_frames(relay, room), f"describe {room}")
-        await runtime.run_describe(frames, llm, pub, lang)
+        async with contextlib.aclosing(gated(gate, lambda: moq.slide_frames(relay, room), f"describe {room}")) as f:
+            await runtime.run_describe(f, llm, pub, lang)
 
     async def chapters(relay: Any, pub: Any, gate: Any) -> None:
-        await runtime.run_outline(gated(gate, lambda: captions(relay), f"chapters {room}"), llm, pub, lang)
+        async with contextlib.aclosing(gated(gate, lambda: captions(relay), f"chapters {room}")) as lines:
+            await runtime.run_outline(lines, llm, pub, lang)
 
     if args.agent == "translate":
         info = AgentInfo(name=f"translate-{lang}", label=f"{language_name(lang)} translation", model=llm.model)

@@ -58,7 +58,7 @@ async def _next[T](source: AsyncIterator[T]) -> T:
     return await anext(source)
 
 
-async def gated[T](gate: Gate, open_input: Callable[[], AsyncGenerator[T]], what: str) -> AsyncIterator[T | None]:
+async def gated[T](gate: Gate, open_input: Callable[[], AsyncGenerator[T]], what: str) -> AsyncGenerator[T | None]:
     """The items of ``open_input()`` while the gate is wanted; ``None`` each time the input closes for want of
     subscribers (an ASR session closes on it). A fresh input opens on the next subscriber."""
     while True:
