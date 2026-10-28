@@ -35,8 +35,15 @@ RETRY_S = (1.0, 2.0, 5.0, 10.0, 30.0)
 CONTENT_TYPES = {".m4s": "video/iso.segment", ".mp4": "video/mp4", ".jsonl": "application/x-ndjson"}
 
 
+IMMUTABLE = (".slice", ".m4s", ".mp4", ".jpg", ".png")  # never rewritten: uploaded create-only
+
+
+class AlreadyThere(Exception):
+    """A create-only upload found the object in the bucket: another writer won, and its copy is kept."""
+
+
 class Bucket(Protocol):
-    async def put(self, name: str, data: bytes, content_type: str) -> None: ...
+    async def put(self, name: str, data: bytes, content_type: str, *, create_only: bool = False) -> None: ...
 
     def sizes(self, prefix: str = "") -> AsyncIterator[tuple[str, int]]: ...
 
@@ -79,13 +86,19 @@ class GcsBucket:
             self._expires = time.monotonic() + float(body.get("expires_in", 300)) - 60
         return {"Authorization": f"Bearer {self._token}"}
 
-    async def put(self, name: str, data: bytes, content_type: str) -> None:
+    async def put(self, name: str, data: bytes, content_type: str, *, create_only: bool = False) -> None:
+        """Upload an object. ``create_only`` (``ifGenerationMatch=0``) never replaces one: AlreadyThere if it exists."""
+        params = {"uploadType": "media", "name": self.folder + name}
+        if create_only:
+            params["ifGenerationMatch"] = "0"
         r = await self._client.post(
             f"{self._storage}/upload/storage/v1/b/{quote(self.name, safe='')}/o",
-            params={"uploadType": "media", "name": self.folder + name},
+            params=params,
             content=data,
             headers={**await self._auth(), "Content-Type": content_type},
         )
+        if r.status_code == 412 and create_only:
+            raise AlreadyThere(name)
         r.raise_for_status()
 
     async def get(self, name: str) -> bytes | None:
@@ -135,6 +148,7 @@ class Uploader:
         self._wake = asyncio.Event()
         self.uploaded = 0
         self.failed = 0
+        self.kept = 0  # create-only uploads another writer had already made
 
     def notify(self, path: str, mutable: bool) -> None:
         if self.bucket is None:
@@ -202,8 +216,12 @@ class Uploader:
             except FileNotFoundError:
                 return
             try:
-                await self.bucket.put(path, data, content_type(path))
+                await self.bucket.put(path, data, content_type(path), create_only=path.endswith(IMMUTABLE))
                 self.uploaded += 1
+                return
+            except AlreadyThere:
+                self.kept += 1
+                log.info("%s is already in the bucket: another writer won, keeping its copy", path)
                 return
             except Exception as exc:
                 log.warning("upload of %s failed (attempt %d): %s", path, attempt + 1, exc)

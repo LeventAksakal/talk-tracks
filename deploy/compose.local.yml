@@ -11,11 +11,11 @@ x-agent: &agent
   restart: unless-stopped  # aiomoqt does not reconnect: the process exits and comes back as a fresh instance
   stop_grace_period: 15s  # time to close the session cleanly, so a replacement takes the track over at once
   depends_on: [relay]
-  # The track archive (archive/ beside data/state): each agent writes the slices it publishes, serves FETCH from
-  # them and restarts from its newest one (decision 0012). The archive's spool is for agents that do not slice yet.
-  volumes: ["../data/archive:/app/data/archive", "../data/archive-spool:/app/data/archive-spool"]
+  # The track archive (archive/ beside data/state): agents write their slices there and answer FETCH from it.
+  volumes: ["../data/archive:/app/data/archive"]
   environment:
     TT_RELAY: moqt://relay:4443
+    TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     TT_ROOM: ${TT_ROOM:-dev}
 
 services:
@@ -29,15 +29,15 @@ services:
     ports: ["${TT_RELAY_PORT:-4443}:4443/udp", "${TT_RELAY_PORT:-4443}:4443/tcp"]
     restart: unless-stopped
 
-  # The track archive (wiki/howto/archive.md) of every room, in data/archive/ (not in git). No bucket copy unless
-  # TT_ARCHIVE_BUCKET is set (it needs Google credentials, so leave it unset on a laptop).
+  # The room service (wiki/howto/archive.md): records every room's speaker media and slides into data/archive/ (not
+  # in git) and publishes talk/<room>/catalog. No bucket copy unless TT_ARCHIVE_BUCKET is set (it needs Google
+  # credentials, so leave it unset on a laptop).
   archive:
     <<: *agent
-    volumes: ["../data/archive:/data/archive", "../data/archive-spool:/data/archive-spool"]
+    volumes: ["../data/archive:/data/archive"]
     environment:
       TT_RELAY: moqt://relay:4443
       TT_ARCHIVE_DIR: /data/archive
-      TT_ARCHIVE_SPOOL: /data/archive-spool
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]

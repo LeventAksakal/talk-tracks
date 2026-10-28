@@ -1,9 +1,9 @@
 """The slice store: each agent writes every object it publishes, and reads a slice back to answer a FETCH.
 
-Decision 0012: every AI track cuts group k as media time [k·S, (k+1)·S), S = 4 s. Its publisher is the origin of the
-track's history, so it records what it sends and serves FETCH misses from the record (disk, then the bucket). Nothing
-here touches the transport: the agents' publish path calls ``write`` beside each object it sends, ``end_group`` when
-a slice is over, and ``read`` in its FETCH handler.
+Decision 0012: every AI track cuts group k as room time [k·S, (k+1)·S), S = 4 s (the room clock, design §4.5). Its
+publisher is the origin of the track's history, so it records what it sends and serves FETCH misses from the record
+(disk, then the bucket). Nothing here touches the transport: the agents' publish path calls ``write`` beside each
+object it sends, ``end_group`` when a slice is over, and ``read`` in its FETCH handler.
 
 Layout under the archive (``TT_ARCHIVE_DIR``, by default ``archive/`` beside ``TT_STATE_DIR``)::
 
@@ -46,7 +46,7 @@ Status = Literal["idle", "live", "capped"]
 
 
 def slice_of(media_ms: int) -> int:
-    """The group that holds media time ``media_ms``."""
+    """The group that holds room time ``media_ms`` (the speaker's media timestamp plus the broadcast's offset)."""
     return max(0, media_ms) // SLICE_MS
 
 
@@ -123,7 +123,14 @@ class TrackInfo:
 
 
 class SliceExists(Exception):
-    """The slice was finished, or another process left it open: objects are immutable, so it is not rewritten."""
+    """The slice was finished, or another process holds it open: objects are immutable, so it is not rewritten.
+
+    ``existing`` is the copy on disk, to serve instead. Slices are written once: whoever creates the file first wins
+    (``create``, ``end_group``), and the loser is told with this exception or ``create``'s flag."""
+
+    def __init__(self, what: str, existing: Slice | None = None) -> None:
+        super().__init__(what)
+        self.existing = existing
 
 
 class ReadBucket(Protocol):
@@ -192,10 +199,40 @@ class TrackArchive:
         f.write(_encode(end) + "\n")
         f.close()
         self._open.pop(group, None)
-        os.replace(self.path(group, PART), self.path(group))
+        part = self.path(group, PART)
+        if not _claim(part, self.path(group)):
+            raise SliceExists(
+                f"{self.relpath} group {group}: another process finished it first", self.read_local(group)
+            )
         done = self.read_local(group)
         assert done is not None
         return done
+
+    def create(self, group: int, objects: list[SliceObject], *, end_of_track: bool = False) -> tuple[Slice, bool]:
+        """Write a whole slice at once, only if nobody has (a back-fill, the conditional create of decision 0012).
+
+        Returns the slice on disk and whether this call wrote it. When another process wrote it first, finished or
+        still open, that copy is returned instead, to serve. Object ids must rise; the end marker is added."""
+        if group < 0:
+            raise ValueError(f"no group {group}")
+        lines: list[str] = []
+        last = -1
+        for obj in objects:
+            if obj.object_id <= last or obj.status in (END_OF_GROUP, END_OF_TRACK):
+                raise ValueError(f"object {obj.object_id} after {last} in group {group}")
+            lines.append(_encode(obj))
+            last = obj.object_id
+        lines.append(_encode(SliceObject(last + 1, status=END_OF_TRACK if end_of_track else END_OF_GROUP)))
+        existing = self.read_local(group)  # finished, or open here or in another process
+        if existing is not None:
+            return existing, False
+        self.dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.dir / f"{group:08d}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        created = _claim(tmp, self.path(group))
+        found = self.read_local(group)
+        assert found is not None
+        return found, created
 
     def discard(self, group: int) -> bool:
         """Remove an open slice another process left behind (it died mid-slice), so the group can be written anew,
@@ -221,10 +258,15 @@ class TrackArchive:
         self._open.clear()
 
     def _begin(self, group: int) -> TextIO:
-        if self.path(group).exists() or self.path(group, PART).exists():
-            raise SliceExists(f"{self.relpath} group {group}")
+        if self.path(group).exists():
+            raise SliceExists(f"{self.relpath} group {group}", self.read_local(group))
         self.dir.mkdir(parents=True, exist_ok=True)
-        return self.path(group, PART).open("x", encoding="utf-8", newline="\n")
+        try:
+            return self.path(group, PART).open("x", encoding="utf-8", newline="\n")
+        except FileExistsError:
+            raise SliceExists(
+                f"{self.relpath} group {group}: open in another process", self.read_local(group)
+            ) from None
 
     def _save_info(self) -> None:
         assert self._info is not None
@@ -251,13 +293,25 @@ class TrackArchive:
         data = await self.bucket.get(f"{self.relpath}/{group:08d}{FINISHED}")
         if data is None:
             return None
-        write_atomic(self.path(group), data)
-        return Slice(group, tuple(_decode_lines(data)))
+        self.dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.dir / f"{group:08d}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+        tmp.write_bytes(data)
+        _claim(tmp, self.path(group))  # a copy already on disk wins: it is the same slice
+        return self.read_local(group)
+
+    async def last_object(self, group: int) -> SliceObject | None:
+        """The slice's last published object, end marker left out: a snapshot track's state at the slice's end (the
+        outline a late joiner starts from). None when the slice holds none or was never produced."""
+        found = await self.read(group)
+        if found is None:
+            return None
+        objects = [o for o in found.objects if o.status not in (END_OF_GROUP, END_OF_TRACK)]
+        return objects[-1] if objects else None
 
     def groups(self) -> list[int]:
         """Every slice on disk, finished or open, in order."""
         found: set[int] = set()
-        for p in _listdir(self.dir):
+        for p in listdir(self.dir):
             stem, dot, suffix = p.partition(".")
             if dot and "." + suffix in (FINISHED, PART) and stem.isdigit():
                 found.add(int(stem))
@@ -305,10 +359,33 @@ def _decode_lines(data: bytes) -> Iterator[SliceObject]:
         )
 
 
-def _listdir(path: Path) -> list[str]:
+def _claim(src: Path, final: Path) -> bool:
+    """Move ``src`` to ``final`` unless ``final`` exists, atomically (a hard link fails on an existing name). False,
+    and ``src`` removed, when another writer got there first.
+
+    Where hard links are not supported (some network or Windows mounts), a rename guarded by an existence check: on
+    Windows the rename itself fails on an existing name; elsewhere only the narrow window after the check remains."""
+    try:
+        os.link(src, final)
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        if final.exists():
+            return False
+        try:
+            os.rename(src, final)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        src.unlink(missing_ok=True)
+
+
+def listdir(path: Path) -> list[str]:
     try:
         return os.listdir(path)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return []
 
 
@@ -327,10 +404,10 @@ class SliceWatcher:
     def poll(self) -> list[tuple[str, bool]]:
         """(relpath, mutable) for each new finished slice and each changed ``track.json``."""
         out: list[tuple[str, bool]] = []
-        for room in _listdir(self.root):
+        for room in listdir(self.root):
             agents = self.root / room / "agents"
-            for agent in _listdir(agents):
-                for track in _listdir(agents / agent):
+            for agent in listdir(agents):
+                for track in listdir(agents / agent):
                     folder = agents / agent / track
                     key = f"{room}/agents/{agent}/{track}"
                     try:
@@ -340,10 +417,10 @@ class SliceWatcher:
                     before = self._seen.get(key)
                     if before is not None and before[0] == mtime:
                         continue
-                    names = {n for n in _listdir(folder) if n.endswith(FINISHED)}
+                    names = {n for n in listdir(folder) if n.endswith(FINISHED)}
                     new = names - (before[1] if before else set())
                     out += [(f"{key}/{n}", False) for n in sorted(new)]
-                    if TRACK_INFO in _listdir(folder):
+                    if TRACK_INFO in listdir(folder):
                         out.append((f"{key}/{TRACK_INFO}", True))
                     self._seen[key] = (mtime, names)
         return out

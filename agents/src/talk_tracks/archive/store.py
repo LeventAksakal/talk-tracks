@@ -1,4 +1,6 @@
-"""The archive on disk: rooms, runs, fMP4 media segments, agent snapshot chunks, slides. Transport-free.
+"""The archive on disk: rooms, runs, the speaker's fMP4 media segments and slides. Transport-free.
+
+Agent tracks are not here: each agent records its own slices (``archive.slices``, decision 0012).
 
 The format is ``wiki/howto/archive.md``. The archiver's MoQ side (``archive.relay``) feeds this module what it
 reads; everything here is plain file writing, so tests run it without a relay. Every finished file is reported to
@@ -19,13 +21,12 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import Field, ValidationError
 
 from ..audio import split_legacy
-from ..contracts import AgentInfo, Envelope, SlideFrame, Wire
-from ..recording import RecordedSnapshot, agent_file
+from ..contracts import SlideFrame, Wire
 from .mp4 import OPUS_SILENCE, Sample, TrackConfig, avc_is_keyframe, init_segment, media_segment, opus_duration_us
 
 log = logging.getLogger("talk_tracks.archive")
@@ -35,10 +36,8 @@ SEGMENT_US = 6_000_000  # a segment closes at the first sync sample at least thi
 TRACK_IDLE_MS = 3_000  # ... or when its track has been silent this long
 MAX_FILL_US = 10_000_000  # an audio gap up to this long is filled with silence; a longer one starts a new segment
 REORDER = 5  # samples held back to put late groups in order
-RUN_JUMP_BACK_MS = 30_000  # media time this far behind the run's: the speaker's clock restarted, a new run
-RUN_GAP_MS = 10 * 60_000  # teacher media after this long without any: a new talk, a new run
-CHUNK_MS = 10_000  # a snapshot chunk closes this long (wall clock) after its first line
-CHUNK_BYTES = 4 << 20
+CLOCK_WAIT_MS = 5_000  # teacher media is held this long for the room clock; none by then means offset 0 (the looper)
+HELD_MAX = 4_000  # objects held while waiting for the clock
 DEFAULT_AUDIO = TrackConfig(kind="audio", codec="opus")
 
 OnFile = Callable[[str, bool], None]  # (path relative to the root, mutable)
@@ -63,8 +62,17 @@ class RoomsIndex(Doc):
     rooms: list[RoomEntry] = Field(default_factory=list[RoomEntry])
 
 
+class RoomClock(Wire):
+    """An object of track ``clock`` in ``talk/<room>/slides``: room time = media timestamp + ``offset_ms``."""
+
+    epoch_ms: int = Field(ge=0, description="Wall time of the room's first broadcast")
+    offset_ms: int
+    session: str = Field(description="The broadcast's start, wall ms")
+
+
 class RunEntry(Wire):
     run: str
+    session: str | None = None
     started_wall_ms: int = Field(ge=0)
     last_wall_ms: int = Field(ge=0)
     media_first_ms: int | None = Field(default=None, ge=0)
@@ -73,6 +81,7 @@ class RunEntry(Wire):
 
 class RoomIndex(Doc):
     room: str
+    epoch_ms: int | None = Field(default=None, ge=0, description="Wall time of the room's first broadcast")
     runs: list[RunEntry] = Field(default_factory=list[RunEntry])
 
 
@@ -98,21 +107,6 @@ class TrackEntry(Wire):
     segments: list[SegmentEntry] = Field(default_factory=list[SegmentEntry])
 
 
-class ChunkEntry(Wire):
-    n: int = Field(ge=0)
-    snapshots: int = Field(ge=0)
-    first_media_ms: int = Field(ge=0)
-    last_media_ms: int = Field(ge=0)
-    first_wall_ms: int = Field(ge=0)
-    last_wall_ms: int = Field(ge=0)
-    open: bool
-
-
-class AgentEntry(Wire):
-    info: AgentInfo
-    chunks: list[ChunkEntry] = Field(default_factory=list[ChunkEntry])
-
-
 class SlidesEntry(Wire):
     frames: int = Field(ge=0)
     first_media_ms: int = Field(ge=0)
@@ -122,13 +116,14 @@ class SlidesEntry(Wire):
 class RunIndex(Doc):
     room: str
     run: str
+    session: str | None = Field(default=None, description="The speaker's broadcast (its clock's session)")
+    offset_ms: int = Field(default=0, description="Added to the speaker's media timestamps to get room time")
     started_wall_ms: int = Field(ge=0)
     last_wall_ms: int = Field(ge=0)
     media_first_ms: int | None = Field(default=None, ge=0)
     media_last_ms: int | None = Field(default=None, ge=0)
     media_last_wall_ms: int | None = Field(default=None, ge=0, description="Wall clock of the last teacher media")
     tracks: list[TrackEntry] = Field(default_factory=list[TrackEntry])
-    agents: list[AgentEntry] = Field(default_factory=list[AgentEntry])
     slides: SlidesEntry | None = None
 
 
@@ -139,15 +134,6 @@ class SlideLine(Wire):
     at_ms: int = Field(ge=0)
     mime: Literal["image/jpeg", "image/png"]
     file: str
-
-
-class Latest(Doc):
-    """``<room>/latest/<agent>.json``: what a restarting agent seeds from."""
-
-    room: str
-    run: str
-    info: AgentInfo
-    snapshot: RecordedSnapshot
 
 
 # --- files ------------------------------------------------------------------------------------------------------
@@ -284,6 +270,9 @@ class MediaTrack:
     def _place(self, time_us: int, data: bytes, sync: bool) -> None:
         end = self._end_us()
         if end is not None and time_us < end - 1_000:
+            if end - time_us > 1_000_000 and not self._warned:
+                self._warned = True  # room time never goes back; this is a clock bug, not a late sample
+                log.warning("%s: media time went back %d ms; dropping samples", self.dir, (end - time_us) // 1000)
             return  # too late to place, or a repeat
         if end is not None and time_us > end + MAX_FILL_US:
             self._close(None)  # a long gap: the next segment starts at this sample
@@ -335,91 +324,12 @@ class MediaTrack:
         self._next_n, self._next_us = n + 1, end_us
         self.run.dirty = True
 
+    _warned = False
+
     def _write(self, name: str, data: bytes) -> None:
         path = self.dir / name
         write_atomic(path, data)
         self.run.archive.reported(path, mutable=False)
-
-
-# --- agent snapshots ------------------------------------------------------------------------------------------
-
-
-class AgentTimeline:
-    """One agent's snapshot chunks in one run."""
-
-    def __init__(self, run: RunArchive, entry: AgentEntry) -> None:
-        self.run, self.entry = run, entry
-        self.dir = run.dir / "agents" / entry.info.name
-        self._open_bytes = 0
-        self._file: BinaryIO | None = None  # the open chunk, kept open: one write per line, not an open and a close
-        if entry.chunks and entry.chunks[-1].open:
-            self._set_last(entry.chunks[-1].model_copy(update={"open": False}))  # a restarted archiver starts anew
-        self.last_media_ms = entry.chunks[-1].last_media_ms if entry.chunks else 0
-
-    def _set_last(self, chunk: ChunkEntry) -> None:
-        self.entry = self.entry.model_copy(update={"chunks": [*self.entry.chunks[:-1], chunk]})
-
-    def path(self, n: int) -> Path:
-        return self.dir / f"{n:06d}.jsonl"
-
-    def add(self, info: AgentInfo, snapshot: RecordedSnapshot) -> None:
-        line = (snapshot.model_dump_json() + "\n").encode()
-        if self.due(snapshot.wall_ms):
-            self.close()
-        chunks = self.entry.chunks
-        last = chunks[-1] if chunks else None
-        if last is None or not last.open:
-            n = last.n + 1 if last else 0
-            chunk = ChunkEntry(
-                n=n,
-                snapshots=1,
-                first_media_ms=snapshot.media_ms,
-                last_media_ms=snapshot.media_ms,
-                first_wall_ms=snapshot.wall_ms,
-                last_wall_ms=snapshot.wall_ms,
-                open=True,
-            )
-            self.entry = self.entry.model_copy(update={"info": info, "chunks": [*chunks, chunk]})
-            self._open_bytes = 0
-        else:
-            chunk = last.model_copy(
-                update={
-                    "snapshots": last.snapshots + 1,
-                    "last_media_ms": snapshot.media_ms,
-                    "last_wall_ms": snapshot.wall_ms,
-                }
-            )
-            self._set_last(chunk)
-            if info != self.entry.info:
-                self.entry = self.entry.model_copy(update={"info": info})
-        path = self.path(chunk.n)
-        if self._file is None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self._file = path.open("ab")
-        self._file.write(line)
-        self._file.flush()
-        self._open_bytes += len(line)
-        self.last_media_ms = snapshot.media_ms
-        self.run.dirty = True
-        if self._open_bytes >= CHUNK_BYTES:
-            self.close()
-        else:
-            self.run.archive.reported(path, mutable=True)
-
-    def due(self, wall_ms: int) -> bool:
-        chunks = self.entry.chunks
-        return bool(chunks) and chunks[-1].open and wall_ms - chunks[-1].first_wall_ms >= CHUNK_MS
-
-    def close(self) -> None:
-        chunks = self.entry.chunks
-        if self._file is not None:
-            self._file.close()
-            self._file = None
-        if not chunks or not chunks[-1].open:
-            return
-        self._set_last(chunks[-1].model_copy(update={"open": False}))
-        self.run.dirty = True
-        self.run.archive.reported(self.path(chunks[-1].n), mutable=False)
 
 
 # --- runs and rooms ---------------------------------------------------------------------------------------------
@@ -442,7 +352,6 @@ class RunArchive:
                 height=entry.height or 0,
             )
             self.tracks[entry.track] = MediaTrack(self, entry.track, config, entry)
-        self.agents = {a.info.name: AgentTimeline(self, a) for a in index.agents}
         self.clock_ms = index.media_last_ms or 0
         self._last_slide: tuple[int, str] | None = None
 
@@ -470,26 +379,7 @@ class RunArchive:
                 "media_last_wall_ms": wall_ms,
                 "last_wall_ms": max(i.last_wall_ms, wall_ms),
             }
-        )  # saved with the next segment or snapshot: not worth a rewrite per sample
-
-    def snapshot(self, envelope: Envelope, wall_ms: int) -> RecordedSnapshot:
-        name = envelope.agent.name
-        agent_file(name)  # checks the name is usable as a folder
-        timeline = self.agents.get(name)
-        if timeline is None:
-            timeline = AgentTimeline(self, AgentEntry(info=envelope.agent))
-            self.agents[name] = timeline
-        snapshot = RecordedSnapshot(
-            media_ms=max(self.clock_ms, timeline.last_media_ms),
-            wall_ms=wall_ms,
-            instance=envelope.instance,
-            seq=envelope.seq,
-            usage=envelope.usage,
-            state=envelope.state,
-        )
-        timeline.add(envelope.agent, snapshot)
-        self.index = self.index.model_copy(update={"last_wall_ms": max(self.index.last_wall_ms, wall_ms)})
-        return snapshot
+        )  # saved with the next segment: not worth a rewrite per sample
 
     def slide(self, frame: SlideFrame, wall_ms: int) -> bool:
         """Keep a slide frame unless it repeats the last one. True when it was written."""
@@ -534,22 +424,16 @@ class RunArchive:
             if track.last_wall_ms and wall_ms - track.last_wall_ms >= TRACK_IDLE_MS:
                 track.flush()
                 track.last_wall_ms = 0
-        for timeline in self.agents.values():
-            if timeline.due(wall_ms):
-                timeline.close()
 
     def close(self) -> None:
         for track in self.tracks.values():
             track.flush()
-        for timeline in self.agents.values():
-            timeline.close()
 
     def save(self) -> None:
         if not self.dirty:
             return
         tracks = [t.entry for t in self.tracks.values()]
-        agents = [a.entry for a in self.agents.values()]
-        self.index = self.index.model_copy(update={"tracks": tracks, "agents": agents})
+        self.index = self.index.model_copy(update={"tracks": tracks})
         write_atomic(self.dir / "run.json", dump(self.index))
         self.archive.reported(self.dir / "run.json", mutable=True)
         self.dirty = False
@@ -558,6 +442,7 @@ class RunArchive:
         i = self.index
         return RunEntry(
             run=i.run,
+            session=i.session,
             started_wall_ms=i.started_wall_ms,
             last_wall_ms=i.last_wall_ms,
             media_first_ms=i.media_first_ms,
@@ -572,7 +457,7 @@ class _Teacher:
 
 
 class RoomArchive:
-    """One room: its runs (the newest is written to), its catalog, and each agent's latest snapshot."""
+    """One room: its runs (the newest is written to) and the speaker's catalog."""
 
     def __init__(self, archive: Archive, room: str) -> None:
         self.archive, self.name = archive, room
@@ -580,12 +465,17 @@ class RoomArchive:
         self.teacher = _Teacher()
         self.runs: list[RunEntry] = []
         self.run: RunArchive | None = None
-        self._latest: dict[str, Latest] = {}
         self.dirty = False
+        self.epoch_ms: int | None = None
+        self.offset_ms: int | None = None  # None: waiting for the clock of the current teacher broadcast
+        self._held: list[tuple[str, bytes, int]] = []
+        self._waiting_ms: int | None = None
+        self._clock: RoomClock | None = None  # the console's latest clock object, while its slides broadcast is up
         index_path = self.dir / "room.json"
         if index_path.exists():
             try:
-                self.runs = list(RoomIndex.model_validate_json(index_path.read_bytes()).runs)
+                index = RoomIndex.model_validate_json(index_path.read_bytes())
+                self.runs, self.epoch_ms = list(index.runs), index.epoch_ms
             except ValidationError:
                 log.warning("room %s: room.json unreadable, starting a new run", room)
         if self.runs:
@@ -596,14 +486,22 @@ class RoomArchive:
             except (OSError, ValidationError):
                 log.warning("room %s: run %s unreadable, starting a new run", room, self.runs[-1].run)
 
-    def _new_run(self, wall_ms: int) -> RunArchive:
+    def _new_run(self, wall_ms: int, session: str | None = None, offset_ms: int = 0) -> RunArchive:
         if self.run is not None:
             self.run.close()
             self.run.save()
             self._update_entry(self.run)
         floor = int(self.runs[-1].run) + 1 if self.runs and self.runs[-1].run.isdigit() else 0
         run_id = str(max(wall_ms, floor))
-        self.run = RunArchive(self, RunIndex(room=self.name, run=run_id, started_wall_ms=wall_ms, last_wall_ms=wall_ms))
+        index = RunIndex(
+            room=self.name,
+            run=run_id,
+            session=session,
+            offset_ms=offset_ms,
+            started_wall_ms=wall_ms,
+            last_wall_ms=wall_ms,
+        )
+        self.run = RunArchive(self, index)
         self.runs.append(self.run.entry())
         if self.teacher.raw is not None:
             self.run.catalog(self.teacher.raw)
@@ -637,59 +535,110 @@ class RoomArchive:
             return DEFAULT_AUDIO if track == "audio" else None
         return self.teacher.catalog.get(track)
 
+    def clock(self, clock: RoomClock, wall_ms: int) -> None:
+        """The latest object of the speaker console's ``clock`` track (design §4.5). It applies to the next teacher
+        broadcast, or to the current one if that is still waiting for its clock."""
+        if self.epoch_ms is None or clock.epoch_ms < self.epoch_ms:
+            self.epoch_ms = clock.epoch_ms
+            self.dirty = True
+        self._clock = clock
+        if self.offset_ms is None and self._held:
+            self._bind(clock, wall_ms)
+        elif self.offset_ms is not None and self.run is not None and self.run.index.session != clock.session:
+            log.info("room %s: clock session %s waits for its teacher broadcast", self.name, clock.session)
+
+    def slides_gone(self) -> None:
+        """The speaker console left: its clock goes with it, so a reload never inherits the old offset."""
+        self._clock = None
+
+    def _bind(self, clock: RoomClock, wall_ms: int) -> None:
+        """Put the current teacher broadcast on ``clock``: its session is a run (a new one when it changes)."""
+        run = self.run
+        if run is None or run.index.session != clock.session:
+            if run is not None and run.index.session is None and run.index.media_first_ms is None:
+                run.index = run.index.model_copy(update={"session": clock.session, "offset_ms": clock.offset_ms})
+                run.dirty = True
+            else:
+                run = self._new_run(wall_ms, clock.session, clock.offset_ms)
+        elif run.index.offset_ms != clock.offset_ms:
+            log.warning("room %s: session %s changed its offset; keeping the first", self.name, clock.session)
+        self.offset_ms = run.index.offset_ms
+        log.info("room %s: room time = media time + %d ms (session %s)", self.name, self.offset_ms, clock.session)
+        self._release(wall_ms)
+
+    def _release(self, wall_ms: int) -> None:
+        held, self._held, self._waiting_ms = self._held, [], None
+        for track, payload, at_ms in held:
+            self.media(track, payload, at_ms)
+
     def media(self, track: str, payload: bytes, wall_ms: int) -> None:
-        """One object of a teacher track (legacy container: a varint of µs, then the codec payload)."""
+        """One object of a teacher track (legacy container: a varint of µs, then the codec payload), written in room
+        time. Held until the broadcast's clock is known, for up to ``CLOCK_WAIT_MS``."""
         config = self.config(track)
         if config is None or not payload:
             return
+        if self.offset_ms is None and self._clock is not None:
+            self._bind(self._clock, wall_ms)
+        if self.offset_ms is None:
+            if self._waiting_ms is None:
+                self._waiting_ms = wall_ms
+            if wall_ms - self._waiting_ms < CLOCK_WAIT_MS:
+                if len(self._held) < HELD_MAX:
+                    self._held.append((track, payload, wall_ms))
+                return
+            self._no_clock(wall_ms)
         try:
             time_us, data = split_legacy(payload)
         except IndexError:
             return
-        run = self.current(wall_ms)
-        i = run.index
-        if i.media_last_ms is not None and (
-            time_us // 1000 < i.media_last_ms - RUN_JUMP_BACK_MS
-            or (i.media_last_wall_ms is not None and wall_ms - i.media_last_wall_ms > RUN_GAP_MS)
-        ):
-            run = self._new_run(wall_ms)
-        run.media(track, config, time_us, data, wall_ms)
+        assert self.offset_ms is not None
+        self.current(wall_ms).media(track, config, time_us + self.offset_ms * 1000, data, wall_ms)
 
-    def snapshot(self, envelope: Envelope, wall_ms: int) -> RecordedSnapshot:
-        run = self.current(wall_ms)
-        snapshot = run.snapshot(envelope, wall_ms)
-        # Written with the next save (about a second): a rewrite per snapshot costs more than it buys.
-        self._latest[envelope.agent.name] = Latest(room=self.name, run=run.id, info=envelope.agent, snapshot=snapshot)
-        return snapshot
+    def _no_clock(self, wall_ms: int) -> None:
+        log.info("room %s: the broadcast has no clock track; room time = media time", self.name)
+        self.offset_ms = 0
+        self._release(wall_ms)
+
+    @property
+    def end_ms(self) -> int | None:
+        """The latest room time of the speaker's media in the archive."""
+        if self.run is not None:
+            self._update_entry(self.run)
+        ends = [r.media_last_ms for r in self.runs if r.media_last_ms is not None]
+        return max(ends) if ends else None
 
     def slide(self, frame: SlideFrame, wall_ms: int) -> bool:
         return self.current(wall_ms).slide(frame, wall_ms)
 
     def teacher_gone(self) -> None:
+        if self.offset_ms is None and self._held:
+            self._no_clock(self._waiting_ms or 0)  # it left before any clock: it had none
         if self.run is not None:
             for track in self.run.tracks.values():
                 track.flush()
+        self.offset_ms, self._waiting_ms, self._held = None, None, []  # the next broadcast brings its own clock
 
     def tick(self, wall_ms: int) -> None:
+        if self.offset_ms is None and self._waiting_ms is not None and wall_ms - self._waiting_ms >= CLOCK_WAIT_MS:
+            self._no_clock(wall_ms)
         if self.run is not None:
             self.run.tick(wall_ms)
 
     def save(self) -> None:
-        for name, latest in self._latest.items():
-            path = self.dir / "latest" / f"{name}.json"
-            write_atomic(path, dump(latest))
-            self.archive.reported(path, mutable=True)
-        self._latest.clear()
         if self.run is not None:
             self.run.save()
             self._update_entry(self.run)
         if self.dirty:
-            write_atomic(self.dir / "room.json", dump(RoomIndex(room=self.name, runs=self.runs)))
+            write_atomic(
+                self.dir / "room.json", dump(RoomIndex(room=self.name, epoch_ms=self.epoch_ms, runs=self.runs))
+            )
             self.archive.reported(self.dir / "room.json", mutable=True)
             self.dirty = False
             self.archive.dirty = True
 
     def close(self) -> None:
+        if self.offset_ms is None and self._held:
+            self._no_clock(self._waiting_ms or 0)
         if self.run is not None:
             self.run.close()
         self.save()
@@ -706,8 +655,7 @@ class RoomArchive:
 
 
 class Archive:
-    """The archive root. Call ``tick`` about once a second: it closes idle segments and due chunks and saves the
-    indexes."""
+    """The archive root. Call ``tick`` about once a second: it closes idle segments and saves the indexes."""
 
     def __init__(self, root: Path, *, on_file: OnFile | None = None) -> None:
         self.root = root
@@ -725,6 +673,9 @@ class Archive:
     def reported(self, path: Path, *, mutable: bool) -> None:
         if self._on_file is not None:
             self._on_file(path.relative_to(self.root).as_posix(), mutable)
+
+    def known_rooms(self) -> list[str]:
+        return sorted({*self._known, *self.rooms})
 
     def room(self, name: str) -> RoomArchive:
         room = self.rooms.get(name)
