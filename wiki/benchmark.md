@@ -117,7 +117,8 @@ against WebRTC to get there.
   holding 300 "archive" slices the relay has never seen, with the spikes' `fix_end`. The page subscribes live, as
   a viewer with the track on, then times `fetchGroup` to the group's end, ten rounds per join: a random archive slice
   (the relay forwards the FETCH to the origin; the origin logs each one it serves), the same slice again (the relay's
-  cache), and the newest slice received whole live.
+  cache), and the newest slice received whole live. Then the join slice, the one open when the viewer joined: at
+  once while still open, after the rounds, and from a second session that never subscribed.
 - **Join time**: from creating the player to the first decoded frame, in a fresh browser context each time.
 - **Bytes per viewer**: the viewer container's interface counter over each join (headers, playlists and
   retransmissions included), the same count for every protocol.
@@ -150,11 +151,42 @@ History by FETCH, two joins of ten rounds each (relay, origin and viewer on the 
 | bytes per slice | 2,408, against about 623,000 for 4 s of the full media |
 
 The design lane measured 34–42 ms from an aiomoqt origin and about 50 ms for a browser `fetchGroup` on a host at
-100 % CPU; this host was less loaded. One case fails in every join tried (2 of 2 in this run, and every earlier
-trial): a FETCH of the slice that was open when the viewer joined never ends. The relay assembled that group from a
-Joining FETCH (which it sends upstream when the first viewer subscribes) and the live objects, and its copy apparently
-never completes. Every other slice, including the next one, comes back. The rewind lane should fetch from the slice
-after the join slice, or with a timeout.
+100 % CPU; this host was less loaded. One round of 12 in `check-joinslice` failed on an archive slice (`remote error:
+0` for both its uncached and cached fetch); not seen before, to watch on the VM.
+
+**The slice open at join cannot be fetched.** One slice never comes back by FETCH: the one that was open when the
+relay's upstream subscription began, which in this bench is each viewer's join slice (one viewer at a time, so each
+join is the relay's first subscriber). Four joins of `check-joinslice`, after the two above, fetched it three ways:
+
+| Fetch of the join slice | Came back |
+|---|---|
+| at once, while it was still open, waiting 10 s (it ended live 0.2–2.9 s after the fetch started) | 0 of 4 |
+| after the rounds, 15–20 s later, long after its End of Group | 0 of 4 (and 0 of 6 in earlier trials) |
+| the same, from a second session that never subscribed | 0 of 4 |
+
+It is the relay, not the harness. The same code fetches every other slice, including the next one and the newest
+one received live, in 7–16 ms. The live subscription receives the join slice and its End of Group normally (5 to 17
+of its 17 objects, from where the relay joined). A second session with its own connection hangs on it too, so the
+relay's cached copy of that group is at fault, not the viewer's subscription. The FETCH never reaches the origin
+(its log shows no request for that group), so the relay serves it from that copy and never finishes. The likely
+cause: the relay starts the group mid-way from its live subscription. The agent answers the relay's Joining FETCH as
+draft-18 §10.12.2 asks (aiomoqt `Track._fetch_range`: from object 0 of the group to the joining point), but the relay
+never merges it into the cached copy. A FETCH from object 0 then waits for objects it will never get, even once the
+slice has ended. So with 4 s slices the fetch does not complete at the slice's end: it hangs. Untested: whether a
+FETCH succeeds after the relay drops the group from its cache (about 30 s without a read) and forwards it to the
+origin.
+
+What the viewer should do (the rewind lane, decision 0012):
+
+- Take the open slice from the live SUBSCRIBE, never by FETCH. It may start mid-way, without its carry-in, so show
+  state from the previous slice until the next carry-in arrives (at most 4 s).
+- Fetch only slices that had ended before the track was switched on, that is slice numbers below the first one
+  received live. For the past, fetch back from the slice before the join slice.
+- Put a timeout on every FETCH (a few seconds) and treat a timeout as "not available": a slice that never ends gives
+  no error, it just hangs.
+- With several viewers, only the slice in which the relay's upstream subscription began is affected (likely: every
+  slice the relay received from its start is fetched without trouble). With lazy agent tracks (decision 0010), that
+  is the slice in which the first viewer switched the track on.
 
 What it already shows, to be confirmed on the VM: MoQ sits at the viewer's 500 ms setting plus about 70 ms; WebRTC
 is lower; LL-HLS is about 1.6 times MoQ. A captions-only viewer receives about 1 % of the bytes of a full one. LL-HLS

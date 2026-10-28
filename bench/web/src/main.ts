@@ -46,8 +46,24 @@ interface Result {
   measuredMs?: number;
   /** proto=fetch: one entry per round. */
   fetches?: { uncached?: Fetched; cached?: Fetched; recent?: Fetched; errors?: string[] }[];
-  /** proto=fetch: one fetch, at the end, of the slice that was open when the viewer joined. */
-  joinSlice?: { group: number; fetched?: Fetched; error?: string };
+  /**
+   * proto=fetch: the slice that was open when the viewer joined, fetched twice: as soon as it arrives live, while
+   * still open (bounded at 10 s, beyond the slice's end), and again after the rounds, long after its end.
+   * liveObjects and liveEndMs: what the live subscription delivered of it, and when it ended, ms after the open fetch
+   * started.
+   */
+  joinSlice?: {
+    group: number;
+    liveObjects?: number;
+    liveEndMs?: number;
+    open?: Fetched;
+    openError?: string;
+    fetched?: Fetched;
+    error?: string;
+    /** The same, after the rounds, from a second session that never subscribed. */
+    fresh?: Fetched;
+    freshError?: string;
+  };
   /** proto=fetch: each complete live slice as received, [group, objects, payload bytes]. */
   slices?: [number, number, number][];
   errors: string[];
@@ -314,25 +330,52 @@ async function startFetch() {
   result.startMs = performance.now();
   result.fetches = [];
   result.slices = [];
-  const origin = new Moq.Origin.Producer();
-  const connection = new Moq.Connection({
-    url: new URL(relay),
-    consume: origin,
-    websocket: { enabled: true },
-    delay: { timeout: Moq.Time.Milli(0) },
-  });
+  // A private origin gives each connection its own session, not the pooled one.
+  const openHistory = async () => {
+    const origin = new Moq.Origin.Producer();
+    const connection = new Moq.Connection({
+      url: new URL(relay),
+      consume: origin,
+      websocket: { enabled: true },
+      delay: { timeout: Moq.Time.Milli(0) },
+    });
+    const requesting = origin.request(Moq.Path.from("bench/history"), { announced: true });
+    let broadcast = requesting.active.peek();
+    for (let i = 0; !broadcast && i < 200; i++) {
+      await sleep(50);
+      broadcast = requesting.active.peek();
+    }
+    if (!broadcast) throw new Error("bench/history never announced");
+    return { connection, track: broadcast.track("items") };
+  };
+  const { connection, track } = await openHistory();
+  result.transport = connection.transport.peek(); // already connected: subscribe() reports only later changes
   connection.transport.subscribe((t) => {
     if (t) result.transport = t;
   });
 
-  const requesting = origin.request(Moq.Path.from("bench/history"), { announced: true });
-  let broadcast = requesting.active.peek();
-  for (let i = 0; !broadcast && i < 200; i++) {
-    await sleep(50);
-    broadcast = requesting.active.peek();
-  }
-  if (!broadcast) throw new Error("bench/history never announced");
-  const track = broadcast.track("items");
+  // The whole fetch is bounded, not only its start: a group whose stream never ends counts as a failure.
+  const timed = (seq: number, limitMs = 6000, from = track): Promise<Fetched> =>
+    Promise.race([
+      fetchOne(seq, from),
+      sleep(limitMs).then(() => Promise.reject(new Error(`fetchGroup ${seq}: no end of group in ${limitMs / 1000} s`))),
+    ]);
+  const fetchOne = async (seq: number, from: typeof track): Promise<Fetched> => {
+    const t = performance.now();
+    const group = await from.fetchGroup(seq);
+    let firstMs = NaN;
+    let objects = 0;
+    let bytes = 0;
+    for (;;) {
+      const frame = await group.readFrame();
+      if (!frame) break;
+      if (objects === 0) firstMs = performance.now() - t;
+      objects++;
+      bytes += frame.payload.byteLength;
+    }
+    group.close();
+    return { group: seq, firstMs: Math.round(firstMs * 10) / 10, ms: Math.round((performance.now() - t) * 10) / 10, objects, bytes };
+  };
 
   // Live, as a viewer with the track switched on: the current slice first, then each new one.
   const live = track.subscribe({ maxAge: Moq.Time.Milli(0) });
@@ -340,6 +383,8 @@ async function startFetch() {
   let joinSlice = -1;
   /** The newest slice received live from its carry-in to its end: complete at the relay, not the join slice. */
   let lastWhole = -1;
+  let openAt = 0;
+  let openFetch: Promise<void> | undefined;
   const firstGroup = new Promise<void>((resolve) => {
     void (async () => {
       for (;;) {
@@ -356,7 +401,16 @@ async function startFetch() {
                 // The join slice starts mid-way, with an item; every later one with its carry-in.
                 const first = JSON.parse(new TextDecoder().decode(frame.payload)) as { kind: string; archive?: number };
                 if (first.kind === "carry" && first.archive !== undefined) archive = first.archive;
-                if (joinSlice < 0) joinSlice = group.sequence;
+                if (joinSlice < 0) {
+                  joinSlice = group.sequence;
+                  result.joinSlice = { group: joinSlice };
+                  openAt = performance.now();
+                  const js = result.joinSlice;
+                  openFetch = timed(joinSlice, 10000).then(
+                    (f) => void (js.open = f),
+                    (e) => void (js.openError = String(e)),
+                  );
+                }
                 if (firstFrameAt === undefined) started(now(), `live slice ${group.sequence}`);
                 if (archive > 0) resolve();
               }
@@ -364,6 +418,10 @@ async function startFetch() {
               bytes += frame.payload.byteLength;
             }
             result.slices!.push([group.sequence, objects, bytes]);
+            if (group.sequence === joinSlice && result.joinSlice) {
+              result.joinSlice.liveObjects = objects;
+              result.joinSlice.liveEndMs = Math.round(performance.now() - openAt);
+            }
             if (group.sequence !== joinSlice) lastWhole = Math.max(lastWhole, group.sequence);
           } catch {
             // a slice the relay reset
@@ -377,31 +435,9 @@ async function startFetch() {
   await firstGroup;
   clearTimeout(finishTimer); // this row ends after its fetch rounds, not after --seconds
 
-  // The whole fetch is bounded, not only its start: a group whose stream never ends counts as a failure.
-  const timed = (seq: number): Promise<Fetched> =>
-    Promise.race([
-      fetchOne(seq),
-      sleep(6000).then(() => Promise.reject(new Error(`fetchGroup ${seq}: no end of group in 6 s`))),
-    ]);
-  const fetchOne = async (seq: number): Promise<Fetched> => {
-    const t = performance.now();
-    const group = await track.fetchGroup(seq);
-    let firstMs = NaN;
-    let objects = 0;
-    let bytes = 0;
-    for (;;) {
-      const frame = await group.readFrame();
-      if (!frame) break;
-      if (objects === 0) firstMs = performance.now() - t;
-      objects++;
-      bytes += frame.payload.byteLength;
-    }
-    group.close();
-    return { group: seq, firstMs: Math.round(firstMs * 10) / 10, ms: Math.round((performance.now() - t) * 10) / 10, objects, bytes };
-  };
-
   // A slice received whole after the join, so "recent" has something to fetch: at most two slices (8 s).
   for (let i = 0; lastWhole < 0 && i < 200; i++) await sleep(50);
+  await openFetch;
   for (let i = 0; i < rounds; i++) {
     const round: NonNullable<Result["fetches"]>[number] = {};
     const step = async (key: "uncached" | "cached" | "recent", seq: number) => {
@@ -420,13 +456,24 @@ async function startFetch() {
     result.fetches.push(round);
     await sleep(500);
   }
-  // The join slice, which the relay assembled from a Joining FETCH and the live objects: in the local check its
-  // fetch never ended. Measured once per join, apart from the rounds.
-  result.joinSlice = { group: joinSlice };
+  // The join slice again, long after its end. Measured once per join, apart from the rounds.
+  result.joinSlice ??= { group: joinSlice };
   try {
     result.joinSlice.fetched = await timed(joinSlice);
   } catch (e) {
     result.joinSlice.error = String(e);
+  }
+  // And from a second session that never subscribed: whether the relay's copy of the group is at fault, or this
+  // session's subscription.
+  try {
+    const other = await openHistory();
+    try {
+      result.joinSlice.fresh = await timed(joinSlice, 6000, other.track);
+    } finally {
+      other.connection.close();
+    }
+  } catch (e) {
+    result.joinSlice.freshError = String(e);
   }
   await finish();
 }

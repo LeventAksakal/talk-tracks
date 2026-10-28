@@ -129,7 +129,12 @@ for (let run = 1; run <= runs; run++) {
         (rx0 !== undefined ? `, ${(((rx1 - rx0) * 8) / rxMs).toFixed(0)} kbit/s on the wire` : "") +
         (txt.length ? `, text p50 ${pct(txt, 50)} p95 ${pct(txt, 95)} ms` : "") +
         (result.fetches?.length ? `, ${fetchSummary(result.fetches)}` : "") +
-        (result.joinSlice ? `, join slice ${result.joinSlice.fetched ? `${result.joinSlice.fetched.ms} ms` : result.joinSlice.error}` : "") +
+        (result.joinSlice
+          ? `, join slice ${result.joinSlice.group} (live ${result.joinSlice.liveObjects} objects, ended at ${result.joinSlice.liveEndMs} ms): ` +
+            `open ${result.joinSlice.open ? `${result.joinSlice.open.ms} ms, ${result.joinSlice.open.objects} objects` : result.joinSlice.openError}; ` +
+            `later ${result.joinSlice.fetched ? `${result.joinSlice.fetched.ms} ms` : result.joinSlice.error}` +
+            `; other session ${result.joinSlice.fresh ? `${result.joinSlice.fresh.ms} ms, ${result.joinSlice.fresh.objects} objects` : result.joinSlice.freshError}`
+          : "") +
         (result.errors?.length ? `, errors: ${result.errors.join("; ")}` : ""),
     );
   }

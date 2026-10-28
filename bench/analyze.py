@@ -11,7 +11,8 @@ Per label (one network condition) and protocol:
   stalls    gaps of more than 250 ms between rendered frames (the source runs at 25 fps), per minute of playback
   fetch     (proto fetch) `fetchGroup` of one 4 s slice of the history track: an archive slice the relay has not
             seen (served by the origin), the same again (the relay's cache), and the newest slice received whole live;
-            ms to the group's end, pooled over all rounds; bytes per slice against a full media viewer's 4 s
+            ms to the group's end, pooled over all rounds; bytes per slice against a full media viewer's 4 s; and how
+            often the slice open at join came back, fetched at once (while open), after the rounds, and from a second session
   received  bytes per second into the viewer container over a whole join (its interface counter: headers,
             playlists and retransmissions included, the same count for every protocol)
 """
@@ -106,7 +107,7 @@ def table(summary: dict[tuple[str, str], dict]) -> str:
 def fetch_table(lines: list[dict], summary: dict[tuple[str, str], dict]) -> str:
     rows = [
         "| Condition | Joins | Rounds (failed) | Uncached p50 / p95 ms | Cached p50 / p95 ms | Recent p50 / p95 ms "
-        "| Bytes per slice | Full media per 4 s | Join slice fetched |",
+        "| Bytes per slice | Full media per 4 s | Join slice fetched while open / later / other session |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
     by_label: dict[str, list[dict]] = defaultdict(list)
@@ -123,7 +124,7 @@ def fetch_table(lines: list[dict], summary: dict[tuple[str, str], dict]) -> str:
             f"| {label} | {len(runs)} | {len(rounds)} ({sum(1 for f in rounds if f.get('errors'))}) "
             + " ".join(f"| {fmt(pct(ms[k], 50))} / {fmt(pct(ms[k], 95))}" for k in ("uncached", "cached", "recent"))
             + f" | {fmt(pct(slice_bytes, 50))} | {fmt(media * 4000 / 8)} "
-            f"| {sum(1 for j in joined if j.get('fetched'))} of {len(joined)} |"
+            f"| {sum(1 for j in joined if j.get('open'))} / {sum(1 for j in joined if j.get('fetched'))} / {sum(1 for j in joined if j.get('fresh'))} of {len(joined)} |"
         )
     return "\n".join(rows)
 
