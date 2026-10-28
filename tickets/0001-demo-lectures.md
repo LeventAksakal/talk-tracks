@@ -1,5 +1,5 @@
 ---
-status: open
+status: answered
 created: 2026-10-27
 tags: [demo, content, licensing]
 ---
@@ -26,4 +26,4 @@ redistribution (we re-stream the video). Shorter is cheaper: 10–20 minutes per
 A, with two lectures in different subjects; I shortlist candidates with their licences for you to pick from.
 
 ## Answer
-
+A: two or three CC BY lectures with slides. Find the candidates by browsing the web (delegated to a sub-agent); the owner picks from the shortlist.

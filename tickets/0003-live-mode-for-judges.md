@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [access, judges, spend]
 ---
@@ -24,4 +24,4 @@ us until they open the demo.
 A, with a $2 cap per room and a total cap for all judge rooms well under the ceiling.
 
 ## Answer
-
+A: capped tokens. Recorded in [decision 0008](../wiki/decisions/0008-judges-get-capped-room-tokens.md).

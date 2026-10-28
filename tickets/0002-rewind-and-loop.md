@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [demo, rewind, relay]
 ---
@@ -28,4 +28,4 @@ show a track's full state at that moment. The lecture video is the heavy part.
 B: it gives full rewind at no API cost and keeps the relay doing what it does well (live fan-out).
 
 ## Answer
-
+B. Recorded in [decision 0007](../wiki/decisions/0007-rewind-from-a-static-track-archive.md).

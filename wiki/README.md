@@ -10,7 +10,7 @@ What the product does, how it is built, how to use it, and why it is the way it 
 | [howto/](howto/) | Running it locally, deploying, running a demo |
 | [decisions/](decisions/) | Architecture decision records (MADR) |
 
-Open questions for the owner are ticket files in [`../tickets/`](../tickets/).
+Open questions for the owner are ticket files in [`../tickets/`](../tickets/). The dated plan is [plan.md](plan.md).
 
 ## Decisions
 
@@ -22,3 +22,6 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/).
 | Relay, web app and agents on one VM | [0004](decisions/0004-relay-web-and-agents-on-one-vm.md) |
 | Publishing needs a signed token; watching is open | [0005](decisions/0005-publishing-needs-a-signed-token.md) |
 | Public demo loops pre-generated lectures | [0006](decisions/0006-demo-loops-pregenerated-lectures.md) |
+| Rewind from a static archive of the room's tracks | [0007](decisions/0007-rewind-from-a-static-track-archive.md) |
+| Judges get pre-minted room tokens with a spend cap | [0008](decisions/0008-judges-get-capped-room-tokens.md) |
+| Agents restart from durable track history | [0009](decisions/0009-agents-restart-from-durable-track-history.md) |
