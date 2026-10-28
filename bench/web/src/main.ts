@@ -189,7 +189,7 @@ function startMoqPlayer(Watch: typeof import("@moq/watch"), origin: MoqNet.Origi
     name: Watch.Net.Path.from("bench/live"),
     canvas,
     catalogFormat: "hang",
-    muted: false,
+    muted: params.get("muted") === "1",
     visible: "always",
     delay: Watch.Net.Time.Milli(moqDelayMs),
   });

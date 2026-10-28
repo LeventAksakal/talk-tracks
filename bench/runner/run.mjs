@@ -3,7 +3,7 @@
 // Each join is one JSON line in /results/<label>.jsonl; bench/analyze.py turns them into the results tables.
 //
 //   node run.mjs --proto moq,moq-ws,moq-text,hls,webrtc --runs 10 --seconds 20 [--delay 500] [--label local]
-import { createReadStream, existsSync, mkdirSync, appendFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, appendFileSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { parseArgs } from "node:util";
@@ -20,6 +20,8 @@ const { values: opt } = parseArgs({
     relay: { type: "string", default: "http://relay:4443/" },
     mediamtx: { type: "string", default: "http://mediamtx" },
     "no-isolation": { type: "boolean", default: false },
+    // Extra viewer page parameters, for experiments: for example "muted=1".
+    query: { type: "string", default: "" },
   },
 });
 
@@ -56,6 +58,21 @@ const browser = await chromium.launch({
 });
 console.log(`chrome ${browser.version()}; ${runs} runs x ${protos.join(", ")}, ${seconds} s each -> ${outFile}`);
 
+// Bytes into this container over every interface but loopback: the same count for every protocol, headers and
+// retransmissions included. Joins run one at a time, so the difference over a join is that join's traffic.
+const rxBytes = () => {
+  try {
+    return readFileSync("/proc/net/dev", "utf8")
+      .split("\n")
+      .slice(2)
+      .map((l) => l.trim().split(/[:\s]+/))
+      .filter((f) => f.length > 2 && f[0] !== "lo")
+      .reduce((sum, f) => sum + Number(f[1]), 0);
+  } catch {
+    return undefined;
+  }
+};
+
 const pct = (xs, p) => {
   if (!xs.length) return NaN;
   const s = [...xs].sort((a, b) => a - b);
@@ -77,7 +94,10 @@ for (let run = 1; run <= runs; run++) {
       relay: opt.relay,
       mediamtx: opt.mediamtx,
     });
+    for (const [k, v] of new URLSearchParams(opt.query)) query.set(k, v);
     const started = new Date().toISOString();
+    const rx0 = rxBytes();
+    const t0 = performance.now();
     let result;
     try {
       await page.goto(`http://127.0.0.1:8080/?${query}`);
@@ -86,15 +106,17 @@ for (let run = 1; run <= runs; run++) {
     } catch (e) {
       result = { proto, frames: [], text: [], errors: [String(e)] };
     }
+    const rx1 = rxBytes();
+    const rxMs = Math.round(performance.now() - t0);
     await context.close();
-    const line = { label: opt.label, run, started, chrome: browser.version(), network, ...result, proto, consoleErrors: consoleErrors.slice(0, 5) };
+    const line = { label: opt.label, run, started, chrome: browser.version(), network, ...result, proto, rxBytes: rx0 === undefined ? undefined : rx1 - rx0, rxMs, consoleErrors: consoleErrors.slice(0, 5) };
     appendFileSync(outFile, JSON.stringify(line) + "\n");
     const lat = result.frames.map(([, l]) => l);
     const txt = (result.text ?? []).map(([, l]) => l);
     console.log(
       `run ${run} ${proto.padEnd(7)} ${result.transport ?? "-"}: join ${result.joinMs?.toFixed(0) ?? "-"} ms, ` +
         `latency p50 ${pct(lat, 50)} p95 ${pct(lat, 95)} ms (${lat.length} frames, ${result.unreadable ?? 0} unreadable)` +
-        (result.bytes !== undefined ? `, ${((result.bytes * 8) / result.measuredMs).toFixed(0)} kbit/s` : "") +
+        (rx0 !== undefined ? `, ${(((rx1 - rx0) * 8) / rxMs).toFixed(0)} kbit/s on the wire` : "") +
         (txt.length ? `, text p50 ${pct(txt, 50)} p95 ${pct(txt, 95)} ms` : "") +
         (result.errors?.length ? `, errors: ${result.errors.join("; ")}` : ""),
     );

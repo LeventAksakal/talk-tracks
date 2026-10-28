@@ -9,8 +9,8 @@ Per label (one network condition) and protocol:
             since players differ in how they catch up to live
   text      publish-to-receive of the JSON text track, MoQ only
   stalls    gaps of more than 250 ms between rendered frames (the source runs at 25 fps), per minute of playback
-  received  bytes per second into the viewer while it plays, as its transport counts them (MoQ: the WebTransport or
-            WebSocket session; WebRTC: the ICE transport; LL-HLS: media parts and segments, not playlists)
+  received  bytes per second into the viewer container over a whole join (its interface counter: headers,
+            playlists and retransmissions included, the same count for every protocol)
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict
         steady = [lat for r in ok for t, lat in r["frames"] if t >= warmup_ms]
         first = [r["frames"][0][1] for r in ok if r["frames"]]
         text = [lat for r in ok for _, lat in r.get("text", [])]
-        sent = [(r["bytes"], r["measuredMs"]) for r in ok if r.get("bytes") is not None and r.get("measuredMs")]
+        sent = [(r["rxBytes"], r["rxMs"]) for r in ok if r.get("rxBytes") is not None and r.get("rxMs")]
         stalls = 0
         played_ms = 0.0
         for r in ok:

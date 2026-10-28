@@ -35,6 +35,7 @@ services:
     environment:
       BENCH_GOP_S: ${BENCH_GOP_S:-2}
       BENCH_BITRATE: ${BENCH_BITRATE:-1000k}
+      BENCH_SIZE: ${BENCH_SIZE:-1280x720}
     volumes: ["./source.sh:/bench/source.sh:ro"]
     networks: { bench: { ipv4_address: 172.29.0.12 } }
 
