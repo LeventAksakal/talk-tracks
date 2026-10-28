@@ -9,6 +9,8 @@ Per label (one network condition) and protocol:
             since players differ in how they catch up to live
   text      publish-to-receive of the JSON text track, MoQ only
   stalls    gaps of more than 250 ms between rendered frames (the source runs at 25 fps), per minute of playback
+  received  bytes per second into the viewer while it plays, as its transport counts them (MoQ: the WebTransport or
+            WebSocket session; WebRTC: the ICE transport; LL-HLS: media parts and segments, not playlists)
 """
 
 from __future__ import annotations
@@ -20,10 +22,11 @@ from collections import defaultdict
 from pathlib import Path
 
 STALL_MS = 250
-ORDER = ["moq", "moq-ws", "webrtc", "hls"]
+ORDER = ["moq", "moq-ws", "moq-text", "webrtc", "hls"]
 NAMES = {
     "moq": "MoQ (WebTransport)",
     "moq-ws": "MoQ (WebSocket fallback)",
+    "moq-text": "MoQ, text track only",
     "webrtc": "WebRTC (WHEP)",
     "hls": "LL-HLS (hls.js)",
 }
@@ -46,14 +49,17 @@ def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict
         groups[(line["label"], line["proto"])].append(line)
     out = {}
     for key, runs in groups.items():
-        ok = [r for r in runs if r.get("frames")]
+        ok = [r for r in runs if r.get("frames") or r.get("text")]
         steady = [lat for r in ok for t, lat in r["frames"] if t >= warmup_ms]
-        first = [r["frames"][0][1] for r in ok]
+        first = [r["frames"][0][1] for r in ok if r["frames"]]
         text = [lat for r in ok for _, lat in r.get("text", [])]
+        sent = [(r["bytes"], r["measuredMs"]) for r in ok if r.get("bytes") is not None and r.get("measuredMs")]
         stalls = 0
         played_ms = 0.0
         for r in ok:
             ts = [t for t, _ in r["frames"]]
+            if not ts:
+                continue
             stalls += sum(1 for a, b in zip(ts, ts[1:]) if b - a > STALL_MS)
             played_ms += ts[-1] - ts[0] if len(ts) > 1 else 0
         frames = sum(len(r["frames"]) for r in ok)
@@ -68,6 +74,7 @@ def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict
             "text": text,
             "stalls_per_min": stalls / (played_ms / 60_000) if played_ms else math.nan,
             "unreadable_pct": 100 * unreadable / (frames + unreadable) if frames + unreadable else math.nan,
+            "kbit_s": 8 * sum(b for b, _ in sent) / sum(ms for _, ms in sent) if sent else math.nan,
             "network": runs[0].get("network", {}),
             "chrome": runs[0].get("chrome", "?"),
         }
@@ -77,8 +84,8 @@ def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict
 def table(summary: dict[tuple[str, str], dict]) -> str:
     rows = [
         "| Condition | Protocol | Joins (failed) | Join p50 / p95 ms | Latency p50 / p95 / p99 ms | First-frame latency p50 ms "
-        "| Text p50 / p95 ms | Stalls per min |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Text p50 / p95 ms | Stalls per min | Received kbit/s |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for (label, proto), s in sorted(summary.items(), key=lambda kv: (kv[0][0], ORDER.index(kv[0][1]))):
         text = f"{fmt(pct(s['text'], 50))} / {fmt(pct(s['text'], 95))}" if s["text"] else "not carried"
@@ -86,7 +93,7 @@ def table(summary: dict[tuple[str, str], dict]) -> str:
             f"| {label} | {NAMES.get(proto, proto)} | {s['runs']} ({s['failed']}) "
             f"| {fmt(pct(s['join'], 50))} / {fmt(pct(s['join'], 95))} "
             f"| {fmt(pct(s['steady'], 50))} / {fmt(pct(s['steady'], 95))} / {fmt(pct(s['steady'], 99))} "
-            f"| {fmt(pct(s['first'], 50))} | {text} | {s['stalls_per_min']:.1f} |"
+            f"| {fmt(pct(s['first'], 50))} | {text} | {s['stalls_per_min']:.1f} | {fmt(s['kbit_s'])} |"
         )
     return "\n".join(rows)
 
@@ -119,6 +126,7 @@ def main() -> None:
                 "text_p50": pct(s["text"], 50),
                 "text_p95": pct(s["text"], 95),
                 "stalls_per_min": s["stalls_per_min"],
+                "kbit_s": s["kbit_s"],
             }
             for (label, proto), s in summary.items()
         }

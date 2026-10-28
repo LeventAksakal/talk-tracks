@@ -4,6 +4,7 @@
 //   ?proto=moq-ws   the same with WebTransport removed, as Safari runs it (WebSocket over TCP)
 //   ?proto=hls      LL-HLS from MediaMTX through hls.js in low-latency mode
 //   ?proto=webrtc   WebRTC from MediaMTX through a plain WHEP client
+//   &media=0        MoQ only: subscribe to the text track alone (selective subscription), no audio or video
 //
 // Each frame carries the time it was made as a barcode (bench/source.sh); latency is this page's clock minus it.
 // The result lands in `window.__bench` for the Playwright runner (bench/runner/run.mjs).
@@ -28,6 +29,9 @@ interface Result {
   unreadable: number;
   transport?: string;
   width?: number;
+  /** Bytes received over the measured span (after the first frame), as the transport counts them. */
+  bytes?: number;
+  measuredMs?: number;
   errors: string[];
 }
 
@@ -43,6 +47,11 @@ const seconds = Number(params.get("seconds") ?? "20");
 const moqDelayMs = Number(params.get("delay") ?? "500"); // the viewer's setting in web/src/viewer/TeacherMedia.tsx
 const relay = params.get("relay") ?? "http://relay:4443/";
 const mediamtx = params.get("mediamtx") ?? "http://mediamtx";
+const media = params.get("media") !== "0";
+
+/** The transport's received-bytes counter, set by each player. */
+let bytesReceived: () => Promise<number | undefined> = () => Promise.resolve(undefined);
+let bytesAtStart: Promise<number | undefined> | undefined;
 
 const result: Result = {
   proto,
@@ -99,26 +108,42 @@ function onFrame(source: CanvasImageSource, width: number) {
     return;
   }
   if (firstFrameAt === undefined) {
-    firstFrameAt = at;
     result.width = width;
-    result.joinMs = performance.now() - result.startMs;
-    result.joinFromNavMs = performance.now();
-    log(`${proto}: first frame after ${result.joinMs.toFixed(0)} ms, latency ${latency} ms`);
-    finishTimer = setTimeout(finish, seconds * 1000);
+    started(at, `latency ${latency} ms`);
   }
-  result.frames.push([Math.round(at - firstFrameAt), latency]);
+  result.frames.push([Math.round(at - firstFrameAt!), latency]);
 }
 
 function onText(t: number) {
-  if (firstFrameAt === undefined) return; // count text only while the media plays
   const at = now();
-  result.text.push([Math.round(at - firstFrameAt), Math.round((at - t) * 10) / 10]);
+  if (firstFrameAt === undefined) {
+    if (media) return; // count text only while the media plays
+    started(at, "text only");
+  }
+  result.text.push([Math.round(at - firstFrameAt!), Math.round((at - t) * 10) / 10]);
 }
 
-function finish() {
+/** The first frame (or, text only, the first text object): the join ends and the measured span begins. */
+function started(at: number, note: string) {
+  firstFrameAt = at;
+  result.joinMs = performance.now() - result.startMs;
+  result.joinFromNavMs = performance.now();
+  bytesAtStart = bytesReceived();
+  log(`${proto}: first frame after ${result.joinMs.toFixed(0)} ms, ${note}`);
+  finishTimer = setTimeout(() => void finish(), seconds * 1000);
+}
+
+let finishing = false;
+async function finish() {
   clearTimeout(finishTimer);
-  if (window.__bench.done) return;
-  log(`${proto}: done, ${result.frames.length} frames, ${result.text.length} text objects`);
+  if (finishing) return;
+  finishing = true;
+  if (firstFrameAt !== undefined) {
+    const [start, end] = await Promise.all([bytesAtStart, bytesReceived()]).catch(() => [undefined, undefined]);
+    if (start !== undefined && end !== undefined) result.bytes = end - start;
+    result.measuredMs = Math.round(now() - firstFrameAt);
+  }
+  log(`${proto}: done, ${result.frames.length} frames, ${result.text.length} text objects, ${result.bytes ?? "?"} bytes`);
   window.__bench.done = true;
 }
 
@@ -152,7 +177,13 @@ async function startMoq(forceWebSocket: boolean) {
   connection.transport.subscribe((t) => {
     if (t) result.transport = t;
   });
+  bytesReceived = async () => (await connection.stats())?.bytesReceived;
 
+  if (media) startMoqPlayer(Watch, origin);
+  subscribeText(Moq, origin);
+}
+
+function startMoqPlayer(Watch: typeof import("@moq/watch"), origin: MoqNet.Origin.Producer) {
   const player = new Watch.Player({
     origin,
     name: Watch.Net.Path.from("bench/live"),
@@ -165,7 +196,9 @@ async function startMoq(forceWebSocket: boolean) {
   player.renderer.out.frame.subscribe((frame) => {
     if (frame) onFrame(frame, frame.displayWidth);
   });
+}
 
+function subscribeText(Moq: typeof MoqNet, origin: MoqNet.Origin.Producer) {
   // The text track, read as web/src/transport/moq.ts reads an agent's state track.
   const requesting = origin.request(Moq.Path.from("bench/text"), { announced: true });
   let current: { close(): void } | undefined;
@@ -205,6 +238,12 @@ async function startHls() {
   // hls.js defaults except low-latency mode, which LL-HLS needs: the player holds back by the playlist's
   // PART-HOLD-BACK (3 parts, 0.6 s here) behind the live edge.
   const hls = new Hls({ lowLatencyMode: true });
+  // Media bytes only (fragments and parts); playlist requests are small and not counted.
+  let loaded = 0;
+  hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
+    loaded += data.payload.byteLength;
+  });
+  bytesReceived = () => Promise.resolve(loaded);
   hls.on(Hls.Events.ERROR, (_e, data) => {
     if (data.fatal) result.errors.push(`hls: ${data.type} ${data.details}`);
   });
@@ -218,6 +257,13 @@ async function startWebRtc() {
   result.startMs = performance.now();
   result.transport = "webrtc";
   const pc = new RTCPeerConnection();
+  bytesReceived = async () => {
+    let sum = 0;
+    (await pc.getStats()).forEach((r: { type: string; bytesReceived?: number }) => {
+      if (r.type === "transport") sum += r.bytesReceived ?? 0;
+    });
+    return sum;
+  };
   pc.addTransceiver("video", { direction: "recvonly" });
   pc.addTransceiver("audio", { direction: "recvonly" });
   const stream = new MediaStream();

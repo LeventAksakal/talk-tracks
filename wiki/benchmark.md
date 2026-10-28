@@ -9,7 +9,29 @@ This page compares Media over QUIC (MoQ), as Talk Tracks uses it, with the three
 2. **How fast it is**, measured: glass-to-glass latency, text-track latency and join time, with every protocol fed
    from the same encode on the same machine (the harness in [`bench/`](../bench/)).
 
-Scope and its reasoning are in [ticket 0016](../tickets/0016-benchmark.md).
+Background in [ticket 0016](../tickets/0016-benchmark.md); scope and viewer placement are filed for the owner as
+ticket 0017.
+
+## Scope
+
+Agreed with the coordinator on 2026-10-28: option B of ticket 0016 plus two cheap extras ("B+"), about 26 hours,
+fitted to the plan (harness Sat Oct 31, runs Sun Nov 1, write-up Mon Nov 2). Viewers run on the VM, next to the
+servers.
+
+| Piece | In scope | Hours |
+|---|---|---|
+| Capability matrix with citations (this page) | yes | 4 |
+| Source: barcode clock in every frame, one encode teed to MoQ and MediaMTX | yes | 3 |
+| Compose stack: relay, MediaMTX, source, text publisher, viewer | yes | 3 |
+| Measuring page (MoQ, MoQ over WebSocket, LL-HLS, WebRTC) and Playwright runner | yes | 5 |
+| Join time, many fresh joins per protocol | yes | 1 |
+| Text-track latency, published through the agents' MoQ code | yes | 2 |
+| Extra: bytes per viewer, captions only against everything (selective subscription) | yes | 1 |
+| Extra: behaviour under 2 % and 5 % loss (`tc netem`) | yes | 2 |
+| Analysis, tables and chart, results on this page | yes | 3 |
+| Local validation, VM hand-over | yes | 2 |
+| Stretch: server CPU, memory and egress at 10 and 100 viewers, MoQ against WebRTC and LL-HLS | owner decides Sun Nov 1 | 5 |
+| Not planned: 500 viewers (needs a bigger load generator); LL-DASH measured (MediaMTX has no DASH) | no | — |
 
 ## Summary
 

@@ -2,7 +2,7 @@
 // through N fresh joins per protocol, round-robin, one new browser context (no shared connection or cache) per join.
 // Each join is one JSON line in /results/<label>.jsonl; bench/analyze.py turns them into the results tables.
 //
-//   node run.mjs --proto moq,moq-ws,hls,webrtc --runs 10 --seconds 20 [--delay 500] [--label local]
+//   node run.mjs --proto moq,moq-ws,moq-text,hls,webrtc --runs 10 --seconds 20 [--delay 500] [--label local]
 import { createReadStream, existsSync, mkdirSync, appendFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
@@ -68,7 +68,15 @@ for (let run = 1; run <= runs; run++) {
     const page = await context.newPage();
     const consoleErrors = [];
     page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
-    const query = new URLSearchParams({ proto, seconds: String(seconds), delay: opt.delay, relay: opt.relay, mediamtx: opt.mediamtx });
+    // `moq-text` is MoQ subscribed to the text track alone: what a captions-only viewer receives.
+    const query = new URLSearchParams({
+      proto: proto === "moq-text" ? "moq" : proto,
+      media: proto === "moq-text" ? "0" : "1",
+      seconds: String(seconds),
+      delay: opt.delay,
+      relay: opt.relay,
+      mediamtx: opt.mediamtx,
+    });
     const started = new Date().toISOString();
     let result;
     try {
@@ -79,13 +87,14 @@ for (let run = 1; run <= runs; run++) {
       result = { proto, frames: [], text: [], errors: [String(e)] };
     }
     await context.close();
-    const line = { label: opt.label, run, started, chrome: browser.version(), network, ...result, consoleErrors: consoleErrors.slice(0, 5) };
+    const line = { label: opt.label, run, started, chrome: browser.version(), network, ...result, proto, consoleErrors: consoleErrors.slice(0, 5) };
     appendFileSync(outFile, JSON.stringify(line) + "\n");
     const lat = result.frames.map(([, l]) => l);
     const txt = (result.text ?? []).map(([, l]) => l);
     console.log(
       `run ${run} ${proto.padEnd(7)} ${result.transport ?? "-"}: join ${result.joinMs?.toFixed(0) ?? "-"} ms, ` +
         `latency p50 ${pct(lat, 50)} p95 ${pct(lat, 95)} ms (${lat.length} frames, ${result.unreadable ?? 0} unreadable)` +
+        (result.bytes !== undefined ? `, ${((result.bytes * 8) / result.measuredMs).toFixed(0)} kbit/s` : "") +
         (txt.length ? `, text p50 ${pct(txt, 50)} p95 ${pct(txt, 95)} ms` : "") +
         (result.errors?.length ? `, errors: ${result.errors.join("; ")}` : ""),
     );
