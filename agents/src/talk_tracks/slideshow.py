@@ -4,9 +4,10 @@
 A recorded talk has no speaker console sending slide frames, so ``play --slides`` finds them in the video: one JPEG
 per slide, at the media time it appeared, cropped to the slide area. Only keyframes are decoded (every 2 s in a
 prepared lecture). A screen counts once it is *still* (the next keyframe looks the same), so transitions and video
-clips are skipped. A still screen that differs from the current slide in many places is a new slide. A small
-difference is a build (a bullet or a picture revealed on the same slide): the slide keeps its first time but takes
-the new image, so each slide is described once, as it looks when complete.
+clips are skipped. A still screen that only adds to the current slide (its content stays, empty space fills) is a
+build, a bullet or a picture revealed: the slide keeps its first time but takes the new image, so each slide is
+described once, as it looks when complete. One that changes the slide's content is a new slide, unless its content
+matches a slide shown before (the speaker zoomed out again or went back): that one is not sent twice.
 
 Transport-free (PyAV and NumPy); ``demo`` publishes the result on ``talk/<room>/slides``. The frames live in memory
 for the run only: nothing is written to disk.
@@ -27,10 +28,9 @@ THUMB_W, THUMB_H = 160, 90  # grey thumbnail the comparison runs on
 GRID_W, GRID_H = 16, 9  # cells of the thumbnail (10 x 10 pixels each)
 CELL_DIFF = 6.0  # mean absolute difference (0-255) above which a cell has changed
 STILL = 0.02  # at most this share of cells may change between two keyframes of a still screen
-NEW_SLIDE = 0.3  # at least this share of cells differs from the current slide: a new slide, not a build
-SAME = 0.05  # at most this share differs from an earlier slide: a return to it (after a zoom), not a new slide
 CONTENT_STD = 8.0  # a cell with this much detail (std dev, 0-255) shows content: text, a chart, a picture
 KEPT = 0.1  # a build changes at most this share of the slide's content cells; a new slide replaces them
+SAME = 0.05  # at most this share of either screen's content cells differs from an earlier slide: a return to it
 JPEG_MAX_W = 1280
 
 
@@ -87,12 +87,24 @@ def changed(a: NDArray[np.float32], b: NDArray[np.float32]) -> float:
     return float(_changed_cells(a, b).mean())
 
 
+def _content(thumb: NDArray[np.float32]) -> NDArray[np.bool_]:
+    return _cells(thumb).std(axis=(2, 3)) > CONTENT_STD
+
+
 def added(old: NDArray[np.float32], new: NDArray[np.float32]) -> bool:
     """True when ``new`` keeps what ``old`` showed and only fills empty space: a build of the same slide."""
-    content = _cells(old).std(axis=(2, 3)) > CONTENT_STD
+    content = _content(old)
     if not content.any():
         return True
     return float(_changed_cells(old, new)[content].mean()) <= KEPT
+
+
+def same(a: NDArray[np.float32], b: NDArray[np.float32]) -> bool:
+    """True when ``a`` and ``b`` show the same content (two title slides of one template do not)."""
+    content = _content(a) | _content(b)
+    if not content.any():
+        return changed(a, b) <= STILL
+    return float(_changed_cells(a, b)[content].mean()) <= SAME
 
 
 def _thumb(rgb: NDArray[np.uint8]) -> NDArray[np.float32]:
@@ -148,17 +160,18 @@ def find_slides(path: Path, crop: Crop | None = None) -> list[Slide]:
 
     for screen in _screens(path, crop):
         if previous is not None and changed(previous.thumb, screen.thumb) <= STILL:
-            if current is None or (
-                changed(current.screen.thumb, previous.thumb) >= NEW_SLIDE
-                and not added(current.screen.thumb, previous.thumb)
-            ):
-                if current is not None:
-                    close(current)
-                back = any(changed(thumb, previous.thumb) <= SAME for thumb in seen)
+            if current is None:
+                current = _Current(previous.at_ms, previous, new=True)
+                seen.append(previous.thumb)
+            elif changed(current.screen.thumb, previous.thumb) <= STILL:
+                pass  # the same screen
+            elif added(current.screen.thumb, previous.thumb):
+                current.screen = previous  # a build: same slide, fuller image
+            else:
+                close(current)
+                back = any(same(thumb, previous.thumb) for thumb in seen)
                 current = _Current(previous.at_ms, previous, new=not back)  # back: a zoom ended, a slide revisited
                 seen.append(previous.thumb)
-            elif changed(current.screen.thumb, previous.thumb) > STILL:
-                current.screen = previous  # a build: same slide, fuller image
         previous = screen
     if current is not None:
         close(current)

@@ -40,17 +40,18 @@ memory for the run. They are never written to disk or stored as assets: the slid
 
 - Only keyframes are decoded (every 2 s), and a screen counts once the next keyframe looks the same. Transitions and
   video clips inside a slide are skipped.
-- A still screen that replaces the current slide's content is a new slide.
+- A still screen that changes the current slide's content is a new slide.
 - One that only adds to it is a build: the slide keeps its first time and takes the fuller image, so it is described
   once, complete.
-- A return to an earlier slide (after a zoom) is not sent again.
+- A return to an earlier slide (after a zoom) is not sent again. Content decides this, not the share of the screen:
+  two title slides of one template differ in a few cells but are different slides.
 - `--slides x,y,w,h` crops to the slide area, in fractions of the frame. The EMF layout is `0,0,0.77,0.77`, which
   leaves out the speaker inset and the logo. A bare `--slides` sends the whole frame.
 
 | Lecture | Slides sent | Of which | Scan |
 |---|---|---|---|
-| `virus` | 20 | 16 slides and 4 zoomed views | about 45 s |
-| `dataviz` | 31 | the opening stage shot, 29 slide states, the closing slide with its build collapsed | about 50 s |
+| `virus` | 21 | 17 numbered slides and 4 zoomed views | about 20–45 s |
+| `dataviz` | 34 | about 27 distinct slides, the opening stage shot, the closing clip, 2 builds that move earlier content, and 5 frames of an animated scroll | about 25–50 s |
 
 ## All at once
 

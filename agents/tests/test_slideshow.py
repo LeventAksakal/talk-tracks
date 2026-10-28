@@ -83,6 +83,29 @@ def test_crop_keeps_out_a_changing_speaker(tmp_path: Path) -> None:
     assert decode(slides[0].jpeg).shape == (H, W, 3)
 
 
+def test_title_slides_of_one_template_are_different_slides(tmp_path: Path) -> None:
+    """Two sparse title slides share a template strip and differ in a few cells only; neither is a build or a return
+    of the other, but showing the first again is a return."""
+    strip = (0, 0, 24, H)
+    t1, t2 = slide(strip, (110, 80, 100, 12)), slide(strip, (90, 84, 150, 12))
+    path = tmp_path / "titles.mp4"
+    with av.open(str(path), "w", format="mp4") as out:
+        video = out.add_stream("libx264", rate=FPS)
+        video.width, video.height, video.pix_fmt = W, H, "yuv420p"
+        video.options = {"bf": "0", "g": str(FPS), "keyint_min": str(FPS), "sc_threshold": "0", "crf": "18"}
+        n = 0
+        for seconds, img in [(6, t1), (6, t2), (6, t1)]:
+            for _ in range(seconds * FPS):
+                frame = av.VideoFrame.from_ndarray(img, format="rgb24")
+                frame.pts, frame.time_base = n, Fraction(1, FPS)
+                for packet in video.encode(frame):
+                    out.mux(packet)
+                n += 1
+        for packet in video.encode(None):
+            out.mux(packet)
+    assert [s.at_ms for s in find_slides(path)] == [0, 6_000]
+
+
 def test_crop_parse() -> None:
     assert Crop.parse("full") == Crop()
     assert Crop.parse("0,0,0.77,0.77") == Crop(0, 0, 0.77, 0.77)
