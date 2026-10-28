@@ -2,20 +2,23 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
+from typing import Any, Literal
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
-from talk_tracks.contracts import CaptionLine, CaptionsState
+from talk_tracks.contracts import AgentInfo, CaptionItem, CaptionLine, CaptionsCarry, Envelope, TranslationItem, Usage
+from talk_tracks.cores.captions import CaptionsCore
+from talk_tracks.cores.translate import TranslateCore
 from talk_tracks.demand import Gate, gated
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger, room_cap
 from talk_tracks.rooms import RoomPolicy, serve_rooms
 from talk_tracks.runtime import run_captions, run_translate
 
-from .test_runtime import ListSink, publisher
+from .slicekit import sliced
 
 
 class Switch:
@@ -110,7 +113,7 @@ async def test_gated_input_opens_on_a_subscriber_and_closes_without_one() -> Non
     assert all(isinstance(x, int) and x >= 1000 for x in out[paused_at:])
 
 
-async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after() -> None:
+async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after(tmp_path: Path) -> None:
     class Session:
         def __init__(self, log: list[str]) -> None:
             self.log = log
@@ -137,27 +140,45 @@ async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after() -> N
         for end_ms in range(5100, 6100, 100):
             yield np.zeros(1600, dtype=np.int16), end_ms
 
-    provider, sink = Provider(), ListSink()
-    await run_captions(audio(), provider, publisher("captions", sink), "en")
+    provider = Provider()
+    track, out = sliced(tmp_path)
+    core = CaptionsCore("en")
+    track.carry = core.carry
+    await run_captions(audio(), provider, track, core)
     assert provider.log == ["open 0", "close", "open 5000", "close"]
-    assert [line.id for line in sink.envelopes()[-1].state.lines] == [0, 1, 2, 3]  # ids carry on over the pause
+    assert [line.id for line in core.lines] == [400, 900, 5400, 5900]  # ids carry on over the pause
+    assert out.groups() == [0, 1] and out.ended == [0]  # the pause closed slice 0; nothing was produced while idle
 
 
-def captions_with(n: int) -> CaptionsState:
-    return CaptionsState(lang="en", lines=[CaptionLine(id=i, start_ms=i, end_ms=i, text=f"line {i}") for i in range(n)])
+def line(i: int) -> CaptionLine:
+    return CaptionLine(id=i, start_ms=i * 1000, end_ms=i * 1000 + 900, text=f"line {i}")
 
 
-async def test_translation_switched_on_mid_talk_starts_from_now() -> None:
-    async def states() -> AsyncIterator[CaptionsState | None]:
-        yield captions_with(10)  # 10 lines already said when someone first wants the translation
-        yield captions_with(11)
+def captions(kind: Literal["carry", "item"], *ids: int) -> Envelope:
+    """An object of the captions track: a carry-in with these lines, or the final line ``ids[0]``."""
+    k = max(ids) * 1000 // 4000
+    info = AgentInfo(name="captions", label="c", model="fake")
+    if kind == "carry":
+        body: Any = CaptionsCarry(lang="en", lines=[line(i) for i in ids])
+    else:
+        body = CaptionItem(lang="en", line=line(ids[0]), final=True)
+    return Envelope(agent=info, slice=k, kind=kind, at_ms=0, usage=Usage(), body=body)
+
+
+async def test_translation_switched_on_mid_talk_starts_from_now(tmp_path: Path) -> None:
+    async def objects() -> AsyncIterator[Envelope | None]:
+        yield captions("carry", 8, 9)  # 10 lines already said when someone first wants the translation
+        yield captions("item", 10)
         yield None
-        yield captions_with(20)  # wanted again, 9 lines later
-        yield captions_with(21)
+        yield captions("carry", 18, 19)  # wanted again, 9 lines later
+        yield captions("item", 20)
 
-    sink, llm = ListSink(), FakeLlm()
-    await run_translate(states(), llm, publisher("translate-tr", sink, llm), "tr")
-    assert [line.id for line in sink.envelopes()[-1].state.lines] == [8, 9, 10, 18, 19, 20]
+    llm = FakeLlm()
+    track, out = sliced(tmp_path, "translate-tr", llm=llm)
+    core = TranslateCore("tr")
+    track.carry = core.carry
+    await run_translate(objects(), llm, track, core)
+    assert [e.body.line.id for e in out.envelopes() if isinstance(e.body, TranslationItem)] == [8, 9, 10, 18, 19, 20]
     assert llm.usage.requests == 6
 
 
@@ -201,17 +222,20 @@ async def test_at_its_cap_an_agent_stops_paying_and_says_so(tmp_path: Path) -> N
     ledger = SpendLedger(tmp_path / "ledger.jsonl", 100).for_room("judge-a", RoomCap(0.03))
     llm = FakeLlm(ledger, usd_per_call=0.01)
 
-    async def states() -> AsyncIterator[CaptionsState | None]:
-        yield captions_with(0)
-        for n in range(1, 6):
-            yield captions_with(n)
+    async def objects() -> AsyncIterator[Envelope | None]:
+        for n in range(6):
+            yield captions("item", n)
 
-    sink = ListSink()
-    await run_translate(states(), llm, publisher("translate-tr", sink, llm), "tr")
-    last = sink.envelopes()[-1]
-    assert [line.id for line in last.state.lines] == [0, 1, 2]
-    assert llm.usage.requests == 3
-    assert last.agent.label == "translate-tr (paused: this room reached its spend cap)"
+    track, out = sliced(tmp_path, "translate-tr", llm=llm)
+    core = TranslateCore("tr")
+    track.carry = core.carry
+    await run_translate(objects(), llm, track, core)
+    assert [e.body.line.id for e in out.envelopes() if isinstance(e.body, TranslationItem)] == [0, 1, 2]
+    assert llm.usage.requests == 3 and track.capped
+    track.clock.observe(8_000)
+    await track.tick()  # the next slice says why the track is silent
+    (carry,) = out.envelopes(2)
+    assert carry.kind == "carry" and carry.capped
     assert ledger.room_total() == pytest.approx(0.03)
 
 

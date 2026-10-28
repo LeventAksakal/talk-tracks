@@ -15,8 +15,9 @@ the demo room), TT_TOKEN, TT_LEDGER (default data/ledger.jsonl), TT_SPEND_CEILIN
 (default 2: any room's cap), TT_CAPS_DIR (default data/caps: judge token batches with their own caps),
 TT_WAKE_DEBOUNCE_S (default 1: how long a track stays subscribed before its agent wakes),
 TT_IDLE_GRACE_S (default 10: how long a track goes unsubscribed before its agent pauses), TT_ROOM_LINGER_S (default
-600: how long a room is served after its speaker left), TT_STATE_DIR (default data/state: where captions keeps its
-lines across a restart) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed. In fake mode,
+600: how long a room is served after its speaker left), TT_ARCHIVE_DIR (default data/archive: every slice an agent
+publishes, which it serves FETCH and restarts from), TT_ARCHIVE_BUCKET (where older slices are read back from)
+and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed. In fake mode,
 TT_FAKE_USD_PER_CALL makes the fake model spend pretend money into TT_FAKE_LEDGER (default data/fake-ledger.jsonl),
 to try the caps.
 """
@@ -31,13 +32,26 @@ import os
 import signal
 import sys
 from collections.abc import AsyncGenerator, Callable, Coroutine
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .contracts import AgentInfo, CaptionsState, Usage, agent_path, parse_room
+from .archive.slices import TrackInfo
+from .contracts import (
+    ITEMS_TRACK,
+    OUTLINE_TRACK,
+    AgentInfo,
+    Carry,
+    Envelope,
+    OutlineSnapshot,
+    Usage,
+    agent_path,
+    parse_room,
+)
 from .llm.base import Llm
 from .llm.ledger import ROOM_CAP_USD, SpendLedger, room_cap
 from .llm.meta import language_name
+from .slicing import HOLD_S
 
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "watch")
@@ -88,94 +102,215 @@ def make_llm(fake: bool, room: str) -> Llm:
     return MetaLlm(api_key(), room_ledger(room, spend_ledger()))
 
 
-Work = Callable[[Any, Any, Any], Coroutine[Any, Any, None]]  # (relay, publisher, gate) -> the agent's loop
+Run = Callable[[Any, Any, Any], Coroutine[Any, Any, None]]  # (relay, track, gate) -> the agent's live loop
+Backfill = Callable[[Any, Any], Any]  # (relay, track) -> slicing.Produce, or None when slices cannot be back-filled
 
 
-def build(args: argparse.Namespace, room: str) -> tuple[AgentInfo, Callable[[], Usage], Work]:
+@dataclass
+class Agent:
+    """One room's agent: what it publishes, how it runs live, and how it produces a past slice."""
+
+    info: AgentInfo
+    usage: Callable[[], Usage]
+    catalog: TrackInfo
+    run: Run
+    empty: Callable[[], Carry] | None  # an empty carry-in; None for the outline (a snapshot track)
+    backfill: Backfill | None = None
+    hold_s: float | None = HOLD_S
+
+
+async def silence(start_ms: int, end_ms: int) -> AsyncGenerator[tuple[Any, int]]:
+    """Fake mode's archived audio: the scripted recogniser goes by the media clock, not by what it hears."""
+    import numpy as np
+
+    for t in range(start_ms + 100, end_ms + 1, 100):
+        yield np.zeros(1600, dtype=np.int16), t
+
+
+def build(args: argparse.Namespace, room: str) -> Agent:
     """The agent for ``room``. Its inputs open only while its track is subscribed (``gate``)."""
     from . import moq, runtime
+    from .contracts import CaptionsCarry, SlidesCarry, TranslationCarry
+    from .cores.captions import CaptionsCore
+    from .cores.outline import OutlineCore
+    from .cores.slides import SlidesCore
+    from .cores.translate import TranslateCore
     from .demand import gated
 
     lang: str = args.lang
     if args.agent == "captions":
+        past: runtime.PastAudio | None
         if args.fake:
             from .asr.scripted import ScriptedAsr, demo_script
 
             asr: Any = ScriptedAsr(demo_script(FAKE_SENTENCES))
-            model = "fake"
+            model, past = "fake", silence
         else:
             from .asr.meta import MODEL, MetaVoiceAsr
 
             asr, model = MetaVoiceAsr(api_key(), ledger=room_ledger(room, spend_ledger())), MODEL
+            past = None  # the archive has no reader for the speaker's audio yet: real captions are not back-filled
 
-        from . import statefile
-
-        saved = Path(os.environ.get("TT_STATE_DIR", "data/state")) / f"captions-{room}-{lang}.json"
-
-        async def transcribe(relay: Any, pub: Any, gate: Any) -> None:
+        async def transcribe(relay: Any, track: Any, gate: Any) -> None:
+            core = CaptionsCore(
+                lang, lines=[line for env in track.seed_envelopes() for line in runtime.caption_lines(env)]
+            )
+            track.carry = core.carry
             async with contextlib.aclosing(
                 gated(gate, lambda: moq.teacher_audio(relay, room), f"captions {room}")
             ) as a:
-                await runtime.run_captions(
-                    a, asr, pub, lang, resume=statefile.load_captions(saved), save=lambda s: statefile.save(saved, s)
-                )
+                await runtime.run_captions(a, asr, track, core)
 
-        return AgentInfo(name="captions", label=f"Captions ({language_name(lang)})", model=model), Usage, transcribe
+        def captions_backfill(relay: Any, track: Any) -> Any:
+            if past is None:
+                return None
+            source = past
+
+            async def produce(k: int) -> Any:
+                return await runtime.backfill_captions(k, asr, lang, source)
+
+            return produce
+
+        label = f"Captions ({language_name(lang)})"
+        return Agent(
+            AgentInfo(name="captions", label=label, model=model),
+            Usage,
+            TrackInfo(kind="captions", label=label, lang=lang),
+            transcribe,
+            lambda: CaptionsCarry(lang=lang, lines=[]),
+            captions_backfill,
+        )
 
     llm = make_llm(args.fake, room)
 
-    async def captions(relay: Any) -> AsyncGenerator[CaptionsState]:
+    def captions(relay: Any) -> AsyncGenerator[Envelope]:
         """Subscribing here is what keeps the captions agent working for us (a downstream subscriber)."""
-        async for envelope in moq.follow_agent(relay, room, "captions"):
-            if isinstance(envelope.state, CaptionsState):
-                yield envelope.state
+        return moq.follow_agent(relay, room, "captions")
 
     # aclosing: an agent that stops at its cap closes its input at once, which releases the track it subscribed to.
-    async def translate(relay: Any, pub: Any, gate: Any) -> None:
+    async def translate(relay: Any, track: Any, gate: Any) -> None:
+        core = TranslateCore(lang, done=runtime.translated_lines(track.seed_envelopes()))
+        track.carry = core.carry
         async with contextlib.aclosing(gated(gate, lambda: captions(relay), f"translate {room}")) as lines:
-            await runtime.run_translate(lines, llm, pub, lang)
+            await runtime.run_translate(lines, llm, track, core)
 
-    async def describe(relay: Any, pub: Any, gate: Any) -> None:
+    def translate_backfill(relay: Any, track: Any) -> Any:
+        source = moq.fetch_agent_slice(relay, room, "captions")
+
+        async def produce(k: int) -> Any:
+            before = track.archive.read_local(k - 1) if k > 0 else None
+            tail = runtime.translation_carry(lang, runtime.envelopes_of(before)) if before else None
+            return await runtime.backfill_translate(k, llm, lang, source, tail)
+
+        return produce
+
+    async def describe(relay: Any, track: Any, gate: Any) -> None:
+        core = SlidesCore(lang)
+        core.seed(runtime.slide_notes(track.seed_envelopes()))
+        track.carry = core.carry
         async with contextlib.aclosing(gated(gate, lambda: moq.slide_frames(relay, room), f"describe {room}")) as f:
-            await runtime.run_describe(f, llm, pub, lang)
+            await runtime.run_describe(f, llm, track, core)
 
-    async def chapters(relay: Any, pub: Any, gate: Any) -> None:
+    async def chapters(relay: Any, track: Any, gate: Any) -> None:
+        core = OutlineCore(lang)
+        if (seed := track.seed()) is not None and isinstance(seed.body, OutlineSnapshot):
+            core.seed(seed.body)
         async with contextlib.aclosing(gated(gate, lambda: captions(relay), f"chapters {room}")) as lines:
-            await runtime.run_outline(lines, llm, pub, lang)
+            await runtime.run_outline(lines, llm, track, core)
 
+    usage = lambda: llm.usage  # noqa: E731
     if args.agent == "translate":
-        info = AgentInfo(name=f"translate-{lang}", label=f"{language_name(lang)} translation", model=llm.model)
-        return info, lambda: llm.usage, translate
+        label = f"{language_name(lang)} translation"
+        return Agent(
+            AgentInfo(name=f"translate-{lang}", label=label, model=llm.model),
+            usage,
+            TrackInfo(kind="translation", label=label, lang=lang, depends=["captions/items"]),
+            translate,
+            lambda: TranslationCarry(lang=lang, lines=[]),
+            translate_backfill,
+        )
     if args.agent == "describe":
-        return AgentInfo(name="describe", label="Slide descriptions", model=llm.model), lambda: llm.usage, describe
-    info = AgentInfo(name="chapters", label="Chapters, glossary and recap", model=llm.model)
-    return info, lambda: llm.usage, chapters
+        label = "Slide descriptions"
+        return Agent(
+            AgentInfo(name="describe", label=label, model=llm.model),
+            usage,
+            TrackInfo(kind="slides", label=label, lang=lang),
+            describe,
+            lambda: SlidesCarry(lang=lang, slide=None),
+            None,  # past slide images are the archiver's; describing them on FETCH is not built yet
+            hold_s=None,  # slides change rarely: the clock runs on between them
+        )
+    label = "Chapters, glossary and recap"
+    return Agent(
+        AgentInfo(name="chapters", label=label, model=llm.model),
+        usage,
+        TrackInfo(kind="outline", label=label, lang=lang, packaging="snapshot", depends=["captions/items"]),
+        chapters,
+        None,
+    )
 
 
 async def serve_room(args: argparse.Namespace, room: str) -> None:
-    """One room's agent on a connection of its own: its track stays published, and idle until subscribed."""
+    """One room's agent on a connection of its own, under its stable name: its track stays published, idle until
+    subscribed, and answers FETCH for its history from the archive (back-filling slices never produced)."""
     from . import moq
+    from .archive.slices import TrackArchive, archive_bucket
     from .demand import IDLE_GRACE_S, WAKE_DEBOUNCE_S, Gate
-    from .publisher import SnapshotPublisher
-    from .runtime import now_ms, run_with_heartbeat
+    from .rooms import TALK_OVER
+    from .slicing import MediaClock, SlicedTrack, SnapshotTrack
 
-    info, usage, work = build(args, room)
-    instance = str(now_ms())
+    agent = build(args, room)
+    info = agent.info
+    name = ITEMS_TRACK if agent.empty is not None else OUTLINE_TRACK
+    archive = TrackArchive(room, info.name, name, bucket=archive_bucket(), info=agent.catalog)
+    log = logging.getLogger("talk_tracks")
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
-        sink = await relay.publish(agent_path(room, info.name, instance), "state")
-        pub = SnapshotPublisher(info, sink, usage, instance=instance)
+        out = await relay.publish_sliced(agent_path(room, info.name), name)
+        clock = MediaClock(hold_s=agent.hold_s)
+        track: SlicedTrack | SnapshotTrack
+        if agent.empty is None:
+            track = SnapshotTrack(info, out, archive, agent.usage, clock=clock)
+            out.serve(track.slice)
+        else:
+            sliced = track = SlicedTrack(info, out, archive, agent.usage, agent.empty, clock=clock)
+            produce = agent.backfill(relay, sliced) if agent.backfill else None
+            empty = agent.empty
+            out.serve(lambda k: sliced.slice(k, produce, empty))
         gate = Gate(
-            sink.subscribed,
+            out.subscribed,
             wake_s=env_float("TT_WAKE_DEBOUNCE_S", WAKE_DEBOUNCE_S),
             grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S),
         )
-        logging.getLogger("talk_tracks").info("%s instance %s in room %s", info.name, instance, room)
+        newest = archive.latest_group()
+        log.info("%s in room %s, after slice %s", info.name, room, "none" if newest is None else newest)
 
         async def serve() -> None:
-            await work(relay, pub, gate)
+            await agent.run(relay, track, gate)
             await asyncio.Event().wait()  # stopped at a spend cap: the track stays up and says so
 
-        await moq.until_closed(relay, run_with_heartbeat(pub, asyncio.ensure_future(serve())))
+        async def status() -> None:
+            while True:
+                capped = isinstance(track, SlicedTrack) and track.capped
+                archive.set_status("capped" if capped else "live" if out.subscribed() else "idle")
+                await asyncio.sleep(1)
+
+        background = [asyncio.create_task(track.run_clock()), asyncio.create_task(status())]
+        try:
+            await moq.until_closed(relay, serve())
+        except asyncio.CancelledError as exc:
+            if TALK_OVER in exc.args and isinstance(track, SlicedTrack):
+                log.info("%s: the talk in room %s is over: End of Track", info.name, room)
+                with contextlib.suppress(Exception):
+                    await track.end()
+            raise
+        finally:
+            for task in background:
+                task.cancel()
+            if isinstance(track, SlicedTrack):  # a clean stop closes the open slice; a replacement starts at the next
+                with contextlib.suppress(Exception):
+                    await track.pause()
+            archive.set_status("idle")
+            archive.close()
 
 
 async def run_agent(args: argparse.Namespace) -> None:

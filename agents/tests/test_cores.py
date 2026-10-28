@@ -11,28 +11,33 @@ def line(i: int, text: str = "hello") -> CaptionLine:
     return CaptionLine(id=i, start_ms=i * 1000, end_ms=i * 1000 + 900, text=text)
 
 
-def test_captions_partial_then_final() -> None:
+def test_captions_interim_items_then_the_final_line() -> None:
     core = CaptionsCore("en")
-    assert core.on_event(AsrPartial("Media over")) is None
-    assert core.state().interim == "Media over"
-    made = core.on_event(AsrFinal(" Media over Quick. ", 100, 2000))
-    assert made is not None and made.id == 0 and made.text == "Media over Quick."
-    assert core.state().interim == "" and len(core.state().lines) == 1
+    interim = core.on_event(AsrPartial("Media over"), 900)
+    assert interim is not None and not interim.final and interim.line.text == "Media over"
+    assert core.on_event(AsrPartial("Media over"), 950) is None  # nothing new heard
+    made = core.on_event(AsrFinal(" Media over Quick. ", 100, 2000), 2000)
+    assert made is not None and made.final and made.line.id == 100 and made.line.text == "Media over Quick."
+    assert core.state().interim == "" and len(core.lines) == 1
+    assert core.carry().lines == [made.line]
 
 
-def test_captions_ignore_empty_final_and_window() -> None:
+def test_caption_ids_are_start_times_and_always_rise() -> None:
     core = CaptionsCore("en")
-    assert core.on_event(AsrFinal("   ", 0, 10)) is None
+    assert core.on_event(AsrFinal("   ", 0, 10), 10) is None
     for i in range(WINDOW + 5):
-        core.on_event(AsrFinal(f"line {i}", i, i + 1))
-    ids = [x.id for x in core.state().lines]
-    assert len(ids) == WINDOW and ids[-1] == WINDOW + 4 and core.next_id == WINDOW + 5
+        core.on_event(AsrFinal(f"line {i}", 1000 * i, 1000 * i + 900), 1000 * i + 900)
+    ids = [x.id for x in core.lines]
+    assert len(ids) == WINDOW and ids[-1] == 1000 * (WINDOW + 4)
+    late = core.on_event(AsrFinal("same start", 1000 * (WINDOW + 4), 1000 * (WINDOW + 5)), 0)
+    assert late is not None and late.line.id == 1000 * (WINDOW + 4) + 1
+    assert [x.id for x in core.carry().lines] == [*ids[-1:], late.line.id]
 
 
-def test_captions_resume_ids() -> None:
-    core = CaptionsCore("en", next_id=17)
-    made = core.on_event(AsrFinal("x", 0, 1))
-    assert made is not None and made.id == 17
+def test_captions_resume_after_a_predecessors_lines() -> None:
+    core = CaptionsCore("en", lines=[line(17)])
+    made = core.on_event(AsrFinal("x", 0, 1), 1)  # a recogniser restarted at 0 still gets a later id
+    assert made is not None and made.line.id == 18
 
 
 def test_translate_asks_for_each_line_once() -> None:
@@ -40,8 +45,10 @@ def test_translate_asks_for_each_line_once() -> None:
     assert [x.id for x in core.pending([line(0), line(1)])] == [0, 1]
     assert core.pending([line(0), line(1)]) == []
     assert [x.id for x in core.pending([line(1), line(2)])] == [2]
-    core.add(2, "iki")
-    assert core.state().lines[0].text == "iki"
+    item = core.add(line(2), "iki")
+    assert item.line.text == "iki" and item.line.start_ms == 2000 and core.carry().lines == [item.line]
+    again = TranslateCore("tr", done=[item.line])  # a restarted agent does not translate it again
+    assert again.pending([line(2), line(3)]) == [line(3)]
 
 
 def frame(i: int) -> SlideFrame:

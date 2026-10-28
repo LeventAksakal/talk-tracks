@@ -16,6 +16,7 @@ from typing import Any
 log = logging.getLogger("talk_tracks")
 
 ROOM_LINGER_S = 600.0
+TALK_OVER = "talk over"  # the cancel message of a room whose speaker stayed away: its agents end their tracks
 
 
 class RoomPolicy:
@@ -54,7 +55,7 @@ async def serve_rooms(
         log.info("room %s: speaker gone for %.0f s, stopping", room, linger_s)
         stopping.pop(room, None)
         if task := running.get(room):
-            task.cancel()
+            task.cancel(TALK_OVER)
 
     async def follow() -> None:
         async for room, active in on_air:

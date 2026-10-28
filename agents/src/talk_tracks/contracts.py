@@ -32,7 +32,11 @@ class Wire(BaseModel):
 
 
 class CaptionLine(Wire):
-    id: int = Field(ge=0, description="Increases by one per line; stable across restarts")
+    id: int = Field(
+        ge=0,
+        description="Rises with time: the start time in media ms (or one more than the previous id); stable across"
+        " restarts and back-fill",
+    )
     start_ms: int = Field(ge=0, description="Media time of the first word")
     end_ms: int = Field(ge=0)
     text: str

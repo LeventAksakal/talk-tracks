@@ -26,16 +26,23 @@ class RecordingClient:
 @pytest.fixture
 def moq(monkeypatch: pytest.MonkeyPatch) -> Any:
     agent = types.ModuleType("aiomoqt.agent")
-    for name in ("AgentSession", "PublishSpec", "StartAt", "SubscribeSpec", "TrackRef"):
+    for name in ("AgentSession", "FetchSpec", "PublishSpec", "StartAt", "SubscribeSpec", "TrackRef"):
         setattr(agent, name, object)
     client = types.ModuleType("aiomoqt.client")
     client.MOQTClient = RecordingClient  # type: ignore[attr-defined]
     logger = types.ModuleType("aiomoqt.utils.logger")
     logger.set_log_level = lambda level: None  # type: ignore[attr-defined]
+    data = types.ModuleType("aiomoqt.messages.data")
+    data.FetchObject = object  # type: ignore[attr-defined]
+    fetch = types.ModuleType("aiomoqt.messages.fetch")
+    fetch._is_joining = lambda fetch_type: False  # type: ignore[attr-defined]
     for name, module in {
         "aiomoqt": types.ModuleType("aiomoqt"),
         "aiomoqt.agent": agent,
         "aiomoqt.client": client,
+        "aiomoqt.messages": types.ModuleType("aiomoqt.messages"),
+        "aiomoqt.messages.data": data,
+        "aiomoqt.messages.fetch": fetch,
         "aiomoqt.utils": types.ModuleType("aiomoqt.utils"),
         "aiomoqt.utils.logger": logger,
     }.items():

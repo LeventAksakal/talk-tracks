@@ -21,21 +21,25 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
+import types
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote, urlsplit
 
 import numpy as np
-from aiomoqt.agent import AgentSession, PublishSpec, StartAt, SubscribeSpec, TrackRef
+from aiomoqt.agent import AgentSession, FetchSpec, PublishSpec, StartAt, SubscribeSpec, TrackRef
 from aiomoqt.client import MOQTClient
+from aiomoqt.messages.data import FetchObject
+from aiomoqt.messages.fetch import _is_joining
 from aiomoqt.utils.logger import set_log_level
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
+from .archive.slices import NORMAL, Slice
 from .audio import AudioAssembler
-from .contracts import ROOT, Envelope, SlideFrame, agents_prefix, slides_path, teacher_path
-from .follow import NewestInstance, SnapshotFilter
+from .contracts import ENVELOPE, ITEMS_TRACK, ROOT, Envelope, SlideFrame, agent_path, slides_path, teacher_path
+from .slicing import items_of
 
 log = logging.getLogger("talk_tracks.moq")
 set_log_level(logging.WARNING)  # aiomoqt logs every control message at INFO
@@ -46,6 +50,9 @@ AUDIO_IDLE_S = 5.0  # the speaker's audio never pauses for this long while the p
 READ_DEADLINE_S = 0.05
 WRITE_TIMEOUT_S = 5.0
 WRITER_QUEUE = 4  # snapshots are self-contained: an unsent old one is worth nothing
+SLICED_QUEUE = 256  # objects of a sliced track; each one counts, and a FETCH serves what the queue dropped
+FETCH_TIMEOUT_S = 8.0  # a forwarded FETCH may back-fill a slice upstream: 1-3 s of model calls, maybe chained
+FETCH_NOT_FOUND = 0x10  # moq-relay passes it on as 'not found'
 
 
 def relay_client(url: str, *, token: str | None = None, insecure: bool = False) -> Any:
@@ -82,6 +89,97 @@ class TrackWriter:
         await asyncio.wait_for(self._writer.write(data), WRITE_TIMEOUT_S)
 
 
+_END_GROUP = object()  # queued after a group's last object: close its stream with End of Group now, not later
+
+SliceSource = Callable[[int], Awaitable[Slice | None]]  # group k for a FETCH, or None: never produced
+
+
+class SlicedOut:
+    """A sliced track's live side (``slicing.LiveOut``): the caller numbers groups and objects, closes each group
+    explicitly, and answers FETCH from the track's archive (``serve``) instead of aiomoqt's in-memory history.
+
+    aiomoqt's push writer starts a group per ``snapshot`` and numbers objects itself; we set its group counter so its
+    numbering is ours, and replace its ``produce`` loop to send End of Group when a slice ends rather than when the
+    next one starts, which may be minutes later.
+    """
+
+    def __init__(self, writer: Any) -> None:
+        self._writer = writer
+        track = writer._track
+        track.produce = types.MethodType(_produce_with_group_ends, track)
+
+    def subscribed(self) -> bool:
+        return bool(self._writer._track.producing)
+
+    async def put(self, group: int, object_id: int, payload: bytes) -> None:
+        w = self._writer
+        if object_id == 0:
+            w._group = group - 1  # snapshot() starts group + 1 - 1 = group, object 0
+            await asyncio.wait_for(w.snapshot(payload), WRITE_TIMEOUT_S)
+        else:
+            await asyncio.wait_for(w.write(payload), WRITE_TIMEOUT_S)
+
+    async def end_group(self, group: int) -> None:
+        w = self._writer
+        w.end_group()
+        with contextlib.suppress(asyncio.QueueFull):
+            w._queue.put_nowait((group, -1, _END_GROUP, False))
+
+    async def end_track(self) -> None:
+        """The talk is over: open streams close and each subscription gets PUBLISH_DONE, Track Ended."""
+        self._writer._track.end()
+
+    def serve(self, source: SliceSource) -> None:
+        """Answer each standalone FETCH of this track from ``source``, with the true End Location (moq-relay asks
+        for a whole group and rejects aiomoqt's own reply, spike S4b). Joining FETCHes keep aiomoqt's handling."""
+        track = self._writer._track
+        stock = track._on_fetch
+
+        async def on_fetch(session: Any, msg: Any) -> None:
+            if _is_joining(msg.fetch_type):
+                await stock(session, msg)
+                return
+            rid, k = msg.request_id, msg.start_group or 0
+            try:
+                found = await source(k)
+            except Exception as exc:
+                log.warning("FETCH of %s group %d failed: %s", track.trackname, k, exc)
+                found = None
+            objects = [] if found is None else [o for o in found.objects if o.status == NORMAL]
+            if not objects:
+                session.fetch_error(request_id=rid, error_code=FETCH_NOT_FOUND, reason="slice not produced")
+                return
+            assert found is not None
+            last = objects[-1].object_id
+            session.fetch_ok(
+                request_id=rid,
+                end_of_track=int(found.end_of_track),
+                largest_group_id=k,
+                largest_object_id=last + 1,  # End Location: one past the last object served
+            )
+            served = [FetchObject(group_id=k, object_id=o.object_id, payload=o.payload) for o in objects]
+            await session.serve_fetch(rid, served)
+            log.info("FETCH %s group %d: served %d objects", track.trackname, k, len(served))
+
+        track._on_fetch = on_fetch
+
+
+async def _produce_with_group_ends(self: Any, out: Any) -> None:
+    """aiomoqt ``_PushTrack.produce``, plus the End of Group marker ``SlicedOut.end_group`` queues."""
+    while not (self._stopping and self._queue.empty()):
+        item = await self._queue.get()
+        try:
+            if item is None:
+                return
+            group_id, object_id, payload, group_start = item
+            if payload is _END_GROUP:
+                out.end_group()
+            else:
+                await out.write(group_id, object_id, payload, group_start=group_start)
+        finally:
+            self._queue.task_done()
+
+
 class Relay:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -98,6 +196,35 @@ class Relay:
         await writer.start()
         log.info("publishing %s/%s", namespace, track)
         return TrackWriter(writer)
+
+    async def publish_sliced(self, namespace: str, track: str) -> SlicedOut:
+        """A sliced or snapshot agent track. Its queue holds a few slices while the relay's subscription catches up."""
+        spec = PublishSpec(track=TrackRef(namespace=namespace, name=track), buffer=SLICED_QUEUE, on_full="drop_oldest")
+        writer = self.agent.writer(spec)
+        out = SlicedOut(writer)
+        await writer.start()
+        log.info("publishing %s/%s", namespace, track)
+        return out
+
+    async def fetch_group(
+        self, namespace: str, track: str, group: int, *, timeout_s: float = FETCH_TIMEOUT_S
+    ) -> list[bytes] | None:
+        """One group of a track by FETCH: the payloads in order, or None when the publisher has not got it."""
+        ref = TrackRef(namespace=namespace, name=track)
+        t0 = time.monotonic()
+        try:
+            reader = await self.agent.fetch(
+                FetchSpec(track=ref, start_at=StartAt.range(group, group), timeout_s=timeout_s)
+            )
+        except Exception as exc:  # refused: never produced, or nobody publishes it
+            log.info("FETCH %s/%s group %d refused: %s", namespace, track, group, exc)
+            return None
+        objects: list[Any] = []
+        while not reader.done and time.monotonic() - t0 < timeout_s:
+            objects += await reader.read(1, timeout=READ_DEADLINE_S)
+            objects += reader.drain()
+        objects += reader.drain()
+        return [o.payload for o in objects if o.payload]
 
     async def objects(self, namespace: str, track: str, *, idle_s: float | None = None) -> AsyncIterator[bytes]:
         """Every non-empty payload of a track, from the latest group on, resubscribing for as long as it is read.
@@ -212,44 +339,26 @@ async def slide_frames(relay: Relay, room: str) -> AsyncGenerator[SlideFrame]:
             log.warning("skipping a slide frame that does not match the contract")
 
 
-async def follow_agent(relay: Relay, room: str, agent: str) -> AsyncIterator[Envelope]:
-    """Each new snapshot of another agent, always from its newest instance (a replacement takes over by itself)."""
-    prefix = f"{agents_prefix(room)}/{agent}"
-    newest, snapshots = NewestInstance(), SnapshotFilter()
-    inbox: asyncio.Queue[bytes] = asyncio.Queue(maxsize=64)
-    readers: dict[str, asyncio.Task[None]] = {}
+async def follow_agent(relay: Relay, room: str, agent: str, track: str = ITEMS_TRACK) -> AsyncGenerator[Envelope]:
+    """Each object of another agent's track. The name is stable: when the agent restarts, the subscription ends and
+    the next one reaches its replacement. Subscribing is demand: it keeps that agent working for us."""
+    async for payload in relay.objects(agent_path(room, agent), track):
+        try:
+            yield ENVELOPE.validate_json(payload)
+        except ValidationError:
+            log.warning("skipping an object from %s that does not match the contract", agent)
 
-    async def read(instance: str) -> None:
-        async for payload in relay.objects(f"{prefix}/{instance}", "state"):
-            await inbox.put(payload)
 
-    async def watch() -> None:
-        async for suffix, active in relay.announced(prefix):
-            instance = suffix.split("/")[0]
-            if active and newest.offer(instance):
-                log.info("following %s instance %s", agent, instance)
-                for task in readers.values():
-                    task.cancel()
-                readers.clear()
-                readers[instance] = asyncio.create_task(read(instance))
+def fetch_agent_slice(
+    relay: Relay, room: str, agent: str, track: str = ITEMS_TRACK
+) -> Callable[[int], Awaitable[list[Envelope] | None]]:
+    """Slice k of another agent's track by FETCH, through the relay's cache, else from that agent's archive, else
+    back-filled by it. None when it cannot be had."""
 
-    watcher = asyncio.create_task(watch())
-    try:
-        while True:
-            get = asyncio.ensure_future(inbox.get())
-            await asyncio.wait({get, watcher}, return_when=asyncio.FIRST_COMPLETED)
-            if not get.done():
-                get.cancel()
-                watcher.result()  # re-raises whatever stopped the watcher
-                raise ConnectionError(f"stopped watching {prefix}")
-            try:
-                envelope = snapshots.accept(get.result(), newest.current)
-            except ValidationError:
-                log.warning("skipping an object from %s that does not match the contract", agent)
-                continue
-            if envelope is not None:
-                yield envelope
-    finally:
-        watcher.cancel()
-        for task in readers.values():
-            task.cancel()
+    async def get(k: int) -> list[Envelope] | None:
+        payloads = await relay.fetch_group(agent_path(room, agent), track, k)
+        if payloads is None:
+            return None
+        return items_of(payloads)
+
+    return get
