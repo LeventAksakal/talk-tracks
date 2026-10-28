@@ -186,7 +186,8 @@ class _Source:
 
 class RoomCatalogTrack:
     """A demo room's MSF catalog on ``talk/<room>/catalog`` (``room_catalog``). It never changes while the looper
-    runs, and is written again as a heartbeat, like the teacher's: a new subscription starts at the next group."""
+    runs, and is written again as a heartbeat, like the teacher's (a new subscription starts at the next group), with
+    each status entry's ``updated_ms`` refreshed: an entry older than 15 s counts as idle."""
 
     def __init__(self, relay: Relay, room: str, catalog: RoomCatalog) -> None:
         self._relay, self._room, self.catalog = relay, room, catalog
@@ -198,7 +199,8 @@ class RoomCatalogTrack:
 
     async def publish(self) -> None:
         assert self._sink is not None
-        await self._sink.write(json.dumps(self.catalog.to_json(), separators=(",", ":")).encode())
+        root = self.catalog.updated(now_ms()).to_json()
+        await self._sink.write(json.dumps(root, separators=(",", ":")).encode())
 
 
 def room_ms() -> int:
@@ -397,7 +399,8 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
         teacher = Teacher(relay, room, info, wall_ms=EPOCH_MS)
         await teacher.start()
         wall = hang_clock(EPOCH_MS)["wall"]
-        room_catalog_track = RoomCatalogTrack(relay, room, room_catalog(sliced.template, room, EPOCH_MS, wall))
+        built = room_catalog(sliced.template, room, EPOCH_MS, wall, now_ms())
+        room_catalog_track = RoomCatalogTrack(relay, room, built)
         await room_catalog_track.start()
         start = room_ms()
         tracks = SlicedTracks(relay, room, sliced)

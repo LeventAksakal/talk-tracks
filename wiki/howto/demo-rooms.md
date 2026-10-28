@@ -247,8 +247,10 @@ chapters. The looper turns the recording's full-state snapshots into that wire f
 write, repeated every 2 s:
 
 * root `version: "draft-01"` and the extension `tt`: `epoch` (room time 0, Unix ms: 2026-10-01 00:00 UTC for a looped
-  room), `shift` (the teacher broadcast's `clock.wall` with no shift), `status` (each agent `producing`, not
-  `capped`);
+  room), `shift` (the teacher broadcast's `clock.wall`, shift 0 ms), `status` per agent (`status: "live"`,
+  `producing`, not `capped`, zero `fetches_served` and `backfills`, `spend_usd` what generating the track cost,
+  `updated_ms` refreshed with every write); the names are locked in wiki/design/lane-briefs.md, "Catalog field
+  names";
 * one entry per track: `name`, `namespace`, `packaging: "eventtimeline"`, `mimeType`, `eventType`
   (`urn:msf:captions:webvtt` for captions and translation, `com.talktracks.slides`, `com.talktracks.outline`), `role`
   (`caption`, `subtitle`), `lang`, `label`, `isLive`, the slice `template` (none for the outline), and `tt` with

@@ -1,5 +1,8 @@
 import json
+from dataclasses import replace
 from typing import Any, cast
+
+import pytest
 
 from talk_tracks.contracts import (
     AgentInfo,
@@ -207,15 +210,20 @@ def test_cues_open_each_group_before_its_items_on_the_lecture_clock() -> None:
 
 
 def test_the_room_catalog_lists_every_track_on_the_room_clock() -> None:
-    root = room_catalog(template(), "virus", 1_790_812_800_000, 212_976_000_000_000).to_json()
+    root = room_catalog(template(), "virus", 1_790_812_800_000, 212_976_000_000_000, now_ms=5).to_json()
     assert root["version"] == "draft-01"
-    assert root["tt"] == {
-        "epoch": 1_790_812_800_000,
-        "shift": {"212976000000000": 0},
-        "status": {
-            name: {"producing": True, "capped": False} for name in ("captions", "translate-tr", "describe", "chapters")
-        },
+    tt = cast(dict[str, Any], root["tt"])
+    assert (tt["epoch"], tt["shift"]) == (1_790_812_800_000, {"212976000000000": 0})
+    assert tt["status"]["captions"] == {
+        "status": "live",
+        "producing": True,
+        "capped": False,
+        "fetches_served": 0,
+        "backfills": 0,
+        "spend_usd": 0.25,  # what generating it cost
+        "updated_ms": 5,
     }
+    assert set(tt["status"]) == {"captions", "translate-tr", "describe", "chapters"}
     entries = cast(list[dict[str, Any]], root["tracks"])
     tracks = {t["namespace"]: t for t in entries}
     captions = tracks["talk/virus/agents/captions"]
@@ -246,3 +254,11 @@ def test_the_room_catalog_lists_every_track_on_the_room_clock() -> None:
         False,
     )
     json.dumps(root)  # plain JSON throughout
+
+
+def test_a_heartbeat_rewrites_every_status_entry_and_shifts_are_whole_slices() -> None:
+    built = room_catalog(template(), "virus", 1_790_812_800_000, 1, now_ms=5)
+    status = cast(dict[str, Any], built.updated(99).to_json()["tt"])["status"]
+    assert {s["updated_ms"] for s in status.values()} == {99}
+    with pytest.raises(ValueError):
+        replace(built, shift={1: 1000}).to_json()

@@ -42,7 +42,7 @@ from .contracts import (
 )
 from .recording import RecordedSnapshot
 from .replay import Cue
-from .room_catalog import CatalogTrack, RoomCatalog, depends_on
+from .room_catalog import AgentStatus, CatalogTrack, RoomCatalog, depends_on
 from .room_catalog import Kind as TrackKind
 
 # --- the sliced wire contract ------------------------------------------------------------------------------------
@@ -178,11 +178,19 @@ class SlicedAgent:
             return "captions"
         return "translation" if isinstance(body, TranslationCarry) else "slides"
 
+    def spend_usd(self) -> float:
+        """What generating the track cost: the recording's cumulative usage at its end."""
+        return _spend(self.groups)
+
     def lateness_ms(self) -> int:
         """``L``: how long after its own time an item was published at most, rounded up to 100 ms. An outline
         revision stands alone in its group, so the outline has none."""
         late = [s.at_ms - t for g in self.groups for s in g if (t := item_ms(s.body)) is not None]
         return -(-max(0, *late) // 100) * 100 if late else 0
+
+
+def _spend(groups: Sequence[Sequence[Stamped]]) -> float:
+    return max((s.usage.cost_usd for g in groups for s in g), default=0.0)
 
 
 def item_ms(body: Carry | Item | OutlineSnapshot) -> int | None:
@@ -368,9 +376,9 @@ class Template:
         return cls(duration_ms, period, max(ids, default=-1) + 1, tuple(agents))
 
 
-def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int) -> RoomCatalog:
-    """The room catalog of a looped recording: its tracks free (paid for once, when it was made) and producing,
-    its teacher broadcast (``clock_wall``) unshifted."""
+def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int, now_ms: int) -> RoomCatalog:
+    """The room catalog of a looped recording: its tracks free and live, each agent's spend what generating it cost
+    once, its teacher broadcast (``clock_wall``) unshifted."""
     agents = [(f"{agents_prefix(room)}/{a.info.name}", a) for a in template.agents]
     captions = [f"{ns}/{a.track}" for ns, a in agents if a.kind == "captions"]
     tracks = tuple(
@@ -386,7 +394,7 @@ def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int) 
         )
         for ns, a in agents
     )
-    status = {a.info.name: {"producing": True, "capped": False} for _, a in agents}
+    status = {a.info.name: AgentStatus("live", True, False, 0, 0, round(a.spend_usd(), 6), now_ms) for _, a in agents}
     return RoomCatalog(epoch_ms, tracks, shift={clock_wall: 0}, status=status)
 
 
