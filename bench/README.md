@@ -8,7 +8,7 @@ results: [wiki/benchmark.md](../wiki/benchmark.md). Needs Docker only; no API ke
 | `relay` | moq-relay 0.17.8, the relay Talk Tracks deploys (built from `deploy/Dockerfile.relay`), open to all |
 | `mediamtx` | MediaMTX 1.21.3: LL-HLS on :8888 and WebRTC/WHEP on :8889 ([mediamtx.yml](mediamtx.yml)) |
 | `source` | [source.sh](source.sh): one ffmpeg encode with a wall-clock barcode in every frame, teed to `moq import ts` (broadcast `bench/live`) and to MediaMTX over RTSP (path `bench`). Image: moq-cli 0.14.8 with ffmpeg (`deploy/Dockerfile.moq-cli`) |
-| `textpub` | [textpub.py](textpub.py): a JSON track `bench/text` / `state` with its publish time, 4 a second, through the agents' MoQ code (agents image) |
+| `textpub` | [textpub.py](textpub.py): a JSON track `bench/text` / `state` with its publish time, 4 a second, through the agents' MoQ code (the agents image already built, never rebuilt here) |
 | `viewer` | [Dockerfile.viewer](Dockerfile.viewer): the measuring page ([web/](web/)) and the Playwright runner ([runner/run.mjs](runner/run.mjs)) driving headless Google Chrome |
 | `netem-relay`, `netem-mediamtx` | [netem.sh](netem.sh) in each server's network namespace: delay and loss towards the viewer only (profile `netem`) |
 
@@ -54,11 +54,52 @@ BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh loss2 --proto moq,moq-ws,webr
 | `--runs`, `--seconds` | 10, 20 | runner: joins per protocol, seconds measured per join after its first frame |
 | `--delay` | 500 | runner: @moq/watch's delay in ms (the viewer's setting in `web/src/viewer/TeacherMedia.tsx`) |
 | `--no-isolation` | off | runner: serve the page without COOP/COEP (production sends them, see `deploy/Caddyfile`) |
-| `BENCH_GOP_S`, `BENCH_BITRATE` | 2, 1000k | source: keyframe interval and video bitrate |
-| `BENCH_TEXT_HZ` | 4 | textpub: text objects per second |
+| `--query` | none | runner: extra page parameters for experiments, for example `muted=1` |
+| `BENCH_GOP_S`, `BENCH_BITRATE`, `BENCH_SIZE` | 2, 1000k, 1280x720 | source: keyframe interval, video bitrate, frame size |
+| `BENCH_TEXT_HZ`, `BENCH_AGENTS_IMAGE` | 4, `talk-tracks-agents:dev` | textpub: text objects per second, the image it runs in |
 | `BENCH_DELAY_MS`, `BENCH_LOSS_PCT` | 0, 0 | netem helpers and runner label |
 
+## What it costs
+
+No API calls and no egress: everything stays on one Docker network on one host, and no port is published. While a
+measurement runs, the source takes about 1.6 CPU cores (x264 at 720p25), the viewer about 1.2 (Chrome decoding in
+software), and the relay and MediaMTX about 0.1 together, plus about 1.5 GB of memory in all. Between measurements
+nothing runs. Disk: about 3 GB of images, most of it the Playwright and Chrome image.
+
+## The VM runs
+
+The published results come from the VM, with labels starting `vm-` (the only results kept in git). From the repo
+root on the VM, once this branch is merged:
+
+```bash
+docker compose -f bench/compose.yml --profile run --profile netem build     # ~15 min if moq-cli is not built yet
+sh bench/run.sh vm-loopback --proto moq,moq-ws,moq-text,webrtc,hls --runs 15 --seconds 30    # ~45 min
+BENCH_DELAY_MS=40 sh bench/run.sh vm-rtt40 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30    # ~25 min
+BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh vm-loss2 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30    # ~25 min
+BENCH_DELAY_MS=40 BENCH_LOSS_PCT=5 sh bench/run.sh vm-loss5 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30    # ~25 min
+sh bench/run.sh vm-moq-delay100 --proto moq,moq-ws --runs 10 --seconds 30 --delay 100    # ~12 min
+python3 bench/analyze.py bench/results/vm-*.jsonl --json bench/results/vm-summary.json
+```
+
+About 2.5 hours in all. Then bring back `bench/results/vm-*` (the JSON lines and the summary). The last run shows
+what MoQ does with a tighter player setting than the viewer's 500 ms.
+
+Before starting, check these:
+
+- **CPU.** A measurement takes about three cores. On a VM with fewer than four vCPUs the numbers would be distorted
+  and the demo rooms would slow down, so run when no one is watching, or on a larger machine of the same kind.
+- **Network.** The compose network uses the subnet 172.29.0.0/24; if it collides with one on the VM,
+  `docker compose` refuses to start. Change it, and the viewer's address (`172.29.0.50`, also in the netem helpers),
+  in `compose.yml`.
+- **Images.** It builds `talk-tracks-relay:0.17.8` and `talk-tracks-moq-cli:0.14.8` from their pinned Dockerfiles in
+  `deploy/` (the same content under the same names, so images already on the VM are reused) and
+  `talk-tracks-bench-viewer:dev` from `bench/`, and pulls `bluenviron/mediamtx:1.21.3`. The text publisher runs in
+  the agents image already on the host (`BENCH_AGENTS_IMAGE`, default `talk-tracks-agents:dev`) and never builds it.
+  Nothing in the production compose project is touched (this one is `talk-tracks-bench`).
+
 ## Stop
+
+`run.sh` stops everything after each measurement. To remove the containers and the network as well:
 
 ```bash
 docker compose -f bench/compose.yml --profile netem --profile run down

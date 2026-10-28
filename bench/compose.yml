@@ -39,10 +39,10 @@ services:
     volumes: ["./source.sh:/bench/source.sh:ro"]
     networks: { bench: { ipv4_address: 172.29.0.12 } }
 
-  # A JSON track with its publish time, published the way the agents publish (aiomoqt over raw QUIC).
+  # A JSON track with its publish time, published the way the agents publish (aiomoqt over raw QUIC). It uses the
+  # agents image already on the host and never builds it, so a benchmark build cannot replace a deployed image.
   textpub:
-    image: talk-tracks-agents:dev
-    build: ../agents
+    image: ${BENCH_AGENTS_IMAGE:-talk-tracks-agents:dev}
     init: true
     depends_on: [relay]
     restart: on-failure  # never comes back on its own: bench/run.sh stops it after each measurement

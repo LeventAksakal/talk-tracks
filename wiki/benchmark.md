@@ -104,11 +104,38 @@ against WebRTC to get there.
 - **Latency** is the page's clock minus the barcode on every rendered frame (`requestVideoFrameCallback` for
   `<video>`, the renderer's frame signal for @moq/watch). The source and the viewer run on one host and read the same
   clock. It includes encoding, packaging, the server, the network, buffering and decoding; it excludes a camera.
+  Steady-state latency pools every frame after the first 5 s of each join; the first frame's latency is reported
+  apart, since players differ in how they catch up to live.
 - **Text-track latency** (MoQ): a JSON object stamped with its publish time, 4 a second, published through the agents'
-  own MoQ code (aiomoqt over raw QUIC), received in the page.
+  own MoQ code (aiomoqt over raw QUIC), received in the page. Measured with the media playing, and alone (`moq-text`,
+  a captions-only viewer).
 - **Join time**: from creating the player to the first decoded frame, in a fresh browser context each time.
+- **Bytes per viewer**: the viewer container's interface counter over each join (headers, playlists and
+  retransmissions included), the same count for every protocol.
+- **Audio plays in every row.** The viewer container has a PulseAudio null sink, a real-time audio clock. Without it,
+  Chrome's fallback output lags under load, and @moq/watch, which paces video by the audio clock, fell seconds behind
+  live in the first local check; muted, it did not. The fault was the container's, so the sink is part of the setup.
 - **Network**: loopback on one host, plus emulated runs with `tc netem` (added delay and random loss on what the
   servers send to the viewer).
+
+### Local check (a laptop, not the results)
+
+A short check on the development laptop (16 cores, Docker Desktop, Chrome 156 headless), two joins of 20 s per row,
+to validate the harness. The VM runs replace it.
+
+| Protocol | Join ms | Latency p50 / p95 ms | First-frame latency ms | Text p50 / p95 ms | Received kbit/s |
+|---|---|---|---|---|---|
+| MoQ (WebTransport), viewer delay 500 ms | 291–414 | 570 / 595 | 565 | 11 / 30 | 1548 |
+| MoQ (WebSocket, as Safari) | 385–407 | 577 / 612 | 3916 | 29 / 64 | 1297 |
+| MoQ, text track only | 83–89 | – | – | 3 / 6 | 16 |
+| WebRTC (WHEP) | 531–559 | 336 / 397 | 95 | not carried | 1153 |
+| LL-HLS (hls.js) | 341–351 | 907 / 923 | 868 | not carried | 2688 |
+
+What it already shows, to be confirmed on the VM: MoQ sits at the viewer's 500 ms setting plus about 70 ms; WebRTC
+is lower; LL-HLS is about 1.6 times MoQ. A captions-only viewer receives about 1 % of the bytes of a full one. LL-HLS
+takes about twice the media bitrate on the wire; the cause is not checked yet (the likely one: hls.js in low-latency
+mode fetches parts, full segments and playlists).
+Over WebSocket, MoQ starts from the latest keyframe up to 2 s back and takes longer to catch up to live.
 
 ## Setup
 

@@ -1,2 +1,5 @@
 node_modules/
 dist/
+# Local runs stay local; runs from the VM (labels starting vm-) are kept as the published results.
+results/*
+!results/vm-*
