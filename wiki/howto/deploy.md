@@ -110,9 +110,13 @@ Results:
 ## Watch out
 
 - The relay reads the certificate when it starts. Caddy renews it about 30 days before it expires; restart the relay
-  after that (`docker compose -f deploy/compose.vm.yml restart relay auth`).
-- `auth` shares the relay's network namespace: restart both together, or the auth server is cut off and every
-  session is refused (the relay answers 502). This also happens when the relay restarts by itself (2026-10-28):
-  check `docker compose ... ps` and the relay log for `auth server unavailable` when anything looks down.
+  after that (`docker compose -f deploy/compose.vm.yml restart relay`).
+- The relay asks `auth` over a unix socket in the volume `auth_sock`, not over a shared network namespace, so either
+  container can restart, crash or be recreated alone and sessions work again once it is back. (Until 2026-10-28
+  `auth` shared the relay's namespace and was cut off whenever the relay restarted by itself.) `auth` removes a stale
+  socket before it binds. If sessions are refused, check `docker compose ... ps` and the relay log for `auth server
+  unavailable`.
+- `docker kill` and `docker stop` count as a manual stop: the restart policy does not bring the container back, a
+  crash does. Start it again with `docker compose -f deploy/compose.vm.yml up -d`.
 - Clients that connect in the moment between the relay and the auth server starting are refused; agents restart by
   themselves.
