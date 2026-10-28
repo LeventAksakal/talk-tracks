@@ -19,10 +19,10 @@ from talk_tracks.contracts import (
     TranslationCarry,
     Usage,
 )
+from talk_tracks.live_slices import MediaClock, envelopes_of
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger
 from talk_tracks.runtime import backfill_captions, backfill_translate
-from talk_tracks.slicing import MediaClock, envelopes_of
 
 from .slicekit import sliced, snapshot_track, still_clock
 

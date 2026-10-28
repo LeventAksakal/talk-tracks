@@ -39,7 +39,7 @@ from pydantic import ValidationError
 from .archive.slices import NORMAL, Slice
 from .audio import AudioAssembler
 from .contracts import ENVELOPE, ITEMS_TRACK, ROOT, Envelope, SlideFrame, agent_path, slides_path, teacher_path
-from .slicing import items_of
+from .live_slices import items_of
 
 log = logging.getLogger("talk_tracks.moq")
 set_log_level(logging.WARNING)  # aiomoqt logs every control message at INFO
@@ -95,7 +95,7 @@ SliceSource = Callable[[int], Awaitable[Slice | None]]  # group k for a FETCH, o
 
 
 class SlicedOut:
-    """A sliced track's live side (``slicing.LiveOut``): the caller numbers groups and objects, closes each group
+    """A sliced track's live side (``live_slices.LiveOut``): the caller numbers groups and objects, closes each group
     explicitly, and answers FETCH from the track's archive (``serve``) instead of aiomoqt's in-memory history.
 
     aiomoqt's push writer starts a group per ``snapshot`` and numbers objects itself; we set its group counter so its

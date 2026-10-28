@@ -1,328 +1,461 @@
-"""Sliced agent tracks (decision 0012): live slices on the media clock, recorded as sent, and back-filled on FETCH.
+"""A recording as sliced tracks (decision 0012): what a looping demo room publishes and serves by FETCH.
 
-Group k of a track covers media time [k·4 s, (k+1)·4 s). Object 0 is the carry-in, the items follow, End of Group
-closes the slice and End of Track the talk. ``SlicedTrack`` owns the numbering and writes every object twice: to the
-live track (``LiveOut``) and to the track's archive (``TrackArchive``), byte for byte, so a FETCH of a slice gets
-exactly what subscribers got. Transport-free: tests drive it without a relay.
+A recording holds each agent's full-state snapshots; the wire carries one item per object, cut in 4 s slices on the
+media clock (wiki/design/moq-track-system.md §4). ``Template`` diffs each agent's snapshots once into items on the
+lecture's own clock (file time), cuts them into slices and works out each slice's carry-in:
 
-* **Live:** an item goes into the slice open when it is produced. The slice follows a ``MediaClock`` that the
-  agent's inputs set (audio timestamps, the captions it reads, slide times) and that runs on between them.
-* **Never twice:** a group already in the archive is never written live again. A restarted agent therefore starts at
-  the slice after its newest one, and live output that resumes inside a back-filled slice waits for the next one
-  (what it made meanwhile shows in that slice's carry-in).
-* **Capped:** past the room's spend cap, each live slice is a carry-in marked ``capped`` and nothing else.
-* **Back-fill:** a FETCH of a slice that was never produced runs the agent's ``produce`` for it once, stores the
-  result and answers with it; at the cap it answers an empty capped group, which is not stored.
+* captions: each new or changed final line is an item, and so is each new interim text (an interim version of the
+  next line id, replaced by the final line later);
+* translation: each new or changed translated line, with its source caption line's media times;
+* slides: each new or changed slide description; its carry-in is the slide on screen;
+* chapters: the ``outline`` track instead, one group per revision of the whole outline.
+
+``Room`` places loop k of the template on the room's clock: media time, ids and groups move by k periods, so a group
+is a pure function of its number. The looper writes it live and answers a FETCH of it from the same function, and
+both copies are byte-identical, as decision 0012 asks.
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import time
-from collections.abc import Awaitable, Callable
-from typing import Literal, Protocol
+import functools
+import heapq
+from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass
+from typing import Annotated, Literal
 
-from .archive.slices import Slice, SliceObject, TrackArchive
-from .contracts import ENVELOPE, AgentInfo, Body, Carry, Envelope, Item, Usage, slice_of
-from .llm.ledger import BudgetExceededError
+from pydantic import Field, TypeAdapter, model_validator
 
-log = logging.getLogger("talk_tracks")
+from .contracts import (
+    AgentInfo,
+    CaptionLine,
+    CaptionsState,
+    Chapter,
+    GlossaryTerm,
+    OutlineState,
+    SlideNote,
+    SlidesState,
+    State,
+    TranslationState,
+    Usage,
+    Wire,
+)
+from .recording import RecordedSnapshot
+from .replay import Cue
 
-HOLD_S = 8.0  # the clock runs on this long past the last media time an input gave, then stops (the speaker left)
+# --- the sliced wire contract ------------------------------------------------------------------------------------
+# Mirrors the Lazy agents lane's contract (its commit 90c90fd, contracts.py v2) until that is merged; then these go
+# and the names below are imported from ``contracts``. ``WireTranslatedLine`` is its ``TranslatedLine``.
+
+SCHEMA_VERSION = 2
+SLICE_MS = 4000  # group k of a sliced track covers media time [k * SLICE_MS, (k + 1) * SLICE_MS)
+CARRY_LINES = 2  # caption or translated lines a carry-in repeats from before its slice
+ITEMS_TRACK = "items"
+OUTLINE_TRACK = "outline"
 
 
-class LiveOut(Protocol):
-    """The live track: objects numbered by the caller, each group closed explicitly."""
-
-    def subscribed(self) -> bool: ...
-
-    async def put(self, group: int, object_id: int, payload: bytes) -> None: ...
-
-    async def end_group(self, group: int) -> None: ...
-
-    async def end_track(self) -> None: ...
+class WireTranslatedLine(Wire):
+    id: int = Field(ge=0)
+    start_ms: int = Field(ge=0, default=0)
+    end_ms: int = Field(ge=0, default=0)
+    text: str
 
 
-class MediaClock:
-    """The speaker's media time, from the newest time an input reported, running on with the wall clock."""
+class CaptionsCarry(Wire):
+    type: Literal["captions-carry"] = "captions-carry"
+    lang: str
+    lines: list[CaptionLine] = Field(max_length=CARRY_LINES)
 
-    def __init__(self, *, hold_s: float | None = HOLD_S, clock: Callable[[], float] = time.monotonic) -> None:
-        self._hold = hold_s
-        self._clock = clock
-        self._media_ms: int | None = None
-        self._at = 0.0
 
-    def observe(self, media_ms: int) -> None:
-        now = self.now()
-        if now is None or media_ms > now:  # inputs lag the clock a little: never step it back
-            self._media_ms, self._at = media_ms, self._clock()
+class CaptionItem(Wire):
+    type: Literal["caption"] = "caption"
+    lang: str
+    line: CaptionLine
+    final: bool
 
-    def now(self) -> int | None:
-        """None before any input, and once the inputs have been quiet for ``hold_s``."""
-        if self._media_ms is None:
+
+class TranslationCarry(Wire):
+    type: Literal["translation-carry"] = "translation-carry"
+    lang: str
+    lines: list[WireTranslatedLine] = Field(max_length=CARRY_LINES)
+
+
+class TranslationItem(Wire):
+    type: Literal["translation"] = "translation"
+    lang: str
+    line: WireTranslatedLine
+
+
+class SlidesCarry(Wire):
+    type: Literal["slides-carry"] = "slides-carry"
+    lang: str
+    slide: SlideNote | None
+
+
+class SlideItem(Wire):
+    type: Literal["slide"] = "slide"
+    lang: str
+    slide: SlideNote
+
+
+class OutlineSnapshot(Wire):
+    type: Literal["outline"] = "outline"
+    lang: str
+    chapters: list[Chapter]
+    glossary: list[GlossaryTerm]
+    recap: str = ""
+
+
+Carry = CaptionsCarry | TranslationCarry | SlidesCarry
+Item = CaptionItem | TranslationItem | SlideItem
+Body = Annotated[Carry | Item | OutlineSnapshot, Field(discriminator="type")]
+Kind = Literal["carry", "item", "snapshot"]
+
+
+def kind_of(body: Carry | Item | OutlineSnapshot) -> Kind:
+    if isinstance(body, OutlineSnapshot):
+        return "snapshot"
+    return "carry" if body.type.endswith("-carry") else "item"
+
+
+class SlicedEnvelope(Wire):
+    v: Literal[2] = SCHEMA_VERSION
+    agent: AgentInfo
+    slice: int = Field(ge=0)
+    kind: Kind
+    capped: bool = False
+    at_ms: int = Field(ge=0, description="Wall-clock time of publication")
+    usage: Usage
+    body: Body
+
+    @model_validator(mode="after")
+    def _kind_matches_body(self) -> SlicedEnvelope:
+        if kind_of(self.body) != self.kind:
+            raise ValueError(f"a {self.body.type} body is a {kind_of(self.body)}, not a {self.kind}")
+        return self
+
+
+SLICED: TypeAdapter[SlicedEnvelope] = TypeAdapter(SlicedEnvelope)
+
+
+def slice_of(media_ms: int) -> int:
+    return max(0, media_ms) // SLICE_MS
+
+
+# --- the template: one loop's objects on the lecture clock ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Stamped:
+    """One object's body at lecture time ``at_ms``, with the agent's cumulative usage then."""
+
+    at_ms: int
+    usage: Usage
+    body: Carry | Item | OutlineSnapshot
+
+
+@dataclass(frozen=True)
+class SlicedAgent:
+    """One agent's track for one loop: ``groups[j]`` is group j's objects, in object order. On an items track group
+    j is slice j (object 0 its carry-in); on the outline track it is revision j."""
+
+    info: AgentInfo
+    track: str
+    groups: tuple[tuple[Stamped, ...], ...]
+
+
+def period_of(duration_ms: int) -> int:
+    """A loop's length on the room clock: the lecture, rounded up to whole slices, so every loop starts a slice."""
+    return max(1, -(-duration_ms // SLICE_MS)) * SLICE_MS
+
+
+def caption_items(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterator[Stamped]:
+    seen: dict[int, CaptionLine] = {}
+    interim = ""
+    for snap in snapshots:
+        state = snap.state
+        assert isinstance(state, CaptionsState)
+        t = at.time(snap.media_ms)
+        for line in state.lines:
+            line = at.line(line)
+            if seen.get(line.id) != line:
+                seen[line.id] = line
+                yield Stamped(t, snap.usage, CaptionItem(lang=state.lang, line=line, final=True))
+        if state.interim != interim:
+            interim = state.interim
+            if interim:
+                last = seen[max(seen)] if seen else None
+                start = last.end_ms if last else 0
+                line = CaptionLine(
+                    id=last.id + 1 if last else 0,
+                    start_ms=start,
+                    end_ms=max(start, at.media(snap.media_ms)),
+                    text=interim,
+                )
+                yield Stamped(t, snap.usage, CaptionItem(lang=state.lang, line=line, final=False))
+
+
+def translation_items(
+    snapshots: Iterable[RecordedSnapshot], at: Lecture, sources: dict[int, CaptionLine]
+) -> Iterator[Stamped]:
+    seen: dict[int, WireTranslatedLine] = {}
+    for snap in snapshots:
+        state = snap.state
+        assert isinstance(state, TranslationState)
+        for line in state.lines:
+            source = sources.get(line.id)
+            wire = WireTranslatedLine(
+                id=line.id,
+                start_ms=source.start_ms if source else 0,
+                end_ms=source.end_ms if source else 0,
+                text=line.text,
+            )
+            if seen.get(line.id) != wire:
+                seen[line.id] = wire
+                yield Stamped(at.time(snap.media_ms), snap.usage, TranslationItem(lang=state.lang, line=wire))
+
+
+def slide_items(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterator[Stamped]:
+    seen: dict[int, SlideNote] = {}
+    for snap in snapshots:
+        state = snap.state
+        assert isinstance(state, SlidesState)
+        for note in state.slides:
+            note = note.model_copy(update={"at_ms": at.media(note.at_ms)})
+            if seen.get(note.id) != note:
+                seen[note.id] = note
+                yield Stamped(at.time(snap.media_ms), snap.usage, SlideItem(lang=state.lang, slide=note))
+
+
+def outline_revisions(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterator[Stamped]:
+    last: OutlineSnapshot | None = None
+    for snap in snapshots:
+        state = snap.state
+        assert isinstance(state, OutlineState)
+        chapters = [c.model_copy(update={"start_ms": at.media(c.start_ms)}) for c in state.chapters]
+        body = OutlineSnapshot(lang=state.lang, chapters=chapters, glossary=state.glossary, recap=state.recap)
+        if body != last:
+            last = body
+            yield Stamped(at.time(snap.media_ms), snap.usage, body)
+
+
+@dataclass(frozen=True)
+class Lecture:
+    """Moves recording media times onto the lecture clock: ``origin_ms`` is the recording time of lecture time 0."""
+
+    duration_ms: int
+    origin_ms: int = 0
+
+    def time(self, media_ms: int) -> int:
+        """When a snapshot plays: those before the lecture at 0, those after it at its end."""
+        return min(self.media(media_ms), self.duration_ms)
+
+    def media(self, media_ms: int) -> int:
+        return max(media_ms - self.origin_ms, 0)
+
+    def line(self, line: CaptionLine) -> CaptionLine:
+        if self.origin_ms == 0:
+            return line
+        return line.model_copy(update={"start_ms": self.media(line.start_ms), "end_ms": self.media(line.end_ms)})
+
+
+def _carry(prior: Sequence[Item], empty: Carry) -> Carry:
+    """The carry-in after ``prior`` items: the last lines, or the slide on screen."""
+    if isinstance(empty, CaptionsCarry):
+        finals = {item.line.id: item.line for item in prior if isinstance(item, CaptionItem) and item.final}
+        return empty.model_copy(update={"lines": [finals[i] for i in sorted(finals)[-CARRY_LINES:]]})
+    if isinstance(empty, TranslationCarry):
+        lines = {item.line.id: item.line for item in prior if isinstance(item, TranslationItem)}
+        return empty.model_copy(update={"lines": [lines[i] for i in sorted(lines)[-CARRY_LINES:]]})
+    slides = [item.slide for item in prior if isinstance(item, SlideItem)]
+    return empty.model_copy(update={"slide": slides[-1] if slides else None})
+
+
+def slice_items(items: Sequence[Stamped], period_ms: int, empty: Carry) -> tuple[tuple[Stamped, ...], ...]:
+    """Cut one loop's items (in publication order) into its slices, each opened by its carry-in."""
+    groups: list[list[Stamped]] = []
+    prior: list[Item] = []
+    usage = Usage()
+    n = 0
+    for j in range(period_ms // SLICE_MS):
+        start = j * SLICE_MS
+        groups.append([Stamped(start, usage, _carry(prior, empty))])
+        while n < len(items) and items[n].at_ms < start + SLICE_MS:
+            body = items[n].body
+            assert isinstance(body, CaptionItem | TranslationItem | SlideItem)
+            groups[-1].append(items[n])
+            prior.append(body)
+            usage = items[n].usage
+            n += 1
+    return tuple(tuple(g) for g in groups)
+
+
+@dataclass(frozen=True)
+class Template:
+    """One loop of a recording as sliced tracks, on the lecture clock (file time 0 to the period)."""
+
+    duration_ms: int
+    period_ms: int
+    stride: int  # one more than the largest id anywhere: loop k moves ids by k * stride
+    agents: tuple[SlicedAgent, ...]
+
+    @classmethod
+    def build(
+        cls, recorded: Sequence[tuple[AgentInfo, Sequence[RecordedSnapshot]]], duration_ms: int, *, origin_ms: int = 0
+    ) -> Template:
+        if duration_ms <= 0:
+            raise ValueError("the lecture must have a positive duration")
+        period = period_of(duration_ms)
+        at = Lecture(duration_ms, origin_ms)
+        last = period - 1  # an item stamped at the very end still belongs to the last slice
+
+        def stamped(items: Iterable[Stamped]) -> list[Stamped]:
+            return [s if s.at_ms <= last else Stamped(last, s.usage, s.body) for s in items]
+
+        sources: dict[int, CaptionLine] = {}
+        for _, snapshots in recorded:
+            for snap in snapshots:
+                if isinstance(snap.state, CaptionsState):
+                    for line in snap.state.lines:
+                        sources[line.id] = at.line(line)
+        agents: list[SlicedAgent] = []
+        for info, snapshots in recorded:
+            if not snapshots:
+                continue
+            first: State = snapshots[0].state
+            lang = first.lang
+            if isinstance(first, OutlineState):
+                revisions = stamped(outline_revisions(snapshots, at))
+                agents.append(SlicedAgent(info, OUTLINE_TRACK, tuple((r,) for r in revisions)))
+                continue
+            if isinstance(first, CaptionsState):
+                items, empty = stamped(caption_items(snapshots, at)), CaptionsCarry(lang=lang, lines=[])
+            elif isinstance(first, TranslationState):
+                items = stamped(translation_items(snapshots, at, sources))
+                empty = TranslationCarry(lang=lang, lines=[])
+            else:
+                items, empty = stamped(slide_items(snapshots, at)), SlidesCarry(lang=lang, slide=None)
+            agents.append(SlicedAgent(info, ITEMS_TRACK, slice_items(items, period, empty)))
+        ids = [i for agent in agents for group in agent.groups for s in group for i in body_ids(s.body)]
+        return cls(duration_ms, period, max(ids, default=-1) + 1, tuple(agents))
+
+
+def body_ids(body: Carry | Item | OutlineSnapshot) -> list[int]:
+    if isinstance(body, CaptionItem | TranslationItem):
+        return [body.line.id]
+    if isinstance(body, CaptionsCarry | TranslationCarry):
+        return [line.id for line in body.lines]
+    if isinstance(body, SlideItem):
+        return [body.slide.id]
+    if isinstance(body, SlidesCarry):
+        return [body.slide.id] if body.slide else []
+    return [c.id for c in body.chapters]
+
+
+def shift_body[B: Carry | Item | OutlineSnapshot](body: B, *, media_ms: int, ids: int) -> B:
+    """The same body with every media time moved by ``media_ms`` and every id by ``ids``."""
+    if media_ms == 0 and ids == 0:
+        return body
+
+    def line[L: CaptionLine | WireTranslatedLine](x: L) -> L:
+        return x.model_copy(update={"id": x.id + ids, "start_ms": x.start_ms + media_ms, "end_ms": x.end_ms + media_ms})
+
+    def note(s: SlideNote) -> SlideNote:
+        return s.model_copy(update={"id": s.id + ids, "at_ms": s.at_ms + media_ms})
+
+    if isinstance(body, CaptionItem | TranslationItem):
+        return body.model_copy(update={"line": line(body.line)})
+    if isinstance(body, CaptionsCarry | TranslationCarry):
+        return body.model_copy(update={"lines": [line(x) for x in body.lines]})
+    if isinstance(body, SlideItem):
+        return body.model_copy(update={"slide": note(body.slide)})
+    if isinstance(body, SlidesCarry):
+        return body.model_copy(update={"slide": note(body.slide) if body.slide else None})
+    chapters = [c.model_copy(update={"id": c.id + ids, "start_ms": c.start_ms + media_ms}) for c in body.chapters]
+    return body.model_copy(update={"chapters": chapters})
+
+
+# --- the room: loop after loop on the room clock ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Placed:
+    """An object of the room: its media time on the room clock and its payload."""
+
+    media_ms: int
+    payload: bytes
+
+
+class Room:
+    """The template looped on the room clock: loop k covers media time [k·period, (k+1)·period), and wall-clock time
+    is ``epoch_ms`` plus media time. Group g of a track is loop ``g // per_loop``, group ``g % per_loop`` of the
+    template; on an items track that makes g the slice of its media time."""
+
+    def __init__(self, template: Template, epoch_ms: int) -> None:
+        self.template = template
+        self.epoch_ms = epoch_ms
+        self.agents = {agent.info.name: agent for agent in template.agents}
+
+    def per_loop(self, agent: str) -> int:
+        return len(self.agents[agent].groups)
+
+    def locate(self, agent: str, group: int) -> tuple[int, int] | None:
+        """(loop, group in the template) of a room group, None for one the track never has."""
+        per = self.per_loop(agent)
+        if per == 0 or group < 0:
             return None
-        elapsed = self._clock() - self._at
-        if self._hold is not None and elapsed > self._hold:
-            return None
-        return self._media_ms + int(elapsed * 1000)
+        return divmod(group, per)
 
-    def now_or(self, default: int) -> int:
-        now = self.now()
-        return default if now is None else now
+    @functools.lru_cache(maxsize=256)  # noqa: B019 - one Room per process, the cache is meant to live with it
+    def group(self, agent: str, group: int) -> tuple[Placed, ...]:
+        """Every object of a room group, in object order."""
+        where = self.locate(agent, group)
+        if where is None:
+            return ()
+        loop, j = where
+        track = self.agents[agent]
+        media = loop * self.template.period_ms
+        ids = loop * self.template.stride
+        out: list[Placed] = []
+        for s in track.groups[j]:
+            at = media + s.at_ms
+            envelope = SlicedEnvelope(
+                agent=track.info,
+                slice=slice_of(at) if track.track == OUTLINE_TRACK else group,
+                kind=kind_of(s.body),
+                at_ms=self.epoch_ms + at,
+                usage=s.usage,
+                body=shift_body(s.body, media_ms=media, ids=ids),
+            )
+            out.append(Placed(at, SLICED.dump_json(envelope)))
+        return tuple(out)
 
+    def published(self, agent: str, group: int, now_ms: int) -> tuple[Placed, ...]:
+        """The objects of a group that are out by room media time ``now_ms``."""
+        return tuple(p for p in self.group(agent, group) if p.media_ms <= now_ms)
 
-Produce = Callable[[int], Awaitable[tuple[Carry, list[Item]]]]
-
-
-class SlicedTrack:
-    def __init__(
-        self,
-        info: AgentInfo,
-        out: LiveOut,
-        archive: TrackArchive,
-        usage: Callable[[], Usage],
-        carry: Callable[[], Carry],
-        *,
-        clock: MediaClock | None = None,
-        wall_ms: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
-    ) -> None:
-        self.info = info
-        self.out = out
-        self.archive = archive
-        self.clock = clock or MediaClock()
-        self.capped = False
-        self.paused = True  # until the first input: an idle agent produces no slices
-        self._usage = usage
-        self.carry = carry  # the core's carry-in, set once the core is seeded
-        self._wall = wall_ms
-        self._open: int | None = None
-        self._next_object = 0
-        newest = archive.latest_group()
-        self._floor = -1 if newest is None else newest  # live output only ever goes above this
-        self._lock = asyncio.Lock()
-        self._filling: dict[int, asyncio.Future[Slice]] = {}
-
-    @property
-    def open_slice(self) -> int | None:
-        return self._open
-
-    def seed_envelopes(self) -> list[Envelope]:
-        """The newest slice this track has, for a restarted agent to take its state from (decision 0009). Live output
-        continues at the slice after it."""
-        found = None if self._floor < 0 else self.archive.read_local(self._floor)
-        return envelopes_of(found) if found else []
-
-    # --- live --------------------------------------------------------------------------------------------------
-
-    async def tick(self) -> None:
-        """Follow the clock: close the slice it left, open the one it is in. Call often (``run_clock``)."""
-        async with self._lock:
-            now = self.clock.now()
-            if self.paused or now is None:
-                await self._close()
-                return
-            await self._at(slice_of(now))
-
-    async def item(self, body: Item) -> None:
-        """Publish an item into the open slice. While none is open (the clock is inside a slice produced before) the
-        item is not published; the next carry-in shows its state. Wakes a paused track."""
-        if self.capped:
-            return
-        async with self._lock:
-            self.paused = False
-            now = self.clock.now()
-            if now is not None:
-                await self._at(slice_of(now))
-            if self._open is not None:
-                await self._write(body)
-
-    def wake(self) -> None:
-        self.paused = False
-
-    async def pause(self) -> None:
-        """Nobody subscribes: close the slice and produce none until the next input."""
-        async with self._lock:
-            self.paused = True
-            await self._close()
-
-    async def cap(self) -> None:
-        """The room's spend cap is reached: from the next slice on, each slice is a capped carry-in only."""
-        async with self._lock:
-            self.capped = True
-            await self._close()
-
-    async def end(self) -> None:
-        """The talk is over: the open slice ends the track."""
-        async with self._lock:
-            k = self._open
-            if k is not None:
-                self._open = None
-                self.archive.end_group(k, end_of_track=True)
-            await self.out.end_track()
-
-    async def run_clock(self, every_s: float = 0.2) -> None:
-        """Keep slices on time while nothing is produced. A capped track keeps slicing while subscribed, so the
-        viewer sees why it is silent."""
-        while True:
-            await asyncio.sleep(every_s)
-            if self.capped:
-                self.paused = not self.out.subscribed()
-            await self.tick()
-
-    async def _at(self, k: int) -> None:
-        if self._open == k:
-            return
-        await self._close()
-        if k <= self._floor or self.archive.read_local(k) is not None:
-            return  # produced before (an earlier run, a back-fill): wait for the next slice
-        self._floor = k
-        self._open, self._next_object = k, 0
-        await self._put(self._envelope(k, "carry", self.carry(), capped=self.capped))
-
-    async def _write(self, body: Item) -> None:
-        assert self._open is not None
-        await self._put(self._envelope(self._open, "item", body))
-
-    async def _put(self, data: bytes) -> None:
-        assert self._open is not None
-        k, o = self._open, self._next_object
-        self._next_object += 1
-        self.archive.write(k, SliceObject(object_id=o, payload=data))
-        try:
-            await self.out.put(k, o, data)
-        except Exception as exc:  # the record stands: a FETCH still serves what the live track could not send
-            log.warning("%s: live object %d/%d not sent: %s", self.info.name, k, o, exc)
-
-    async def _close(self) -> None:
-        k = self._open
-        if k is None:
-            return
-        self._open = None
-        self.archive.end_group(k)
-        await self.out.end_group(k)
-
-    def _envelope(self, k: int, kind: Literal["carry", "item"], body: Body, *, capped: bool = False) -> bytes:
-        env = Envelope(
-            agent=self.info, slice=k, kind=kind, capped=capped, at_ms=self._wall(), usage=self._usage(), body=body
-        )
-        return ENVELOPE.dump_json(env)
-
-    # --- history -----------------------------------------------------------------------------------------------
-
-    async def slice(self, k: int, produce: Produce | None, empty: Callable[[], Carry]) -> Slice | None:
-        """Group k for a FETCH: from the archive (disk, then the bucket), else produced now and stored, once.
-        None when it cannot be: in the future, or no way to produce it. Capped: an empty group marked so."""
-        if k < 0:
-            return None
-        found = await self.archive.read(k)
-        if found is not None:
-            return found
-        now = self.clock.now()
-        if produce is None or (now is not None and k > slice_of(now)) or k == self._open:
-            return None
-        running = self._filling.get(k)
-        if running is None:
-            running = asyncio.ensure_future(self._backfill(k, produce, empty))
-            self._filling[k] = running
-            running.add_done_callback(lambda _: self._filling.pop(k, None))
-        return await asyncio.shield(running)
-
-    async def _backfill(self, k: int, produce: Produce, empty: Callable[[], Carry]) -> Slice:
-        try:
-            carry, items = await produce(k)
-        except BudgetExceededError as exc:
-            log.warning("%s: back-fill of slice %d stops at the cap: %s", self.info.name, k, exc)
-            data = self._envelope(k, "carry", empty(), capped=True)
-            return Slice(k, (SliceObject(object_id=0, payload=data),))
-        async with self._lock:
-            again = self.archive.read_local(k)
-            if again is not None:  # live output reached it meanwhile
-                return again
-            objects = [self._envelope(k, "carry", carry)] + [self._envelope(k, "item", body) for body in items]
-            for o, data in enumerate(objects):
-                self.archive.write(k, SliceObject(object_id=o, payload=data))
-            stored = self.archive.end_group(k)
-        log.info("%s: back-filled slice %d with %d items", self.info.name, k, len(items))
-        return stored
+    def current(self, agent: str, now_ms: int) -> int | None:
+        """The group open at ``now_ms`` (the newest one out), None before the first."""
+        track = self.agents[agent]
+        if track.track == ITEMS_TRACK:
+            return slice_of(now_ms) if track.groups else None
+        loop, at = divmod(now_ms, self.template.period_ms)
+        for r in range(len(track.groups) - 1, -1, -1):
+            if track.groups[r][0].at_ms <= at:
+                return loop * len(track.groups) + r
+        return loop * len(track.groups) - 1 if loop > 0 and track.groups else None
 
 
-class SnapshotTrack:
-    """The outline (design §4.3): each revision is a group of one object. While subscribed the newest revision is
-    repeated once per slice, so a late joiner always finds a group young enough for moq-relay to deliver (it drops
-    groups older than 5 s). Group ids come from the media clock, so they never repeat across restarts."""
+def cues(template: Template, loop: int) -> Iterator[Cue]:
+    """Every object of loop ``loop``, in lecture-time order (object order within a group; stable across agents)."""
 
-    def __init__(
-        self,
-        info: AgentInfo,
-        out: LiveOut,
-        archive: TrackArchive,
-        usage: Callable[[], Usage],
-        *,
-        clock: MediaClock | None = None,
-        wall_ms: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
-    ) -> None:
-        self.info = info
-        self.out = out
-        self.archive = archive
-        self.clock = clock or MediaClock()
-        self._usage = usage
-        self._wall = wall_ms
-        newest = archive.latest_group()
-        self._last = -1 if newest is None else newest
-        self._body: Body | None = None
-        self._lock = asyncio.Lock()
+    def agent_cues(order: int, agent: SlicedAgent) -> Iterator[tuple[int, int, int, Cue]]:
+        per = len(agent.groups)
+        n = 0
+        for j, group in enumerate(agent.groups):
+            for i, s in enumerate(group):
+                yield s.at_ms, order, n, Cue(s.at_ms, agent.info.name, loop * per + j, i)
+                n += 1
 
-    def seed(self) -> Envelope | None:
-        """The newest revision on record, for a restarted agent to carry on from."""
-        found = None if self._last < 0 else self.archive.read_local(self._last)
-        envelopes = envelopes_of(found) if found else []
-        return envelopes[-1] if envelopes else None
-
-    async def publish(self, body: Body) -> None:
-        async with self._lock:
-            self._body = body
-            await self._write(body)
-
-    async def run_clock(self, every_s: float = 0.5) -> None:
-        while True:
-            await asyncio.sleep(every_s)
-            now = self.clock.now()
-            if self._body is not None and now is not None and self.out.subscribed() and slice_of(now) > self._last:
-                async with self._lock:
-                    await self._write(self._body)
-
-    async def _write(self, body: Body) -> None:
-        now = self.clock.now()
-        k = max(self._last + 1, slice_of(now) if now is not None else 0)
-        while self.archive.read_local(k) is not None:
-            k += 1
-        self._last = k
-        env = Envelope(agent=self.info, slice=k, kind="snapshot", at_ms=self._wall(), usage=self._usage(), body=body)
-        data = ENVELOPE.dump_json(env)
-        self.archive.write(k, SliceObject(object_id=0, payload=data))
-        self.archive.end_group(k)
-        try:
-            await self.out.put(k, 0, data)
-            await self.out.end_group(k)
-        except Exception as exc:
-            log.warning("%s: outline revision %d not sent: %s", self.info.name, k, exc)
-
-    async def slice(self, k: int) -> Slice | None:
-        """A revision for a FETCH: only what was published (an outline is never back-filled)."""
-        return await self.archive.read(k) if k >= 0 else None
-
-
-def items_of(objects: list[bytes]) -> list[Envelope]:
-    """The envelopes of a slice's payloads, skipping any that do not match the contract."""
-    out: list[Envelope] = []
-    for payload in objects:
-        try:
-            out.append(ENVELOPE.validate_json(payload))
-        except ValueError:
-            log.warning("skipping an object that does not match the contract")
-    return out
-
-
-def envelopes_of(found: Slice) -> list[Envelope]:
-    return items_of([o.payload for o in found.objects if o.payload])
+    streams = [agent_cues(order, agent) for order, agent in enumerate(template.agents)]
+    for *_, cue in heapq.merge(*streams, key=lambda item: item[:3]):
+        yield cue

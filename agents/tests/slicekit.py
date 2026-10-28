@@ -7,12 +7,12 @@ from typing import Any
 
 from talk_tracks.archive.slices import TrackArchive
 from talk_tracks.contracts import ENVELOPE, AgentInfo, CaptionsCarry, Carry, Envelope, Usage
+from talk_tracks.live_slices import MediaClock, SlicedTrack, SnapshotTrack
 from talk_tracks.llm.fake import FakeLlm
-from talk_tracks.slicing import MediaClock, SlicedTrack, SnapshotTrack
 
 
 class ListOut:
-    """``slicing.LiveOut`` into lists: (group, object, payload), and the groups closed in order."""
+    """``live_slices.LiveOut`` into lists: (group, object, payload), and the groups closed in order."""
 
     def __init__(self, subscribed: bool = True) -> None:
         self.objects: list[tuple[int, int, bytes]] = []

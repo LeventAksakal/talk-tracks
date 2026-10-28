@@ -40,9 +40,9 @@ from .cores.captions import CaptionsCore
 from .cores.outline import OutlineCore
 from .cores.slides import SlidesCore
 from .cores.translate import TranslateCore
+from .live_slices import SlicedTrack, SnapshotTrack, envelopes_of
 from .llm.base import Llm
 from .llm.ledger import BudgetExceededError
-from .slicing import SlicedTrack, SnapshotTrack, envelopes_of
 
 log = logging.getLogger("talk_tracks")
 
