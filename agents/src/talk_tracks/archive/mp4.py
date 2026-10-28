@@ -198,3 +198,68 @@ def avc_is_keyframe(access_unit: bytes, avcc: bytes) -> bool:
             return True
         i += n
     return False
+
+
+# --- H.264 in Annex B (what @moq/publish sends: no avcC in the catalog) ----------------------------------------
+
+NAL_IDR, NAL_SPS, NAL_PPS, NAL_AUD = 5, 7, 8, 9
+
+
+def annexb_nals(access_unit: bytes) -> list[bytes]:
+    """The NAL units of an Annex B access unit, start codes removed."""
+    nals: list[bytes] = []
+    starts: list[tuple[int, int]] = []  # (start code position, payload position)
+    i, n = 0, len(access_unit)
+    while i + 3 <= n:
+        if access_unit[i] == 0 and access_unit[i + 1] == 0:
+            if access_unit[i + 2] == 1:
+                starts.append((i, i + 3))
+                i += 3
+                continue
+            if i + 4 <= n and access_unit[i + 2] == 0 and access_unit[i + 3] == 1:
+                starts.append((i, i + 4))
+                i += 4
+                continue
+        i += 1
+    for k, (_, begin) in enumerate(starts):
+        end = starts[k + 1][0] if k + 1 < len(starts) else n
+        nal = access_unit[begin:end].rstrip(b"\x00") if k + 1 < len(starts) else access_unit[begin:end]
+        if nal:
+            nals.append(nal)
+    return nals
+
+
+def avcc_record(sps: Sequence[bytes], pps: Sequence[bytes]) -> bytes:
+    """An AVCDecoderConfigurationRecord (ISO/IEC 14496-15 5.3.3.1) with 4-byte NAL lengths."""
+    first = sps[0]
+    out = bytes([1, first[1], first[2], first[3], 0xFC | 3, 0xE0 | len(sps)])
+    out += b"".join(struct.pack(">H", len(s)) + s for s in sps)
+    out += bytes([len(pps)]) + b"".join(struct.pack(">H", len(p)) + p for p in pps)
+    return out
+
+
+@dataclass(frozen=True)
+class AnnexB:
+    """One Annex B access unit as an avc1 sample: length-prefixed NALs without parameter sets or delimiters."""
+
+    sample: bytes
+    keyframe: bool
+    avcc: bytes | None  # the record built from the SPS and PPS it carried, if any
+
+
+def from_annexb(access_unit: bytes) -> AnnexB:
+    sps: list[bytes] = []
+    pps: list[bytes] = []
+    parts: list[bytes] = []
+    keyframe = False
+    for nal in annexb_nals(access_unit):
+        kind = nal[0] & 0x1F
+        if kind == NAL_SPS:
+            sps.append(nal)
+        elif kind == NAL_PPS:
+            pps.append(nal)
+        elif kind != NAL_AUD:
+            keyframe = keyframe or kind == NAL_IDR
+            parts.append(struct.pack(">I", len(nal)) + nal)
+    avcc = avcc_record(sps, pps) if sps and pps and len(sps[0]) >= 4 else None
+    return AnnexB(b"".join(parts), keyframe, avcc)

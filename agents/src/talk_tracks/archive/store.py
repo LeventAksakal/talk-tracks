@@ -24,7 +24,7 @@ import itertools
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -34,7 +34,16 @@ from ..audio import split_legacy
 from ..contracts import SlideFrame, Wire
 from . import hls
 from .files import write_atomic
-from .mp4 import OPUS_SILENCE, Sample, TrackConfig, avc_is_keyframe, init_segment, media_segment, opus_duration_us
+from .mp4 import (
+    OPUS_SILENCE,
+    Sample,
+    TrackConfig,
+    avc_is_keyframe,
+    from_annexb,
+    init_segment,
+    media_segment,
+    opus_duration_us,
+)
 from .slices import SLICE_MS, slices_end_ms
 
 log = logging.getLogger("talk_tracks.archive")
@@ -45,6 +54,7 @@ GRID_US = SLICE_MS * 1000  # a segment closes at the first sync sample in a late
 TRACK_IDLE_MS = 3_000  # ... or when its track has been silent this long
 MAX_FILL_US = 10_000_000  # an audio gap up to this long is filled with silence; a longer one starts a new segment
 REORDER = 5  # samples held back to put late groups in order
+LIVE_IDLE_MS = 30_000  # no teacher media this long: the playlists end, even if the relay never said the teacher left
 
 OnFile = Callable[[str, bool], None]  # (path relative to the root, mutable)
 
@@ -171,7 +181,7 @@ def track_configs(catalog: object) -> dict[str, TrackConfig]:
                     sample_rate=int(rendition.get("sampleRate") or 48_000),
                     channels=int(rendition.get("numberOfChannels") or 1),
                 )
-            elif kind == "video" and codec.startswith("avc1") and description:
+            elif kind == "video" and codec.startswith("avc1"):  # no description: Annex B, as @moq/publish sends
                 found[track] = TrackConfig(
                     "video",
                     codec,
@@ -498,6 +508,7 @@ class RoomArchive:
         self.dir = archive.root / room
         self.teacher = _Teacher()
         self.live = False  # a teacher broadcast is up
+        self._media_wall_ms = 0  # wall clock of the newest teacher media
         self.runs: list[RunEntry] = []
         self.run: RunArchive | None = None
         self.dirty = False
@@ -508,6 +519,7 @@ class RoomArchive:
         self._playlists_due = True
         self._refused: str | None = None  # the catalog last refused for having no clock
         self._slide: tuple[SlideFrame, int] | None = None  # a slide shown before the broadcast's first media
+        self._avcc: dict[str, bytes] = {}  # per Annex B video track: the record from its latest SPS and PPS
         index_path = self.dir / "room.json"
         if index_path.exists():
             try:
@@ -534,6 +546,7 @@ class RoomArchive:
             return False
         clock = broadcast_clock(parsed)
         self.teacher = _Teacher(track_configs(parsed), raw, clock)
+        self._avcc = {}
         self.live = True
         if clock is None:
             if self._refused != raw.decode(errors="replace"):
@@ -600,6 +613,11 @@ class RoomArchive:
             pts_us, data = split_legacy(payload)
         except IndexError:
             return
+        if config.kind == "video" and not config.description:
+            converted = self._annexb(track, config, data)
+            if converted is None:
+                return
+            config, data = converted
         wall_us = clock.origin_us + pts_us
         run = self._bind(clock, wall_us // 1000, wall_ms)
         assert self.epoch_ms is not None
@@ -607,10 +625,24 @@ class RoomArchive:
         if room_us < 0:
             return  # before the room's epoch: a sample reordered across the first one
         run.media(track, config, room_us, data, wall_ms)
+        self._media_wall_ms = wall_ms
+        if not self.live:
+            self.live, self._playlists_due = True, True
         if self._slide is not None:
             frame, at = self._slide
             self._slide = None
             run.slide(frame, at)
+
+    def _annexb(self, track: str, config: TrackConfig, data: bytes) -> tuple[TrackConfig, bytes] | None:
+        """An Annex B access unit as an avc1 sample, with the avcC record from the newest SPS and PPS (a keyframe
+        carries them). None until the first parameter sets arrive: nothing before them can be decoded."""
+        au = from_annexb(data)
+        if au.avcc is not None:
+            self._avcc[track] = au.avcc
+        avcc = self._avcc.get(track)
+        if avcc is None or not au.sample:
+            return None
+        return replace(config, description=avcc), au.sample
 
     def archived_end_ms(self) -> int | None:
         """The end of the room time in use: the speaker's media and every agent's slices (exclusive)."""
@@ -643,6 +675,8 @@ class RoomArchive:
     def tick(self, wall_ms: int) -> None:
         if self.run is not None:
             self.run.tick(wall_ms)
+        if self.live and self._media_wall_ms and wall_ms - self._media_wall_ms >= LIVE_IDLE_MS:
+            self.live, self._playlists_due = False, True
 
     def save(self) -> None:
         if self.run is not None:
