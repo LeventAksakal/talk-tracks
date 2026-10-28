@@ -40,13 +40,12 @@ from pydantic import ValidationError
 from .archive.slices import NORMAL, Slice
 from .audio import AudioAssembler
 from .contracts import (
-    CLOCK_TRACK,
     ENVELOPE,
     ITEMS_TRACK,
     ROOT,
     Envelope,
-    RoomClock,
     SlideFrame,
+    Wire,
     agent_path,
     slides_path,
     teacher_path,
@@ -61,6 +60,7 @@ DRAFT = 18  # pinned: aiomoqt offers draft 22 first when left to choose, and eve
 RETRY_S = 1.0
 AUDIO_IDLE_S = 5.0  # the speaker's audio never pauses for this long while the publisher is alive
 AUDIO_TRACK = "audio"
+CLOCK_TRACK = "clock"  # void (design §4.5 now reads the hang catalog clock); replaced with the room catalog read
 CLOCK_WAIT_S = 10.0  # the console repeats its clock every 4 s: this long without one means the broadcast has none
 READ_DEADLINE_S = 0.05
 # QUIC timers we advertise (design, spike S8): a killed agent's track is free for its replacement after 1-3.5 s, not
@@ -369,6 +369,12 @@ async def teacher_audio(relay: Relay, room: str) -> AsyncGenerator[tuple[NDArray
                 assembler, current = AudioAssembler(), number
             for pcm, end_ms in assembler.push(payload):
                 yield pcm, end_ms + offset
+
+
+class RoomClock(Wire):
+    epoch_ms: int
+    offset_ms: int
+    session: str
 
 
 async def room_clock(relay: Relay, room: str, *, wait_s: float = CLOCK_WAIT_S) -> RoomClock | None:

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .contracts import ENVELOPE, RoomClock, SlideFrame
+from .contracts import CueObject, OutlineObject, RoomCatalog, SlideFrame, SlideObject
 from .recording import RecordedSnapshot, Recording
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[3] / "contracts"
@@ -15,9 +15,11 @@ CONTRACTS_DIR = Path(__file__).resolve().parents[3] / "contracts"
 
 def schemas() -> dict[str, dict[str, Any]]:
     return {
-        "envelope.schema.json": ENVELOPE.json_schema(),
+        "cue-object.schema.json": CueObject.model_json_schema(),
+        "slide-object.schema.json": SlideObject.model_json_schema(),
+        "outline-object.schema.json": OutlineObject.model_json_schema(),
+        "room-catalog.schema.json": RoomCatalog.model_json_schema(),
         "slide-frame.schema.json": SlideFrame.model_json_schema(),
-        "room-clock.schema.json": RoomClock.model_json_schema(),
         "recording.schema.json": Recording.model_json_schema(),
         "recorded-snapshot.schema.json": RecordedSnapshot.model_json_schema(),
     }
