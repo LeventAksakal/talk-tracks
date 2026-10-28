@@ -33,7 +33,7 @@ relay aggregates subscriptions, may cache, and forwards a cache miss upstream (D
 - **Live demand is a SUBSCRIBE.** It is the only thing that reaches an agent and makes it spend.
 - **The past is a FETCH.** The relay answers from its cache. A miss goes upstream to the track's own publisher, which
   is the **origin** of that track's history and serves it from durable storage.
-- **Time is the group number.** Every AI track cuts its groups on the speaker's media clock, so a viewer turns a
+- **Time is the group number.** Every AI track cuts its groups on one room clock, so a viewer turns a
   seek time into the group to fetch by arithmetic, without an index.
 
 ## 2. What the spec says, what moq-lite does, what our stack does
@@ -89,16 +89,16 @@ Tokens, with the same signing as decision 0005; only the patterns change:
 
 ## 4. Track and group model
 
-### 4.1 Groups are time slices on the media clock
+### 4.1 Groups are time slices on the room clock
 
-Every AI track except the outline cuts its groups on the speaker's media clock: **group `k` covers media time
-`[k·S, (k+1)·S)`**, with `S` = 4 s.
+Every AI track except the outline cuts its groups on the room clock ([§4.5](#45-the-room-clock)): **group `k` covers
+room time `[k·S, (k+1)·S)`**, with `S` = 4 s.
 
 - **Seek without an index.** The state at media time `t` is in group `⌊t/S⌋`, plus its neighbours for context. MoQT
   Locations become addressable by time, which moq-relay's one-group FETCH needs, since it cannot answer "the latest
   group before t".
-- **Ids continue across restarts.** The group number comes from the clock, not a counter, so a restarted agent or a
-  new loop of a demo room never reuses one. This is what D18 §2.4.3 warns about for a publisher that crashes and
+- **Ids continue across restarts.** The group number comes from the room clock, not a counter, so a restarted agent,
+  a reloaded speaker or a new loop of a demo room never reuses one. This is what D18 §2.4.3 warns about for a publisher that crashes and
   resumes. It also gives decision 0009's "ids continue" at the transport level.
 - **`S` is under moq-relay's 5 s max age.** The latest group is then always fresh enough to be delivered to a late
   joiner, without the 2 s heartbeat groups agents publish today.
@@ -142,6 +142,37 @@ These go through the coordinator, because they change `contracts/`:
 - `seq` and `instance` go away: the Location (group, object) is the sequence, and the stable name replaces the
   instance.
 - The outline envelope stays a snapshot.
+- Every media time in every contract (`start_ms`, `end_ms`, `at_ms`, `media_ms`) is room time ([§4.5](#45-the-room-clock)).
+- New: the `clock` object below.
+
+### 4.5 The room clock
+
+The speaker's media timestamps come from @moq/publish, which stamps audio from `performance.now()` at capture
+start (src `@moq/publish` capture worklet, `zero: performance.now()`). They restart near 0 whenever the speaker
+reloads or starts a second broadcast in the room, so slice k of the new broadcast would collide with slice k of the
+old one. The owner chose one room clock carried by an offset (2026-10-28, addendum to decision 0012):
+
+**room time = speaker media timestamp + `offset_ms`**, where the speaker console chooses `offset_ms` once per
+broadcast and publishes it. Every consumer adds the same offset, so agents, the archive, the media rewind and the
+viewer share one clock.
+
+- **The `clock` track.** The speaker console publishes track `clock` in its `talk/R/slides` broadcast (already in
+  the speaker's token), **before** it starts publishing audio. One JSON object per group, a new group on change and
+  every 4 s (relay max age 5 s):
+  `{"epoch_ms": E, "offset_ms": O, "session": "<broadcast start, wall ms>"}`.
+- **Choosing the offset.** `E` is the wall time of the room's first broadcast. On a later broadcast the console reads
+  `E` and the room's latest room time `end_ms` from the catalog ([§5.10](#510-room-catalog)). Then
+  `O = max(performance.timeOrigin − E, end_ms + 4000 − performance.now())`, rounded to whole ms. Room time follows
+  wall time since `E`, so a reload shows as a real gap. The `max` keeps it monotonic even if a second device's clock
+  runs behind, and puts the new broadcast's first slice after the last archived one. The first broadcast of a room
+  sets `E = Date.now()`.
+- **Consumers wait for the clock.** An agent or the archiver stamps nothing from a teacher broadcast until it has
+  that broadcast's `clock` object, and re-reads it when the teacher broadcast is re-announced. A teacher broadcast
+  with no `clock` track (the demo looper, which already writes room time) means offset 0.
+- **Gaps.** Room time has holes where nobody broadcast. Slices there are missing; FETCH of one returns "not found"
+  without back-fill, because the archive has no audio for it. The rewind player skips holes in the fMP4 timeline.
+- **Limitation.** This works around @moq/publish, which offers no way to set the timestamp origin. Patching it, or
+  asking upstream for an origin option, would remove the offset and the `clock` track: ticket 0019.
 
 ## 5. Flows
 
@@ -196,8 +227,8 @@ These go through the coordinator, because they change `contracts/`:
     `track.rs:306-312`).
 - **Media** (speaker audio and video): played from the archive's fMP4 segments over HTTP, with MSE, as decision 0007
   had it. This is the one place the design leaves MoQ. See [§6](#6-where-our-stack-falls-short), row 1.
-  - MSE `currentTime` is media ms / 1000, the same clock as the slices, so the media position and every track line
-    up.
+  - The archive's fMP4 is written on room time, so MSE `currentTime` is room ms / 1000, the same clock as the
+    slices, and the media position and every track line up.
 - **Go live:** the viewer drops the fetched state, keeps (or re-opens) its live subscriptions, and jumps to the
   current slice. While rewound, the live subscriptions stay open: the viewer opted into those tracks, so keeping them
   open adds no spend.
@@ -264,6 +295,8 @@ These go through the coordinator, because they change `contracts/`:
   - `depends` (MSF §5.2.14; for example translation depends on captions);
   - a status: idle, live or capped;
   - a cost class: paid on use, or free.
+- At room level it carries the room clock: `epoch_ms` (the first broadcast's wall time) and `end_ms` (the latest
+  room time archived), which a reconnecting speaker console needs to choose its offset ([§4.5](#45-the-room-clock)).
 - It is published by the **room service**, the archiver. It learns the room's tracks through SUBSCRIBE_NAMESPACE on
   `talk/R`, which creates no demand, and the status from the agents' own announcements.
 - **Snapshot semantics:** a new group per change, plus a fresh group every 4 s so it stays inside the relay's 5 s
@@ -335,7 +368,7 @@ These go through the coordinator, because they change `contracts/`:
 | SUBSCRIBE for live, FETCH for the past | live tracks by SUBSCRIBE; rewind and scrollback by one-group FETCH, same track, same names | D18 §10.7, §10.12 |
 | Relay cache plus origin | the relay serves recent slices; misses go to the agent, which serves its archive | D18 §9.1, §10.12.3 |
 | FETCH as demand for the past | a slice nobody paid for is generated when someone fetches it, once, within the cap | D18 §10.12 |
-| Location continuity across restarts | slice numbers come from the media clock; a replacement publisher continues them | D18 §2.4.3 |
+| Location continuity across restarts | slice numbers come from the room clock; a replacement publisher or a reloaded speaker continues them | D18 §2.4.3 |
 | Priorities | voice and captions first under congestion; history last | D18 §7 |
 | End of group and end of track | slices close with End of Group; a finished talk ends with End of Track | D18 §11.2.1.1 |
 
@@ -343,7 +376,7 @@ These go through the coordinator, because they change `contracts/`:
 
 - **Lazy agents:**
   - stable names;
-  - slices on the media clock;
+  - slices on the room clock: read the speaker's `clock` track before stamping;
   - the 1 s settle time;
   - late join via a Joining FETCH;
   - each agent records its own output and serves FETCH from the archive;
@@ -355,8 +388,10 @@ These go through the coordinator, because they change `contracts/`:
   - the archiver records speaker media and slides, publishes the catalog, and copies to the bucket.
 - **Rewind:**
   - agent tracks via `fetchGroup(⌊t/S⌋)`;
-  - media via HTTP and MSE, on one media clock;
+  - media via HTTP and MSE, on the room clock, skipping holes;
   - one subscription per track, never updated.
+- **Speaker console (web):** choose the offset per broadcast and publish the `clock` track before audio
+  ([§4.5](#45-the-room-clock)); stamp slide `at_ms` in room time.
 - **Benchmark:** add a row for FETCH-from-origin latency, cached and uncached, and bytes for selective subscription
   per slice.
 - **Demo content:** the looper publishes sliced tracks under the same names and serves FETCH from the recording.
@@ -403,5 +438,6 @@ The owner chose the recommended option for each of the four questions on 2026-10
 
 1. **Origin of AI-track history:** each agent serves its own track's past by FETCH.
 2. **Media rewind:** over HTTP from the archive's fMP4 segments, with MSE.
-3. **Group model:** 4 s time slices on the media clock, with a carry-in object.
+3. **Group model:** 4 s time slices on the room clock, with a carry-in object.
+5. **Room clock** (addendum): speaker media timestamp + an offset the speaker console publishes per broadcast.
 4. **Back-fill:** on FETCH, per slice, within the room cap.
