@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { demoEvents } from "../demo/script";
 import { captions, envelope } from "../test/envelopes";
 import type { Envelope } from "./types";
-import { isEnvelope, isLegacyEnvelope, parseEnvelope, parseLegacyEnvelope, parseSlideFrame } from "./validate";
+import {
+  isEnvelope,
+  isLegacyEnvelope,
+  parseEnvelope,
+  parseLegacyEnvelope,
+  parseRoomClock,
+  parseSlideFrame,
+} from "./validate";
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 
@@ -111,5 +118,15 @@ describe("slide frame validation", () => {
     expect(parseSlideFrame(JSON.stringify(frame)).ok).toBe(true);
     expect(parseSlideFrame(JSON.stringify({ ...frame, mime: "image/gif" })).ok).toBe(false);
     expect(parseSlideFrame(JSON.stringify({ ...frame, data_b64: undefined })).ok).toBe(false);
+  });
+});
+
+describe("room clock validation", () => {
+  it("accepts the clock object and rejects a broken one", () => {
+    const clock = { epoch_ms: 1_793_000_000_000, offset_ms: 86_400, session: "1793000086400" };
+    expect(parseRoomClock(JSON.stringify(clock)).ok).toBe(true);
+    expect(parseRoomClock(JSON.stringify({ ...clock, session: "" })).ok).toBe(false);
+    expect(parseRoomClock(JSON.stringify({ ...clock, offset_ms: "1" })).ok).toBe(false);
+    expect(parseRoomClock(JSON.stringify({ epoch_ms: 1, offset_ms: 0 })).ok).toBe(false);
   });
 });

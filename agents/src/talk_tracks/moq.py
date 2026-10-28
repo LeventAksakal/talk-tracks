@@ -38,7 +38,18 @@ from pydantic import ValidationError
 
 from .archive.slices import NORMAL, Slice
 from .audio import AudioAssembler
-from .contracts import ENVELOPE, ITEMS_TRACK, ROOT, Envelope, SlideFrame, agent_path, slides_path, teacher_path
+from .contracts import (
+    CLOCK_TRACK,
+    ENVELOPE,
+    ITEMS_TRACK,
+    ROOT,
+    Envelope,
+    RoomClock,
+    SlideFrame,
+    agent_path,
+    slides_path,
+    teacher_path,
+)
 from .live_slices import items_of
 
 log = logging.getLogger("talk_tracks.moq")
@@ -47,6 +58,8 @@ set_log_level(logging.WARNING)  # aiomoqt logs every control message at INFO
 DRAFT = 18  # pinned: aiomoqt offers draft 22 first when left to choose, and everything here is measured on 18
 RETRY_S = 1.0
 AUDIO_IDLE_S = 5.0  # the speaker's audio never pauses for this long while the publisher is alive
+AUDIO_TRACK = "audio"
+CLOCK_WAIT_S = 10.0  # the console repeats its clock every 4 s: this long without one means the broadcast has none
 READ_DEADLINE_S = 0.05
 WRITE_TIMEOUT_S = 5.0
 WRITER_QUEUE = 4  # snapshots are self-contained: an unsent old one is worth nothing
@@ -231,7 +244,17 @@ class Relay:
 
         ``idle_s`` resubscribes after that long without an object; leave it None for tracks that may pause.
         """
+        async with contextlib.aclosing(self.subscriptions(namespace, track, idle_s=idle_s)) as payloads:
+            async for _, payload in payloads:
+                yield payload
+
+    async def subscriptions(
+        self, namespace: str, track: str, *, idle_s: float | None = None
+    ) -> AsyncGenerator[tuple[int, bytes]]:
+        """``objects``, each payload with the number of the subscription it came on: the number rises each time the
+        track is subscribed afresh, as it is when its publisher goes and a new one (a new broadcast) comes."""
         ref = TrackRef(namespace=namespace, name=track)
+        number = 0
         while True:
             try:
                 reader = await self.agent.reader(SubscribeSpec(track=ref, start_at=StartAt(mode="latest"), buffer=4096))
@@ -240,6 +263,7 @@ class Relay:
                 await asyncio.sleep(RETRY_S)
                 continue
             log.info("subscribed %s/%s", namespace, track)
+            number += 1
             last = time.monotonic()
             try:
                 while not reader.done:
@@ -252,7 +276,7 @@ class Relay:
                         break
                     for obj in batch:
                         if obj.payload:
-                            yield obj.payload
+                            yield number, obj.payload
             finally:
                 self._unsubscribe(reader, str(ref))
             await asyncio.sleep(RETRY_S)
@@ -319,11 +343,53 @@ async def until_closed(relay: Relay, work: Awaitable[None]) -> None:
 
 
 async def teacher_audio(relay: Relay, room: str) -> AsyncGenerator[tuple[NDArray[np.int16], int]]:
-    """The speaker's microphone as 16 kHz mono PCM chunks with their media end time in ms."""
-    assembler = AudioAssembler()
-    async for payload in relay.objects(teacher_path(room), "audio", idle_s=AUDIO_IDLE_S):
-        for chunk in assembler.push(payload):
-            yield chunk
+    """The speaker's microphone as 16 kHz mono PCM chunks with their end in room time, ms (design §4.5).
+
+    Each subscription to the audio is one teacher broadcast (a new one, after a reload, comes on a new subscription).
+    Before stamping its first chunk this reads that broadcast's room clock: room time is the speaker's media
+    timestamp plus its ``offset_ms``, or the media timestamp itself when the broadcast has no clock (the looper). The
+    audio that arrives meanwhile waits in the subscription's buffer.
+    """
+    assembler, offset, current = AudioAssembler(), 0, 0
+    path = teacher_path(room)
+    async with contextlib.aclosing(relay.subscriptions(path, AUDIO_TRACK, idle_s=AUDIO_IDLE_S)) as audio:
+        async for number, payload in audio:
+            if number != current:
+                for pcm, end_ms in assembler.flush():  # the previous broadcast's last frames, on its own clock
+                    yield pcm, end_ms + offset
+                clock = await room_clock(relay, room)
+                offset = 0 if clock is None else clock.offset_ms
+                what = "no room clock" if clock is None else f"broadcast {clock.session}"
+                log.info("%s: %s, room time = media time %+d ms", path, what, offset)
+                assembler, current = AudioAssembler(), number
+            for pcm, end_ms in assembler.push(payload):
+                yield pcm, end_ms + offset
+
+
+async def room_clock(relay: Relay, room: str, *, wait_s: float = CLOCK_WAIT_S) -> RoomClock | None:
+    """The newest object of the room's ``clock`` track (design §4.5), read afresh; None when the speaker's broadcast
+    has none: the subscription is refused, or nothing comes within ``wait_s`` although the console repeats it every
+    4 s."""
+    ref = TrackRef(namespace=slides_path(room), name=CLOCK_TRACK)
+    try:
+        reader = await relay.agent.reader(SubscribeSpec(track=ref, start_at=StartAt(mode="latest"), buffer=16))
+    except Exception as exc:
+        log.info("%s: no clock track (%s)", ref.namespace, exc)
+        return None
+    try:
+        t_end = time.monotonic() + wait_s
+        while not reader.done and time.monotonic() < t_end:
+            for obj in await reader.read(1, timeout=READ_DEADLINE_S) + reader.drain():
+                if not obj.payload:
+                    continue
+                try:
+                    return RoomClock.model_validate_json(obj.payload)
+                except ValidationError:
+                    log.warning("skipping a room clock object that does not match the contract")
+    finally:
+        relay._unsubscribe(reader, str(ref))
+    log.warning("%s: no room clock object in %.0f s: taking media time as room time", ref.namespace, wait_s)
+    return None
 
 
 async def rooms_on_air(relay: Relay) -> AsyncIterator[tuple[str, bool]]:

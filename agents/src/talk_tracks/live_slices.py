@@ -1,9 +1,9 @@
-"""Sliced agent tracks (decision 0012): live slices on the media clock, recorded as sent, and back-filled on FETCH.
+"""Sliced agent tracks (decision 0012): live slices on the room clock, recorded as sent, and back-filled on FETCH.
 
-Group k of a track covers media time [k·4 s, (k+1)·4 s). Object 0 is the carry-in, the items follow, End of Group
-closes the slice and End of Track the talk. ``SlicedTrack`` owns the numbering and writes every object twice: to the
-live track (``LiveOut``) and to the track's archive (``TrackArchive``), byte for byte, so a FETCH of a slice gets
-exactly what subscribers got. Transport-free: tests drive it without a relay.
+Group k of a track covers room time [k·4 s, (k+1)·4 s) (design §4.5). Object 0 is the carry-in, the items follow,
+End of Group closes the slice and End of Track the talk. ``SlicedTrack`` owns the numbering and writes every object
+twice: to the live track (``LiveOut``) and to the track's archive (``TrackArchive``), byte for byte, so a FETCH of a
+slice gets exactly what subscribers got. Transport-free: tests drive it without a relay.
 
 * **Live:** an item goes into the slice open when it is produced. The slice follows a ``MediaClock`` that the
   agent's inputs set (audio timestamps, the captions it reads, slide times) and that runs on between them.
@@ -20,10 +20,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Literal, Protocol
 
-from .archive.slices import Slice, SliceObject, TrackArchive
+from .archive.slices import Slice, SliceExists, SliceObject, TrackArchive
 from .contracts import ENVELOPE, AgentInfo, Body, Carry, Envelope, Item, Usage, slice_of
 from .llm.ledger import BudgetExceededError
 
@@ -45,7 +45,8 @@ class LiveOut(Protocol):
 
 
 class MediaClock:
-    """The speaker's media time, from the newest time an input reported, running on with the wall clock."""
+    """Room time (the speaker's media time plus the room clock's offset), from the newest time an input reported,
+    running on with the wall clock."""
 
     def __init__(self, *, hold_s: float | None = HOLD_S, clock: Callable[[], float] = time.monotonic) -> None:
         self._hold = hold_s
@@ -72,7 +73,7 @@ class MediaClock:
         return default if now is None else now
 
 
-Produce = Callable[[int], Awaitable[tuple[Carry, list[Item]]]]
+Produce = Callable[[int], Awaitable[tuple[Carry, Sequence[Item]]]]
 
 
 class SlicedTrack:
@@ -188,7 +189,20 @@ class SlicedTrack:
         assert self._open is not None
         k, o = self._open, self._next_object
         self._next_object += 1
-        self.archive.write(k, SliceObject(object_id=o, payload=data))
+        try:
+            self.archive.write(k, SliceObject(object_id=o, payload=data))
+        except SliceExists:
+            # Opening checks the archive, so only a room clock that went back (or a second live publisher) gets
+            # here. The room clock never goes back (design §4.5): this is a bug, so say so and send nothing.
+            log.error(
+                "%s: SLICE %d ALREADY EXISTS in the archive: the room clock went back or two agents publish it; "
+                "object %d not sent",
+                self.info.name,
+                k,
+                o,
+                exc_info=True,
+            )
+            return
         try:
             await self.out.put(k, o, data)
         except Exception as exc:  # the record stands: a FETCH still serves what the live track could not send
@@ -250,7 +264,7 @@ class SlicedTrack:
 class SnapshotTrack:
     """The outline (design §4.3): each revision is a group of one object. While subscribed the newest revision is
     repeated once per slice, so a late joiner always finds a group young enough for moq-relay to deliver (it drops
-    groups older than 5 s). Group ids come from the media clock, so they never repeat across restarts."""
+    groups older than 5 s). Group ids come from the room clock, so they never repeat across restarts."""
 
     def __init__(
         self,

@@ -108,3 +108,88 @@ def test_until_closed_raises_when_the_relay_goes(moq: Any) -> None:
 
     with pytest.raises(ConnectionError, match="gone"):
         asyncio.run(scenario())
+
+
+class ClockReader:
+    """A subscription that delivers ``payloads`` (then stays open), or nothing."""
+
+    def __init__(self, payloads: list[bytes]) -> None:
+        self.objects = [types.SimpleNamespace(payload=p) for p in payloads]
+        self.done = False
+        self.request_id = None
+
+    async def read(self, n: int, **kw: float) -> list[Any]:
+        import asyncio
+
+        if not self.objects:
+            await asyncio.sleep(kw["timeout"])
+            return []
+        return [self.objects.pop(0)]
+
+    def drain(self) -> list[Any]:
+        return []
+
+
+class ClockRelay:
+    """Audio subscriptions as given, and a room clock per subscription (None: the clock subscription is refused)."""
+
+    def __init__(self, audio: list[tuple[int, bytes]], clocks: list[list[bytes] | None]) -> None:
+        self.audio = audio
+        self.clocks = clocks
+        self.agent = types.SimpleNamespace(reader=self._reader, close_reader=self._unsubscribe)
+        self.session = None
+
+    async def _reader(self, spec: Any) -> ClockReader:
+        payloads = self.clocks.pop(0)
+        if payloads is None:
+            raise RuntimeError("not found")
+        return ClockReader(payloads)
+
+    def _unsubscribe(self, *args: Any) -> None:
+        pass
+
+    async def subscriptions(self, namespace: str, track: str, *, idle_s: float | None = None) -> Any:
+        for item in self.audio:
+            yield item
+
+
+class EchoAssembler:
+    """Each payload is its own media end time in ms, as text."""
+
+    def push(self, payload: bytes) -> list[tuple[Any, int]]:
+        return [(b"pcm", int(payload))]
+
+    def flush(self) -> list[tuple[Any, int]]:
+        return []
+
+
+def clock_json(offset_ms: int, session: str) -> bytes:
+    return f'{{"epoch_ms": 1000, "offset_ms": {offset_ms}, "session": "{session}"}}'.encode()
+
+
+def test_teacher_audio_is_stamped_in_room_time_per_broadcast(moq: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Room time = media time + the broadcast's offset (design §4.5). A new broadcast (subscription) reads the clock
+    again; one without a clock track (the looper) is offset 0."""
+    import asyncio
+
+    for name in ("TrackRef", "SubscribeSpec", "StartAt"):
+        monkeypatch.setattr(moq, name, types.SimpleNamespace)
+    monkeypatch.setattr(moq, "AudioAssembler", EchoAssembler)
+    relay = ClockRelay(
+        audio=[(1, b"100"), (1, b"120"), (2, b"20"), (2, b"40"), (3, b"60")],
+        clocks=[[b"not a clock", clock_json(50_000, "a")], [clock_json(90_000, "b")], None],
+    )
+
+    async def scenario() -> list[int]:
+        return [end_ms async for _, end_ms in moq.teacher_audio(relay, "r")]
+
+    assert asyncio.run(scenario()) == [50_100, 50_120, 90_020, 90_040, 60]
+
+
+def test_a_silent_clock_track_means_no_room_clock(moq: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    for name in ("TrackRef", "SubscribeSpec", "StartAt"):
+        monkeypatch.setattr(moq, name, types.SimpleNamespace)
+    relay = ClockRelay(audio=[], clocks=[[]])
+    assert asyncio.run(moq.room_clock(relay, "r", wait_s=0.1)) is None

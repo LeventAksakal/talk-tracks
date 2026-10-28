@@ -220,6 +220,15 @@ class SlideFrame(Wire):
     data_b64: str
 
 
+class RoomClock(Wire):
+    """The speaker console's room clock (design §4.5), track ``clock`` in ``talk/<room>/slides``: room time is the
+    speaker's media timestamp plus ``offset_ms``. A group on change and every 4 s; published before the audio."""
+
+    epoch_ms: int = Field(ge=0, description="Wall time of the room's first broadcast")
+    offset_ms: int = Field(description="Added to this broadcast's media timestamps to give room time")
+    session: str = Field(min_length=1, description="This broadcast: its start, wall ms")
+
+
 # --- names ---------------------------------------------------------------------------------------------------
 
 ROOT = "talk"
@@ -237,6 +246,7 @@ def agents_prefix(room: str) -> str:
     return f"{ROOT}/{room}/agents"
 
 
+CLOCK_TRACK = "clock"  # in slides_path(room): the room clock (RoomClock)
 ITEMS_TRACK = "items"  # every sliced agent track
 OUTLINE_TRACK = "outline"  # the chapters agent's snapshot track
 

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Literal
 
 import jsonschema
 import pytest
@@ -8,6 +9,7 @@ from pydantic import ValidationError
 from talk_tracks.contracts import (
     ENVELOPE,
     AgentInfo,
+    Body,
     CaptionItem,
     CaptionLine,
     CaptionsCarry,
@@ -32,12 +34,13 @@ LINE = CaptionLine(id=7, start_ms=8100, end_ms=9900, text="hello")
 
 def test_envelopes_validate_against_their_own_schema() -> None:
     schema = json.loads((CONTRACTS_DIR / "envelope.schema.json").read_text(encoding="utf-8"))
-    for kind, body, capped in (
+    cases: tuple[tuple[Literal["carry", "item", "snapshot"], Body, bool], ...] = (
         ("carry", CaptionsCarry(lang="en", lines=[LINE]), False),
         ("carry", CaptionsCarry(lang="en", lines=[]), True),
         ("item", CaptionItem(lang="en", line=LINE, final=True), False),
         ("snapshot", OutlineSnapshot(lang="en", chapters=[], glossary=[]), False),
-    ):
+    )
+    for kind, body, capped in cases:
         env = Envelope(agent=INFO, slice=2, kind=kind, capped=capped, at_ms=10, usage=Usage(), body=body)
         jsonschema.validate(json.loads(ENVELOPE.dump_json(env)), schema)
 

@@ -156,6 +156,20 @@ export interface SlideFrame {
   data_b64: string;
 }
 
+/**
+ * The room clock (design §4.5): the speaker console publishes it on track `clock` in `talk/<room>/slides`, before
+ * its audio, a group on change and every 4 s. Room time = the speaker's media timestamp + `offset_ms`; every `*_ms`
+ * media time and every slice number in the contracts is room time.
+ */
+export interface RoomClock {
+  /** Wall time of the room's first broadcast. */
+  epoch_ms: number;
+  /** Added to this broadcast's media timestamps to give room time. */
+  offset_ms: number;
+  /** This broadcast: its start, wall ms. */
+  session: string;
+}
+
 // --- full states: what the agents' cores keep and recordings store (not on the wire) ------------
 
 export interface CaptionsState {

@@ -1,8 +1,9 @@
 import Ajv, { type ValidateFunction } from "ajv";
 import envelopeSchema from "../../../contracts/envelope.schema.json";
+import roomClockSchema from "../../../contracts/room-clock.schema.json";
 import slideFrameSchema from "../../../contracts/slide-frame.schema.json";
 import legacyEnvelopeSchema from "./legacy-envelope.schema.json";
-import type { Envelope, LegacyEnvelope, SlideFrame } from "./types";
+import type { Envelope, LegacyEnvelope, RoomClock, SlideFrame } from "./types";
 
 // The schemas are pydantic output. `discriminator` with a `mapping` is OpenAPI vocabulary that Ajv's
 // own discriminator support refuses, so it is declared as an annotation-only keyword: `oneOf` still
@@ -13,6 +14,7 @@ ajv.addKeyword({ keyword: "discriminator", schemaType: "object" });
 
 const envelopeValidator: ValidateFunction<Envelope> = ajv.compile<Envelope>(envelopeSchema);
 const slideFrameValidator: ValidateFunction<SlideFrame> = ajv.compile<SlideFrame>(slideFrameSchema);
+const roomClockValidator: ValidateFunction<RoomClock> = ajv.compile<RoomClock>(roomClockSchema);
 const legacyValidator: ValidateFunction<LegacyEnvelope> = ajv.compile<LegacyEnvelope>(legacyEnvelopeSchema);
 
 // The agents check this too (pydantic model validator); JSON Schema cannot tie `kind` to `body.type`.
@@ -52,6 +54,10 @@ export function parseEnvelope(payload: Uint8Array | string): Parsed<Envelope> {
 
 export function parseSlideFrame(payload: Uint8Array | string): Parsed<SlideFrame> {
   return parse(slideFrameValidator, payload);
+}
+
+export function parseRoomClock(payload: Uint8Array | string): Parsed<RoomClock> {
+  return parse(roomClockValidator, payload);
 }
 
 export function isEnvelope(value: unknown): value is Envelope {

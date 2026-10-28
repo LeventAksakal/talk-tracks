@@ -9,7 +9,15 @@ from numpy.typing import NDArray
 from talk_tracks import statefile
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
 from talk_tracks.asr.scripted import ScriptedAsr, ScriptedLine
-from talk_tracks.contracts import CaptionItem, CaptionsCarry, Envelope, OutlineSnapshot, SlideFrame, SlideItem
+from talk_tracks.contracts import (
+    CaptionItem,
+    CaptionsCarry,
+    Envelope,
+    OutlineSnapshot,
+    SlideFrame,
+    SlideItem,
+    TranslationItem,
+)
 from talk_tracks.cores.captions import CaptionsCore
 from talk_tracks.cores.outline import OutlineCore
 from talk_tracks.cores.slides import SlidesCore
@@ -110,7 +118,7 @@ async def test_translate_outline_and_describe_follow_the_captions(tmp_path: Path
     tr.carry = core.carry
     await run_translate(replay(cap), llm, tr, core)
     await tr.pause()
-    lines = [e.body.line for e in tr_out.envelopes() if e.kind == "item"]
+    lines = [e.body.line for e in tr_out.envelopes() if isinstance(e.body, TranslationItem)]
     assert lines[0].text.startswith("[tr] Media over Quick") and lines[0].start_ms == 0
     assert llm.usage.requests == 3 and tr_out.groups() == [0, 1]  # each line in the slice open when it was made
 
