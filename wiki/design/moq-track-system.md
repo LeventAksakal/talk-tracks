@@ -1,5 +1,5 @@
 ---
-status: accepted (decision 0012), revised after an independent review on 2026-10-28
+status: locked (decision 0012), approved by an independent review on 2026-10-28
 date: 2026-10-28
 replaces: the coordinator's draft of the same name (2026-10-28)
 ---
@@ -536,8 +536,9 @@ The owner's choices on 2026-10-28, recorded in
 Three jurors reviewed the first version on 2026-10-28. Each saw only that version of this page and the specs
 (MoQT transport -18 and -22, MSF, CMSF, LOC, the catalog format, WebVTT-MSF, moq-lite-06, hang-03), with no access to
 the repo, our notes or the spike logs. Their lenses were transport, media and packaging, and system and product. All
-three returned **approve with changes**, and again on the revised version, with smaller text-level changes. What
-changed in response to both rounds:
+three returned **approve with changes** in the first and second rounds. In the third round each approved, on
+condition of one sentence each, and those sentences are in. The owner then locked the design. What changed in
+response:
 
 | Finding (juror) | Change |
 |---|---|
