@@ -29,6 +29,7 @@ from urllib.parse import quote, urlsplit
 
 import numpy as np
 from aiomoqt.agent import AgentSession, FetchSpec, PublishSpec, StartAt, SubscribeSpec, TrackRef
+from aiomoqt.agent.reader import Reader
 from aiomoqt.client import MOQTClient
 from aiomoqt.messages.data import FetchObject
 from aiomoqt.messages.fetch import _is_joining
@@ -49,7 +50,7 @@ from .contracts import (
     slides_path,
     teacher_path,
 )
-from .demand import Fetches
+from .demand import Demand
 from .live_slices import Refused, Stats
 from .roomtime import HangClock, Mapping, RoomTime, hang_clock
 from .runtime import CaptionsObject, captions_object
@@ -134,6 +135,19 @@ class SlicedOut:
         self._writer = writer
         track = writer._track
         track.produce = types.MethodType(_produce_with_group_ends, track)
+        self.demand = Demand(lambda: [rid for sub in track._subs for rid in sub.subscribers])
+        stock_subscribe, stock_cancelled = track._on_subscribe, track._on_request_cancelled
+
+        async def on_subscribe(session: Any, msg: Any) -> None:
+            self.demand.subscribed(msg.request_id)
+            await stock_subscribe(session, msg)
+
+        def on_cancelled(request_id: int, sub: Any = None) -> None:
+            self.demand.cancelled(request_id)
+            stock_cancelled(request_id, sub)
+
+        track._on_subscribe = on_subscribe
+        track._on_request_cancelled = on_cancelled
 
     def subscribed(self) -> bool:
         return bool(self._writer._track.producing)
@@ -156,26 +170,34 @@ class SlicedOut:
         """The talk is over: open streams close and each subscription gets PUBLISH_DONE, Track Ended."""
         self._writer._track.end()
 
-    def serve(self, source: SliceSource, fetches: Fetches | None = None, stats: Stats | None = None) -> None:
+    def serve(
+        self, source: SliceSource, stats: Stats | None = None, open_slice: Callable[[], int | None] | None = None
+    ) -> None:
         """Answer each standalone FETCH of this track from ``source``, with the true End Location (moq-relay asks
         for a whole group and rejects aiomoqt's own reply, spike S4b): the open slice too, as far as it has got.
-        A refusal is a REQUEST_ERROR, never an empty group. Joining FETCHes keep aiomoqt's handling. ``fetches``
-        counts them for the demand rule: the relay's upstream subscription for a FETCH is not a viewer."""
+        A refusal is a REQUEST_ERROR, never an empty group. Joining FETCHes keep aiomoqt's handling. Standalone ones
+        count for the demand rule: the relay's upstream subscription for a FETCH is not a viewer.
+
+        The track's Largest Location follows ``open_slice`` (D18 §10.12.3), so a FETCH of a past slice never
+        published, while the agent was idle, is in range. It is set to object 0 of the slice before the open one:
+        aiomoqt starts a Largest Object subscription after Largest, and the open slice's carry-in is object 0."""
         track = self._writer._track
         stock = track._on_fetch
-        counted = fetches or Fetches()
 
         async def on_fetch(session: Any, msg: Any) -> None:
-            counted.begin()
-            try:
-                await answer(session, msg)
-            finally:
-                counted.end()
-
-        async def answer(session: Any, msg: Any) -> None:
             if _is_joining(msg.fetch_type):
                 await stock(session, msg)
                 return
+            k = open_slice() if open_slice is not None else None
+            if k is not None and k > 0:
+                track._note_largest(k - 1, 0)
+            self.demand.fetch_begin()
+            try:
+                await answer(session, msg)
+            finally:
+                self.demand.fetch_end()
+
+        async def answer(session: Any, msg: Any) -> None:
             rid, k = msg.request_id, msg.start_group or 0
             try:
                 found = await source(k)
@@ -297,6 +319,59 @@ class Relay:
             finally:
                 self._unsubscribe(reader, str(ref))
             await asyncio.sleep(RETRY_S)
+
+    async def joined(
+        self, namespace: str, track: str, *, timeout_s: float = FETCH_TIMEOUT_S
+    ) -> AsyncGenerator[tuple[int, int, bytes]]:
+        """Each object of the track as (group, object, payload), joined with SUBSCRIBE plus a Joining FETCH relative
+        0 (design §5.5): the current group from object 0 up to the subscription's start, then the live objects, each
+        once. A refused or late join leaves the live objects alone. Subscribes afresh when the subscription ends."""
+        ref = TrackRef(namespace=namespace, name=track)
+        while True:
+            try:
+                reader = await self.agent.reader(SubscribeSpec(track=ref, start_at=StartAt(mode="latest"), buffer=4096))
+            except Exception as exc:  # not announced yet, or refused: try again shortly
+                log.debug("subscribe %s/%s failed: %s", namespace, track, exc)
+                await asyncio.sleep(RETRY_S)
+                continue
+            try:
+                head = await self._join(reader, ref, timeout_s)
+                log.info("joined %s/%s with %d objects of the current group", namespace, track, len(head))
+                seen = (head[-1].group, head[-1].object_id) if head else None
+                for obj in head:
+                    yield obj.group, obj.object_id, obj.payload
+                while not reader.done:
+                    batch = await reader.read(1, timeout=READ_DEADLINE_S) + reader.drain()
+                    for obj in batch:
+                        if obj.payload and (seen is None or (obj.group, obj.object_id) > seen):
+                            yield obj.group, obj.object_id, obj.payload
+            finally:
+                self._unsubscribe(reader, str(ref))
+            await asyncio.sleep(RETRY_S)
+
+    async def _join(self, reader: Any, ref: Any, timeout_s: float) -> list[Any]:
+        """The Joining FETCH (relative 0) of ``reader``'s subscription: its objects in order, or none."""
+        if reader.request_id is None:
+            return []
+        session = self.session
+        head = Reader(FetchSpec(track=ref, start_at=StartAt.range(0, 0)), str(ref))
+        request = session.joining_fetch(reader.request_id, 0)
+        rid = request.request_id
+        session.register_fetch_object_handler(rid, head.on_fetched)  # before any await: no object is missed
+        try:
+            await session._await_response(rid, timeout_s)
+            clean = await session.await_fetch_done(rid, timeout_s)
+        except Exception as exc:
+            log.info("joining FETCH of %s refused: %s", ref, exc)
+            return []
+        finally:
+            session.unregister_fetch_object_handler(rid)
+        drained: list[Any] = head.drain()
+        found: list[Any] = [o for o in drained if o.payload]
+        found.sort(key=_location)
+        if not clean:
+            log.warning("joining FETCH of %s did not finish: %d objects", ref, len(found))
+        return found
 
     async def fetch_group(
         self, namespace: str, track: str, group: int, *, timeout_s: float = FETCH_TIMEOUT_S
@@ -500,9 +575,15 @@ async def slide_frames(relay: Relay, room: str, room_time: RoomTime) -> AsyncGen
         yield frame, at
 
 
+def _location(obj: Any) -> tuple[int, int]:
+    return obj.group, obj.object_id
+
+
 async def follow_captions(relay: Relay, room: str) -> AsyncGenerator[CaptionsObject]:
-    """Each object of the captions track with its Location. The name is stable: when the agent restarts, the
-    subscription ends and the next one reaches its replacement. Subscribing is demand: it keeps captions working."""
-    async with contextlib.aclosing(relay.located(agent_path(room, "captions"), ITEMS_TRACK)) as found:
-        async for _, group, object_id, payload in found:
+    """Each object of the captions track with its Location, from object 0 of the slice open when it joins (a Joining
+    FETCH), so a translation started mid-slice translates the slice from its start. The name is stable: when the
+    agent restarts, the subscription ends and the next one reaches its replacement. Subscribing is demand: it keeps
+    captions working."""
+    async with contextlib.aclosing(relay.joined(agent_path(room, "captions"), ITEMS_TRACK)) as found:
+        async for group, object_id, payload in found:
             yield captions_object(group, object_id, payload)

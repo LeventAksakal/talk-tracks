@@ -36,12 +36,15 @@ def moq(monkeypatch: pytest.MonkeyPatch) -> Any:
     data = types.ModuleType("aiomoqt.messages.data")
     data.FetchObject = object  # type: ignore[attr-defined]
     fetch = types.ModuleType("aiomoqt.messages.fetch")
-    fetch._is_joining = lambda fetch_type: False  # type: ignore[attr-defined]
+    fetch._is_joining = lambda fetch_type: fetch_type == "joining"  # type: ignore[attr-defined]
+    reader = types.ModuleType("aiomoqt.agent.reader")
+    reader.Reader = object  # type: ignore[attr-defined]
     quic = types.ModuleType("aiopquic.quic.configuration")
     quic.QuicConfiguration = types.SimpleNamespace  # type: ignore[attr-defined]
     for name, module in {
         "aiomoqt": types.ModuleType("aiomoqt"),
         "aiomoqt.agent": agent,
+        "aiomoqt.agent.reader": reader,
         "aiomoqt.client": client,
         "aiomoqt.messages": types.ModuleType("aiomoqt.messages"),
         "aiomoqt.messages.data": data,
@@ -239,3 +242,135 @@ def test_a_hang_catalog_without_a_clock_means_no_clock(moq: Any, monkeypatch: py
     assert asyncio.run(moq.teacher_clock(ClockRelay(audio=[], clocks=[[]]), "r", wait_s=0.1)) is None
     found = asyncio.run(moq.teacher_clock(ClockRelay(audio=[], clocks=[[hang(W_A)]]), "r", wait_s=0.1))
     assert found is not None and found.key == str(W_A)
+
+
+def loc(group: int, object_id: int, payload: bytes = b"x") -> Any:
+    return types.SimpleNamespace(group=group, object_id=object_id, payload=payload)
+
+
+class JoinSession:
+    """A session whose Joining FETCH delivers ``head``, or is refused."""
+
+    def __init__(self, head: list[Any] | None) -> None:
+        self.head = head
+        self.handlers: dict[int, Any] = {}
+        self.joined: list[tuple[int, int]] = []
+
+    def joining_fetch(self, request_id: int, joining_start: int) -> Any:
+        self.joined.append((request_id, joining_start))
+        return types.SimpleNamespace(request_id=99)
+
+    def register_fetch_object_handler(self, rid: int, callback: Any) -> None:
+        self.handlers[rid] = callback
+
+    def unregister_fetch_object_handler(self, rid: int) -> None:
+        self.handlers.pop(rid, None)
+
+    async def _await_response(self, rid: int, timeout: float) -> Any:  # noqa: ASYNC109 - aiomoqt's signature
+        if self.head is None:
+            raise RuntimeError("refused")
+        for obj in reversed(self.head):  # in any order: the join sorts them
+            self.handlers[rid](obj)
+        return object()
+
+    async def await_fetch_done(self, rid: int, timeout: float) -> bool:  # noqa: ASYNC109 - aiomoqt's signature
+        return True
+
+    def unsubscribe(self, rid: int) -> None:
+        pass
+
+
+class Head:
+    def __init__(self, *args: Any) -> None:
+        self.got: list[Any] = []
+
+    def on_fetched(self, obj: Any) -> None:
+        self.got.append(obj)
+
+    def drain(self) -> list[Any]:
+        return self.got
+
+
+class StubStartAt(types.SimpleNamespace):
+    @staticmethod
+    def range(group: int, end_group: int) -> None:
+        return None
+
+
+class LiveReader:
+    def __init__(self, objects: list[Any]) -> None:
+        self.objects = objects
+        self.request_id = 7
+        self.done = False
+
+    async def read(self, n: int, **kw: float) -> list[Any]:
+        taken, self.objects = self.objects[:1], self.objects[1:]
+        self.done = not self.objects
+        return taken
+
+    def drain(self) -> list[Any]:
+        return []
+
+
+@pytest.mark.parametrize("refused", [False, True])
+def test_a_join_reads_the_current_group_from_object_0_then_live_each_once(
+    moq: Any, monkeypatch: pytest.MonkeyPatch, refused: bool
+) -> None:
+    """Design §5.5: translation joins captions with SUBSCRIBE plus a Joining FETCH relative 0."""
+    import asyncio
+
+    for name in ("TrackRef", "SubscribeSpec", "FetchSpec"):
+        monkeypatch.setattr(moq, name, types.SimpleNamespace)
+    monkeypatch.setattr(moq, "StartAt", StubStartAt)
+    monkeypatch.setattr(moq, "Reader", Head)
+    live = [loc(3, 2), loc(3, 3), loc(3, 4)]  # the subscription starts at the latest object, 3/2
+    session = JoinSession(None if refused else [loc(3, 0), loc(3, 1), loc(3, 2)])
+    relay = moq.Relay.__new__(moq.Relay)
+    relay.session = session
+    readers = [LiveReader(live)]
+
+    async def reader(spec: Any) -> LiveReader:
+        if not readers:
+            await asyncio.Event().wait()
+        return readers.pop(0)
+
+    relay.agent = types.SimpleNamespace(reader=reader, close_reader=lambda name: None)  # pyright: ignore[reportUnknownLambdaType]
+
+    async def scenario() -> list[tuple[int, int]]:
+        found = relay.joined("talk/r/agents/captions", "items")
+        got = [(await found.__anext__())[:2] for _ in range(3 if refused else 5)]
+        await found.aclose()
+        return got
+
+    got = asyncio.run(scenario())
+    assert session.joined == [(7, 0)]  # relative 0, joined to the subscription
+    assert got == ([] if refused else [(3, 0), (3, 1)]) + [(3, 2), (3, 3), (3, 4)]
+
+
+def test_the_relay_subscriptions_of_a_sliced_track_feed_its_demand(moq: Any) -> None:
+    import asyncio
+
+    calls: list[str] = []
+
+    class Track:
+        def __init__(self) -> None:
+            self.sub = types.SimpleNamespace(subscribers=set[int]())
+            self._subs = [self.sub]
+
+        async def _on_subscribe(self, session: Any, msg: Any) -> None:
+            calls.append("subscribe")
+            self.sub.subscribers.add(msg.request_id)
+
+        def _on_request_cancelled(self, request_id: int, sub: Any = None) -> None:
+            calls.append("cancelled")
+            self.sub.subscribers.discard(request_id)
+
+        async def produce(self, out: Any) -> None:
+            pass
+
+    track = Track()
+    out = moq.SlicedOut(types.SimpleNamespace(_track=track))
+    asyncio.run(track._on_subscribe(None, types.SimpleNamespace(request_id=5)))  # pyright: ignore[reportPrivateUsage]
+    assert out.demand.open() == 1 and calls == ["subscribe"]
+    track._on_request_cancelled(5)  # pyright: ignore[reportPrivateUsage]
+    assert out.demand.open() == 0 and calls == ["subscribe", "cancelled"]

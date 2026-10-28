@@ -12,7 +12,7 @@ from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
 from talk_tracks.contracts import Cue
 from talk_tracks.cores.captions import CaptionsCore
 from talk_tracks.cores.translate import TranslateCore
-from talk_tracks.demand import Gate, gated
+from talk_tracks.demand import Demand, Gate, gated
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger, room_cap
 from talk_tracks.records import cues_of
@@ -22,59 +22,110 @@ from talk_tracks.runtime import CaptionsObject, run_captions, run_translate
 from .slicekit import sliced
 
 
-class Switch:
+class Switch(Demand):
+    """Demand, or not, as the test says."""
+
     def __init__(self) -> None:
+        super().__init__()
         self.on = False
 
-    def __call__(self) -> bool:
+    def wanted(self) -> bool:
         return self.on
 
 
-def fast_gate(switch: Switch, grace_s: float = 0.05, wake_s: float = 0.0) -> Gate:
-    return Gate(switch, wake_s=wake_s, grace_s=grace_s, poll_s=0.005)
+def fast_gate(switch: Switch, grace_s: float = 0.05) -> Gate:
+    return Gate(switch, grace_s=grace_s, poll_s=0.005)
 
 
-async def test_a_momentary_subscription_does_not_wake_the_agent() -> None:
-    switch = Switch()
-    gate = fast_gate(switch, wake_s=0.3)
-    wanted = asyncio.ensure_future(gate.wait_wanted())
-    for _ in range(3):  # three FETCH blips: the relay subscribes upstream for ~80 ms each time
-        switch.on = True
-        await asyncio.sleep(0.08)
-        switch.on = False
-        await asyncio.sleep(0.1)
-    assert not wanted.done()
+class Clock:
+    def __init__(self) -> None:
+        self.t = 100.0
 
-    switch.on = True  # a viewer that stays
-    started = asyncio.get_running_loop().time()
-    await asyncio.wait_for(wanted, 1)
-    assert asyncio.get_running_loop().time() - started >= 0.29
+    def __call__(self) -> float:
+        return self.t
 
 
-async def test_a_subscription_that_forwards_a_slow_fetch_does_not_wake_the_agent() -> None:
-    """Design §5.3: moq-relay subscribes upstream for as long as a FETCH takes, which may be seconds. Demand is a
-    subscription open for 1 s with no FETCH in flight or ended within that second."""
-    switch = Switch()
-    gate = fast_gate(switch, wake_s=0.2)
-    wanted = asyncio.ensure_future(gate.wait_wanted())
-    switch.on = True  # the relay's subscription for a FETCH of 0.5 s
-    gate.fetches.begin()
-    await asyncio.sleep(0.5)
-    assert not wanted.done()  # open longer than wake_s, but a FETCH is in flight
-    gate.fetches.end()
-    await asyncio.sleep(0.1)
-    assert not wanted.done()  # the FETCH ended just now
-    switch.on = False  # its subscription goes with it
-    await asyncio.sleep(0.3)
-    assert not wanted.done()
+def demand() -> tuple[Demand, Clock]:
+    clock = Clock()
+    return Demand(clock=clock), clock
 
-    switch.on = True  # a viewer joined during another FETCH: the subscription outlives it
-    gate.fetches.begin()
-    await asyncio.sleep(0.1)
-    gate.fetches.end()
-    ended = asyncio.get_running_loop().time()
-    await asyncio.wait_for(wanted, 1)
-    assert asyncio.get_running_loop().time() - ended >= 0.19  # counted a second (here wake_s) after the FETCH
+
+def test_a_subscription_is_demand_after_a_quiet_second_and_latches_until_cancelled() -> None:
+    d, clock = demand()
+    d.subscribed(1)
+    clock.t += 0.9
+    assert not d.wanted()
+    clock.t += 0.1
+    assert d.wanted()
+    d.fetch_begin()  # a later FETCH does not take latched demand away
+    clock.t += 5
+    assert d.wanted()
+    d.fetch_end()
+    d.cancelled(1)
+    assert not d.wanted()
+
+
+def test_a_subscription_the_relay_opens_for_a_fetch_is_not_demand() -> None:
+    """Design §5.3: moq-relay subscribes upstream for as long as a FETCH takes, which may be seconds."""
+    d, clock = demand()
+    d.subscribed(1)
+    clock.t += 0.01
+    d.fetch_begin()  # within 50 ms: fetch-induced
+    clock.t += 3  # a slow back-fill
+    assert not d.wanted()
+    d.fetch_end()
+    d.cancelled(1)  # its subscription goes with it
+    clock.t += 2
+    assert not d.wanted()
+
+
+def test_a_fetch_induced_subscription_that_stays_is_a_viewer() -> None:
+    d, clock = demand()
+    d.subscribed(1)
+    d.fetch_begin()
+    clock.t += 0.5
+    d.fetch_end()
+    clock.t += 0.9
+    assert not d.wanted()
+    clock.t += 0.1  # still open 1 s after the FETCH completed
+    assert d.wanted()
+
+    d2, clock2 = demand()
+    d2.fetch_begin()  # the FETCH arrives first, the SUBSCRIBE within 50 ms: also induced
+    clock2.t += 0.02
+    d2.subscribed(1)
+    for _ in range(10):  # FETCH after FETCH (a viewer scrolling back): never 1 s after the last one
+        clock2.t += 0.9
+        d2.fetch_end()
+        d2.fetch_begin()
+        assert not d2.wanted()
+    clock2.t += 1.0  # but 10 s after it opened, it counts
+    assert d2.wanted()
+
+
+def test_any_other_subscription_waits_for_a_second_with_no_fetch() -> None:
+    d, clock = demand()
+    d.subscribed(1)
+    clock.t += 0.5
+    d.fetch_begin()  # a FETCH 0.5 s later: not induced, but in flight
+    clock.t += 1
+    assert not d.wanted()
+    d.fetch_end()
+    clock.t += 0.9
+    assert not d.wanted()  # a FETCH ended within the last second
+    clock.t += 0.1
+    assert d.wanted()
+
+
+def test_a_subscription_gone_without_a_cancel_is_dropped() -> None:
+    live = {1}
+    clock = Clock()
+    d = Demand(lambda: live, clock=clock)
+    d.subscribed(1)
+    clock.t += 1
+    assert d.wanted()
+    live.clear()  # its relay session died
+    assert not d.wanted() and d.open() == 0
 
 
 async def test_gate_waits_out_the_grace_period() -> None:

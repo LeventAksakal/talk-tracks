@@ -14,8 +14,7 @@ rooms listed, each from when its speaker comes on air.
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_ROOMS, TT_ROOMS_EXCLUDE (rooms never served, such as
 the demo room), TT_TOKEN, TT_LEDGER (default data/ledger.jsonl), TT_SPEND_CEILING_USD (default 100), TT_ROOM_CAP_USD
 (default 2: any room's cap), TT_CAPS_DIR (default data/caps: judge token batches with their own caps),
-TT_WAKE_DEBOUNCE_S (default 1: how long a track stays subscribed, with no FETCH of it for as long, before its agent
-wakes), TT_DEMO_ROOMS (rooms never back-filled: the looped demo rooms),
+TT_DEMO_ROOMS (rooms never back-filled: the looped demo rooms),
 TT_IDLE_GRACE_S (default 10: how long a track goes unsubscribed before its agent pauses), TT_ROOM_LINGER_S (default
 600: how long a room is served after its speaker left), TT_ARCHIVE_DIR (default data/archive: every slice an agent
 publishes, which it serves FETCH and restarts from), TT_ARCHIVE_BUCKET (where older slices are read back from)
@@ -266,7 +265,7 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
     subscribed, and answers FETCH for its history from the archive (back-filling slices never produced)."""
     from . import moq
     from .archive.slices import TrackArchive, archive_bucket
-    from .demand import IDLE_GRACE_S, WAKE_DEBOUNCE_S, Fetches, Gate
+    from .demand import IDLE_GRACE_S, Gate
     from .live_slices import SlicedTrack, SnapshotTrack, Watermark
     from .rooms import TALK_OVER
     from .roomtime import RoomTime
@@ -281,21 +280,15 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
         io = RoomIo(relay, room_time, moq.TeacherFeed(relay, room, room_time))
         out = await relay.publish_sliced(agent_path(room, info.name), name)
         clock = Watermark(edge=lambda: room_time.edge)
-        fetches = Fetches()
         track: SlicedTrack | SnapshotTrack
         if not agent.sliced:
             track = SnapshotTrack(info, out, archive, clock=clock)
-            out.serve(track.slice, fetches, track.stats)
+            out.serve(track.slice, track.stats)
         else:
             sliced = track = SlicedTrack(info, out, archive, list, clock=clock, marks_from=agent.marks_from)
             produce = agent.backfill(io, sliced) if agent.backfill else None
-            out.serve(lambda k: sliced.slice(k, produce), fetches, sliced.stats)
-        gate = Gate(
-            out.subscribed,
-            fetches=fetches,
-            wake_s=env_float("TT_WAKE_DEBOUNCE_S", WAKE_DEBOUNCE_S),
-            grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S),
-        )
+            out.serve(lambda k: sliced.slice(k, produce), sliced.stats, sliced.current_slice)
+        gate = Gate(out.demand, grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S))
         newest = archive.latest_group()
         log.info("%s in room %s, after slice %s", info.name, room, "none" if newest is None else newest)
 
