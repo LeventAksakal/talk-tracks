@@ -88,6 +88,18 @@ class GcsBucket:
         )
         r.raise_for_status()
 
+    async def get(self, name: str) -> bytes | None:
+        """An archived file, or None when the bucket lacks it."""
+        r = await self._client.get(
+            f"{self._storage}/storage/v1/b/{quote(self.name, safe='')}/o/{quote(self.folder + name, safe='')}",
+            params={"alt": "media"},
+            headers=await self._auth(),
+        )
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.content
+
     async def sizes(self, prefix: str = "") -> AsyncIterator[tuple[str, int]]:
         token: str | None = None
         while True:
@@ -148,7 +160,7 @@ class Uploader:
             p.relative_to(self.root).as_posix()
             for p in sorted(self.root.rglob("*"))
             if p.is_file()
-            and not p.name.endswith(".tmp")
+            and not p.name.endswith((".tmp", ".part"))
             and remote.get(p.relative_to(self.root).as_posix()) != p.stat().st_size
         ]
         log.info("bucket copy: %d files to catch up", len(missing))

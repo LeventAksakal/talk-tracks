@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -481,3 +482,91 @@ async def test_the_spool_can_be_turned_off(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setenv("TT_ARCHIVE_SPOOL", "off")
     inner = ListSink()
     assert spool_sink(inner, "live", tmp_path) is inner
+
+
+# --- the slice store (decision 0012) ---------------------------------------------------------------------------------
+
+
+def test_slices_round_trip_byte_identical(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import END_OF_GROUP, SliceExists, SliceObject, TrackArchive, slice_of
+
+    t = TrackArchive("room1", "captions", "items", root=tmp_path)
+    k = slice_of(9_500)
+    assert k == 2
+    carry = b'{"kind":"carry","lines":["\xc3\xa7ok g\xc3\xbczel"]}'
+    t.write(k, SliceObject(0, carry))
+    t.write(k, SliceObject(1, b"\x00\xffbinary", publisher_priority=224, extensions={7: b"x"}))
+    open_now = t.read_local(k)
+    assert open_now is not None and not open_now.complete and len(open_now.objects) == 2
+    with pytest.raises(ValueError):
+        t.write(k, SliceObject(1, b"again"))
+    done = t.end_group(k)
+    assert done.complete and done.last_object_id == 2 and done.objects[-1].status == END_OF_GROUP
+    assert done.objects[0].payload == carry and done.objects[1].payload == b"\x00\xffbinary"
+    assert done.objects[1].publisher_priority == 224 and done.objects[1].extensions == {7: b"x"}
+    assert (tmp_path / "room1/agents/captions/items/00000002.slice").exists()
+    with pytest.raises(SliceExists):
+        t.write(k, SliceObject(3, b"late"))
+    assert t.groups() == [2] and t.latest_group() == 2
+
+
+def test_slices_restart_and_backfill(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import END_OF_TRACK, SliceExists, SliceObject, TrackArchive
+
+    old = TrackArchive("room1", "captions", "items", root=tmp_path)
+    old.write(5, SliceObject(0, b"carry"))
+    old.close()  # killed mid-slice: it stays open
+    new = TrackArchive("room1", "captions", "items", root=tmp_path)
+    assert new.latest_group() == 5
+    with pytest.raises(SliceExists):
+        new.write(5, SliceObject(0, b"other"))
+    new.write(6, SliceObject(0, b"next slice"))
+    new.write(3, SliceObject(0, b"back-fill"))  # a past slice next to the live one
+    assert new.end_group(3).objects[0].payload == b"back-fill"
+    assert new.discard(5) and new.read_local(5) is None
+    empty = new.end_group(7, end_of_track=True)  # capped or finished: only the end marker
+    assert empty.end_of_track and empty.last_object_id == 0 and empty.objects[0].status == END_OF_TRACK
+
+
+def test_slices_read_from_bucket(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import SliceObject, TrackArchive
+
+    src = TrackArchive("room1", "captions", "items", root=tmp_path / "vm1")
+    src.write(1, SliceObject(0, b"one"))
+    src.end_group(1)
+    stored = {
+        "room1/agents/captions/items/00000001.slice": (
+            tmp_path / "vm1/room1/agents/captions/items/00000001.slice"
+        ).read_bytes()
+    }
+
+    class Fake:
+        async def get(self, name: str) -> bytes | None:
+            return stored.get(name)
+
+    t = TrackArchive("room1", "captions", "items", root=tmp_path / "vm2", bucket=Fake())
+    got = asyncio.run(t.read(1))
+    assert got is not None and got.complete and got.objects[0].payload == b"one"
+    assert t.read_local(1) is not None  # kept on disk
+    assert asyncio.run(t.read(2)) is None
+
+
+def test_slice_watcher_and_track_info(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import SliceObject, SliceWatcher, TrackArchive, TrackInfo
+
+    w = SliceWatcher(tmp_path)
+    t = TrackArchive(
+        "room1",
+        "translate-tr",
+        "items",
+        root=tmp_path,
+        info=TrackInfo("translation", lang="tr", depends=["captions/items"]),
+    )
+    t.write(0, SliceObject(0, b"a"))
+    t.end_group(0)
+    got = w.poll()
+    assert ("room1/agents/translate-tr/items/00000000.slice", False) in got
+    assert ("room1/agents/translate-tr/items/track.json", True) in got
+    info = json.loads((tmp_path / "room1/agents/translate-tr/items/track.json").read_text())
+    assert info["lang"] == "tr" and info["sliceMs"] == 4000 and info["status"] == "idle"
+    assert w.poll() == []
