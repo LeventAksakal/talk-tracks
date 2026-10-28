@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 
 from talk_tracks.contracts import (
     AgentInfo,
@@ -29,6 +30,7 @@ from talk_tracks.slicing import (
     TranslationItem,
     cues,
     period_of,
+    room_catalog,
 )
 
 CAPTIONS = AgentInfo(name="captions", label="Captions (English)", model="fake")
@@ -202,3 +204,45 @@ def test_cues_open_each_group_before_its_items_on_the_lecture_clock() -> None:
     assert [event_us(e) for e in events] == sorted(event_us(e) for e in events)
     at_four = [type(e).__name__ for e in events if event_us(e) == 4_000_000]
     assert at_four[-1] == "MediaPacket"  # a slice's carry-in goes out before the frame of the same instant
+
+
+def test_the_room_catalog_lists_every_track_on_the_room_clock() -> None:
+    root = room_catalog(template(), "virus", 1_790_812_800_000, 212_976_000_000_000).to_json()
+    assert root["version"] == "draft-01"
+    assert root["tt"] == {
+        "epoch": 1_790_812_800_000,
+        "shift": {"212976000000000": 0},
+        "status": {
+            name: {"producing": True, "capped": False} for name in ("captions", "translate-tr", "describe", "chapters")
+        },
+    }
+    entries = cast(list[dict[str, Any]], root["tracks"])
+    tracks = {t["namespace"]: t for t in entries}
+    captions = tracks["talk/virus/agents/captions"]
+    assert captions == {
+        "name": "items",
+        "namespace": "talk/virus/agents/captions",
+        "packaging": "eventtimeline",
+        "mimeType": "application/json",
+        "eventType": "urn:msf:captions:webvtt",
+        "role": "caption",
+        "lang": "en",
+        "label": "Captions (English)",
+        "isLive": True,
+        "template": [0, 4000, [0, 0], [1, 0], 1_790_812_800_000, 4000],
+        "tt": {"dependsOn": [], "latenessMs": 3000, "cost": "free"},  # line 4, recorded at the end
+    }
+    translation = tracks["talk/virus/agents/translate-tr"]
+    assert (translation["role"], translation["lang"]) == ("subtitle", "tr")
+    assert translation["tt"] == {"dependsOn": ["talk/virus/agents/captions/items"], "latenessMs": 2500, "cost": "free"}
+    slides = tracks["talk/virus/agents/describe"]
+    assert (slides["eventType"], "role" in slides) == ("com.talktracks.slides", False)
+    assert slides["tt"]["dependsOn"] == ["talk/virus/slides/frames"]
+    assert slides["tt"]["latenessMs"] == 800
+    outline = tracks["talk/virus/agents/chapters"]
+    assert (outline["name"], outline["eventType"], "template" in outline) == (
+        "outline",
+        "com.talktracks.outline",
+        False,
+    )
+    json.dumps(root)  # plain JSON throughout
