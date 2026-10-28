@@ -1,0 +1,30 @@
+# MediaMTX 1.21.3 as the LL-HLS and WebRTC baseline. Every key not set here keeps MediaMTX's default.
+logLevel: warn
+
+rtsp: yes
+rtspTransports: [tcp]
+rtmp: no
+srt: no
+# MediaMTX 1.21 also serves MoQ; off here, the MoQ side of the benchmark is Talk Tracks' own relay.
+moq: no
+
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+# A segment closes on the first keyframe after hlsSegmentDuration, so with a 2 s GOP segments are 2 s long.
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentCount: 7
+# Mux before the first viewer arrives, as a CDN origin would: join time then measures the protocol, not a cold start.
+hlsAlwaysRemux: yes
+hlsAllowOrigins: ["*"]
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ""
+webrtcIPsFromInterfaces: yes
+webrtcAllowOrigins: ["*"]
+
+paths:
+  all_others:
