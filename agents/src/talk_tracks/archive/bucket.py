@@ -29,6 +29,7 @@ log = logging.getLogger("talk_tracks.archive.bucket")
 
 METADATA = "http://169.254.169.254"  # the Compute Engine metadata server (metadata.google.internal)
 STORAGE = "https://storage.googleapis.com"
+DEFAULT_FOLDER = "archive"
 MUTABLE_EVERY_S = 2.0
 RETRY_S = (1.0, 2.0, 5.0, 10.0, 30.0)
 CONTENT_TYPES = {".m4s": "video/iso.segment", ".mp4": "video/mp4", ".jsonl": "application/x-ndjson"}
@@ -41,12 +42,25 @@ class Bucket(Protocol):
 
 
 class GcsBucket:
-    """The Cloud Storage JSON API with a token from the metadata server."""
+    """The Cloud Storage JSON API with a token from the metadata server.
 
-    def __init__(self, name: str, *, metadata: str = METADATA, storage: str = STORAGE) -> None:
-        self.name = name.removeprefix("gs://").strip("/")
+    ``bucket`` is ``name`` or ``gs://name[/folder]``: the archive goes under ``folder/`` (default ``archive/``), so
+    the same bucket can hold other copies (demo recordings, the spend ledger) beside it.
+    """
+
+    def __init__(
+        self,
+        bucket: str,
+        *,
+        metadata: str = METADATA,
+        storage: str = STORAGE,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        name, _, folder = bucket.removeprefix("gs://").strip("/").partition("/")
+        self.name = name
+        self.folder = (folder.strip("/") or DEFAULT_FOLDER) + "/"
         self._metadata, self._storage = metadata, storage
-        self._client = httpx.AsyncClient(timeout=30)
+        self._client = httpx.AsyncClient(timeout=30, transport=transport)
         self._token: str | None = None
         self._expires = 0.0
 
@@ -68,7 +82,7 @@ class GcsBucket:
     async def put(self, name: str, data: bytes, content_type: str) -> None:
         r = await self._client.post(
             f"{self._storage}/upload/storage/v1/b/{quote(self.name, safe='')}/o",
-            params={"uploadType": "media", "name": name},
+            params={"uploadType": "media", "name": self.folder + name},
             content=data,
             headers={**await self._auth(), "Content-Type": content_type},
         )
@@ -77,7 +91,7 @@ class GcsBucket:
     async def sizes(self, prefix: str = "") -> AsyncIterator[tuple[str, int]]:
         token: str | None = None
         while True:
-            params = {"prefix": prefix, "fields": "items(name,size),nextPageToken"}
+            params = {"prefix": self.folder + prefix, "fields": "items(name,size),nextPageToken"}
             if token:
                 params["pageToken"] = token
             r = await self._client.get(
@@ -86,7 +100,7 @@ class GcsBucket:
             r.raise_for_status()
             body: dict[str, Any] = r.json()
             for item in body.get("items", []):
-                yield str(item["name"]), int(item["size"])
+                yield str(item["name"]).removeprefix(self.folder), int(item["size"])
             token = body.get("nextPageToken")
             if not token:
                 return
@@ -137,7 +151,7 @@ class Uploader:
             and not p.name.endswith(".tmp")
             and remote.get(p.relative_to(self.root).as_posix()) != p.stat().st_size
         ]
-        log.info("bucket %s: %d files to catch up", getattr(self.bucket, "name", ""), len(missing))
+        log.info("bucket copy: %d files to catch up", len(missing))
         self._now.extend(missing)
         self._wake.set()
 

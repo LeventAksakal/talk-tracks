@@ -3,7 +3,8 @@
 Follows every room under ``talk/**`` and writes the archive (``wiki/howto/archive.md``). Settings also come from the
 environment: TT_RELAY, TT_TOKEN (watching is open, so usually unset), TT_ARCHIVE_DIR (default data/archive),
 TT_ARCHIVE_ROOMS (glob patterns to keep, comma-separated, default all), TT_ARCHIVE_SKIP (patterns to skip, such as a
-looped demo room) and TT_ARCHIVE_BUCKET (the Cloud Storage bucket to copy to; unset: no copy).
+looped demo room) and TT_ARCHIVE_BUCKET (the Cloud Storage bucket to copy to, ``gs://name[/folder]``, folder
+default ``archive``; unset: no copy).
 """
 
 from __future__ import annotations
@@ -43,7 +44,11 @@ async def main_async(args: argparse.Namespace) -> None:
     bucket = GcsBucket(args.bucket) if args.bucket else None
     uploader = Uploader(args.out, bucket)
     archive = Archive(args.out, on_file=uploader.notify)
-    log.info("archiving into %s, %s", args.out, f"copying to bucket {bucket.name}" if bucket else "no bucket copy")
+    log.info(
+        "archiving into %s, %s",
+        args.out,
+        f"copying to gs://{bucket.name}/{bucket.folder}" if bucket else "no bucket copy",
+    )
     background = [asyncio.create_task(uploader.run()), asyncio.create_task(uploader.sync())]
     try:
         async with connect(args.relay, token=args.token, insecure=args.insecure) as relay:

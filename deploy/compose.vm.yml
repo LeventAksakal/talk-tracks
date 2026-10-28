@@ -2,9 +2,11 @@
 # demo room and, once the Meta key is on the box, live agents. Settings come from deploy/.env on the VM (not in git):
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
-#   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state and spend ledger
+#   TT_DATA          folder with demo/<lecture>/ recordings, the agents' state, the spend ledger and archive/
 #   TT_LOOPER_TOKEN  signed for the demo room; TT_AGENT_TOKEN signed for the live room
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
+#   TT_ARCHIVE_BUCKET the Cloud Storage bucket the track archive is copied to (optional); TT_ARCHIVE_SKIP rooms
+#                    not archived (default: the demo room)
 #   docker compose -f deploy/compose.vm.yml up -d
 #   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
 # Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
@@ -40,6 +42,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../web/dist:/srv:ro
+      - ${TT_DATA:?}/archive:/archive:ro
       - caddy_data:/data
       - caddy_config:/config
 
@@ -81,6 +84,25 @@ services:
       TT_ROOM: ${TT_DEMO_ROOM:-demo}
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
     command: ["loop", "--insecure", "--recording", "/data/demo/${TT_LECTURE:-test}"]
+
+  # The track archive (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
+  # serves under /archive/ and restarting agents read (/data/archive). Finished files are copied to the Cloud
+  # Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing leaves the VM. Looped demo rooms
+  # are skipped: their recording already is their archive.
+  archive:
+    image: talk-tracks-agents:${TT_AGENTS_TAG:-dev}
+    build: ../agents
+    init: true  # SIGTERM closes the open segments and chunks
+    restart: unless-stopped
+    depends_on: [relay]
+    volumes: ["${TT_DATA:?}/archive:/data/archive"]
+    environment:
+      TT_RELAY: moqt://relay:443
+      TT_ARCHIVE_DIR: /data/archive
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
+      TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
+    entrypoint: ["python", "-m", "talk_tracks.archive"]
+    command: ["--insecure"]
 
   captions:
     <<: *live

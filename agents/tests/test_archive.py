@@ -363,6 +363,34 @@ async def test_start_up_sync_uploads_what_the_bucket_lacks(tmp_path: Path) -> No
     assert bucket.puts == ["a/y.m4s"]
 
 
+async def test_gcs_bucket_uses_the_metadata_token_and_the_archive_folder() -> None:
+    import httpx
+
+    from talk_tracks.archive.bucket import GcsBucket
+
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/token"):
+            assert request.headers["Metadata-Flavor"] == "Google"
+            return httpx.Response(200, json={"access_token": "t0k", "expires_in": 3600})
+        assert request.headers["Authorization"] == "Bearer t0k"
+        if request.url.path.startswith("/upload/"):
+            return httpx.Response(200, json={})
+        if "pageToken" not in request.url.params:
+            return httpx.Response(200, json={"items": [{"name": "archive/a.m4s", "size": "3"}], "nextPageToken": "p2"})
+        return httpx.Response(200, json={"items": [{"name": "archive/b/c.json", "size": "9"}]})
+
+    bucket = GcsBucket("gs://my-bucket", transport=httpx.MockTransport(handle))
+    await bucket.put("live/1/run.json", b"{}", "application/json")
+    assert seen[1].url.params["name"] == "archive/live/1/run.json" and "/b/my-bucket/o" in seen[1].url.path
+    assert [x async for x in bucket.sizes()] == [("a.m4s", 3), ("b/c.json", 9)]
+    assert sum(r.url.path.endswith("/token") for r in seen) == 1
+    await bucket.aclose()
+    assert GcsBucket("other/history").folder == "history/"
+
+
 def test_no_bucket_means_no_copy(tmp_path: Path) -> None:
     uploader = Uploader(tmp_path, None)
     uploader.notify("a/x.m4s", False)

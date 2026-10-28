@@ -89,7 +89,7 @@ Runs are in order; the last one is the newest (and the one still being written, 
 {
   "format": "talk-tracks-archive", "v": 1, "room": "live", "run": "1761650000000",
   "started_wall_ms": 1761650000000, "last_wall_ms": 1761653600000,
-  "media_first_ms": 1520, "media_last_ms": 3600480,
+  "media_first_ms": 1520, "media_last_ms": 3600480, "media_last_wall_ms": 1761653600000,
   "tracks": [
     {"track": "audio", "kind": "audio", "codec": "opus", "mime": "audio/mp4; codecs=\"opus\"",
      "timescale": 1000000, "sample_rate": 48000, "channels": 1,
@@ -109,6 +109,7 @@ Runs are in order; the last one is the newest (and the one still being written, 
 }
 ```
 
+* `media_last_wall_ms` is the wall clock of the last teacher media (it decides when a new run starts).
 * Segments of a track are in media-time order and back to back: a segment's `end_ms` is the next one's `start_ms`,
   except across a gap (the speaker paused or the archiver was down). `end_ms` is exclusive.
 * `init` names the init segment to append before a segment; it changes only if the codec setup changes mid-run.
@@ -181,3 +182,78 @@ Caddy serves the root under `/archive/` with range requests and the site's cross
 (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, plus
 `Cross-Origin-Resource-Policy: same-origin`). Media and init segments are `immutable`; JSON and JSONL are
 `no-cache` (revalidated by ETag), and compressed on the fly.
+
+## Running it
+
+`python -m talk_tracks.archive` in the agents image (service `archive` in both compose files):
+
+| Setting | Default | What it does |
+|---|---|---|
+| `TT_RELAY` / `--relay` | | The relay to follow; watching is open, so no token is needed |
+| `TT_ARCHIVE_DIR` / `--out` | `data/archive` | The archive root (`/data/archive` in the containers) |
+| `TT_ARCHIVE_ROOMS` / `--rooms` | `*` | Room patterns to archive, comma-separated |
+| `TT_ARCHIVE_SKIP` / `--skip` | (compose: the demo room) | Room patterns not to archive: a looped demo room's recording already is its archive, and its video would grow the archive by about 1 GB an hour |
+| `TT_ARCHIVE_BUCKET` / `--bucket` | unset | `gs://<bucket>[/<folder>]` to copy to (folder default `archive`); unset, nothing is copied |
+
+Agents read the archive where `TT_ARCHIVE_DIR` points, by default `archive/` beside their state folder
+(`TT_STATE_DIR`): `/data/archive` on the VM, `/app/data/archive` locally, where compose mounts `data/archive/`
+read-only. `TT_ARCHIVE_MAX_AGE_S` (default 1800) is how old an archived state may be and still be resumed.
+
+Locally, `archive-files` serves `data/archive/` over HTTP on port `TT_ARCHIVE_PORT` (default 8090), as Caddy serves
+it under `/archive/` on the VM.
+
+When the relay session closes, the archiver exits and Docker restarts it. It picks up the room's last run from the
+indexes and carries on: open chunks are closed, segment numbers continue, a new init segment is written.
+
+### The bucket copy
+
+* Each finished file (a media segment, an init segment, a closed chunk, a slide image) is uploaded as soon as it is
+  closed. Indexes, open chunks and `latest/` are uploaded at most every 2 s while they change.
+* At start the archiver lists the bucket and uploads whatever is missing or a different size, so uploads queued when
+  it stopped are not lost. Failed uploads are retried with backoff; the archive on disk never waits for them.
+* Credentials are the VM's service account, from the metadata server. It needs **`roles/storage.objectUser` on the
+  one bucket** (not the project): create to add files, delete to replace the indexes. The VM's access scopes must
+  allow Cloud Storage writes (`storage-rw` or `cloud-platform`; the default scope is read-only).
+* At most about 10 s of history is lost with the VM: the open snapshot chunk (closed every 10 s), the open media
+  segment (6 s) and what is in flight.
+
+## Restore a lost VM
+
+About 15 minutes by hand. History comes back from the bucket; what is not in the bucket must come from elsewhere
+(see the list at the end).
+
+1. **A new VM** as in [deploy](deploy.md): Docker with compose, ports TCP 80 and 443 and UDP 443 open, the same
+   service account with Cloud Storage write scope, and the DNS record pointed at its address.
+2. **Clone and configure**:
+
+   ```bash
+   git clone <repo> ~/talk-tracks
+   mkdir -p ~/tt-data/archive ~/tt-keys ~/tt-secrets && chmod 700 ~/tt-secrets
+   # deploy/.env as before (TT_HOST, TT_KEYS, TT_DATA, TT_ARCHIVE_BUCKET, ...), mode 600
+   ```
+
+3. **Copy the history back** (the archive is in the bucket's `archive/` folder):
+
+   ```bash
+   gcloud storage rsync --recursive gs://$BUCKET/archive ~/tt-data/archive
+   ```
+
+4. **Images and web app**: build the agents image on the VM
+   (`cd ~/talk-tracks/agents && docker build -q -t talk-tracks-agents:dev .`), copy the relay and auth images and
+   `web/dist` from a local build as in [deploy](deploy.md#update), and create the Caddy volumes
+   (`docker volume create moq_caddy_data && docker volume create moq_caddy_config`; Caddy gets a new certificate).
+5. **Start**: `docker compose -f deploy/compose.vm.yml up -d`, plus `--profile live` for the live agents.
+6. **Check**:
+   * `curl -s https://<host>/archive/rooms.json` lists the rooms, and a room's `room.json` its runs;
+   * the archiver's log says `bucket copy: 0 files to catch up` (`docker compose -f deploy/compose.vm.yml logs archive`);
+   * a restarted captions agent logs `resuming N caption lines from the track archive` and its line ids continue.
+
+Not in the bucket, so restored from elsewhere:
+
+* `~/tt-keys`: the signing key never leaves the VM. A new key pair means new tokens for the speaker, the looper and
+  the agents (`TT_LOOPER_TOKEN`, `TT_AGENT_TOKEN` in `.env`), signed as in [tokens](tokens.md).
+* `~/tt-secrets/meta.env`: from the owner.
+* `~/tt-data/demo/`: the demo recordings. Copy them to the bucket once (`gcloud storage rsync --recursive
+  ~/tt-data/demo gs://$BUCKET/demo`) and back the same way.
+* `~/tt-data/ledger.jsonl`: the spend ledger. Copy it to the bucket after spending runs, or start the new ledger
+  with a carry-over line for the total spent, as was done for the laptop.
