@@ -197,7 +197,9 @@ These go through the coordinator, because they change `contracts/`:
   time already used. The room service checks each new teacher broadcast (identified by its `clock.wall`): if its
   first media maps at or below the archived end, it publishes one shift for that broadcast in the room catalog
   (`tt.shift`, keyed by `clock.wall`, a whole number of slices). Every consumer, the archive and the HLS playlist
-  apply the same shift, so all tracks stay aligned.
+  apply the same shift, so all tracks stay aligned. Consumers stamp nothing from a teacher broadcast until the room
+  catalog lists its `clock.wall` in `tt.shift` (0 when no shift is needed). The archive writes PROGRAM-DATE-TIME with
+  the shift already applied.
 - **The looper** publishes the teacher broadcast itself and writes the same root `clock`, with each loop placed at
   `loop_index × loop_length` after the previous one, so demo rooms never repeat a group id either.
 - **Holes.** Room time has holes where nobody broadcast. A FETCH of a slice in a hole is answered with an error and
@@ -239,9 +241,13 @@ These go through the coordinator, because they change `contracts/`:
   until the FETCH completes: 8 ms for an instant answer, 3 s for a 3 s answer (S6). It arrives about 2 ms before its
   FETCH. A fixed settle time therefore fails for slow back-fill. **Rule, per subscription:**
   - a SUBSCRIBE followed within 50 ms by a standalone FETCH of the same track is **fetch-induced**. It counts as demand
-    only if it is still open 1 s after the last FETCH of that track completed (a real viewer who subscribes during a
-    back-fill is merged onto it, so it outlives the FETCH);
-  - any other SUBSCRIBE counts as demand once it has been open for 1 s;
+    only if it is still open 1 s after the last FETCH of that track completed, or 10 s after it opened, whichever comes
+    first (a real viewer who subscribes during a back-fill is merged onto it, so it outlives the FETCH; the 10 s bound
+    keeps a continuous scroller from delaying that viewer forever, at the cost of live work starting for a scroller
+    who fetches for more than 10 s without a viewer, within the room cap);
+  - any other SUBSCRIBE counts as demand once it has been open for 1 s and no FETCH of that track from that relay
+    session has been in flight during the last 1 s (a backstop in case the 50 ms association misses under load; the
+    queue bound below caps how long this can delay live work, at about two back-fills);
   - once demand is met it **latches** until the relay cancels the subscription, so later fetches cannot pause live
     work;
   - the back-fill queue holds at most 2 per agent; further back-fill FETCHes get REQUEST_ERROR ("busy") at once, so a
@@ -278,8 +284,8 @@ These go through the coordinator, because they change `contracts/`:
     discontinuity and a jump in PROGRAM-DATE-TIME instead. hls.js handles gaps, new init segments and
     discontinuities; we write none of that.
   - **Mapping:** the viewer converts the playhead to room time through PROGRAM-DATE-TIME (hls.js `playingDate`,
-    Safari `getStartDate()` plus `currentTime`): room time = that wall time − `E` (plus the broadcast's `tt.shift`),
-    never from `currentTime` alone.
+    Safari `getStartDate()` plus `currentTime`): room time = that PROGRAM-DATE-TIME wall time − `E`
+    (the shift is already in the playlist), never from `currentTime` alone.
   - This is the one place the design leaves MoQ. See [§6](#6-where-our-stack-falls-short), row 1.
 - **Go live:** the viewer drops the fetched state, keeps its live subscriptions, and jumps to the current slice.
   While rewound, the live subscriptions stay open: the viewer opted into those tracks, so keeping them open adds no
