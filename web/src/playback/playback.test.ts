@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ArchiveClient, archivedRanges, type RunIndex, segmentAt } from "./archive";
 import { FakeHistorySource } from "./fakeSource";
 import { FakeRoom } from "./fixtures";
-import { ClockMedia, parseClock } from "./media";
+import { parseClock } from "./clock";
+import { ClockMedia } from "./media";
 import { Playback } from "./playback";
 import { formatClock } from "./timeline";
 

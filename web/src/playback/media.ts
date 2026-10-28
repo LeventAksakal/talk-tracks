@@ -7,6 +7,7 @@ import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import { ArchiveClient, archivedRanges, type RunIndex } from "./archive";
 import { ArchivePlayer } from "./archivePlayer";
+import { parseClock } from "./clock";
 import type { Mode } from "./aiTracks";
 import type { Range } from "./slices";
 
@@ -375,11 +376,3 @@ export class RoomMedia implements SpeakerMedia {
 /** The speaker console's room-clock track in `talk/R/slides`. */
 
 /** `offset_ms` from a clock object `{"epoch_ms", "offset_ms", "session"}`, or undefined. */
-export function parseClock(payload: Uint8Array): number | undefined {
-  try {
-    const v = JSON.parse(new TextDecoder().decode(payload)) as { offset_ms?: unknown };
-    return typeof v.offset_ms === "number" && Number.isFinite(v.offset_ms) ? v.offset_ms : undefined;
-  } catch {
-    return undefined;
-  }
-}

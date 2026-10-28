@@ -1,8 +1,9 @@
 import { Badge, Banner, Button } from "@astryxdesign/core";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AUDIO_TRACK, FRAMES_TRACK, isValidRoom, slidesPath, teacherPath } from "../contracts/names";
 import type { AgentView } from "../room/store";
 import { useRoom } from "../room/useRoom";
+import { RoomClock } from "../playback/clock";
 import { Link, useLocation } from "../router";
 import { type MicHandle, startMic } from "../speaker/mic";
 import { FRESH_AUDIO_MS, isOwnAudio, type MicState, type OnAir, onAirState } from "../speaker/onair";
@@ -35,6 +36,13 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
     });
     return () => sub.close();
   }, [publisher]);
+
+  // --- room clock (design §4.5): published before audio, while the microphone or the slides are live ---
+  const roomClock = useMemo(() => new RoomClock(room), [room]);
+  const [sharing, setSharing] = useState(false);
+  const ensureClock = async () => {
+    if (publisher && roomClock.offsetMs === undefined) await roomClock.start(publisher, watcher ?? publisher);
+  };
 
   // --- microphone ---
   const [mic, setMic] = useState<MicState>("off");
@@ -75,6 +83,10 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
   }, [mic]);
 
   useEffect(() => () => micHandle.current?.close(), []);
+  useEffect(() => {
+    if ((mic === "off" || mic === "error") && !sharing) roomClock.stop();
+  }, [mic, sharing, roomClock]);
+  useEffect(() => () => roomClock.stop(), [roomClock]);
 
   const startMicrophone = async () => {
     if (!publisher) return;
@@ -83,6 +95,7 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
     setStartedAt(Date.now());
     setClock({ now: Date.now() });
     try {
+      await ensureClock();
       micHandle.current = await startMic(publisher, room, (e) => {
         setMic("error");
         setMicError(e.message);
@@ -150,7 +163,13 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
             </Link>
           </p>
         </section>
-        <SlideShare publisher={publisher} room={room} />
+        <SlideShare
+          publisher={publisher}
+          room={room}
+          clock={roomClock}
+          ensureClock={ensureClock}
+          onSharing={setSharing}
+        />
         <Roster agents={view?.agents ?? []} />
       </div>
     </div>
@@ -194,7 +213,19 @@ function OnAirMessage({ onAir }: { onAir: OnAir }) {
   }
 }
 
-function SlideShare({ publisher, room }: { publisher: ReturnType<typeof useMoqTransport>; room: string }) {
+function SlideShare({
+  publisher,
+  room,
+  clock,
+  ensureClock,
+  onSharing,
+}: {
+  publisher: ReturnType<typeof useMoqTransport>;
+  room: string;
+  clock: RoomClock;
+  ensureClock: () => Promise<void>;
+  onSharing: (sharing: boolean) => void;
+}) {
   const [sharer, setSharer] = useState<SlideSharer>();
   const [last, setLast] = useState<SharedSlide>();
   const [count, setCount] = useState(0);
@@ -202,6 +233,7 @@ function SlideShare({ publisher, room }: { publisher: ReturnType<typeof useMoqTr
   const supported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
   useEffect(() => () => sharer?.stop(), [sharer]);
+  useEffect(() => onSharing(!!sharer), [sharer, onSharing]);
   useEffect(() => () => (last ? URL.revokeObjectURL(last.url) : undefined), [last]);
 
   const start = async () => {
@@ -210,7 +242,10 @@ function SlideShare({ publisher, room }: { publisher: ReturnType<typeof useMoqTr
     try {
       // Must run inside the click: screen capture needs the user gesture.
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      const s = new SlideSharer(stream, publisher.publish(slidesPath(room), FRAMES_TRACK));
+      await ensureClock();
+      const s = new SlideSharer(stream, publisher.publish(slidesPath(room), FRAMES_TRACK), (perfMs) =>
+        clock.stamp(perfMs),
+      );
       s.onSlide = (slide) => {
         setLast(slide);
         setCount((c) => c + 1);

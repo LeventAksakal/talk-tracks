@@ -53,8 +53,8 @@ export interface SharedSlide {
 /**
  * Screen-share slides: sample the captured screen twice a second and publish a JPEG (≤1280 px
  * wide) as a SlideFrame only when the picture visibly changed, at most one every 2 s. `at_ms` is
- * the media clock @moq/publish stamps audio with (performance.now()), so slide and caption times
- * line up.
+ * room time (design §4.5): `stamp` turns the performance clock @moq/publish stamps audio with into
+ * room time, so slide and caption times line up across reloads.
  */
 export class SlideSharer {
   #writer: TrackWriter;
@@ -67,12 +67,14 @@ export class SlideSharer {
   #lastSentAt: number | undefined;
   #nextId = 0;
   #busy = false;
+  #stamp: (perfMs: number) => number;
   onSlide?: (slide: SharedSlide) => void;
   onEnded?: () => void;
 
-  constructor(stream: MediaStream, writer: TrackWriter) {
+  constructor(stream: MediaStream, writer: TrackWriter, stamp: (perfMs: number) => number = Math.round) {
     this.#stream = stream;
     this.#writer = writer;
+    this.#stamp = stamp;
     this.#video.muted = true;
     this.#video.playsInline = true;
     this.#video.srcObject = stream;
@@ -116,7 +118,7 @@ export class SlideSharer {
       if (!blob) return;
       const frame: SlideFrame = {
         id: this.#nextId++,
-        at_ms: Math.round(now),
+        at_ms: this.#stamp(now),
         mime: "image/jpeg",
         data_b64: await blobToBase64(blob),
       };
