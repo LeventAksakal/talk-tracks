@@ -9,6 +9,7 @@ import io
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any, cast
 
 import av
 import numpy as np
@@ -232,6 +233,58 @@ def test_video_segments_open_with_a_keyframe_and_the_playlists_pair_them(tmp_pat
     assert f'#EXT-X-MAP:URI="{run.run}/teacher/video/init-0.mp4"' in playlist
     assert "#EXT-X-PROGRAM-DATE-TIME:2025-10-28T11:13:24.000Z" in playlist  # E + 4 s
     assert "#EXT-X-ENDLIST" not in playlist  # live: still being appended to
+    room.tick(WALL + 40_000)  # no media for 30 s, though the relay never said the teacher left
+    archive.save()
+    assert (tmp_path / "archive" / "demo" / "video.m3u8").read_text().endswith("#EXT-X-ENDLIST\n")
+
+
+def to_annexb(access_unit: bytes, avcc: bytes, keyframe: bool) -> bytes:
+    """What @moq/publish sends: start codes, an access unit delimiter, and SPS and PPS on each keyframe."""
+    out = b"\x00\x00\x00\x01\x09\xf0"
+    if keyframe:
+        sps_len = int.from_bytes(avcc[6:8], "big")
+        sps = avcc[8 : 8 + sps_len]
+        at = 8 + sps_len + 1
+        pps = avcc[at + 2 : at + 2 + int.from_bytes(avcc[at : at + 2], "big")]
+        out += b"\x00\x00\x00\x01" + sps + b"\x00\x00\x01" + pps
+    i = 0
+    while i + 4 <= len(access_unit):
+        n = int.from_bytes(access_unit[i : i + 4], "big")
+        out += b"\x00\x00\x01" + access_unit[i + 4 : i + 4 + n]
+        i += 4 + n
+    return out
+
+
+def test_annex_b_video_is_archived_as_avc1(tmp_path: Path) -> None:
+    clip = make_clip(tmp_path / "clip.mp4", seconds=6.0, fps=10)
+    info = probe(clip)
+    assert info.video is not None
+    avcc = info.video.avcc
+    cat = catalog(info, {"clock": clock_of(WALL)})
+    del cast(dict[str, Any], cat["video"])["renditions"]["video"]["description"]  # Annex B: no avcC in the catalog
+    archive = Archive(tmp_path / "archive")
+    room = archive.room("demo")
+    assert room.catalog(json.dumps(cat).encode(), WALL)
+    sent = [p for p in packets(clip) if p.kind == "video"]
+    for p in sent[1:]:  # joined after the first keyframe: nothing until the next one carries SPS and PPS
+        room.media("video", legacy_frame(p.file_us, to_annexb(p.data, avcc, p.keyframe)), WALL)
+    archive.close()
+    run = RunIndex.model_validate_json((run_dir(tmp_path / "archive", "demo") / "run.json").read_bytes())
+    video = next(t for t in run.tracks if t.track == "video")
+    assert [s.start_ms for s in video.segments] == [1000, 4000]
+    folder = run_dir(tmp_path / "archive", "demo") / "teacher" / "video"
+    out = decode(
+        (folder / video.segments[0].init).read_bytes(),
+        [(folder / f"{s.n:06d}.m4s").read_bytes() for s in video.segments],
+    )
+    assert len(out) == len(sent) - 10 and out[0].is_keyframe
+    assert [p.size for p in out] == [len(p.data) for p in sent[10:]]  # the same NALs, parameter sets left out
+    data = (folder / video.segments[0].init).read_bytes() + b"".join(
+        (folder / f"{s.n:06d}.m4s").read_bytes() for s in video.segments
+    )
+    with av.open(io.BytesIO(data), format="mp4") as container:
+        frames = list(container.decode(video=0))
+    assert len(frames) == len(out) and frames[0].width == 64  # the avcC built from the stream decodes
 
 
 def test_each_broadcast_is_a_run_with_its_shift(tmp_path: Path) -> None:

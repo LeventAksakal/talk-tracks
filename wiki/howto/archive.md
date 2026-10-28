@@ -143,9 +143,15 @@ together through the [HLS playlists](#hls-playlists).
 * **Timescale 1 000 000** (µs): sample times are room time; `tfdt` is the first sample's room time.
 * **Audio**: Opus, sample entry `Opus` with a `dOps` box (from the catalog's `description` when it has one,
   otherwise mono or the catalog's channel count at 48 kHz, pre-skip 0). Every packet is a sync sample.
-* **Video**: H.264 (`avc1`, the avcC record from the catalog's `description`), sync samples at IDR frames. A video
-  segment always opens with a keyframe. There are no B-frames (the looper requires none, decode order is
-  presentation order). @moq/publish sends a keyframe every 2 s by default, so nothing is transcoded.
+* **Video**: H.264 (`avc1`), sync samples at IDR frames. With a `description` in the catalog (the looper) it is the
+  avcC record and samples are already length-prefixed. Without one (@moq/publish: Annex B), each access unit is
+  converted: start codes become 4-byte lengths, SPS, PPS and access unit delimiters move out of the samples, and the
+  avcC record is built from the newest SPS and PPS (a keyframe carries them; a change starts a new init segment).
+  Video before the first SPS and PPS is dropped. A video segment always opens with a keyframe. There are no B-frames
+  (decode order is presentation order). @moq/publish sends a keyframe every 2 s by default (the console sets 4 s),
+  so nothing is transcoded.
+* **Audio only** is a valid room: today's console sends no video, and `index.m3u8` then lists the audio playlist
+  alone.
 * **Size**: segments are cut on the **4 s grid** of room time (the slices): audio at the first sample in the next
   4 s slice, video at the first keyframe in it, so a video segment is 4 s with keyframes every 2 s. A segment also
   closes when its track has been silent for 3 s (the speaker paused or left). Speaker audio is about 32 kbit/s: about
@@ -195,7 +201,8 @@ always sees the newest):
 * **`EXT-X-GAP`** covers each hole of 1 s to 10 minutes, in steps of at most 4 s (their URI is the segment before,
   which a player does not load). A longer hole (the talk resumed the next day) is only the jump in
   PROGRAM-DATE-TIME after the discontinuity, so a playlist stays small.
-* **EVENT playlists**: appended to while the teacher is live, `EXT-X-ENDLIST` when the teacher is gone. A player that
+* **EVENT playlists**: appended to while the teacher is live, `EXT-X-ENDLIST` when the teacher is gone or has sent
+  no media for 30 s (moq-relay does not always report a publisher that left); new media removes it again. A player that
   loaded an ended playlist does not see a later broadcast until it reloads it; the live talk itself is on MoQ.
 * **Checked with hls.js 1.5** (Chrome): two broadcasts, the second shifted, play as one timeline; a seek into a hole
   lands on the next broadcast, and `playingDate` − `E` is room time. **Not yet checked on Safari** (native HLS: Opus
