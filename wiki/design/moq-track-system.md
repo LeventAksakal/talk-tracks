@@ -52,7 +52,7 @@ Each row is a mechanism the design relies on.
 | TRACK_STATUS | §10.14 | refused, code 3 (S1) | `info()` (moq-lite TRACK_INFO) |
 | PUBLISH (publisher-initiated) | §10.4 | refused; the publisher announces a namespace and serves SUBSCRIBEs (src `subscriber.rs:1189-1218`) | — |
 | Namespace announcements | PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE (§10.6, §10.10) | supported; an announced namespace is a prefix route (src `subscriber.rs:1380-1428`) | `origin.announced(prefix)` |
-| Two publishers of one namespace | SUBSCRIBE to all matching publishers (§9.5) | the **newest announcement wins** for new subscriptions; existing ones stay on the old publisher and end when it leaves (S2) | follows the relay |
+| Two publishers of one namespace | SUBSCRIBE to all matching publishers (§9.5) | while the old publisher is alive, the **newest announcement wins** for new subscriptions; existing ones stay on the old publisher and end when it leaves (S2). If the old publisher is **killed** while a subscription to its track is open, new subscriptions join that stalled track until the relay times the dead connection out, 12.4 s in S5 | follows the relay |
 | Last subscriber leaves | no relay rule (none in D18 or D22) | the relay cancels upstream at once: STOP_SENDING and FIN on draft-18 (src `subscriber.rs:1869-1892`); the publisher was idle 11 ms later (S1; the Lazy agents lane measured 7–21 ms) | `close()` |
 | Priorities | subscriber priority, then publisher priority, then group order (§7.2) | subscriber priority becomes the QUIC stream priority; group order is ignored (src `publisher.rs:693-697, 2394`) | track priority, then subscription priority, then newest group first (src `lite/priority.rs:9-40`); over WebSocket only once data leaves the TCP queue |
 | Delivery timeout | SUBGROUP_ and OBJECT_DELIVERY_TIMEOUT (§8) | parsed and dropped; a 5 s max age per IETF-sourced track bounds staleness instead (src `subscribe.rs:87,90`; `origin.rs:119-128`) | `maxAge` |
@@ -228,10 +228,17 @@ These go through the coordinator, because they change `contracts/`:
 
 ### 5.8 Agent restore after a restart
 
-- A new process announces the same stable namespace. **The newest announcement wins** for new subscriptions (S2), so
-  no instance naming is needed.
-- Existing subscriptions to a killed process stall until the relay's idle timeout, about 10 s (Lazy agents lane).
-  Viewers and downstream agents resubscribe when the path is re-announced. @moq/net's `requesting.active` flips to the
+- A new process announces the same stable namespace, so no instance naming is needed. What happens next depends on
+  how the old one ended:
+  - **Clean leave** (SIGTERM handled, session closed): the relay drops the old route at once. Existing subscriptions
+    end and resubscribe; new ones go to the new process (S2).
+  - **Killed** (crash, OOM, `docker kill`): the relay keeps the dead session until its QUIC idle timeout. A viewer's
+    open subscription keeps the track alive there, and every new subscription joins that stalled track, even after
+    the replacement has announced. In S5 the track was silent for **12.4 s**; then the dead connection timed out,
+    the held subscription ended, and all subscriptions moved to the new process within 0.3 s.
+  - So agents must close their session on SIGTERM (a planned restart costs well under a second), and a crash costs
+    ~12–15 s of silence on that agent's tracks, on top of the container restart.
+- Viewers and downstream agents resubscribe when their subscription ends. @moq/net's `requesting.active` flips to the
   newest route, and IETF readers watch SUBSCRIBE_NAMESPACE.
 - The agent seeds itself from its own archive: the last slice's carry-in and items (decision 0009). It then starts
   at the next slice boundary.
@@ -310,9 +317,10 @@ These go through the coordinator, because they change `contracts/`:
 | 6 | TRACK_STATUS refused | §10.14 | the catalog carries status; `fetchGroup` of the current slice for the edge | — |
 | 7 | Delivery timeouts ignored; a fixed 5 s max age for IETF-sourced tracks | §8 | `S` = 4 s; the catalog republished every 4 s | the slice length is tied to a relay constant |
 | 8 | REQUEST_UPDATE: priority only | §10.9 | fixed options per subscription; reopen to change | a resubscribe (S3: ~100 ms) |
-| 9 | Nothing is served after the publisher leaves (S1) | not specified | agents of a finished room stay connected as origins while the room is listed; the looper does so for demo rooms | one idle process per agent per room |
-| 10 | aiomoqt answers a whole-group FETCH with an End Location the relay reads as empty: "not found" (S4b) | §10.13 | our origin sets FETCH_OK's End Location from the archive's last object in the slice | a small override in our FETCH handler. **To verify** when the spike can run again |
+| 9 | Nothing is served after the publisher leaves (S1) | not specified | agents of a finished room stay connected as origins while the room is listed; the looper does so for demo rooms. Alternative, shown in S4c: one history process announces a finished room's agent namespaces and answers SUBSCRIBE and FETCH from the archive with session handlers | one idle process per agent per room, or one history process for all finished rooms |
+| 10 | aiomoqt answers a whole-group FETCH with an End Location the relay reads as empty: "not found" (S4b) | §10.13 | our origin sets FETCH_OK's End Location to the slice's last object + 1, from the archive | a small override in our FETCH handler; **verified** in S4c (IETF client) and S3 (browser) |
 | 11 | aiomoqt's `close_reader` sends no unsubscribe | §3.3.2 | call `session.unsubscribe(request_id)` (already fixed by the Lazy agents lane) | — |
+| 13 | A killed publisher keeps its track's subscribers until the relay's QUIC idle timeout, even after a replacement announces (S5) | not specified | agents close their session on SIGTERM; crashes accepted | ~12–15 s of silence on that agent's tracks after a crash |
 | 12 | Safari and iOS on WebSocket: no datagrams, TCP head-of-line blocking | — | history at the lowest priority, at most 2 fetches in flight | weaker prioritisation for those viewers |
 
 ## 7. What the build demonstrates (for the judges)
@@ -375,14 +383,18 @@ from other stacks), so latencies are upper bounds.
 | S2 | second publisher announces the same namespace (group ids from 1000) | new subscribers read **p2**; the existing subscriber stayed on p1 and ended when p1 left (0 objects after) |
 | S3 `web_fetch.mjs` | browser client live over WebSocket | subscribed, 9 groups in 4 s |
 | S3 | a second subscription on the same track with another `maxAge` | the subscription ended, "remote error: 0" |
-| S3 | the live subscription in the second run | ended after ~30 s with "remote error: 0"; the broadcast showed inactive while the publisher kept publishing. **Unexplained; rerun with relay logs pending** |
+| S3 | the live subscription in the second run | ended after ~30 s with "remote error: 0". That run shared the relay with S4b; a clean rerun with relay logs held the subscription for 40 s, so it did not reproduce |
+| S3 rerun, stock origin | `fetchGroup` of a cached group / a 40 s old (evicted) group / with no subscription / after the publisher left | 54 ms / moq-lite error 51 "not found" (forwarded to the origin, the S4b bug) / 51 / 54 "unroutable" |
+| S3 rerun, fixed origin | the same | 52 ms / **50 ms from the origin, then 48 ms from the cache** (the origin saw one FETCH) / 54 ms (the relay subscribed upstream, then fetched) / 54 "unroutable" |
 | S4 `origin_fetch.py` | quiet track 8 s old: Next Group Start / Joining FETCH relative 0 / Largest Object | group 0 in 49 ms / group 0 in 42 ms / nothing in 3 s |
 | S4 | FETCH with nobody subscribed | relay SUBSCRIBEd upstream at +21 ms, forwarded the FETCH at +23 ms, cancelled at +32 ms; the subscription lasted 79 ms |
 | S4 | origin answers 3 s late | the relay waited: the reply came at 3.15 s |
-| S4b `origin_fetch_unseen.py` | FETCH of a group only the publisher's history holds | "not found" (code 16), with and without a live subscriber, 1- and 60-object groups. Cause in source: the relay rejects a FETCH_OK whose End Location is at or below the start (src `ietf/subscriber.rs:3124`); aiomoqt sends End Object 2^62+1 for a whole group (`track.py`, `_fetch_range`), which a QUIC varint cannot carry. **Fix and rerun pending** |
+| S4b `origin_fetch_unseen.py` | FETCH of a group only the publisher's history holds | "not found" (code 16), with and without a live subscriber, 1- and 60-object groups. Cause in source: the relay rejects a FETCH_OK whose End Location is at or below the start (src `ietf/subscriber.rs:3124`); aiomoqt sends End Object 2^62+1 for a whole group (`track.py`, `_fetch_range`), which a QUIC varint cannot carry |
+| S4c `origin_fetch_end.py` | stock track / End Location set from the history / a made-up track name served by session handlers (`register_handler`) from a dict | "not found" ×3 / **served in 34–42 ms** / FETCH with nobody subscribed 41 ms, SUBSCRIBE ok, FETCHes 32–37 ms, a repeat of slice 8 not forwarded (cache), a slice the handler lacks: code 16 |
+| S5 `restart_killed.py` | publisher killed with a viewer subscribed; replacement announces 0.05 s later | new subscriptions got **nothing for 12.4 s** (relay log: they joined the stalled upstream subscription); then the dead connection timed out and all subscriptions read the replacement (first object 32–220 ms) |
 
-Still to run, once the machine is free: S4c (origin FETCH with a corrected End Location; the design depends on it),
-S3 rerun with relay logs, and a stable-name restart where the first publisher is killed rather than closed.
+All planned spikes have run. Not measured: the relay cache's real retention under load (S2 served a 43 s old group
+from the cache; the S3 rerun saw a 40 s old one evicted, as the 30 s idle rule predicts).
 
 ## 10. Decisions
 

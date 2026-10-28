@@ -73,3 +73,18 @@ def unsubscribe(relay: Any, ns: str, name: str, rdr: Any) -> None:
 
 def writer_spec(ns: str, name: str) -> PublishSpec:
     return PublishSpec(track=ref(ns, name), buffer=64, on_full="drop_oldest")
+
+
+def fix_end(track: Any) -> None:
+    """Report the last object of a whole-group FETCH from the history, as the d20 branch already does."""
+    orig = track._fetch_range
+
+    def fixed(session: Any, msg: Any) -> tuple:
+        start, last, end = orig(session, msg)
+        if last[1] >= 1 << 62:
+            held = track._history.last_object(last[0])
+            last = (last[0], 0 if held is None else held)
+            end = (last[0], last[1] + 1)
+        return start, last, end
+
+    track._fetch_range = fixed

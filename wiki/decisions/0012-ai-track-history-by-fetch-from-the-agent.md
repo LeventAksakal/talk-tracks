@@ -63,5 +63,7 @@ Chosen: the first option of each.
 * Bad, because the wire contract changes (slice, carry-in, one item per object), touching agents, the looper and the
   web client.
 * Bad, because a restart loses up to 4 s of output, and the first viewer waits 1 s longer for live output.
-* Risk: aiomoqt's FETCH_OK for a whole group carries an End Location moq-relay reads as empty (spike S4b). Our FETCH
-  handler must set it from the archive. To verify in spike S4c before the lanes build on it.
+* Bad, because aiomoqt's whole-group FETCH_OK carries an End Location moq-relay reads as empty, so our FETCH handler
+  sets it from the archive (verified in spikes S4c and S3).
+* Bad, because a killed agent leaves its tracks silent for about 12–15 s, until the relay times its connection out
+  (spike S5); agents close their session on SIGTERM so planned restarts hand over at once.
