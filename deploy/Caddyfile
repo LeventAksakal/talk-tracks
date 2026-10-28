@@ -16,6 +16,28 @@
 		}
 	}
 
+	# The track archive (wiki/howto/archive.md), for rewind: static files with range requests. Segments and images
+	# never change once written; indexes and HLS playlists are revalidated by ETag.
+	handle /archive/* {
+		uri strip_prefix /archive
+		root * /archive
+		header Cross-Origin-Opener-Policy same-origin
+		header Cross-Origin-Embedder-Policy require-corp
+		header Cross-Origin-Resource-Policy same-origin
+		@immutable path *.m4s *.mp4 *.jpg *.png
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		@index path *.json *.jsonl *.m3u8
+		header @index Cache-Control no-cache
+		encode @index zstd gzip
+		@playlist path *.m3u8
+		header @playlist Content-Type application/vnd.apple.mpegurl
+		@segment path *.m4s
+		header @segment Content-Type video/iso.segment
+		file_server {
+			hide *.tmp
+		}
+	}
+
 	handle /healthz {
 		header Content-Type text/plain
 		respond "ok" 200

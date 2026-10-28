@@ -138,8 +138,9 @@ A live test on 2026-10-27 cost about $0.02 a minute of speech, which agrees.
 before, and the new rooms would show video with empty AI panels.
 
 1. In `deploy/.env`, re-sign `TT_LOOPER_TOKEN` for both rooms (`--publish talk/virus/teacher --publish
-   'talk/virus/agents/**' --publish talk/dataviz/teacher --publish 'talk/dataviz/agents/**' --subscribe
-   'talk/virus/**' --subscribe 'talk/dataviz/**'`, with the same expiry as the current one).
+   'talk/virus/agents/**' --publish talk/virus/catalog --publish talk/dataviz/teacher --publish
+   'talk/dataviz/agents/**' --publish talk/dataviz/catalog --subscribe 'talk/virus/**' --subscribe
+   'talk/dataviz/**'`, with the same expiry as the current one).
 2. `TT_DEMO_ROOM` and `TT_LECTURE` are no longer read.
 3. Start the loopers and remove the old one:
 
@@ -198,7 +199,8 @@ The commands behind the services are `python -m talk_tracks <command>` in the ag
 
 All take `--relay`, `--room`, `--insecure` and `--token` (or `TT_RELAY`, `TT_ROOM`, `TT_TOKEN`; the token goes to the
 relay as `?jwt=`). With signed tokens (see [tokens](tokens.md)), `play` and `generate` need publish rights on
-`talk/<room>/teacher` (and `talk/<room>/slides` with `--slides`), and `loop` on both `talk/<room>/teacher` and `talk/<room>/agents/**`.
+`talk/<room>/teacher` (and `talk/<room>/slides` with `--slides`), and `loop` on `talk/<room>/teacher`,
+`talk/<room>/agents/**` and `talk/<room>/catalog`.
 
 ### With real agents
 
@@ -215,7 +217,7 @@ room name or recreated containers each time: the captions agent resumes its line
 
 | Track | Content |
 |---|---|
-| `catalog.json` | hang catalog, plain JSON, one object per group, repeated every 2 s. `video.renditions.video`: `avc1.<profile>`, `container: {kind: legacy}`, the avcC record as `description`, size and frame rate. `audio.renditions.audio`: `opus`, legacy container, 48 kHz, mono. An extra section `talk_tracks: {loop, loop_start_ms, duration_ms, period_ms}` says which loop is playing |
+| `catalog.json` | hang catalog, plain JSON, one object per group, repeated every 2 s. The root `clock` (`wall`: the wall time of media time 0 in µs since 2020-01-01 UTC, `timescale` 1 000 000) maps a media timestamp to wall time and so to room time. `video.renditions.video`: `avc1.<profile>`, `container: {kind: legacy}`, the avcC record as `description`, size and frame rate. `audio.renditions.audio`: `opus`, legacy container, 48 kHz, mono. An extra section `talk_tracks: {loop, loop_start_ms, duration_ms, period_ms}` says which loop is playing |
 | `video` | H.264, one group per GOP (2 s), each object a QUIC varint of the media time in µs and one access unit (AVCC) |
 | `audio` | Opus, one 20 ms packet per object and per group, same varint prefix: the format the speaker's browser publishes and the agents read |
 
@@ -234,6 +236,22 @@ chapters. The looper turns the recording's full-state snapshots into that wire f
   is byte for byte what went out live. A future group is refused (code 17).
 * `agent` and `usage` are the recorded ones, so the load panel shows what generating the track cost once. The wire
   types mirror the Lazy agents lane's contract (`v: 2`, `slice`, `kind`, `body`) until it is merged into `contracts/`.
+
+**The room catalog** `talk/<room>/catalog` track `catalog` is the MSF catalog of the room's AI tracks
+(wiki/design/moq-track-system.md §5.10, built by `agents/src/talk_tracks/room_catalog.py`), plain JSON, one group per
+write, repeated every 2 s:
+
+* root `version: "draft-01"` and the extension `tt`: `epoch` (room time 0, Unix ms: 2026-10-01 00:00 UTC for a looped
+  room), `shift` (the teacher broadcast's `clock.wall` with no shift), `status` (each agent `producing`, not
+  `capped`);
+* one entry per track: `name`, `namespace`, `packaging: "eventtimeline"`, `mimeType`, `eventType`
+  (`urn:msf:captions:webvtt` for captions and translation, `com.talktracks.slides`, `com.talktracks.outline`), `role`
+  (`caption`, `subtitle`), `lang`, `label`, `isLive`, the slice `template` (none for the outline), and `tt` with
+  `dependsOn` (full track paths), `latenessMs` (how late the recording published an item after its own time, at
+  most) and `cost: "free"`.
+
+`@moq/msf` 0.3's `CatalogSchema` strips every field it does not declare (all but `name`, `packaging`, `isLive` and
+`role`, and the root `tt`), so a viewer reads the raw JSON.
 
 **The room clock** is the wall clock: media time m happens at wall time 2026-10-01 00:00 UTC + m. A loop lasts the
 lecture rounded up to whole 4 s slices (up to 4 s of pause between loops), and loop k covers media time
@@ -283,6 +301,8 @@ lecture from media time 0, so recording time is lecture time.
   a first subscription that starts mid-group gets that group's tail relabelled as the next group, after which the
   real next group is dropped. The looper starts every new subscription at the next group (a first viewer waits up
   to 4 s; the slice in progress is reachable by a Joining FETCH).
+* The items are still sliced by when the recording published them, and their payload is the interim v2 wire shape;
+  they move to MSF event-timeline records (sliced by their own time, within `latenessMs`) with the agents' contract.
 * `watch` and `record` still read the old instance tracks (`.../<agent>/<instance>`, track `state`); they move to the
   sliced contract with the agents.
 * The looper builds one loop's slices in memory at start (a few MB for a 20-minute lecture) and reads the lecture
