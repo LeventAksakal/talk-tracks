@@ -107,6 +107,14 @@ Results:
   unavailable`.
 - Nothing alerted us. Restarting `relay` and `auth` together fixed it.
 
+## Checked on 2026-10-28: auth over a unix socket
+
+After `up -d relay auth`, `restart relay` was run on its own as a test.
+- Within about 40 s every service was up again, and the agents and looper had reconnected (`connected to relay
+  (draft 18)`).
+- The relay logged `auth server unavailable` 0 times.
+- `/watch/demo` played with the connection open.
+
 ## Watch out
 
 - The relay reads the certificate when it starts. Caddy renews it about 30 days before it expires; restart the relay
