@@ -41,9 +41,10 @@ from .lecture import (
 from .lecture import clock as hang_clock
 from .moq import AUDIO_IDLE_S, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
-from .recording import RecordingWriter, load_manifest, read_snapshots
+from .recording import RecordingWriter, load_manifest
 from .replay import EPOCH_MS, Cue, LoopPlan, MediaClock, event_us, loop_events, position
 from .resegment import resegment
+from .revise import read_recording, translations_by_agent, with_patches
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog, catalog_path
 from .runtime import HEARTBEAT_S, now_ms
@@ -384,7 +385,8 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
     manifest = load_manifest(recording)
     lecture = media or (recording / (manifest.media or LECTURE_FILE))
     info = probe(lecture)
-    recorded = resegment([(agent.info, list(read_snapshots(recording, agent))) for agent in manifest.agents])
+    recorded = with_patches(recording, read_recording(recording))
+    recorded = resegment(recorded, translations_by_agent(recording, recorded))
     sliced = Room(Template.build(recorded, info.duration_ms), EPOCH_MS)
     log.info(
         "looping %s (%.1f s, a loop every %.0f s) with %s in room %s",

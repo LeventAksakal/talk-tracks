@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .contracts import AgentInfo, CaptionLine, CaptionsState, TranslatedLine, TranslationState
@@ -226,18 +226,36 @@ def _sentences(words: Sequence[str]) -> list[tuple[int, int]]:
     return out or [(0, 0)]
 
 
-def resegment(recorded: Recorded) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
-    """The recording with its caption lines cut into cues and its translations split to match."""
-    cues: dict[int, list[Cue]] = {}
-    words: dict[int, list[str]] = {}
-    out: list[tuple[AgentInfo, list[RecordedSnapshot]]] = []
+Aligned = Mapping[int, tuple[tuple[str, ...], tuple[str, ...]]]  # source line id -> (cue texts, segments)
+
+
+def _cues(recorded: Recorded) -> tuple[Sequence[RecordedSnapshot] | None, list[_Line], dict[int, list[Cue]]]:
+    """The first captions agent's snapshots, its source lines and their cues (translations follow that agent)."""
     captions = next((s for _, s in recorded if s and isinstance(s[0].state, CaptionsState)), None)
     source = _source_lines(captions) if captions else []
+    cues: dict[int, list[Cue]] = {}
     next_id = 0
-    for line in source:  # translations follow the first captions agent
+    for line in source:
         cues[line.line.id] = line_cues(line, next_id)
-        words[line.line.id] = line.words
         next_id += len(cues[line.line.id])
+    return captions, source, cues
+
+
+def cue_texts(recorded: Recorded) -> dict[int, tuple[str, ...]]:
+    """Each source caption line's cue texts, by source line id."""
+    _, _, cues = _cues(recorded)
+    return {i: tuple(c.text for c in line) for i, line in cues.items()}
+
+
+def resegment(
+    recorded: Recorded, aligned: Mapping[str, Aligned] | None = None
+) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
+    """The recording with its caption lines cut into cues and its translations split to match: by ``aligned``
+    (per translation agent, ``revise.retranslate``'s segments) where a line's cues are still the same, else by
+    ``split_translation``."""
+    captions, source, cues = _cues(recorded)
+    words = {line.line.id: line.words for line in source}
+    out: list[tuple[AgentInfo, list[RecordedSnapshot]]] = []
     for info, snapshots in recorded:
         if captions is not None and snapshots is captions:
             out.append((info, _captions_snapshots(snapshots, source, cues)))
@@ -245,6 +263,7 @@ def resegment(recorded: Recorded) -> list[tuple[AgentInfo, list[RecordedSnapshot
         if not (snapshots and isinstance(snapshots[0].state, TranslationState) and cues):
             out.append((info, list(snapshots)))
             continue
+        given = (aligned or {}).get(info.name, {})
         rewritten: list[RecordedSnapshot] = []
         for snap in snapshots:
             state = snap.state
@@ -253,7 +272,12 @@ def resegment(recorded: Recorded) -> list[tuple[AgentInfo, list[RecordedSnapshot
             for line in state.lines:
                 if line.id not in cues:
                     continue
-                parts = split_translation(words[line.id], cues[line.id], line.text)
+                texts = tuple(c.text for c in cues[line.id])
+                saved = given.get(line.id)
+                if saved is not None and saved[0] == texts:
+                    parts = list(saved[1])
+                else:
+                    parts = split_translation(words[line.id], cues[line.id], line.text)
                 lines += [TranslatedLine(id=c.id, text=p) for c, p in zip(cues[line.id], parts, strict=True) if p]
             rewritten.append(snap.model_copy(update={"state": state.model_copy(update={"lines": lines})}))
         out.append((info, rewritten))

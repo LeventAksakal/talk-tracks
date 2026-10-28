@@ -4,7 +4,9 @@ Agents: ``captions`` (speech to text), ``translate`` (one language per process),
 ``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio and ``slides`` publishes
 slide images like the speaker's browser, ``watch`` prints what the agents publish. Demo rooms (see
 wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``record`` records a room's agent tracks,
-``generate`` does both at once, ``loop`` replays a recording as a live room, forever.
+``generate`` does both at once, ``loop`` replays a recording as a live room, forever. Fixes to a finished recording
+(``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its lines again cut to
+its subtitle cues, ``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
@@ -42,6 +44,7 @@ from .llm.meta import language_name
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "watch")
 DEMO = ("play", "record", "generate", "loop")
+REVISE = ("retranslate", "redescribe")  # offline: a finished recording, no relay
 
 FAKE_SENTENCES = [
     "Media over QUIC lets one relay fan out many named tracks.",
@@ -198,6 +201,8 @@ async def main_async(args: argparse.Namespace) -> None:
         work = run_agent(args)
     elif args.agent in DEMO:
         work = _demo(args)
+    elif args.agent in REVISE:
+        work = _revise(args)
     else:
         work = _dev(args)
     task = asyncio.ensure_future(work)
@@ -241,6 +246,27 @@ async def _demo(args: argparse.Namespace) -> None:
         await demo.loop(args.relay, args.room, need(args.recording, "--recording"), media=args.media, **common)
 
 
+async def _revise(args: argparse.Namespace) -> None:
+    from . import revise
+    from .slideshow import Crop
+
+    recording = need(args.recording, "--recording")
+    ledger = room_ledger(args.room, spend_ledger())
+    if args.agent == "retranslate":
+        translator = revise.FakeCueTranslator() if args.fake else revise.MetaCueTranslator(api_key(), ledger)
+        result = await revise.retranslate(recording, translator)
+        logging.getLogger("talk_tracks.revise").info(
+            "retranslate: %d lines cut to their cues, %s", len(result.lines), result.usage
+        )
+    else:
+        describer = make_llm(args.fake, args.room)
+        media = args.media or recording / "lecture.mp4"
+        patch = await revise.redescribe(recording, media, Crop.parse(args.slides or "full"), describer)
+        logging.getLogger("talk_tracks.revise").info(
+            "redescribe: %d slides described, %s", len(patch.notes), patch.usage
+        )
+
+
 def need(value: Path | None, flag: str) -> Path:
     if value is None:
         sys.exit(f"{flag} is required")
@@ -249,7 +275,7 @@ def need(value: Path | None, flag: str) -> Path:
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="talk_tracks", description=__doc__.splitlines()[0] if __doc__ else None)
-    p.add_argument("agent", choices=AGENTS + DEV + DEMO)
+    p.add_argument("agent", choices=AGENTS + DEV + DEMO + REVISE)
     p.add_argument("--relay", default=os.environ.get("TT_RELAY"), help="moqt://host:port or https://host:port/path")
     p.add_argument("--room", default=os.environ.get("TT_ROOM"))
     p.add_argument("--rooms", default=os.environ.get("TT_ROOMS") or None, help="agents: '*' for any room, or a,b")
@@ -275,7 +301,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     args = p.parse_args(argv)
     if args.agent not in AGENTS:
         args.rooms = None
-    if not args.relay or not (args.room or args.rooms):
+    if not (args.relay or args.agent in REVISE) or not (args.room or args.rooms):
         p.error("--relay and --room (agents: or --rooms) are required (or TT_RELAY and TT_ROOM)")
     if args.agent == "slides" and not args.image:
         p.error("slides needs at least one --image")

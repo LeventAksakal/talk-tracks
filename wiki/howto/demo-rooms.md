@@ -156,6 +156,37 @@ before, and the new rooms would show video with empty AI panels.
 
    The live agents keep excluding `virus`, `dataviz` and `demo` (`TT_DEMO_ROOMS`).
 
+## Fixing a finished recording
+
+Two offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
+snapshots, which `loop` merges (`agents/src/talk_tracks/revise.py`). Both spend through the ledger of the room given
+with `--room`, so a cap batch scopes them; with `--fake` they spend nothing.
+
+| Command | What it does | Saves |
+|---|---|---|
+| `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-tr.cues.json`; a line whose cues have changed since falls back to the split translation |
+| `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out 4 s after its slide |
+
+On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
+
+```bash
+cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
+cat > ~/tt-data/caps/revise-demo.json <<'JSON'
+{"group": "revise-demo", "room_usd": 0.3, "total_usd": 0.4, "rooms": ["revise-virus", "revise-dataviz"]}
+JSON
+for L in virus dataviz; do
+  $D --profile live run --rm --no-deps translate-tr retranslate --room revise-$L --recording /data/demo/$L
+  $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L     --slides 0,0,0.77,0.77
+done
+grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f
+", s}'
+$D restart looper-virus looper-dataviz   # a looper reads the fixes when it starts
+```
+
+Expected cost: retranslate about $0.04 a lecture (57 lines in all, about 12k tokens in and 6k out, $1.25 / $4.25
+per M; up to about $0.15 with reasoning tokens and retries), redescribe about $0.004 a slide (2 virus, 8 dataviz:
+about $0.04). The batch stops both at $0.40.
+
 ## All at once
 
 ```bash
