@@ -169,14 +169,16 @@ The library, `talk_tracks.archive.slices` (no transport code; the agents' publis
 | `TrackArchive(room, agent, track, bucket=archive_bucket(), info=TrackInfo(kind, lang=..., depends=[...]))` | once per published track |
 | `.write(k, SliceObject(object_id, payload, ...))` | beside each object sent; ids rise within a group; a back-fill may write a past group beside the live one |
 | `.end_group(k, end_of_track=False)` | when the slice is over; returns the finished `Slice` |
+| `.create(k, [SliceObject, ...], end_of_track=False)` | a whole slice at once, only if nobody wrote it (back-fill): returns `(slice on disk, created)`; when another process wrote it first, finished or still open, serve that copy |
 | `await .read(k)` | in the FETCH handler: disk (finished or open), then the bucket (then kept on disk); `None` means never produced, so back-fill |
 | `.latest_group()` | on restart: seed from that slice, continue at the next one |
 | `.discard(k)` | before back-filling a slice a killed process left open |
 | `.set_status("idle" \| "live" \| "capped")` | for the catalog |
 
 `SliceObject` uses aiomoqt's field names (`FetchObject(group_id=k, **obj.fields())`); `Slice.last_object_id` is the
-End Location's object for FETCH_OK. Writing a finished slice, or one another process left open, raises
-`SliceExists`: objects are immutable. One process writes a track at a time (stable names), so writers never contend.
+End Location's object for FETCH_OK. **Each slice is written once:** the first writer wins, atomically (a hard link
+onto the final name). Writing a finished slice, or one another process holds open, raises `SliceExists`, and so does
+`end_group` when another process finished the slice first; its `existing` is the copy to serve. Objects are immutable. One process writes a track at a time (stable names), so writers never contend.
 
 ### Slices and room time
 

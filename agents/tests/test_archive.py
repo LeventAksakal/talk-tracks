@@ -483,3 +483,43 @@ def test_room_catalog_carries_the_room_clock(tmp_path: Path) -> None:
     t = TrackArchive("room1", "captions", "items", root=tmp_path)
     t.write(50, SliceObject(0, b"carry"))  # an agent's slice past the media: the next broadcast starts after it
     assert json.loads(cat.changed() or b"")["end_ms"] == 51 * 4000
+
+
+def test_a_slice_is_created_once_and_the_loser_serves_the_winners_copy(tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from talk_tracks.archive.slices import SliceExists, SliceObject, TrackArchive
+
+    def backfill(n: int) -> tuple[bytes, bool]:
+        t = TrackArchive("room1", "translate-tr", "items", root=tmp_path)  # one per process, as agents would
+        got, created = t.create(7, [SliceObject(0, f"carry {n}".encode()), SliceObject(1, f"item {n}".encode())])
+        assert got.complete and got.last_object_id == 2
+        return got.objects[0].payload, created
+
+    with ThreadPoolExecutor(8) as pool:
+        results = list(pool.map(backfill, range(8)))
+    assert sum(created for _, created in results) == 1  # exactly one writer
+    winner = next(payload for payload, created in results if created)
+    assert all(payload == winner for payload, _ in results)  # everyone serves the winner's copy
+    assert sorted(p.name for p in (tmp_path / "room1/agents/translate-tr/items").iterdir()) == ["00000007.slice"]
+
+    live = TrackArchive("room1", "translate-tr", "items", root=tmp_path)
+    live.write(8, SliceObject(0, b"live carry"))  # open here
+    other = TrackArchive("room1", "translate-tr", "items", root=tmp_path)
+    got, created = other.create(8, [SliceObject(0, b"back-fill")])
+    assert not created and got.objects[0].payload == b"live carry" and not got.complete
+    with pytest.raises(SliceExists) as held:
+        other.write(8, SliceObject(0, b"again"))
+    assert held.value.existing is not None and held.value.existing.objects[0].payload == b"live carry"
+
+    other.create(9, [SliceObject(0, b"back-filled first")])
+    with pytest.raises(SliceExists):
+        live.write(9, SliceObject(0, b"live"))  # finished: not reopened
+    live.write(10, SliceObject(0, b"live"))
+    winner_file = tmp_path / "room1/agents/translate-tr/items/00000010.slice"
+    winner_file.write_text('{"o":0,"t":"won"}\n{"o":1,"st":3}\n')  # another process finished slice 10 first
+    with pytest.raises(SliceExists) as lost:
+        live.end_group(10)
+    assert lost.value.existing is not None and lost.value.existing.objects[0].payload == b"won"
+    assert winner_file.read_text().startswith('{"o":0,"t":"won"}')  # never overwritten
+    live.close()

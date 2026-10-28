@@ -94,7 +94,8 @@ class RoomCatalog:
         agents = self.root / self.room / "agents"
         for agent in listdir(agents):
             for track in listdir(agents / agent):
-                groups = [int(n[:8]) for n in listdir(agents / agent / track) if n[:8].isdigit()]
+                names = listdir(agents / agent / track)
+                groups = [int(n[:8]) for n in names if n[:8].isdigit() and n.endswith((".slice", ".part"))]
                 if groups:
                     ends.append((max(groups) + 1) * SLICE_MS)
         return max(ends) if ends else None
