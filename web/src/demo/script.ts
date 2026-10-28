@@ -4,7 +4,7 @@
 // swapped for a new instance mid-talk, the way a restarted agent would be.
 
 import { agentPath } from "../contracts/names";
-import type { CaptionLine, Chapter, Envelope, GlossaryTerm, State } from "../contracts/types";
+import type { CaptionLine, Chapter, LegacyEnvelope as Envelope, GlossaryTerm, State } from "../contracts/types";
 import type { FakeTransport } from "../transport/fake";
 
 export type DemoEvent =

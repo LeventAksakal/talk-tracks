@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "CarryData": {
+      "additionalProperties": false,
+      "properties": {
+        "tt": {
+          "$ref": "#/$defs/CarryNote"
+        }
+      },
+      "required": [
+        "tt"
+      ],
+      "title": "CarryData",
+      "type": "object"
+    },
+    "CarryNote": {
+      "additionalProperties": false,
+      "properties": {
+        "capped": {
+          "default": false,
+          "description": "The room reached its spend cap: no new records follow in this slice",
+          "title": "Capped",
+          "type": "boolean"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Room ms where this agent started inside the slice: it has nothing from before (captions)",
+          "title": "From"
+        }
+      },
+      "title": "CarryNote",
+      "type": "object"
+    },
+    "CarryRecord": {
+      "additionalProperties": false,
+      "description": "Talk Tracks' note on a carry-in, its first record and only when there is something to say.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/CarryData"
+        },
+        "m": {
+          "description": "Room ms of the slice start, k * 4000",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "CarryRecord",
+      "type": "object"
+    },
+    "Slide": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "description": "Room ms when the slide appeared",
+          "minimum": 0,
+          "title": "At",
+          "type": "integer"
+        },
+        "id": {
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        },
+        "text": {
+          "description": "What the slide shows, described for a viewer who cannot see it",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "at",
+        "text"
+      ],
+      "title": "Slide",
+      "type": "object"
+    },
+    "SlideRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Slide"
+        },
+        "m": {
+          "description": "Room ms: the slide's at",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "SlideRecord",
+      "type": "object"
+    }
+  },
+  "description": "One object of the slide descriptions' ``items`` track (eventType ``com.talktracks.slides``).",
+  "items": {
+    "anyOf": [
+      {
+        "$ref": "#/$defs/CarryRecord"
+      },
+      {
+        "$ref": "#/$defs/SlideRecord"
+      }
+    ]
+  },
+  "title": "SlideObject",
+  "type": "array"
+}

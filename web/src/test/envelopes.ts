@@ -1,4 +1,4 @@
-import type { Envelope, State } from "../contracts/types";
+import type { LegacyEnvelope as Envelope, State } from "../contracts/types";
 
 export function envelope(overrides: Partial<Envelope> & { state?: State } = {}): Envelope {
   return {
