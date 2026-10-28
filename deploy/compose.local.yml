@@ -62,8 +62,9 @@ services:
     profiles: [demo]
     restart: "no"
     volumes: ["../data/demo:/data"]
+    # TT_SLIDES: the slide area for the describe agent's frames, x,y,w,h in fractions (0,0,0.77,0.77 for EMF talks)
     command: ["generate", "--insecure", "--media", "/data/${TT_LECTURE:-test}/lecture.mp4",
-              "--out", "/data/${TT_LECTURE:-test}"]
+              "--out", "/data/${TT_LECTURE:-test}", "--slides", "${TT_SLIDES:-full}"]
   looper:
     <<: *agent
     profiles: [demo]
