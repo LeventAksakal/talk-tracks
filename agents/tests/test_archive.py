@@ -435,6 +435,21 @@ def test_slices_read_from_bucket(tmp_path: Path) -> None:
     assert asyncio.run(t.read(2)) is None
 
 
+def test_last_object_of_a_slice(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import SliceObject, TrackArchive
+
+    t = TrackArchive("room1", "outline", "outline", root=tmp_path)
+    t.write(4, SliceObject(0, b"v1"))
+    t.write(4, SliceObject(1, b"v2"))
+    last = asyncio.run(t.last_object(4))
+    assert last is not None and last.object_id == 1 and last.payload == b"v2"  # open: the latest so far
+    t.end_group(4)
+    last = asyncio.run(t.last_object(4))
+    assert last is not None and last.payload == b"v2"  # the end marker is left out
+    t.end_group(5)
+    assert asyncio.run(t.last_object(5)) is None and asyncio.run(t.last_object(9)) is None
+
+
 def test_slice_watcher_and_track_info(tmp_path: Path) -> None:
     from talk_tracks.archive.slices import SliceObject, SliceWatcher, TrackArchive, TrackInfo
 

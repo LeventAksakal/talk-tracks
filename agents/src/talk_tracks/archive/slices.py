@@ -299,6 +299,15 @@ class TrackArchive:
         _claim(tmp, self.path(group))  # a copy already on disk wins: it is the same slice
         return self.read_local(group)
 
+    async def last_object(self, group: int) -> SliceObject | None:
+        """The slice's last published object, end marker left out: a snapshot track's state at the slice's end (the
+        outline a late joiner starts from). None when the slice holds none or was never produced."""
+        found = await self.read(group)
+        if found is None:
+            return None
+        objects = [o for o in found.objects if o.status not in (END_OF_GROUP, END_OF_TRACK)]
+        return objects[-1] if objects else None
+
     def groups(self) -> list[int]:
         """Every slice on disk, finished or open, in order."""
         found: set[int] = set()
