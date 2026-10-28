@@ -42,6 +42,7 @@ export class FakeHistorySource implements HistorySource {
   startAtNextGroup = false;
   /** Delay before a FETCH answers, ms (0: next microtask). */
   fetchDelayMs = 0;
+  #hung = new Set<string>();
   #inFlight = 0;
   /** Most FETCHes ever in flight at once. */
   maxInFlight = 0;
@@ -76,6 +77,14 @@ export class FakeHistorySource implements HistorySource {
   /** Forget a group, as if it was never produced. */
   drop(path: string, track: string, group: number): void {
     this.#track(path, track).groups.delete(group);
+  }
+
+  /**
+   * A FETCH of this group never answers (until cancelled), as moq-relay 0.17.8 does for the group in
+   * which its upstream subscription began (wiki/benchmark.md).
+   */
+  hang(path: string, track: string, group: number): void {
+    this.#hung.add(`${path}#${track}#${group}`);
   }
 
   subscriberCount(path: string, track: string): number {
@@ -130,6 +139,11 @@ export class FakeHistorySource implements HistorySource {
           reject(options.signal?.reason);
         });
       });
+      if (this.#hung.has(`${path}#${track}#${group}`)) {
+        await new Promise<never>((_, reject) =>
+          options.signal?.addEventListener("abort", () => reject(options.signal?.reason)),
+        );
+      }
       if (!this.#active.has(path)) throw new NotFound("unroutable");
       const objects = this.#tracks.get(`${path}#${track}`)?.groups.get(group);
       if (!objects) throw new NotFound(`${path}/${track} group ${group}`);

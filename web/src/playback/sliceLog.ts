@@ -131,9 +131,12 @@ export class SliceLog {
 
   /** Keep at most `max` slices, dropping those farthest from `around`. */
   trim(max: number, around: number): void {
-    if (this.#slices.size <= max) return;
-    const far = this.slices().sort((a, b) => Math.abs(b - around) - Math.abs(a - around));
-    for (const k of far.slice(0, this.#slices.size - max)) this.#slices.delete(k);
+    // Live slices stay: from the first live slice on, the subscription is the only source (a FETCH of
+    // the slice where the relay's upstream subscription began never completes on moq-relay 0.17.8).
+    const fetched = this.slices().filter((k) => this.#slices.get(k)!.origin === "fetch");
+    if (fetched.length <= max) return;
+    const far = fetched.sort((a, b) => Math.abs(b - around) - Math.abs(a - around));
+    for (const k of far.slice(0, fetched.length - max)) this.#slices.delete(k);
   }
 
   clear(): void {

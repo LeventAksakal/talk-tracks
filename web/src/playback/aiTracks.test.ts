@@ -54,6 +54,7 @@ describe("AiTracks: opting in", () => {
     const { source, tracks } = setup(120_000);
     source.fetchDelayMs = 50;
     tracks.setEnabled("captions/items", true);
+    await settle();
     tracks.seek(30_000);
     expect(view(tracks, "captions/items").loading).toBe(true);
     tracks.setEnabled("captions/items", false);
@@ -115,7 +116,7 @@ describe("AiTracks: live", () => {
 });
 
 describe("AiTracks: joining a publisher that starts subscriptions at the next group", () => {
-  it("fetches the slice in progress at once, and again once it is over", async () => {
+  it("takes the slice in progress from live, and fetches it whole once the first live slice arrives", async () => {
     const source = new FakeHistorySource();
     source.startAtNextGroup = true;
     const room = new FakeRoom(source, ROOM);
@@ -125,15 +126,57 @@ describe("AiTracks: joining a publisher that starts subscriptions at the next gr
     tracks.setEnabled("captions/items", true);
     await settle();
     const k = sliceOf(61_000);
-    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK)).toEqual([k]);
-    expect(view(tracks, "captions/items").sliced!.loaded).toBe(true);
-    // The next slice arrives live; the one fetched in progress is fetched again, whole.
+    // The open slice is never fetched (moq-relay 0.17.8 may never answer it).
+    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK)).toEqual([]);
     room.advanceTo(65_500);
     await settle();
-    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK)).toEqual([k, k]);
+    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK)).toEqual([k]);
     const lines = view(tracks, "captions/items").sliced!.lines;
     const spokenInK = room.talk.captions.filter((l) => sliceOf(l.endMs + 400) === k);
     for (const l of spokenInK) expect(lines.find((x) => x.id === l.id)).toMatchObject({ final: true });
+  });
+});
+
+describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
+  it("never fetches the first live slice or a later one: those come from the subscription", async () => {
+    const { source, room, tracks } = setup(100_000);
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    const firstLive = sliceOf(100_000);
+    room.advanceTo(112_000);
+    await settle();
+    tracks.seek(firstLive * 4000 + 2000);
+    await settle();
+    const groups = source.fetchedGroups(room.path("captions"), ITEMS_TRACK);
+    expect(groups.every((k) => k < firstLive)).toBe(true);
+    expect(view(tracks, "captions/items").sliced!.loaded).toBe(true);
+  });
+
+  it("a FETCH with no answer becomes a hole after the timeout; the slices around it load", async () => {
+    const source = new FakeHistorySource();
+    const room = new FakeRoom(source, ROOM, fakeTalk());
+    room.start(200_000);
+    const k = sliceOf(50_000);
+    // Another viewer's subscription began at slice k: the relay never answers a FETCH of it.
+    source.hang(room.path("captions"), ITEMS_TRACK, k);
+    tracks = new AiTracks(source, ROOM, { liveBack: 0, fetchTimeoutMs: 300, retryMissingMs: 60_000 });
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    tracks.seek(50_000);
+    await settle();
+    expect(view(tracks, "captions/items").loading).toBe(true);
+    await new Promise((r) => setTimeout(r, 350));
+    await settle();
+    const v = view(tracks, "captions/items");
+    expect(v.loading).toBe(false);
+    expect(v.held.filter((r) => r.start < 100_000)).toEqual([
+      { start: (k - 2) * 4000, end: k * 4000 },
+      { start: (k + 1) * 4000, end: (k + 3) * 4000 },
+    ]);
+    // Not asked again while the hole is fresh.
+    tracks.setPosition(50_500);
+    await settle();
+    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK).filter((g) => g === k)).toHaveLength(1);
   });
 });
 
@@ -142,10 +185,11 @@ describe("AiTracks: rewind", () => {
     const { source, room, tracks } = setup(200_000);
     tracks.setEnabled("captions/items", true);
     await settle();
+    const before = source.fetches.length;
     tracks.seek(50_000);
     await settle();
     const k = sliceOf(50_000);
-    const groups = source.fetchedGroups(room.path("captions"), ITEMS_TRACK);
+    const groups = source.fetchedGroups(room.path("captions"), ITEMS_TRACK).slice(before);
     expect(groups.slice(0, 3)).toEqual([k, k + 1, k - 1]);
     expect(new Set(groups)).toEqual(new Set([k - 2, k - 1, k, k + 1, k + 2]));
     expect(source.fetches.every((f) => f.priority === PRIORITY.fetch)).toBe(true);
@@ -239,7 +283,8 @@ describe("AiTracks: rewind", () => {
     await settle();
     const v = tracks.getSnapshot();
     expect(v.mode).toBe("live");
-    expect(view(tracks, "captions/items").held.every((r) => r.start >= 96_000)).toBe(true);
+    // What arrived live, and the slice before it (the one in progress at join).
+    expect(view(tracks, "captions/items").held.every((r) => r.start >= 88_000)).toBe(true);
     expect(view(tracks, "captions/items").sliced!.lines.at(-1)!.startMs).toBeGreaterThan(90_000);
   });
 

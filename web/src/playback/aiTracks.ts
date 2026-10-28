@@ -71,6 +71,11 @@ export interface AiTracksOptions {
   maxSlices?: number;
   /** A slice that was not found is asked for again after this long, if still wanted. */
   retryMissingMs?: number;
+  /**
+   * A FETCH that has not answered by then is a hole, like not found. moq-relay 0.17.8 never completes a
+   * FETCH of the slice in which its upstream subscription began (wiki/benchmark.md).
+   */
+  fetchTimeoutMs?: number;
 }
 
 interface Entry {
@@ -84,6 +89,8 @@ interface Entry {
   outline: { group: number; outline: Outline } | undefined;
   meta: AgentMeta | undefined;
   lastLiveAt: number | undefined;
+  /** The first slice the open subscription delivered: it and every later slice come live, never by FETCH. */
+  firstLive: number | undefined;
   /** Slices that were not found, with when. */
   missing: Map<number, number>;
 }
@@ -108,6 +115,7 @@ export class AiTracks {
   #maxInFlight: number;
   #maxSlices: number;
   #retryMissing: number;
+  #fetchTimeout: number;
   #entries = new Map<string, Entry>();
   #announce: Closable;
   #mode: Mode = "live";
@@ -130,6 +138,7 @@ export class AiTracks {
     this.#maxInFlight = options.maxInFlight ?? 2;
     this.#maxSlices = options.maxSlices ?? 90;
     this.#retryMissing = options.retryMissingMs ?? 15_000;
+    this.#fetchTimeout = options.fetchTimeoutMs ?? 2_000;
     this.#announce = source.announced(agentsPrefix(room), ({ path, active }) => {
       const agent = parseAgentPath(path);
       if (agent) this.#onAnnounce(agent, active);
@@ -208,10 +217,11 @@ export class AiTracks {
     const into = new SliceLog();
     const first = Math.max(sliceOf(fromMs), sliceOf(toMs - 1) - maxSlices + 1);
     const done: Promise<void>[] = [];
+    const limit = this.#fetchLimit(entry, this.#edgeSlice());
     for (let k = first; k <= sliceOf(toMs - 1); k++) {
       const held = entry.log.get(k);
       if (held) into.addFetched(k, held.carry ? { items: held.carry, capped: held.capped } : undefined, held.items);
-      else done.push(this.#enqueue(entry, k, into));
+      else if (limit !== undefined && k < limit) done.push(this.#enqueue(entry, k, into));
     }
     this.#pump();
     await Promise.all(done);
@@ -244,6 +254,7 @@ export class AiTracks {
           outline: undefined,
           meta: undefined,
           lastLiveAt: undefined,
+          firstLive: undefined,
           missing: new Map(),
         };
         this.#entries.set(id, entry);
@@ -266,6 +277,7 @@ export class AiTracks {
     } else if (!entry.enabled && entry.subscription) {
       entry.subscription.close();
       entry.subscription = undefined;
+      entry.firstLive = undefined;
     }
   }
 
@@ -281,6 +293,7 @@ export class AiTracks {
     const o = parsed.value;
     entry.meta = o.agent;
     entry.lastLiveAt = this.#now();
+    if (entry.ref.sliced && (entry.firstLive === undefined || group < entry.firstLive)) entry.firstLive = group;
     const before = entry.log.liveEdge();
     if (o.kind === "snapshot") {
       if (!entry.outline || group >= entry.outline.group) entry.outline = { group, outline: o.outline };
@@ -313,16 +326,14 @@ export class AiTracks {
           if (d <= this.#back) order.push(k - d);
         }
       } else {
-        // Live: the slice in progress first, if the subscription has not delivered it yet (a publisher
-        // may start a new subscription at the next group, design §5.1 and the looper), then scrollback.
+        // Live: the slice before the first live one (the slice in progress at join, when the publisher
+        // starts a subscription at the next group, design §5.1 and the looper), then scrollback.
         const live = entry.log.liveEdge() ?? edge;
-        if (live !== undefined) for (let d = 0; d <= this.#liveBack; d++) order.push(live - d);
-        if (live !== undefined && this.#liveBack === 0 && entry.log.get(live - 1)?.partial) order.push(live - 1);
+        if (entry.firstLive !== undefined) order.push(entry.firstLive - 1);
+        if (live !== undefined) for (let d = 1; d <= this.#liveBack; d++) order.push(live - d);
       }
-      wanted.set(
-        entry,
-        order.filter((k) => k >= 0 && (edge === undefined || k <= edge)),
-      );
+      const limit = this.#fetchLimit(entry, edge);
+      wanted.set(entry, limit === undefined ? [] : order.filter((k) => k >= 0 && k < limit));
     }
     // Cancel what is no longer wanted; transcript loads are never cancelled here.
     for (const job of [...this.#queue]) {
@@ -345,6 +356,15 @@ export class AiTracks {
     this.#pump();
   }
 
+  /**
+   * The first slice a track must not FETCH: its first live slice (the subscription delivers it and all
+   * later ones), or, before any live object, the slice in progress at the edge. Undefined: nothing yet.
+   */
+  #fetchLimit(entry: Entry, edge: number | undefined): number | undefined {
+    if (entry.firstLive !== undefined) return entry.firstLive;
+    return edge;
+  }
+
   #enqueue(entry: Entry, slice: number, into: SliceLog): Promise<void> {
     return new Promise((resolve) => {
       this.#queue.push({ entry, slice, into, controller: new AbortController(), running: false, resolve });
@@ -364,11 +384,20 @@ export class AiTracks {
 
   async #run(job: Job): Promise<void> {
     const { entry, slice, into } = job;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      job.controller.abort(new NotFound(`slice ${slice}: no answer in ${this.#fetchTimeout} ms`));
+    }, this.#fetchTimeout);
     try {
-      const objects = await this.#source.fetchGroup(entry.path, entry.ref.track, slice, {
-        priority: PRIORITY.fetch,
-        signal: job.controller.signal,
-      });
+      const objects = await Promise.race([
+        this.#source.fetchGroup(entry.path, entry.ref.track, slice, {
+          priority: PRIORITY.fetch,
+          signal: job.controller.signal,
+        }),
+        // Whether or not the source honours the signal, a timeout or a cancel ends the wait.
+        abortion(job.controller.signal),
+      ]);
       if (job.controller.signal.aborted || !entry.enabled) return;
       let carry: { items: Item[]; capped: boolean } | undefined;
       const items: Item[] = [];
@@ -387,10 +416,12 @@ export class AiTracks {
       if (into === entry.log)
         entry.log.trim(this.#maxSlices, this.#position === undefined ? slice : sliceOf(this.#position));
     } catch (e) {
-      if (job.controller.signal.aborted) return;
+      if (job.controller.signal.aborted && !timedOut) return;
       if (!(e instanceof NotFound)) console.warn(`fetch ${entry.path}/${entry.ref.track} slice ${slice} failed`, e);
+      // Not found or no answer: a hole, asked for again later if still wanted.
       entry.missing.set(slice, this.#now());
     } finally {
+      clearTimeout(timer);
       this.#remove(job);
       job.resolve();
       this.#pump();
@@ -465,6 +496,13 @@ export class AiTracks {
       .sort((a, b) => order(a) - order(b) || a.id.localeCompare(b.id));
     return { mode: this.#mode, position: this.#position, liveEdgeMs: this.#liveEdgeMs(), tracks };
   }
+}
+
+function abortion(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
 }
 
 const KIND_ORDER: Record<string, number> = { captions: 0, translation: 1, slides: 2, outline: 3 };
