@@ -6,7 +6,7 @@ sets `status: closed`.
 
 | Ticket | Question | Status |
 |---|---|---|
-| [0001](0001-demo-lectures.md) | Which licence-free lectures seed the demo rooms? | answered |
+| [0001](0001-demo-lectures.md) | Which licence-free lectures seed the demo rooms? | closed |
 | [0002](0002-rewind-and-loop.md) | How do rewind and the loop work over the relay? | closed |
 | [0003](0003-live-mode-for-judges.md) | How does a judge get a live room, and what may it spend? | closed |
 | [0004](0004-demo-moments-in-looped-rooms.md) | Which demo moments stay now that rooms loop? | open |
@@ -20,5 +20,5 @@ sets `status: closed`.
 | [0012](0012-where-recordings-live.md) | Where do generated recordings live? | open |
 | [0013](0013-speaker-on-air-check.md) | How does the speaker console prove it is on air? | open |
 | [0014](0014-web-defaults.md) | Are the web app's working defaults right? | answered |
-| [0015](0015-track-history-store.md) | Where does a room's track history live, so it survives restarts and the VM? | open |
+| [0015](0015-track-history-store.md) | Where does a room's track history live, so it survives restarts and the VM? | closed |
 | [0016](0016-benchmark.md) | What does the benchmark against HLS, DASH and WebRTC measure? | answered |

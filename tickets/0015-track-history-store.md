@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-28
 tags: [architecture, storage, failover, rewind]
 ---
@@ -64,4 +64,5 @@ Open detail for A: the bucket name and project are kept out of the repo, like th
 account gets write access to that one bucket only.
 
 ## Answer
-
+A: an archiver on the VM, replicated to a cloud bucket (2026-10-28). Recorded as decision
+[0011](../wiki/decisions/0011-track-history-in-a-vm-archive-copied-to-a-bucket.md).

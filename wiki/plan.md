@@ -17,9 +17,9 @@ The benchmark runs beside the build. Each piece of work is a lane with its own a
 
 | Day | Work | Needs |
 |---|---|---|
-| Wed Oct 28 | Owner inspects the live app. Lecture shortlist. Discuss track history (0015) and benchmark scope (0016). | — |
-| Thu Oct 29 | Design session: UI, functional requirements, features → `wiki/spec/` and `wiki/product/`. Owner picks lectures; generate the demo lectures on the VM with real agents. | the inspection; ticket 0001 |
-| Fri Oct 30 | Build: track archive (0015) with agent restore from it; per-room spend caps and judge tokens (decision 0008). Start the UI build from the spec. | tickets 0015, spec |
+| Wed Oct 28 | Owner inspects the live app and holds the design session the same day: UI, functional requirements, features → `wiki/spec/` and `wiki/product/`. Lectures picked (0001); track history decided (0015 → decision 0011). Lanes start: lazy agents and caps, benchmark, demo content, track archive. | — |
+| Thu Oct 29 | Start the UI build from the spec. Generate the demo lectures on the VM with real agents. | the spec |
+| Fri Oct 30 | Build: track archive (decision 0011) with agent restore from it; per-room spend caps and judge tokens (decision 0008); UI build. | — |
 | Sat Oct 31 | Build: rewind from the archive in the viewer (decision 0007); UI build. Benchmark harness (MediaMTX baselines). | ticket 0016 |
 | Sun Nov 1 | Build: finish UI; kill-and-restart test of every agent; benchmark runs; VM load test. | ticket 0004 |
 | Mon Nov 2 | End-to-end checks on the VM in Chrome, Firefox, Safari and a phone; judge tokens minted; README with lecture credits; benchmark write-up. | — |
@@ -36,9 +36,7 @@ The VM runs everything around the clock: Docker restarts every service on failur
 
 | Question | Ticket | Blocks |
 |---|---|---|
-| Which lectures (the owner picks from the shortlist) | [0001](../tickets/0001-demo-lectures.md) | real demo content |
 | Which demo moments stay | [0004](../tickets/0004-demo-moments-in-looped-rooms.md) | the kill-and-restart work |
-| Where track history lives | [0015](../tickets/0015-track-history-store.md) | archive, restore, rewind |
 | Benchmark scope | [0016](../tickets/0016-benchmark.md) | benchmark work |
 
 ## Risks

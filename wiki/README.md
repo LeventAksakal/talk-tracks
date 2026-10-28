@@ -26,3 +26,4 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | Judges get pre-minted room tokens with a spend cap | [0008](decisions/0008-judges-get-capped-room-tokens.md) |
 | Agents restart from durable track history | [0009](decisions/0009-agents-restart-from-durable-track-history.md) |
 | Agent tracks are opt-in; agents spend only while subscribed | [0010](decisions/0010-agent-tracks-are-opt-in-and-lazy.md) |
+| Track history archived on the VM and copied to a bucket | [0011](decisions/0011-track-history-in-a-vm-archive-copied-to-a-bucket.md) |

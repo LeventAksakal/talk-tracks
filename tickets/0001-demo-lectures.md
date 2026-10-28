@@ -1,5 +1,5 @@
 ---
-status: answered
+status: closed
 created: 2026-10-27
 tags: [demo, content, licensing]
 ---
@@ -56,3 +56,6 @@ over design, take the RSA talk instead.
 
 ## Answer
 A: two or three CC BY lectures with slides. Find the candidates by browsing the web (delegated to a sub-agent); the owner picks from the shortlist.
+
+Pick (2026-10-28): the recommended pair, "You Are Part Virus" (biology, about 0:15–18:30) and "Data Visualisation:
+The Good, The Bad, The Ugly and the Beautiful" (design, whole). Two rooms.
