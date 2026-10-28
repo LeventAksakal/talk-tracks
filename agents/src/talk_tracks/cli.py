@@ -13,6 +13,7 @@ rooms listed, each from when its speaker comes on air.
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_ROOMS, TT_ROOMS_EXCLUDE (rooms never served, such as
 the demo room), TT_TOKEN, TT_LEDGER (default data/ledger.jsonl), TT_SPEND_CEILING_USD (default 100), TT_ROOM_CAP_USD
 (default 2: any room's cap), TT_CAPS_DIR (default data/caps: judge token batches with their own caps),
+TT_WAKE_DEBOUNCE_S (default 1: how long a track stays subscribed before its agent wakes),
 TT_IDLE_GRACE_S (default 10: how long a track goes unsubscribed before its agent pauses), TT_ROOM_LINGER_S (default
 600: how long a room is served after its speaker left), TT_STATE_DIR (default data/state: where captions keeps its
 lines across a restart) and the Meta key as META_API_KEY or MODEL_API_KEY. The key is never printed. In fake mode,
@@ -154,7 +155,7 @@ def build(args: argparse.Namespace, room: str) -> tuple[AgentInfo, Callable[[], 
 async def serve_room(args: argparse.Namespace, room: str) -> None:
     """One room's agent on a connection of its own: its track stays published, and idle until subscribed."""
     from . import moq
-    from .demand import IDLE_GRACE_S, Gate
+    from .demand import IDLE_GRACE_S, WAKE_DEBOUNCE_S, Gate
     from .publisher import SnapshotPublisher
     from .runtime import now_ms, run_with_heartbeat
 
@@ -163,7 +164,11 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         sink = await relay.publish(agent_path(room, info.name, instance), "state")
         pub = SnapshotPublisher(info, sink, usage, instance=instance)
-        gate = Gate(sink.subscribed, grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S))
+        gate = Gate(
+            sink.subscribed,
+            wake_s=env_float("TT_WAKE_DEBOUNCE_S", WAKE_DEBOUNCE_S),
+            grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S),
+        )
         logging.getLogger("talk_tracks").info("%s instance %s in room %s", info.name, instance, room)
 
         async def serve() -> None:

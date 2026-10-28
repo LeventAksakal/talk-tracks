@@ -83,11 +83,48 @@ Then the live agents, with the key from `~/tt-secrets`:
 
 The live agents stay up and wait for a speaker. They spend only while someone publishes audio with a speaker token.
 
+## Checked on 2026-10-28: lazy agents and caps
+
+The deploy followed [lazy agents](lazy-agents.md):
+- the agent token was re-signed for `talk/*/agents/**`;
+- `TT_LIVE_ROOMS=*` was added;
+- `~/tt-data/caps` was created;
+- the agents image was rebuilt.
+
+Results:
+- **Rooms:** all four agents logged `serving rooms *`. None served the demo room.
+- **Idle:** a speaker stand-in was on air in room `smoke` for 40 s with no viewer. The agents served the room and the
+  ledger did not grow.
+- **Wake:** opening `/watch/smoke` woke them, and the ledger lines carry `"room": "smoke"`.
+- **Idle after leaving:** after the viewer left, captions logged `no subscribers, idle` and the ledger stayed flat.
+- **Spend:** the check cost about $0.06. The total is $0.33.
+- **Defect:** switching a track off in the current viewer does not cancel its subscription. The translation agent
+  kept calling the model until the page closed. The new UI must unsubscribe on switch-off (decision 0010).
+
+**Incident.** The relay restarted on its own about three hours before this deploy, and auth did not.
+- Auth shares the relay's network namespace, so it was cut off.
+- Every agent and the demo looper crash-looped on `ConnectionTerminated (566)`, and the relay logged `auth server
+  unavailable`.
+- Nothing alerted us. Restarting `relay` and `auth` together fixed it.
+
+## Checked on 2026-10-28: auth over a unix socket
+
+After `up -d relay auth`, `restart relay` was run on its own as a test.
+- Within about 40 s every service was up again, and the agents and looper had reconnected (`connected to relay
+  (draft 18)`).
+- The relay logged `auth server unavailable` 0 times.
+- `/watch/demo` played with the connection open.
+
 ## Watch out
 
 - The relay reads the certificate when it starts. Caddy renews it about 30 days before it expires; restart the relay
-  after that (`docker compose -f deploy/compose.vm.yml restart relay auth`).
-- `auth` shares the relay's network namespace: restart both together, or the auth server is cut off and every
-  session is refused (the relay answers 502).
+  after that (`docker compose -f deploy/compose.vm.yml restart relay`).
+- The relay asks `auth` over a unix socket in the volume `auth_sock`, not over a shared network namespace, so either
+  container can restart, crash or be recreated alone and sessions work again once it is back. (Until 2026-10-28
+  `auth` shared the relay's namespace and was cut off whenever the relay restarted by itself.) `auth` removes a stale
+  socket before it binds. If sessions are refused, check `docker compose ... ps` and the relay log for `auth server
+  unavailable`.
+- `docker kill` and `docker stop` count as a manual stop: the restart policy does not bring the container back, a
+  crash does. Start it again with `docker compose -f deploy/compose.vm.yml up -d`.
 - Clients that connect in the moment between the relay and the auth server starting are refused; agents restart by
   themselves.

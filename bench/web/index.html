@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Talk Tracks benchmark viewer</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font: 14px system-ui, sans-serif; }
+      canvas, video { display: block; width: 640px; height: 360px; background: #000; }
+      pre { padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas" width="1280" height="720"></canvas>
+    <video id="video" playsinline autoplay></video>
+    <pre id="log"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

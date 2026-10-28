@@ -1,0 +1,22 @@
+{
+  "name": "talk-tracks-bench-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@moq/net": "0.4.5",
+    "@moq/watch": "0.6.6",
+    "hls.js": "1.7.3"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "8.3.5"
+  },
+  "overrides": {
+    "@moq/net": "0.4.5"
+  }
+}

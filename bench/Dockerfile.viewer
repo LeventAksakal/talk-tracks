@@ -1,0 +1,24 @@
+# The benchmark viewer: the measurement page (bench/web) built once, and the Playwright runner driving Google Chrome
+# (Chromium builds lack H.264, which every protocol here carries). iproute2 is for bench/netem.sh.
+#
+# PulseAudio with a null sink gives Chrome an audio output that plays in real time. Without one, Chrome's fallback
+# output lags under load, and @moq/watch, which paces video by the audio clock, drifts seconds behind live: a fault of
+# the container, not of the protocol. The <video> players get the same sink.
+# Build from bench/: docker build -t talk-tracks-bench-viewer:dev -f Dockerfile.viewer .
+FROM node:22-bookworm-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+FROM mcr.microsoft.com/playwright:v1.64.0-noble
+RUN npx -y playwright@1.64.0 install chrome \
+    && apt-get update && apt-get install -y --no-install-recommends iproute2 pulseaudio \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /bench
+COPY runner/package.json runner/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY runner/run.mjs runner/viewer.sh ./
+COPY --from=web /web/dist ./dist
+ENTRYPOINT ["sh", "viewer.sh"]

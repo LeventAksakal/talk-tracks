@@ -40,7 +40,7 @@ from .follow import NewestInstance, SnapshotFilter
 log = logging.getLogger("talk_tracks.moq")
 set_log_level(logging.WARNING)  # aiomoqt logs every control message at INFO
 
-DRAFT = 18
+DRAFT = 18  # pinned: aiomoqt offers draft 22 first when left to choose, and everything here is measured on 18
 RETRY_S = 1.0
 AUDIO_IDLE_S = 5.0  # the speaker's audio never pauses for this long while the publisher is alive
 READ_DEADLINE_S = 0.05
@@ -161,8 +161,10 @@ class Relay:
 async def connect(url: str, *, token: str | None = None, insecure: bool = False) -> AsyncGenerator[Relay]:
     async with relay_client(url, token=token, insecure=insecure).connect() as session:
         await session.client_session_init()
+        if (draft := getattr(session, "negotiated_draft", None)) != DRAFT:
+            raise ConnectionError(f"the relay negotiated MoQT draft {draft}, not {DRAFT}")
         relay = Relay(session)
-        log.info("connected to %s", urlsplit(url).hostname)
+        log.info("connected to %s (draft %d)", urlsplit(url).hostname, DRAFT)
         try:
             yield relay
         finally:
