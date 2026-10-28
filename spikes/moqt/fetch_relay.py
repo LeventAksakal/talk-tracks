@@ -45,6 +45,8 @@ async def collect(rdr: Any, into: list[int]) -> None:
         objs = await rdr.read(1, timeout=0.05)
         objs += rdr.drain()
         into += [o.group for o in objs]
+        if not objs:
+            await asyncio.sleep(0.02)  # a closed reader returns at once: yield, or the loop starves
 
 
 async def track_status(relay: Any) -> str:

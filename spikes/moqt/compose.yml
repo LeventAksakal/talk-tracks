@@ -19,3 +19,14 @@ services:
     environment:
       SPIKE_RELAY: moqt://relay:4443
     volumes: ["./:/spikes:ro"]
+
+  # The browser client (@moq/net) in Node, over the relay's WebSocket path. WEB_NODE_MODULES points at an installed
+  # web/node_modules (npm ci in web/ first).
+  web:
+    image: node:22-bookworm-slim
+    depends_on: [relay]
+    working_dir: /spikes
+    entrypoint: ["node"]
+    environment:
+      SPIKE_RELAY_HTTP: http://relay:4443/
+    volumes: ["./:/spikes:ro", "${WEB_NODE_MODULES:-../../web/node_modules}:/node_modules:ro"]
