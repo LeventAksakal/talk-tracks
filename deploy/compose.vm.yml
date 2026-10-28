@@ -3,8 +3,13 @@
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
 #   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state and spend ledger
-#   TT_LOOPER_TOKEN  signed for the demo rooms virus and dataviz; TT_AGENT_TOKEN signed for the live room
+#   TT_LOOPER_TOKEN  signed for the demo rooms virus and dataviz; TT_AGENT_TOKEN signed for the agents of every room
+#                    they serve
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
+#   TT_LIVE_ROOMS    rooms the live agents serve: * (default) for any room a speaker opens, or a list a,b
+#   TT_ROOM_CAP_USD  spend cap of any room (default 2); judge rooms take theirs from $TT_DATA/caps/ (mint script)
+#   TT_WAKE_DEBOUNCE_S, TT_IDLE_GRACE_S  how long a track is subscribed before its agent wakes (default 1) and
+#                    unsubscribed before it pauses (default 10)
 #   docker compose -f deploy/compose.vm.yml up -d
 #   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
 # Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
@@ -25,11 +30,21 @@ x-agent: &agent
     TT_STATE_DIR: /data/state
     TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
 
-# Live agents call the Meta API: only they get the key, and the ledger in $TT_DATA holds them under the ceiling.
+# Live agents call the Meta API: only they get the key, and the ledger in $TT_DATA holds them under the ceiling and
+# each room under its cap. They are lazy (wiki/howto/lazy-agents.md): each serves every wanted room a speaker opens,
+# and pays only while someone subscribes to its track. The demo room is the looper's, never theirs.
 x-live: &live
   <<: *agent
   profiles: [live]
   env_file: ["${TT_SECRETS:-/nonexistent}/meta.env"]
+  environment:
+    <<: *agent-env
+    TT_ROOMS: ${TT_LIVE_ROOMS:-*}
+    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # the looped demo rooms are the loopers'
+    TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
+    TT_CAPS_DIR: /data/caps
+    TT_WAKE_DEBOUNCE_S: ${TT_WAKE_DEBOUNCE_S:-1}
+    TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
 
 services:
   caddy:
@@ -49,10 +64,10 @@ services:
     image: talk-tracks-relay:0.17.8
     build: { context: ., dockerfile: Dockerfile.relay }
     restart: unless-stopped
-    depends_on: [caddy]
+    depends_on: [caddy, auth]
     ports: ["443:443/udp"]
     environment: [TT_HOST]
-    volumes: ["caddy_data:/caddy:ro"]
+    volumes: ["caddy_data:/caddy:ro", "auth_sock:/run/auth"]
     entrypoint: ["sh", "-c"]
     command:
       - |
@@ -63,16 +78,21 @@ services:
         done
         exec moq-relay --listen '[::]:443' --listen-tls-cert "$$crt" --listen-tls-key "$${crt%.crt}.key" \
           --web-https-listen '[::]:8443' --web-https-cert "$$crt" --web-https-key "$${crt%.crt}.key" \
-          --auth-url http://127.0.0.1:4440/ --log-level info
+          --auth-url unix:///run/auth/auth.sock --log-level info
 
+  # The relay speaks plain HTTP to its auth server only on loopback or a unix socket. The socket lives in a shared
+  # volume, so either container restarts on its own and finds the other again. (Sharing the relay's network namespace
+  # left auth cut off after the relay restarted by itself: 3 hours down on 2026-10-28.) Auth needs no network.
   auth:
     image: talk-tracks-auth:0.14.8
     build: { context: ., dockerfile: Dockerfile.auth }
-    network_mode: service:relay
+    network_mode: none
     restart: unless-stopped
-    command: ["auth", "serve", "--listen", "127.0.0.1:4440", "--key", "/keys/public.jwk",
-              "--public-subscribe", "talk/**"]
-    volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro"]
+    entrypoint: ["sh", "-c"]
+    command:  # a socket left by a killed auth server would block the bind
+      - rm -f /run/auth/auth.sock; exec moq auth serve --listen unix:/run/auth/auth.sock --key /keys/public.jwk
+        --public-subscribe 'talk/**'
+    volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro", "auth_sock:/run/auth"]
 
   # One looping demo room per lecture (ticket 0001), named after it: the recording is $TT_DATA/demo/<room>/.
   # TT_LOOPER_TOKEN is signed for both rooms (wiki/howto/tokens.md, one --publish pair per room).
@@ -105,6 +125,7 @@ services:
     command: ["chapters", "--insecure"]
 
 volumes:
+  auth_sock: {}  # the auth server's unix socket, shared with the relay
   # The volume the pre-event stack already filled, so the certificate carries over.
   caddy_data: { external: true, name: moq_caddy_data }
   caddy_config: { external: true, name: moq_caddy_config }

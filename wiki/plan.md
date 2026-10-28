@@ -45,5 +45,7 @@ The VM runs everything around the clock: Docker restarts every service on failur
   features there rather than at the end.
 - **Rewind is the largest new piece:** an archive plus two sources in the viewer. If it slips, a looped room can still
   rewind within the recording, which is already static.
-- **Safari and Firefox WebTransport support differs from Chrome's.** The WebSocket fallback is deployed, but it is
-  untested in those browsers.
+- **Safari, every iOS browser and Firefox before 153 always use the WebSocket fallback over TCP.** The pinned
+  `@moq/net` 0.4.5 refuses WebTransport on every WebKit engine (WebKit bug 319818: long sessions stall), even
+  though Safari 26.4 ships it. That makes the fallback the main path for iPhone students, not an edge case. It is
+  deployed but untested in those browsers. The benchmark measures it as its own row (found 2026-10-28).

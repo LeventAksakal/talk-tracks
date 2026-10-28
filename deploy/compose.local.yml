@@ -23,6 +23,7 @@ services:
     command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-public", "**",
               "--web-http-listen", "[::]:4443", "--log-level", "info"]
     ports: ["${TT_RELAY_PORT:-4443}:4443/udp", "${TT_RELAY_PORT:-4443}:4443/tcp"]
+    restart: unless-stopped
 
   captions:
     <<: *agent

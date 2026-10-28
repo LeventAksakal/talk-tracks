@@ -1,0 +1,32 @@
+# MoQT spikes: a private moq-relay 0.17.8 and a runner on the agents image (aiomoqt 0.13.1, IETF draft-18).
+# Fake publishers and subscribers only; no Meta calls. Run from the repo root:
+#   docker compose -p tt-moqt-spike -f spikes/moqt/compose.yml up -d relay
+#   docker compose -p tt-moqt-spike -f spikes/moqt/compose.yml run --rm spike /spikes/fetch_relay.py
+#   docker compose -p tt-moqt-spike -f spikes/moqt/compose.yml down
+# No host ports: the runner reaches the relay on the compose network, so it never collides with other stacks.
+name: tt-moqt-spike
+
+services:
+  relay:
+    image: talk-tracks-relay:0.17.8
+    command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-public", "**",
+              "--web-http-listen", "[::]:4443", "--log-level", "debug"]
+
+  spike:
+    image: talk-tracks-agents:dev
+    depends_on: [relay]
+    entrypoint: ["python", "-u"]
+    environment:
+      SPIKE_RELAY: moqt://relay:4443
+    volumes: ["./:/spikes:ro"]
+
+  # The browser client (@moq/net) in Node, over the relay's WebSocket path. WEB_NODE_MODULES points at an installed
+  # web/node_modules (npm ci in web/ first).
+  web:
+    image: node:22-bookworm-slim
+    depends_on: [relay]
+    working_dir: /spikes
+    entrypoint: ["node"]
+    environment:
+      SPIKE_RELAY_HTTP: http://relay:4443/
+    volumes: ["./:/spikes:ro", "${WEB_NODE_MODULES:-../../web/node_modules}:/node_modules:ro"]

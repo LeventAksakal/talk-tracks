@@ -27,3 +27,4 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | Agents restart from durable track history | [0009](decisions/0009-agents-restart-from-durable-track-history.md) |
 | Agent tracks are opt-in; agents spend only while subscribed | [0010](decisions/0010-agent-tracks-are-opt-in-and-lazy.md) |
 | Track history archived on the VM and copied to a bucket | [0011](decisions/0011-track-history-in-a-vm-archive-copied-to-a-bucket.md) |
+| AI-track history served by FETCH from the agent, in 4 s slices | [0012](decisions/0012-ai-track-history-by-fetch-from-the-agent.md) |
