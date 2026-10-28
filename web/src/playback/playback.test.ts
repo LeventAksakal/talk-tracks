@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ArchiveClient, archivedRanges, type RunIndex, segmentAt } from "./archive";
 import { FakeHistorySource } from "./fakeSource";
 import { FakeRoom } from "./fixtures";
-import { ClockMedia } from "./media";
+import { ClockMedia, parseClock } from "./media";
 import { Playback } from "./playback";
 import { formatClock } from "./timeline";
 
@@ -176,6 +176,15 @@ describe("archive index", () => {
   it("a room with nothing archived is undefined, not an error", async () => {
     const client = new ArchiveClient("/archive", async () => new Response("", { status: 404 }));
     expect(await client.currentRun("demo")).toBeUndefined();
+  });
+});
+
+describe("room clock", () => {
+  it("reads offset_ms from the speaker console's clock object", () => {
+    const enc = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
+    expect(parseClock(enc({ epoch_ms: 1, offset_ms: 123_456, session: "9" }))).toBe(123_456);
+    expect(parseClock(enc({ epoch_ms: 1 }))).toBeUndefined();
+    expect(parseClock(new TextEncoder().encode("x"))).toBeUndefined();
   });
 });
 

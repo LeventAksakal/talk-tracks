@@ -15,6 +15,8 @@ export interface Slice {
   capped: boolean;
   /** Items in object order. */
   items: Item[];
+  /** Fetched while still being produced: fetch it again once it is over. */
+  partial: boolean;
 }
 
 /** What a sliced track shows at one media time. */
@@ -62,6 +64,12 @@ export class SliceLog {
     return this.#slices.has(slice);
   }
 
+  /** Whether slice `k` should be fetched: not held, or held partly and over since (`edge` is the newest). */
+  needs(k: number, edge: number | undefined): boolean {
+    const s = this.#slices.get(k);
+    return !s || (s.partial && edge !== undefined && k < edge);
+  }
+
   get(slice: number): Slice | undefined {
     return this.#slices.get(slice);
   }
@@ -82,19 +90,17 @@ export class SliceLog {
     return slicesToRanges(this.#slices.keys());
   }
 
-  /** One live object: index 0 is the carry-in, later ones are items. */
-  addLive(
-    slice: number,
-    index: number,
-    carry: { items: Item[]; capped: boolean } | undefined,
-    item: Item | undefined,
-  ): void {
+  /** One live object: the carry-in, or an item. */
+  addLive(slice: number, carry: { items: Item[]; capped: boolean } | undefined, item: Item | undefined): void {
     let s = this.#slices.get(slice);
-    if (!s || s.origin === "fetch") {
-      // A live copy is the same group as a fetched one (objects are immutable): start over from object 0.
-      if (index !== 0 && s) return;
-      s = { slice, origin: "live", carry: undefined, capped: false, items: [] };
+    if (!s || (s.origin === "fetch" && carry)) {
+      // A live copy is the same group as a fetched one (objects are immutable): its carry-in starts it over.
+      s = { slice, origin: "live", carry: undefined, capped: false, items: [], partial: false };
       this.#slices.set(slice, s);
+    } else if (s.origin === "fetch") {
+      // The subscription joined a group this viewer fetched the start of: it goes on live from here.
+      s.origin = "live";
+      s.partial = false;
     }
     if (carry) {
       s.carry = carry.items;
@@ -103,10 +109,19 @@ export class SliceLog {
     if (item) s.items.push(item);
   }
 
-  /** A whole group from FETCH. A slice already held live is complete or growing there: kept. */
-  addFetched(slice: number, carry: { items: Item[]; capped: boolean } | undefined, items: Item[]): void {
+  /**
+   * A group from FETCH: whole, or (`partial`) as far as it was produced. A slice already held live is
+   * complete or growing there: kept.
+   */
+  addFetched(
+    slice: number,
+    carry: { items: Item[]; capped: boolean } | undefined,
+    items: Item[],
+    partial = false,
+  ): void {
     if (this.#slices.get(slice)?.origin === "live") return;
-    this.#slices.set(slice, { slice, origin: "fetch", carry: carry?.items, capped: carry?.capped ?? false, items });
+    const capped = carry?.capped ?? false;
+    this.#slices.set(slice, { slice, origin: "fetch", carry: carry?.items, capped, items, partial });
   }
 
   /** Drop fetched slices (Go live), keeping what arrived live. */
@@ -153,7 +168,7 @@ export class SliceLog {
       .filter((e): e is { item: SlideItem; order: number; time: number } => e.item.type === "slide")
       .sort((a, b) => a.time - b.time || a.item.id - b.item.id)
       .map((e) => e.item);
-    const atSlice = at === undefined ? this.liveEdge() : sliceOf(at);
+    const atSlice = at === undefined ? (this.liveEdge() ?? this.slices().at(-1)) : sliceOf(at);
     const here = atSlice === undefined ? undefined : this.#slices.get(atSlice);
     // Every line here starts at or before `at`; one is current until shortly after it ends.
     const current = at === undefined ? lines.at(-1) : lines.findLast((l) => l.endMs === 0 || at < l.endMs + LINGER_MS);

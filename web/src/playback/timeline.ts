@@ -13,7 +13,7 @@ export interface TimelineView {
   position: number | undefined;
   /** The live edge, media ms. */
   liveEdge: number | undefined;
-  /** The earliest media time to seek to: the archived media's start, or 0. */
+  /** The earliest media time to seek to: the archived media's start, or a window back from live. */
   start: number;
   /** How far the playhead trails live, ms (0 when live). */
   behindMs: number;
@@ -39,6 +39,9 @@ export interface Missed {
   transcriptLoading: boolean;
 }
 
+/** How far back the scrubber reaches in a room with no archived media. */
+export const NO_ARCHIVE_WINDOW_MS = 30 * 60_000;
+
 /** Skipped less than this, there is nothing worth telling. */
 export const MISSED_MIN_MS = 20_000;
 
@@ -56,9 +59,9 @@ export function buildTimeline(input: {
   mediaStatus: MediaStatus;
 }): TimelineView {
   const held = mergeRanges(input.held.flat());
-  // The talk starts where its archived media does; with none, at media time 0 (AI slices from 0 are
-  // fetchable from the agents whether or not this viewer held them).
-  const start = input.available[0]?.start ?? 0;
+  // The talk starts where its archived media does. With none (a looped room plays wall-anchored room
+  // time), the scrubber spans a window back from live; slices before the talk are simply not found.
+  const start = input.available[0]?.start ?? Math.max(0, (input.liveEdge ?? 0) - NO_ARCHIVE_WINDOW_MS);
   const behindMs =
     input.mode === "live" || input.position === undefined || input.liveEdge === undefined
       ? 0

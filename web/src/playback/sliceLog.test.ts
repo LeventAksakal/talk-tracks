@@ -40,11 +40,11 @@ describe("wire adapter", () => {
 describe("SliceLog", () => {
   it("merges by id across slices: final beats interim, wherever it landed", () => {
     const log = new SliceLog();
-    log.addLive(2, 0, { items: [], capped: false }, undefined);
-    log.addLive(2, 1, undefined, line(5, 9_000, "half", false));
-    log.addLive(3, 0, { items: [], capped: false }, undefined);
-    log.addLive(3, 1, undefined, line(5, 9_000, "half then whole"));
-    log.addLive(3, 2, undefined, line(6, 13_000, "next", false));
+    log.addLive(2, { items: [], capped: false }, undefined);
+    log.addLive(2, undefined, line(5, 9_000, "half", false));
+    log.addLive(3, { items: [], capped: false }, undefined);
+    log.addLive(3, undefined, line(5, 9_000, "half then whole"));
+    log.addLive(3, undefined, line(6, 13_000, "next", false));
     expect(log.view(undefined).lines.map((l) => [l.id, l.text, l.final])).toEqual([
       [5, "half then whole", true],
       [6, "next", false],
@@ -64,11 +64,11 @@ describe("SliceLog", () => {
 
   it("a live copy of a group replaces a fetched one, never the reverse", () => {
     const log = new SliceLog();
-    log.addLive(4, 0, { items: [], capped: false }, undefined);
+    log.addLive(4, { items: [], capped: false }, undefined);
     log.addFetched(4, { items: [], capped: true }, []);
     expect(log.get(4)).toMatchObject({ origin: "live", capped: false });
     log.addFetched(5, undefined, [line(1, 20_000, "x")]);
-    log.addLive(5, 0, { items: [], capped: false }, undefined);
+    log.addLive(5, { items: [], capped: false }, undefined);
     expect(log.get(5)).toMatchObject({ origin: "live", items: [] });
     log.dropFetched();
     expect(log.slices()).toEqual([4, 5]);

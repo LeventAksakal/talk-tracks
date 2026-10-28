@@ -260,7 +260,7 @@ export class AiTracks {
       entry.subscription = this.#source.subscribe(
         entry.path,
         entry.ref.track,
-        ({ group, index, payload }) => this.#onLive(entry, group, index, payload),
+        ({ group, payload }) => this.#onLive(entry, group, payload),
         { priority },
       );
     } else if (!entry.enabled && entry.subscription) {
@@ -269,7 +269,7 @@ export class AiTracks {
     }
   }
 
-  #onLive(entry: Entry, group: number, index: number, payload: Uint8Array): void {
+  #onLive(entry: Entry, group: number, payload: Uint8Array): void {
     if (!entry.enabled) return;
     const parsed = parseObject(payload);
     if (!parsed.ok) {
@@ -281,16 +281,17 @@ export class AiTracks {
     const o = parsed.value;
     entry.meta = o.agent;
     entry.lastLiveAt = this.#now();
-    const firstLive = entry.log.liveEdge() === undefined;
+    const before = entry.log.liveEdge();
     if (o.kind === "snapshot") {
       if (!entry.outline || group >= entry.outline.group) entry.outline = { group, outline: o.outline };
     } else if (o.kind === "carry") {
-      entry.log.addLive(group, index, { items: o.items, capped: o.capped }, undefined);
+      entry.log.addLive(group, { items: o.items, capped: o.capped }, undefined);
     } else {
-      entry.log.addLive(group, index, undefined, o.item);
+      entry.log.addLive(group, undefined, o.item);
     }
     entry.log.trim(this.#maxSlices, this.#mode === "rewound" ? sliceOf(this.#position ?? 0) : group);
-    if (firstLive && entry.ref.sliced) this.#plan();
+    // A new live slice: scrollback, or a slice fetched while in progress, may want fetching now.
+    if (entry.ref.sliced && (before === undefined || group > before)) this.#plan();
     this.#changed();
   }
 
@@ -312,8 +313,11 @@ export class AiTracks {
           if (d <= this.#back) order.push(k - d);
         }
       } else {
-        const live = entry.log.liveEdge();
-        if (live !== undefined) for (let d = 1; d <= this.#liveBack; d++) order.push(live - d);
+        // Live: the slice in progress first, if the subscription has not delivered it yet (a publisher
+        // may start a new subscription at the next group, design §5.1 and the looper), then scrollback.
+        const live = entry.log.liveEdge() ?? edge;
+        if (live !== undefined) for (let d = 0; d <= this.#liveBack; d++) order.push(live - d);
+        if (live !== undefined && this.#liveBack === 0 && entry.log.get(live - 1)?.partial) order.push(live - 1);
       }
       wanted.set(
         entry,
@@ -331,7 +335,7 @@ export class AiTracks {
     for (let i = 0; i < longest; i++) {
       for (const [entry, list] of lists) {
         const k = list[i];
-        if (k === undefined || entry.log.has(k)) continue;
+        if (k === undefined || !entry.log.needs(k, edge)) continue;
         if (this.#queue.some((j) => j.entry === entry && j.slice === k && j.into === entry.log)) continue;
         const missedAt = entry.missing.get(k);
         if (missedAt !== undefined && this.#now() - missedAt < this.#retryMissing) continue;
@@ -376,7 +380,9 @@ export class AiTracks {
         if (o.kind === "carry") carry = { items: o.items, capped: o.capped };
         else if (o.kind === "item") items.push(o.item);
       }
-      into.addFetched(slice, carry, items);
+      // The slice at the live edge may still be growing: fetch it again once it is over.
+      const edge = this.#edgeSlice();
+      into.addFetched(slice, carry, items, edge === undefined || slice >= edge);
       entry.missing.delete(slice);
       if (into === entry.log)
         entry.log.trim(this.#maxSlices, this.#position === undefined ? slice : sliceOf(this.#position));

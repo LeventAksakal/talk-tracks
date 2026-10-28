@@ -35,6 +35,11 @@ export class FakeHistorySource implements HistorySource {
   readonly fetches: FetchRecord[] = [];
   /** Priorities of live subscriptions as they opened. */
   readonly subscriptions: { path: string; track: string; priority: number }[] = [];
+  /**
+   * Start a new subscription at the next group instead of the latest one, as the demo looper does to
+   * work around a moq-relay 0.17.8 bug (wiki/howto/demo-rooms.md, known limits).
+   */
+  startAtNextGroup = false;
   /** Delay before a FETCH answers, ms (0: next microtask). */
   fetchDelayMs = 0;
   #inFlight = 0;
@@ -95,11 +100,15 @@ export class FakeHistorySource implements HistorySource {
 
   subscribe(path: string, track: string, onObject: (object: GroupObject) => void, options: LiveOptions): Closable {
     const t = this.#track(path, track);
-    const fn = (o: GroupObject) => onObject(o);
+    const joinedAt = t.latest;
+    const fn = (o: GroupObject) => {
+      if (this.startAtNextGroup && joinedAt !== undefined && o.group <= joinedAt) return;
+      onObject(o);
+    };
     t.subscribers.add(fn);
     this.subscriptions.push({ path, track, priority: options.priority });
     const latest = t.latest;
-    if (latest !== undefined && this.#active.has(path)) {
+    if (latest !== undefined && this.#active.has(path) && !this.startAtNextGroup) {
       const objects = [...(t.groups.get(latest) ?? [])];
       queueMicrotask(() => {
         objects.forEach((payload, index) => t.subscribers.has(fn) && onObject({ group: latest, index, payload }));

@@ -51,6 +51,11 @@ export class ArchivePlayer {
   #listeners = new Set<() => void>();
   #error: string | undefined;
   #closed = false;
+  /**
+   * A seek not applied yet. With MSE and an open-ended duration the element can only seek within what it
+   * holds (Chrome clamps anything else to 0), so the seek waits until its segment is buffered.
+   */
+  #pending: number | undefined;
 
   constructor(element: HTMLMediaElement, client: ArchiveClient, run: RunIndex, options: ArchivePlayerOptions = {}) {
     this.element = element;
@@ -83,6 +88,7 @@ export class ArchivePlayer {
     }));
     this.element.addEventListener("timeupdate", this.#onTime);
     this.element.addEventListener("waiting", this.#onTime);
+    this.element.addEventListener("loadedmetadata", this.#onMetadata);
     this.#timer = setInterval(this.#onTime, 500);
     this.seek(ms);
   }
@@ -97,7 +103,7 @@ export class ArchivePlayer {
 
   /** The playhead, media ms. */
   position(): number {
-    return this.element.currentTime * 1000;
+    return this.#pending ?? this.element.currentTime * 1000;
   }
 
   /** What the element has buffered, media ms. */
@@ -116,7 +122,8 @@ export class ArchivePlayer {
   seek(ms: number): void {
     const first = this.available()[0];
     const target = first && ms < first.start ? first.start : ms;
-    this.element.currentTime = target / 1000;
+    this.#pending = target;
+    this.#applySeek();
     void this.#fill();
   }
 
@@ -132,6 +139,7 @@ export class ArchivePlayer {
     clearInterval(this.#timer);
     this.element.removeEventListener("timeupdate", this.#onTime);
     this.element.removeEventListener("waiting", this.#onTime);
+    this.element.removeEventListener("loadedmetadata", this.#onMetadata);
     this.element.pause();
     this.element.removeAttribute("src");
     this.element.load();
@@ -146,8 +154,24 @@ export class ArchivePlayer {
     for (const fn of [...this.#listeners]) fn();
   };
 
+  #onMetadata = () => this.#applySeek();
+
+  #applySeek(): void {
+    if (this.#pending === undefined || this.element.readyState < HTMLMediaElement.HAVE_METADATA) return;
+    const t = this.#pending / 1000;
+    const s = this.element.seekable;
+    for (let i = 0; i < s.length; i++) {
+      if (t >= s.start(i) && t <= s.end(i)) {
+        this.#pending = undefined;
+        this.element.currentTime = t;
+        return;
+      }
+    }
+  }
+
   /** Stalled at the end of a buffered range with the next one ahead (a gap in the archive): jump. */
   #skipGap(): void {
+    if (this.#pending !== undefined) return;
     const pos = this.position();
     const ranges = this.buffered();
     if (ranges.some((r) => pos >= r.start && pos < r.end - 100)) return;
@@ -200,6 +224,7 @@ export class ArchivePlayer {
       const data = await this.#client.bytes(this.#client.segmentUrl(this.#run, lane.track, s), this.#abort.signal);
       await this.#update(lane.buffer, () => lane.buffer.appendBuffer(data));
       lane.appended.set(s.n, { start: s.start_ms, end: s.end_ms });
+      this.#applySeek();
       // One segment per call: the playhead may have moved meanwhile.
       return false;
     }

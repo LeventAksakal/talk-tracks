@@ -114,6 +114,29 @@ describe("AiTracks: live", () => {
   });
 });
 
+describe("AiTracks: joining a publisher that starts subscriptions at the next group", () => {
+  it("fetches the slice in progress at once, and again once it is over", async () => {
+    const source = new FakeHistorySource();
+    source.startAtNextGroup = true;
+    const room = new FakeRoom(source, ROOM);
+    room.start(61_000);
+    tracks = new AiTracks(source, ROOM, { liveBack: 0 });
+    tracks.setLiveEdge(61_000);
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    const k = sliceOf(61_000);
+    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK)).toEqual([k]);
+    expect(view(tracks, "captions/items").sliced!.loaded).toBe(true);
+    // The next slice arrives live; the one fetched in progress is fetched again, whole.
+    room.advanceTo(65_500);
+    await settle();
+    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK)).toEqual([k, k]);
+    const lines = view(tracks, "captions/items").sliced!.lines;
+    const spokenInK = room.talk.captions.filter((l) => sliceOf(l.endMs + 400) === k);
+    for (const l of spokenInK) expect(lines.find((x) => x.id === l.id)).toMatchObject({ final: true });
+  });
+});
+
 describe("AiTracks: rewind", () => {
   it("seeking fetches the slice at t first, then its neighbours, at the history priority", async () => {
     const { source, room, tracks } = setup(200_000);

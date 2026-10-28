@@ -2,7 +2,8 @@
 // A room with no archived media (a looped demo room, whose recording is not served) still rewinds its
 // AI tracks: the playhead then runs on a clock of its own and the media stays silent.
 
-import { teacherPath } from "../contracts/names";
+import { slidesPath, teacherPath } from "../contracts/names";
+import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import { ArchiveClient, archivedRanges, type RunIndex } from "./archive";
 import { ArchivePlayer } from "./archivePlayer";
@@ -154,6 +155,9 @@ export class RoomMedia implements SpeakerMedia {
   #runLoadedAt = 0;
   /** A clock for rooms with no archived media. */
   #clock: ClockMedia | undefined;
+  /** Room time minus the speaker's media timestamps, from the speaker console's `clock` track. */
+  #offset: number | undefined;
+  #clockTrack: Closable;
   #timer: ReturnType<typeof setInterval>;
   #closed = false;
 
@@ -163,6 +167,12 @@ export class RoomMedia implements SpeakerMedia {
     this.#archive = options.archive ?? new ArchiveClient();
     this.#now = options.now ?? Date.now;
     this.#timer = setInterval(() => this.#listeners.emit(), 250);
+    // Room time = speaker media timestamp + offset (decision 0012 addendum, design §4.5). A broadcast with
+    // no clock track (the demo looper, which already plays room time) means offset 0.
+    this.#clockTrack = transport.subscribe(slidesPath(room), CLOCK_TRACK, ({ payload }) => {
+      const offset = parseClock(payload);
+      if (offset !== undefined) this.#offset = offset;
+    });
     void this.#loadRun();
   }
 
@@ -248,6 +258,7 @@ export class RoomMedia implements SpeakerMedia {
   close(): void {
     this.#closed = true;
     clearInterval(this.#timer);
+    this.#clockTrack.close();
     this.#stopLive();
     this.#archivePlayer?.close();
     this.#clock?.close();
@@ -344,7 +355,7 @@ export class RoomMedia implements SpeakerMedia {
         );
         const poll = setInterval(() => {
           const t = player.sync.now();
-          if (t !== undefined) this.#lastLive = { media: Number(t), wall: this.#now() };
+          if (t !== undefined) this.#lastLive = { media: Number(t) + (this.#offset ?? 0), wall: this.#now() };
         }, 100);
         cleanup.push(() => clearInterval(poll));
       })
@@ -358,5 +369,18 @@ export class RoomMedia implements SpeakerMedia {
     this.#liveGeneration++;
     this.#live?.close();
     this.#live = undefined;
+  }
+}
+
+/** The speaker console's room-clock track in `talk/R/slides`. */
+export const CLOCK_TRACK = "clock";
+
+/** `offset_ms` from a clock object `{"epoch_ms", "offset_ms", "session"}`, or undefined. */
+export function parseClock(payload: Uint8Array): number | undefined {
+  try {
+    const v = JSON.parse(new TextDecoder().decode(payload)) as { offset_ms?: unknown };
+    return typeof v.offset_ms === "number" && Number.isFinite(v.offset_ms) ? v.offset_ms : undefined;
+  } catch {
+    return undefined;
   }
 }
