@@ -2,7 +2,7 @@
 # demo room and, once the Meta key is on the box, live agents. Settings come from deploy/.env on the VM (not in git):
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
-#   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state and spend ledger
+#   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state, the spend ledger and archive/
 #   TT_LOOPER_TOKEN  signed for the demo rooms virus and dataviz; TT_AGENT_TOKEN signed for the agents of every room
 #                    they serve
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
@@ -10,6 +10,8 @@
 #   TT_ROOM_CAP_USD  spend cap of any room (default 2); judge rooms take theirs from $TT_DATA/caps/ (mint script)
 #   TT_WAKE_DEBOUNCE_S, TT_IDLE_GRACE_S  how long a track is subscribed before its agent wakes (default 1) and
 #                    unsubscribed before it pauses (default 10)
+#   TT_ARCHIVE_BUCKET the Cloud Storage bucket the track archive is copied to (optional); TT_ARCHIVE_SKIP rooms
+#                    not archived (default: the demo rooms); TT_ARCHIVE_TOKEN the room service's relay token
 #   docker compose -f deploy/compose.vm.yml up -d
 #   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
 # Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
@@ -28,6 +30,7 @@ x-agent: &agent
     TT_TOKEN: ${TT_AGENT_TOKEN:-}
     TT_LEDGER: /data/ledger.jsonl
     TT_STATE_DIR: /data/state
+    TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}  # slices missing on disk are read from it (decision 0012)
     TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
 
 # Live agents call the Meta API: only they get the key, and the ledger in $TT_DATA holds them under the ceiling and
@@ -55,6 +58,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../web/dist:/srv:ro
+      - ${TT_DATA:?}/archive:/archive:ro
       - caddy_data:/data
       - caddy_config:/config
 
@@ -110,6 +114,32 @@ services:
       TT_ROOM: dataviz
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
     command: ["loop", "--insecure", "--recording", "/data/demo/dataviz"]
+
+  # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
+  # serves under /archive/. It records the speaker's media and slides off the relay and publishes talk/<room>/catalog
+  # (its token, $TT_ARCHIVE_TOKEN, may publish talk/*/catalog). Agents write their own slices into the same folder
+  # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
+  # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
+  # leaves the VM. Looped demo rooms are skipped: their recording already is their archive.
+  archive:
+    image: talk-tracks-agents:${TT_AGENTS_TAG:-dev}
+    build: ../agents
+    init: true  # SIGTERM closes the open segments
+    restart: unless-stopped
+    depends_on: [relay]
+    volumes: ["${TT_DATA:?}:/data"]  # the archive, and the spend ledger read for the catalog's capped status
+    environment:
+      TT_RELAY: moqt://relay:443
+      TT_TOKEN: ${TT_ARCHIVE_TOKEN:-}
+      TT_ARCHIVE_DIR: /data/archive
+      TT_LEDGER: /data/ledger.jsonl
+      TT_CAPS_DIR: /data/caps
+      TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
+      TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,demo}}
+      TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
+    entrypoint: ["python", "-m", "talk_tracks.archive"]
+    command: ["--insecure"]
 
   captions:
     <<: *live
