@@ -19,24 +19,48 @@ import {
   type SlideItem,
 } from "./wire";
 
-const SENTENCES: [string, string][] = [
+/** English, Turkish and Arabic. */
+const SENTENCES: [string, string, string][] = [
   [
     "Welcome, everyone. Today we look at how rivers shape the land.",
     "Herkese hoş geldiniz. Bugün nehirlerin araziyi nasıl şekillendirdiğine bakıyoruz.",
+    "مرحبًا بالجميع. نتناول اليوم كيف تشكّل الأنهار سطح الأرض.",
   ],
-  ["Water picks up small stones and carries them downstream.", "Su küçük taşları alır ve akış yönünde taşır."],
+  [
+    "Water picks up small stones and carries them downstream.",
+    "Su küçük taşları alır ve akış yönünde taşır.",
+    "يلتقط الماء الحصى الصغيرة ويحملها مع التيار.",
+  ],
   [
     "Over thousands of years, this cuts deep valleys into rock.",
     "Binlerce yıl içinde bu, kayalara derin vadiler oyar.",
+    "على مدى آلاف السنين، يحفر ذلك أودية عميقة في الصخر.",
   ],
-  ["On this slide you can see the Grand Canyon from above.", "Bu slaytta Büyük Kanyon'u yukarıdan görebilirsiniz."],
-  ["Where the river slows down, it drops what it carried.", "Nehrin yavaşladığı yerde taşıdıklarını bırakır."],
-  ["That is how deltas and fertile plains are built.", "Deltalar ve verimli ovalar böyle oluşur."],
+  [
+    "On this slide you can see the Grand Canyon from above.",
+    "Bu slaytta Büyük Kanyon'u yukarıdan görebilirsiniz.",
+    "في هذه الشريحة يمكنكم رؤية الأخدود العظيم من الأعلى.",
+  ],
+  [
+    "Where the river slows down, it drops what it carried.",
+    "Nehrin yavaşladığı yerde taşıdıklarını bırakır.",
+    "حيث يتباطأ النهر، يُسقط ما كان يحمله.",
+  ],
+  [
+    "That is how deltas and fertile plains are built.",
+    "Deltalar ve verimli ovalar böyle oluşur.",
+    "هكذا تتكوّن الدلتاوات والسهول الخصبة.",
+  ],
   [
     "Floods move more sediment in a day than a quiet year.",
     "Seller bir günde sakin bir yıldan daha fazla tortu taşır.",
+    "تنقل الفيضانات في يوم واحد من الرواسب أكثر مما ينقله عام هادئ.",
   ],
-  ["Meanders form where the outer bank erodes faster.", "Menderesler dış kıyının daha hızlı aşındığı yerlerde oluşur."],
+  [
+    "Meanders form where the outer bank erodes faster.",
+    "Menderesler dış kıyının daha hızlı aşındığı yerlerde oluşur.",
+    "تتشكّل المنعطفات حيث تتآكل الضفة الخارجية بسرعة أكبر.",
+  ],
 ];
 
 const CHAPTER_TITLES = ["Introduction", "Erosion", "Deposition", "Floods and meanders", "Wrap-up"];
@@ -44,20 +68,26 @@ const CHAPTER_TITLES = ["Introduction", "Erosion", "Deposition", "Floods and mea
 export interface FakeTalk {
   durationMs: number;
   captions: LineItem[];
+  /** The Turkish translation. */
   translation: LineItem[];
+  /** Further translations by language (the offline demo adds Arabic). */
+  more: Record<string, LineItem[]>;
   slides: SlideItem[];
   /** Outline revisions: when each was produced, and the outline then. */
   outlines: { atMs: number; outline: Outline }[];
 }
 
 /** A deterministic talk: a line every 4.5 s (3.6 s of speech), a slide every 30 s, a chapter every 60 s. */
-export function fakeTalk(durationMs = 300_000): FakeTalk {
+export function fakeTalk(durationMs = 300_000, options: { arabic?: boolean } = {}): FakeTalk {
   const captions: LineItem[] = [];
   const translation: LineItem[] = [];
+  const arabic: LineItem[] = [];
   for (let id = 0, t = 1_000; t + 3_600 <= durationMs; id++, t += 4_500) {
-    const [en, tr] = SENTENCES[id % SENTENCES.length]!;
-    captions.push({ type: "line", id, startMs: t, endMs: t + 3_600, text: `${en} (${id})`, final: true });
-    translation.push({ type: "line", id, startMs: t, endMs: t + 3_600, text: `${tr} (${id})`, final: true });
+    const [en, tr, ar] = SENTENCES[id % SENTENCES.length]!;
+    const line = { type: "line", id, startMs: t, endMs: t + 3_600, final: true } as const;
+    captions.push({ ...line, text: `${en} (${id})` });
+    translation.push({ ...line, text: `${tr} (${id})` });
+    arabic.push({ ...line, text: `${ar} (${id})` });
   }
   const slides: SlideItem[] = [];
   for (let id = 0, t = 2_000; t < durationMs; id++, t += 30_000)
@@ -86,7 +116,7 @@ export function fakeTalk(durationMs = 300_000): FakeTalk {
       },
     });
   }
-  return { durationMs, captions, translation, slides, outlines };
+  return { durationMs, captions, translation, more: options.arabic ? { ar: arabic } : {}, slides, outlines };
 }
 
 interface AgentScript {
@@ -179,6 +209,15 @@ export class FakeRoom {
         talk.translation.map((l) => ({ atMs: l.endMs + TRANSLATE_LATENCY_MS, item: l })),
         lastLines(talk.translation, TRANSLATE_LATENCY_MS),
       ),
+      ...Object.entries(talk.more).map(([lang, lines]) =>
+        sliced(
+          `translate-${lang}`,
+          "translation",
+          lang,
+          lines.map((l) => ({ atMs: l.endMs + TRANSLATE_LATENCY_MS, item: l })),
+          lastLines(lines, TRANSLATE_LATENCY_MS),
+        ),
+      ),
       sliced(
         "describe",
         "slides",
@@ -268,6 +307,7 @@ function firstHalf(text: string): string {
 function labelOf(agent: string): string {
   if (agent === "captions") return "Captions (English)";
   if (agent === "translate-tr") return "Translation (Turkish)";
+  if (agent === "translate-ar") return "Translation (Arabic)";
   if (agent === "describe") return "Slide descriptions";
   return "Chapters, glossary and recap";
 }

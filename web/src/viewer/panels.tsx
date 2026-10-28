@@ -1,7 +1,7 @@
 import { Badge, Button, StatusDot, Switch } from "@astryxdesign/core";
 import { useEffect, useId, useRef, useState } from "react";
 import type { CaptionsState, OutlineState, SlidesState, TranslationState } from "../contracts/types";
-import type { AgentView, Health } from "../room/store";
+import type { AgentView, Health } from "../playback/agentViews";
 import { dirOf, formatMediaTime, languageName, nativeLanguageName } from "./lang";
 import { ScrollLog } from "./ScrollLog";
 import { useSpeech } from "./speech";
@@ -10,7 +10,7 @@ export function stateOf<K extends AgentView["kind"]>(
   agent: AgentView | undefined,
   kind: K,
 ): Extract<CaptionsState | TranslationState | SlidesState | OutlineState, { kind: K }> | undefined {
-  const state = agent?.latest?.envelope.state;
+  const state = agent?.latest?.state;
   return state && state.kind === kind ? (state as never) : undefined;
 }
 

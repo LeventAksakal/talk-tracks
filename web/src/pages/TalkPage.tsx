@@ -1,9 +1,8 @@
 import { Badge, Banner, Button } from "@astryxdesign/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AUDIO_TRACK, FRAMES_TRACK, isValidRoom, slidesPath, teacherPath } from "../contracts/names";
-import type { AgentView } from "../room/store";
-import { useRoom } from "../room/useRoom";
 import { RoomClock } from "../playback/clock";
+import { useRoomStatus } from "../playback/roomStatus";
 import { Link, useLocation } from "../router";
 import { type MicHandle, startMic } from "../speaker/mic";
 import { FRESH_AUDIO_MS, isOwnAudio, type MicState, type OnAir, onAirState } from "../speaker/onair";
@@ -24,7 +23,7 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
   // what it sees is what the relay really accepted.
   const publisher = useMoqTransport(token);
   const watcher = useMoqTransport();
-  const [view] = useRoom(watcher, room);
+  const view = useRoomStatus(watcher, room);
 
   const [publisherStatus, setPublisherStatus] = useState(publisher?.status() ?? "connecting");
   const [publisherError, setPublisherError] = useState<string>();
@@ -293,8 +292,8 @@ function SlideShare({
   );
 }
 
-function Roster({ agents }: { agents: readonly AgentView[] }) {
-  const total = agents.reduce((sum, a) => sum + a.costUsd, 0);
+/** The agents announced in the room. Announcements only: the console subscribes to no agent, so it costs nothing. */
+function Roster({ agents }: { agents: readonly string[] }) {
   return (
     <section className="panel roster" aria-labelledby="roster-heading">
       <h2 id="roster-heading" className="panel-title">
@@ -306,46 +305,22 @@ function Roster({ agents }: { agents: readonly AgentView[] }) {
         <table className="roster-table">
           <thead>
             <tr>
-              <th scope="col">Track</th>
-              <th scope="col">Model</th>
+              <th scope="col">Agent</th>
               <th scope="col">Health</th>
-              <th scope="col" className="num">
-                Cost
-              </th>
             </tr>
           </thead>
           <tbody>
-            {agents.map((a) => (
-              <tr key={a.name}>
-                <th scope="row">
-                  {a.label}
-                  <div className="muted small">
-                    {a.name}
-                    {a.instance ? ` · instance ${a.instance}` : ""}
-                  </div>
-                </th>
-                <td>{a.model ?? "—"}</td>
+            {agents.map((name) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
                 <td>
-                  <HealthDot health={a.health} />
+                  <HealthDot health="live" />
                 </td>
-                <td className="num">{usd(a.costUsd)}</td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row" colSpan={3}>
-                Total
-              </th>
-              <td className="num">{usd(total)}</td>
-            </tr>
-          </tfoot>
         </table>
       )}
     </section>
   );
-}
-
-function usd(n: number): string {
-  return `$${n.toFixed(n < 1 ? 4 : 2)}`;
 }

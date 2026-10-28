@@ -17,10 +17,10 @@ export function createRoomPlayback(transport: MoqTransport, room: string): Playb
  * An offline room for trying rewind with no relay: a scripted talk that started `startMs` ago, its
  * agents publishing on a FakeHistorySource, and a media clock with no sound.
  */
-export function createDemoPlayback(room: string, startMs = 180_000): Playback {
+export function createDemoPlayback(room: string, startMs = 180_000, options: { arabic?: boolean } = {}): Playback {
   const source = new FakeHistorySource();
   source.fetchDelayMs = 60;
-  const talk = fakeTalk(3_600_000);
+  const talk = fakeTalk(3_600_000, options);
   const fake = new FakeRoom(source, room, talk);
   const t0 = Date.now() - startMs;
   fake.start(startMs);
