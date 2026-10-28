@@ -111,8 +111,8 @@ Room service token: publish `talk/R/catalog`, subscribe `talk/R/**`. The looper 
 
 ## Catalog field names (locked by the coordinator, 2026-10-28)
 
-Revised the same day to match the record contract (`06e22ce`): `epoch` became `E`, the `capped` flag folded into
-`status`, and `media` was added.
+Revised the same day to match the record contract (`06e22ce`): `epoch` became `E`, and the `capped` flag folded into
+`status`.
 
 The design leaves these names open. Every lane uses exactly these:
 
@@ -120,11 +120,13 @@ The design leaves these names open. Every lane uses exactly these:
   drops undeclared fields (namespace, mimeType, eventType, lang, label, template and every `tt`), so it is not used to
   read ours.
 - **Root `tt`:**
-  - `E`: the room epoch, Unix ms, a multiple of 4000. Absent until the first teacher media; nobody stamps before it;
+  - `E`: the room epoch, Unix ms, a multiple of 4000;
   - `shift`: `{<clock.wall as a decimal string>: shift_ms}`, one entry per teacher broadcast. Values are ms, a
     multiple of 4000, not a slice count;
-  - `status`: keyed by the bare agent name (`captions`, `translate-tr`), not its namespace;
-  - `media`: the speaker's HLS playlist path, `/archive/<room>/index.m3u8`.
+  - `status`: keyed by the bare agent name (`captions`, `translate-tr`), not its namespace.
+
+  No `media` field: the speaker's HLS playlist is at `/archive/<room>/index.m3u8` by convention. The room service
+  publishes no catalog before E exists, so `E` is always present.
 - **Each `tt.status.<agent>`:**
 
   | Field | Meaning |
