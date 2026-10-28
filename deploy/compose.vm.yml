@@ -127,11 +127,15 @@ services:
     init: true  # SIGTERM closes the open segments
     restart: unless-stopped
     depends_on: [relay]
-    volumes: ["${TT_DATA:?}/archive:/data/archive"]
+    volumes: ["${TT_DATA:?}:/data"]  # the archive, and the spend ledger read for the catalog's capped status
     environment:
       TT_RELAY: moqt://relay:443
       TT_TOKEN: ${TT_ARCHIVE_TOKEN:-}
       TT_ARCHIVE_DIR: /data/archive
+      TT_LEDGER: /data/ledger.jsonl
+      TT_CAPS_DIR: /data/caps
+      TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
+      TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]

@@ -25,13 +25,15 @@ from talk_tracks.archive.mp4 import (
     opus_duration_us,
 )
 from talk_tracks.archive.store import (
-    CLOCK_WAIT_MS,
+    MOQ_EPOCH_MS,
     Archive,
-    RoomClock,
+    Clock,
     RoomFilter,
     RoomIndex,
     RoomsIndex,
     RunIndex,
+    broadcast_clock,
+    shift_for,
     track_configs,
 )
 from talk_tracks.audio import OpusEncoder, write_varint
@@ -109,7 +111,22 @@ def test_catalog_tracks_are_read_and_others_skipped() -> None:
     assert list(configs) == ["audio"] and configs["audio"].channels == 2
 
 
-# --- media in the store -----------------------------------------------------------------------------------------
+# --- media in the store: the room clock -------------------------------------------------------------------------
+
+
+def clock_of(origin_ms: int) -> dict[str, int]:
+    """The hang root ``clock`` of a page loaded at ``origin_ms`` (Unix): µs since the moq epoch."""
+    return {"wall": (origin_ms - MOQ_EPOCH_MS) * 1000, "timescale": 1_000_000}
+
+
+def teacher(archive: Archive, room: str, origin_ms: int = WALL, *, clock: bool = True) -> bool:
+    """A teacher broadcast's catalog: mono Opus, with the broadcast's clock."""
+    cat: dict[str, object] = {
+        "audio": {"renditions": {"audio": {"codec": "opus", "container": {"kind": "legacy"}}}},
+    }
+    if clock:
+        cat["clock"] = clock_of(origin_ms)
+    return archive.room(room).catalog(json.dumps(cat).encode(), origin_ms)
 
 
 def feed_audio(archive: Archive, room: str, start_us: int, count: int, *, wall: int = WALL, skip: range = range(0)):
@@ -119,38 +136,66 @@ def feed_audio(archive: Archive, room: str, start_us: int, count: int, *, wall: 
         archive.room(room).media("audio", legacy_frame(start_us + i * 20_000, packet), wall + i * 20)
 
 
-def test_audio_is_cut_into_six_second_segments_back_to_back(tmp_path: Path) -> None:
+def room_index(root: Path, room: str) -> RoomIndex:
+    return RoomIndex.model_validate_json((root / room / "room.json").read_bytes())
+
+
+def test_the_clock_comes_from_the_hang_catalog_root() -> None:
+    assert broadcast_clock({"clock": clock_of(WALL)}) == Clock(str((WALL - MOQ_EPOCH_MS) * 1000), WALL * 1000)
+    in_ms = broadcast_clock({"clock": {"wall": WALL - MOQ_EPOCH_MS, "timescale": 1000}})
+    assert in_ms is not None and in_ms.origin_ms == WALL and in_ms.key == str(WALL - MOQ_EPOCH_MS)
+    assert broadcast_clock({}) is None and broadcast_clock({"clock": {"wall": "x"}}) is None
+
+
+def test_a_shift_is_whole_slices_past_every_used_slice() -> None:
+    assert shift_for(1_000, None) == 0  # the room's first broadcast
+    assert shift_for(60_000, 59_000) == 0  # a reload: later on the wall clock, in a fresh slice
+    assert shift_for(57_000, 56_500) == 4_000  # a slice partly used is used
+    assert shift_for(500, 1_000) == 4_000  # a slow device clock
+    assert shift_for(1_000, 204_000) == 204_000  # an agent's slice 50 is the end: the media starts in slice 51
+
+
+def test_audio_is_cut_on_the_four_second_grid_in_room_time(tmp_path: Path) -> None:
     files: list[tuple[str, bool]] = []
     archive = Archive(tmp_path, on_file=lambda p, m: files.append((p, m)))
-    feed_audio(archive, "live", 1_000_000, 700)  # 14 s
+    assert teacher(archive, "live")
+    feed_audio(archive, "live", 1_000_000, 700)  # 14 s, from 1 s after the page loaded
     archive.close()
+    rooms = room_index(tmp_path, "live")
+    assert rooms.epoch_ms == WALL and rooms.shift == {str((WALL - MOQ_EPOCH_MS) * 1000): 0}
     run = RunIndex.model_validate_json((run_dir(tmp_path, "live") / "run.json").read_bytes())
+    assert run.run == str(WALL) and run.shift_ms == 0 and run.media_first_ms == 1000
     (track,) = run.tracks
     assert track.track == "audio" and track.mime == 'audio/mp4; codecs="opus"'
-    assert [s.start_ms for s in track.segments] == [1000, 7000, 13000]
+    assert [s.start_ms for s in track.segments] == [1000, 4000, 8000, 12000]
     assert all(a.end_ms == b.start_ms for a, b in zip(track.segments, track.segments[1:], strict=False))
     assert track.segments[-1].end_ms == 15000
-    assert run.media_first_ms == 1000
     folder = run_dir(tmp_path, "live") / "teacher" / "audio"
     out = decode(
         (folder / "init-0.mp4").read_bytes(), [(folder / f"{s.n:06d}.m4s").read_bytes() for s in track.segments]
     )
-    assert len(out) == 700 and out[0].pts == 1_000_000
+    assert len(out) == 700 and out[0].pts == 1_000_000  # tfdt in room time
     assert (f"live/{run.run}/teacher/audio/000000.m4s", False) in files
+    assert ("live/audio.m3u8", True) in files and ("live/index.m3u8", True) in files
 
 
 def test_gaps_in_the_audio_are_silence_and_a_long_one_starts_a_segment(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
+    teacher(archive, "live")
     feed_audio(archive, "live", 0, 100, skip=range(20, 40))  # 400 ms suppressed
     feed_audio(archive, "live", 30_000_000, 50)  # 28 s later
     archive.close()
     run = RunIndex.model_validate_json((run_dir(tmp_path, "live") / "run.json").read_bytes())
     segments = run.tracks[0].segments
     assert [(s.start_ms, s.end_ms, s.samples) for s in segments] == [(0, 2000, 100), (30000, 31000, 50)]
+    playlist = (tmp_path / "live" / "audio.m3u8").read_text()
+    assert playlist.count("#EXT-X-GAP") == 7  # 2 s to 30 s, in 4 s steps
+    assert "#EXT-X-DISCONTINUITY" not in playlist and playlist.endswith("#EXT-X-ENDLIST\n")
 
 
 def test_late_audio_is_reordered_and_repeats_are_dropped(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
+    teacher(archive, "live")
     data = opus_packets(10)
     order = [0, 2, 1, 3, 3, 4, 6, 5, 7, 8, 9]
     for i in order:
@@ -161,98 +206,145 @@ def test_late_audio_is_reordered_and_repeats_are_dropped(tmp_path: Path) -> None
     assert [p.pts for p in out] == [i * 20_000 for i in range(10)]
 
 
-def test_video_segments_open_with_a_keyframe(tmp_path: Path) -> None:
+def test_video_segments_open_with_a_keyframe_and_the_playlists_pair_them(tmp_path: Path) -> None:
     clip = make_clip(tmp_path / "clip.mp4", seconds=8.0, fps=10)
     archive = Archive(tmp_path / "archive")
     room = archive.room("demo")
-    room.catalog(json.dumps(catalog(probe(clip))).encode(), WALL)
+    assert room.catalog(json.dumps(catalog(probe(clip), {"clock": clock_of(WALL)})).encode(), WALL)
+    room.live = True
     for p in packets(clip):
         room.media(p.kind, legacy_frame(p.file_us, p.data), WALL)
-    archive.close()
+    room.tick(WALL + 10_000)  # the tracks went quiet: their segments close
+    archive.save()
     run = RunIndex.model_validate_json((run_dir(tmp_path / "archive", "demo") / "run.json").read_bytes())
     video = next(t for t in run.tracks if t.track == "video")
     assert video.codec.startswith("avc1") and video.width == 64
-    assert [s.start_ms for s in video.segments] == [0, 6000]
+    assert [s.start_ms for s in video.segments] == [0, 4000]
     folder = run_dir(tmp_path / "archive", "demo") / "teacher" / "video"
     for s in video.segments:
         (first, *_) = decode((folder / s.init).read_bytes(), [(folder / f"{s.n:06d}.m4s").read_bytes()])
         assert first.is_keyframe
     assert (run_dir(tmp_path / "archive", "demo") / "teacher" / "catalog.json").exists()
+    index = (tmp_path / "archive" / "demo" / "index.m3u8").read_text()
+    assert '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio"' in index and 'URI="audio.m3u8"' in index
+    assert f'CODECS="{video.codec},opus",RESOLUTION=64x48,AUDIO="audio"\nvideo.m3u8' in index
+    playlist = (tmp_path / "archive" / "demo" / "video.m3u8").read_text()
+    assert f'#EXT-X-MAP:URI="{run.run}/teacher/video/init-0.mp4"' in playlist
+    assert "#EXT-X-PROGRAM-DATE-TIME:2025-10-28T11:13:24.000Z" in playlist  # E + 4 s
+    assert "#EXT-X-ENDLIST" not in playlist  # live: still being appended to
 
 
-def test_each_broadcast_is_a_run_on_one_room_clock(tmp_path: Path) -> None:
+def test_each_broadcast_is_a_run_with_its_shift(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
     room = archive.room("live")
-    room.clock(RoomClock(epoch_ms=WALL, offset_ms=0, session=str(WALL)), WALL)
-    feed_audio(archive, "live", 120_000_000, 50)
+    teacher(archive, "live", WALL)
+    feed_audio(archive, "live", 0, 50)  # room time 0 to 1 s
     room.teacher_gone()
-    room.slides_gone()  # a reload: the console goes too
-    feed_audio(archive, "live", 0, 50, wall=WALL + 130_000)  # media time restarts near 0: held for the new clock
-    assert room.offset_ms is None
-    room.clock(RoomClock(epoch_ms=WALL, offset_ms=125_000, session=str(WALL + 130_000)), WALL + 130_100)
+    teacher(archive, "live", WALL + 500)  # another device, its clock 30 s slow: its media maps onto used slices
+    feed_audio(archive, "live", 0, 50, wall=WALL + 30_500)
+    room.teacher_gone()
+    teacher(archive, "live", WALL + 60_000)  # a reload, later on the wall clock
+    feed_audio(archive, "live", 100_000, 50, wall=WALL + 60_100)
     archive.close()
-    rooms = RoomIndex.model_validate_json((tmp_path / "live" / "room.json").read_bytes())
-    assert rooms.epoch_ms == WALL and [r.session for r in rooms.runs] == [str(WALL), str(WALL + 130_000)]
-    assert rooms.runs[0].media_first_ms == 120_000 and rooms.runs[1].media_first_ms == 125_000
+    rooms = room_index(tmp_path, "live")
+    keys = [str((w - MOQ_EPOCH_MS) * 1000) for w in (WALL, WALL + 500, WALL + 60_000)]
+    assert rooms.shift == dict(zip(keys, [0, 4_000, 0], strict=True))
+    assert [r.broadcast for r in rooms.runs] == keys
+    assert [r.media_first_ms for r in rooms.runs] == [0, 4_500, 60_100]
     second = RunIndex.model_validate_json((tmp_path / "live" / rooms.runs[1].run / "run.json").read_bytes())
-    assert second.offset_ms == 125_000 and second.tracks[0].segments[0].start_ms == 125_000
-    assert room.end_ms == 125_980
-    assert RoomsIndex.model_validate_json((tmp_path / "rooms.json").read_bytes()).rooms[0].runs == 2
+    assert second.shift_ms == 4_000 and second.tracks[0].segments[0].start_ms == 4_500
+    assert room.archived_end_ms() == 61_081
+    assert RoomsIndex.model_validate_json((tmp_path / "rooms.json").read_bytes()).rooms[0].runs == 3
+    playlist = (tmp_path / "live" / "audio.m3u8").read_text()
+    assert playlist.count("#EXT-X-DISCONTINUITY") == 2 and playlist.count("#EXT-X-MAP") == 3
+    assert "#EXT-X-PROGRAM-DATE-TIME:2025-10-28T11:13:24.500Z" in playlist  # E + 4.5 s: the shift applied
+    assert playlist.index("#EXT-X-GAP") < playlist.index("#EXT-X-DISCONTINUITY")  # the hole, then the new broadcast
 
 
-def test_a_teacher_rejoining_under_the_same_console_keeps_its_clock(tmp_path: Path) -> None:
+def test_agent_slices_count_as_used_room_time(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import SliceObject, TrackArchive
+
     archive = Archive(tmp_path)
     room = archive.room("live")
-    room.clock(RoomClock(epoch_ms=WALL, offset_ms=40_000, session="s1"), WALL)
-    feed_audio(archive, "live", 1_000_000, 10)
-    room.teacher_gone()  # the microphone restarted; the console (and its clock) stayed
-    feed_audio(archive, "live", 9_000_000, 10, wall=WALL + 9_000)
-    assert room.offset_ms == 40_000
+    room.epoch_ms = WALL  # an earlier broadcast set E; an agent's open slice is slice 50
+    TrackArchive("live", "captions", "items", root=tmp_path).write(50, SliceObject(0, b"carry"))
+    teacher(archive, "live", WALL)
+    feed_audio(archive, "live", 1_000_000, 5)
     archive.close()
-    rooms = RoomIndex.model_validate_json((tmp_path / "live" / "room.json").read_bytes())
-    assert len(rooms.runs) == 1 and rooms.runs[0].media_first_ms == 41_000 and rooms.runs[0].media_last_ms == 49_180
+    assert room_index(tmp_path, "live").runs[0].media_first_ms == 205_000
 
 
-def test_without_a_clock_track_room_time_is_media_time(tmp_path: Path) -> None:
+def test_a_teacher_reconnecting_keeps_its_broadcast(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
-    room = archive.room("demo")
-    room.media("audio", legacy_frame(7_000_000, opus_packets(1)[0]), WALL)
-    assert room.offset_ms is None and room.run is None  # held for the clock
-    room.tick(WALL + CLOCK_WAIT_MS)
-    assert room.offset_ms == 0
+    room = archive.room("live")
+    teacher(archive, "live")
+    feed_audio(archive, "live", 1_000_000, 10)
+    room.teacher_gone()  # the network dropped; the page (and its clock) stayed
+    teacher(archive, "live")
+    feed_audio(archive, "live", 9_000_000, 10, wall=WALL + 9_000)
     archive.close()
-    run = RunIndex.model_validate_json((run_dir(tmp_path, "demo") / "run.json").read_bytes())
-    assert run.media_first_ms == 7_000 and run.session is None
+    rooms = room_index(tmp_path, "live")
+    assert len(rooms.runs) == 1 and rooms.runs[0].media_first_ms == 1_000 and rooms.runs[0].media_last_ms == 9_180
+
+
+def test_a_broadcast_without_a_clock_is_refused(tmp_path: Path) -> None:
+    archive = Archive(tmp_path)
+    assert not teacher(archive, "live", clock=False)
+    feed_audio(archive, "live", 7_000_000, 5)
+    archive.close()
+    assert archive.room("live").run is None and not (tmp_path / "live" / "room.json").exists()
 
 
 def test_a_restarted_archiver_continues_the_run(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
+    teacher(archive, "live")
     feed_audio(archive, "live", 0, 400)
     archive.close()
     archive = Archive(tmp_path)
+    teacher(archive, "live")
     feed_audio(archive, "live", 8_000_000, 400, wall=WALL + 10_000)
     archive.close()
-    rooms = RoomIndex.model_validate_json((tmp_path / "live" / "room.json").read_bytes())
+    rooms = room_index(tmp_path, "live")
     assert len(rooms.runs) == 1
     run = RunIndex.model_validate_json((run_dir(tmp_path, "live") / "run.json").read_bytes())
     segments = run.tracks[0].segments
-    assert [s.n for s in segments] == [0, 1, 2, 3] and segments[2].init == "init-2.mp4"
+    assert [s.start_ms for s in segments] == [0, 4000, 8000, 12000]
+    assert segments[2].init == "init-2.mp4"
+    playlist = (tmp_path / "live" / "audio.m3u8").read_text()
+    assert playlist.count("#EXT-X-MAP") == 2 and "#EXT-X-DISCONTINUITY" not in playlist
+
+
+def test_long_holes_are_a_jump_in_program_date_time(tmp_path: Path) -> None:
+    archive = Archive(tmp_path)
+    room = archive.room("live")
+    teacher(archive, "live", WALL)
+    feed_audio(archive, "live", 0, 50)
+    room.teacher_gone()
+    teacher(archive, "live", WALL + 86_400_000)  # the next day
+    feed_audio(archive, "live", 0, 50, wall=WALL + 86_400_000)
+    archive.close()
+    playlist = (tmp_path / "live" / "audio.m3u8").read_text()
+    assert "#EXT-X-GAP" not in playlist and "#EXT-X-PROGRAM-DATE-TIME:2025-10-29T11:13:20.000Z" in playlist
 
 
 # --- slides -------------------------------------------------------------------------------------------------------
 
 
-def test_slides_are_kept_once_per_change(tmp_path: Path) -> None:
+def test_slides_are_kept_once_per_change_in_room_time(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
     png = base64.b64encode(b"\x89PNG fake").decode()
     room = archive.room("live")
-    assert room.slide(SlideFrame(id=0, at_ms=0, mime="image/png", data_b64=png), WALL)
+    teacher(archive, "live")
+    assert not room.slide(SlideFrame(id=0, at_ms=0, mime="image/png", data_b64=png), WALL)  # waits for the media
+    feed_audio(archive, "live", 2_000_000, 5)
     assert not room.slide(SlideFrame(id=0, at_ms=0, mime="image/png", data_b64=png), WALL + 2000)
+    feed_audio(archive, "live", 20_000_000, 5, wall=WALL + 20_000)
     assert room.slide(SlideFrame(id=1, at_ms=20_000, mime="image/png", data_b64=png), WALL + 20_000)
     archive.close()
     folder = run_dir(tmp_path, "live") / "slides"
     lines = [json.loads(line) for line in (folder / "frames.jsonl").read_text().splitlines()]
-    assert [line["id"] for line in lines] == [0, 1] and lines[0]["file"] == lines[1]["file"]
+    assert [(line["id"], line["room_ms"]) for line in lines] == [(0, 2000), (1, 20080)]
+    assert lines[0]["file"] == lines[1]["file"]
     assert (folder / lines[0]["file"]).read_bytes() == b"\x89PNG fake"
 
 
@@ -287,6 +379,7 @@ async def test_finished_files_go_to_the_bucket_and_indexes_are_coalesced(tmp_pat
     uploader = Uploader(tmp_path, bucket, mutable_every_s=0.2)
     archive = Archive(tmp_path, on_file=uploader.notify)
     task = asyncio.create_task(uploader.run())
+    teacher(archive, "live")
     feed_audio(archive, "live", 0, 400)
     png = base64.b64encode(b"\x89PNG fake").decode()
     for n in range(3):
@@ -299,6 +392,7 @@ async def test_finished_files_go_to_the_bucket_and_indexes_are_coalesced(tmp_pat
     assert f"live/{run}/teacher/audio/init-0.mp4" in bucket.objects
     assert bucket.puts.count(f"live/{run}/slides/frames.jsonl") == 1  # three changes, one upload
     assert "rooms.json" in bucket.objects, bucket.puts
+    assert "live/audio.m3u8" in bucket.objects and "live/index.m3u8" in bucket.objects
     await uploader.drain(2)
     assert bucket.objects[f"live/{run}/run.json"] == (tmp_path / "live" / run / "run.json").read_bytes()
 
@@ -467,48 +561,80 @@ def test_slice_watcher_and_track_info(tmp_path: Path) -> None:
     assert ("room1/agents/translate-tr/items/00000000.slice", False) in got
     assert ("room1/agents/translate-tr/items/track.json", True) in got
     info = json.loads((tmp_path / "room1/agents/translate-tr/items/track.json").read_text())
-    assert info["lang"] == "tr" and info["sliceMs"] == 4000 and info["status"] == "idle"
+    assert info["lang"] == "tr" and info["kind"] == "translation" and info["status"] == "idle"
     assert w.poll() == []
 
 
-def test_room_catalog_lists_tracks_without_subscribing(tmp_path: Path) -> None:
+def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path) -> None:
     from talk_tracks.archive.catalog import RoomCatalog
     from talk_tracks.archive.slices import TrackArchive, TrackInfo
 
-    t = TrackArchive(
+    TrackArchive("room1", "captions", "items", root=tmp_path, info=TrackInfo("captions", lang="en", lateness_ms=8000))
+    tr = TrackArchive(
         "room1",
         "translate-tr",
         "items",
         root=tmp_path,
-        info=TrackInfo("translation", lang="tr", depends=["captions/items"]),
+        info=TrackInfo("translation", lang="tr", depends=["captions/items"], lateness_ms=12000),
     )
+    TrackArchive("room1", "chapters", "outline", root=tmp_path, info=TrackInfo("outline", cost="paid"))
     cat = RoomCatalog("room1", tmp_path)
-    cat.teacher = {"audio": TrackConfig(kind="audio", codec="opus")}
-    cat.agents = {"translate-tr", "chapters"}  # chapters announced, but no track.json yet: not listed
+    cat.agents = {"captions", "translate-tr", "chapters", "describe"}  # describe has no track.json yet: not listed
     doc = json.loads(cat.changed() or b"")
+    assert doc["version"] == "draft-01" and "E" not in doc["tt"]  # no teacher media yet: no epoch, no template
+    assert doc["tt"]["media"] == "/archive/room1/index.m3u8"
+    cat.epoch_ms, cat.shift = WALL, {"123": 0}
+    doc = json.loads(cat.changed() or b"")
+    assert doc["tt"]["E"] == WALL and doc["tt"]["shift"] == {"123": 0}
     names = [(e["namespace"], e["name"]) for e in doc["tracks"]]
-    assert names == [("talk/room1/teacher", "audio"), ("talk/room1/agents/translate-tr", "items")]
-    tr = doc["tracks"][1]
-    assert tr["lang"] == "tr" and tr["packaging"] == "slices" and tr["sliceMs"] == 4000 and tr["status"] == "idle"
-    assert tr["depends"] == ["talk/room1/agents/captions/items"] and tr["cost"] == "paid"
-    assert doc["archive"] == "/archive/room1/room.json"
+    assert names == [
+        ("talk/room1/agents/captions", "items"),
+        ("talk/room1/agents/chapters", "outline"),
+        ("talk/room1/agents/translate-tr", "items"),
+    ]
+    captions, outline, translation = doc["tracks"]
+    assert captions == {
+        "name": "items",
+        "namespace": "talk/room1/agents/captions",
+        "packaging": "eventtimeline",
+        "mimeType": "application/json",
+        "eventType": "urn:msf:captions:webvtt",
+        "role": "caption",
+        "lang": "en",
+        "isLive": True,
+        "template": [0, 4000, [0, 0], [1, 0], WALL, 4000],
+        "tt": {"dependsOn": [], "latenessMs": 8000, "cost": "paid"},
+    }
+    assert translation["role"] == "subtitle" and translation["lang"] == "tr"
+    assert translation["tt"]["dependsOn"] == ["talk/room1/agents/captions/items"]
+    assert outline["eventType"] == "com.talktracks.outline" and "template" not in outline and "role" not in outline
+    assert doc["tt"]["status"]["talk/room1/agents/translate-tr"] == {"state": "idle"}
     assert cat.changed() is None
-    t.set_status("capped")
-    assert json.loads(cat.changed() or b"")["tracks"][1]["status"] == "capped"
+    tr.set_status("live")
+    status = json.loads(cat.changed() or b"")["tt"]["status"]
+    assert status["talk/room1/agents/translate-tr"] == {"state": "live"}
+    later = int((tmp_path / "room1/agents/translate-tr/items/track.json").stat().st_mtime * 1000) + 60_000
+    stale = json.loads(json.dumps(cat.document(later)))["tt"]["status"]
+    assert stale["talk/room1/agents/translate-tr"] == {"state": "idle"}  # its agent stopped without saying so
 
 
-def test_room_catalog_carries_the_room_clock(tmp_path: Path) -> None:
-    from talk_tracks.archive.catalog import RoomCatalog
-    from talk_tracks.archive.slices import SliceObject, TrackArchive
+def test_room_catalog_marks_paid_agents_capped_from_the_ledger(tmp_path: Path) -> None:
+    from talk_tracks.archive.catalog import Budget, RoomCatalog
+    from talk_tracks.archive.slices import TrackArchive, TrackInfo
 
-    cat = RoomCatalog("room1", tmp_path)
-    assert json.loads(cat.changed() or b"")["end_ms"] is None
-    cat.epoch_ms, cat.media_end_ms = WALL, 100_000
-    doc = json.loads(cat.changed() or b"")
-    assert doc["epoch_ms"] == WALL and doc["end_ms"] == 100_000
-    t = TrackArchive("room1", "captions", "items", root=tmp_path)
-    t.write(50, SliceObject(0, b"carry"))  # an agent's slice past the media: the next broadcast starts after it
-    assert json.loads(cat.changed() or b"")["end_ms"] == 51 * 4000
+    TrackArchive("room1", "captions", "items", root=tmp_path, info=TrackInfo("captions"))
+    TrackArchive("room1", "echo", "items", root=tmp_path, info=TrackInfo("captions", cost="free"))
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text('{"t": 1, "usd": 1.5, "what": "asr", "room": "room1"}\n{"t": 2, "usd": 9, "room": "other"}\n')
+    budget = Budget(ledger, tmp_path / "caps", ceiling_usd=100, room_cap_usd=2)
+    cat = RoomCatalog("room1", tmp_path, capped=budget.capped)
+    cat.agents = {"captions", "echo"}
+    assert json.loads(cat.changed() or b"")["tt"]["status"]["talk/room1/agents/captions"] == {"state": "idle"}
+    with ledger.open("a") as f:
+        f.write('{"t": 3, "usd": 0.5, "what": "llm", "room": "room1"}\n{"t": 4, "usd"')  # the last line half-written
+    status = json.loads(cat.changed() or b"")["tt"]["status"]
+    assert status["talk/room1/agents/captions"] == {"state": "capped"}
+    assert status["talk/room1/agents/echo"] == {"state": "idle"}  # free tracks are never capped
 
 
 def test_a_slice_is_created_once_and_the_loser_serves_the_winners_copy(tmp_path: Path) -> None:

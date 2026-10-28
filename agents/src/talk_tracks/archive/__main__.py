@@ -6,7 +6,8 @@ Settings also come from the environment: TT_RELAY, TT_TOKEN (needs publish right
 TT_ARCHIVE_DIR (default data/archive), TT_ARCHIVE_ROOMS (glob patterns to keep, comma-separated, default all),
 TT_ARCHIVE_SKIP (patterns to skip, such as a looped demo room, whose looper publishes its own catalog) and
 TT_ARCHIVE_BUCKET (the Cloud Storage bucket to copy to, ``gs://name[/folder]``, folder default ``archive``; unset: no
-copy).
+copy). The catalog marks paid agents ``capped`` from the agents' spend ledger: TT_LEDGER (default data/ledger.jsonl),
+TT_CAPS_DIR (default data/caps), TT_ROOM_CAP_USD (default 2) and TT_SPEND_CEILING_USD (default 100).
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
 async def main_async(args: argparse.Namespace) -> None:
     from ..moq import connect, until_closed
     from .bucket import GcsBucket, Uploader
+    from .catalog import Budget
     from .relay import archive_rooms
     from .slices import SliceWatcher
     from .store import Archive, RoomFilter
@@ -63,7 +65,20 @@ async def main_async(args: argparse.Namespace) -> None:
                     uploader.notify(path, mutable)
 
             rooms = RoomFilter(args.rooms, args.skip)
-            work = archive_rooms(relay, archive, rooms, on_tick=copy_slices, publish_catalog=not args.no_catalog)
+            budget = Budget(
+                Path(os.environ.get("TT_LEDGER", "data/ledger.jsonl")),
+                Path(os.environ.get("TT_CAPS_DIR", "data/caps")),
+                float(os.environ.get("TT_SPEND_CEILING_USD", "100")),
+                float(os.environ.get("TT_ROOM_CAP_USD", "2")),
+            )
+            work = archive_rooms(
+                relay,
+                archive,
+                rooms,
+                on_tick=copy_slices,
+                publish_catalog=not args.no_catalog,
+                capped=budget.capped,
+            )
             await until_closed(relay, work)
     finally:
         archive.close()
