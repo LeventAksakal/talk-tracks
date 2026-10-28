@@ -3,7 +3,8 @@
 Runs in the agents' Docker image (aiomoqt). The schedule, the recording format and the lecture mapping are in the
 transport-free modules ``replay``, ``recording`` and ``lecture``.
 
-* ``play``: the lecture on ``talk/<room>/teacher`` (catalog, video, audio), once or looping, nothing else.
+* ``play``: the lecture on ``talk/<room>/teacher`` (catalog, video, audio), once or looping; with ``slides``, also
+  its slide frames on ``talk/<room>/slides`` for the describe agent (found in the video, see ``slideshow``).
 * ``record``: every agent's newest instance under ``talk/<room>/agents/``, stamped with the teacher's media time.
 * ``generate``: ``record`` and ``play`` once together, for agents already running in a private room.
 * ``loop``: the lecture and the recorded agent tracks together, forever, as if live.
@@ -12,6 +13,7 @@ transport-free modules ``replay``, ``recording`` and ``lecture``.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import logging
@@ -21,7 +23,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack
 from pathlib import Path
 
-from .contracts import Envelope, Usage, agent_path, agents_prefix, teacher_path
+from .contracts import Envelope, SlideFrame, Usage, agent_path, agents_prefix, slides_path, teacher_path
 from .follow import RoomFollower
 from .lecture import (
     AUDIO_TRACK,
@@ -39,6 +41,7 @@ from .publisher import SnapshotPublisher
 from .recording import RecordingWriter, load_manifest
 from .replay import Cue, LoopPlan, MediaClock, Timeline, event_us, loop_events, next_instance
 from .runtime import HEARTBEAT_S, now_ms
+from .slideshow import Crop, Slide, find_slides
 
 log = logging.getLogger("talk_tracks.demo")
 
@@ -46,6 +49,7 @@ LECTURE_FILE = "lecture.mp4"
 VIDEO_QUEUE = 64  # about one GOP: what a first subscriber gets first is at most ~2.5 s old
 AUDIO_QUEUE = 50  # 1 s of Opus
 CATALOG_QUEUE = 2
+SLIDE_REPEAT_S = 2.0  # the speaker console repeats the current slide this often
 
 Connect = Callable[[], contextlib.AbstractAsyncContextManager[Relay]]
 
@@ -89,6 +93,44 @@ class Teacher:
                 self._gop_open = True
             elif self._gop_open:
                 await self._video.append(frame)
+
+
+class SlideTrack:
+    """The lecture's slides on ``talk/<room>/slides`` track ``frames``, as the speaker console sends them: each at the
+    media time it appeared, the current one repeated every 2 s for a late subscriber. Loop k moves times by k x
+    duration and ids by k x the slide count, like the agent tracks."""
+
+    def __init__(self, relay: Relay, room: str, slides: list[Slide]) -> None:
+        self._relay, self._room, self._slides = relay, room, slides
+        self._sink: TrackWriter | None = None
+
+    async def start(self) -> None:
+        self._sink = await self._relay.publish(slides_path(self._room), "frames", queue=CATALOG_QUEUE)
+
+    async def show(self, start: float, plan: LoopPlan) -> None:
+        """Loop ``plan``'s slides, starting at monotonic time ``start``; runs until cancelled."""
+        assert self._sink is not None
+        for i, slide in enumerate(self._slides):
+            await _at(start, slide.at_ms / 1000)
+            frame = (
+                SlideFrame(
+                    id=plan.index * len(self._slides) + i,
+                    at_ms=plan.media_us(slide.at_ms * 1000) // 1000,
+                    mime="image/jpeg",
+                    data_b64=base64.b64encode(slide.jpeg).decode(),
+                )
+                .model_dump_json()
+                .encode()
+            )
+            until = self._slides[i + 1].at_ms / 1000 if i + 1 < len(self._slides) else None
+            while True:
+                try:
+                    await self._sink.write(frame)
+                except TimeoutError:
+                    log.warning("slide %d write timed out", i)
+                if until is not None and time.monotonic() + SLIDE_REPEAT_S >= start + until:
+                    break
+                await asyncio.sleep(SLIDE_REPEAT_S)
 
 
 class AgentTracks:
@@ -136,14 +178,17 @@ async def run_lecture(
     connect_agents: Connect | None = None,
     room: str = "",
     lecture: Path,
+    slides: SlideTrack | None = None,
 ) -> None:
-    """Play the lecture ``loops`` times (None: forever), with the timeline's agent tracks when there is one."""
+    """Play the lecture ``loops`` times (None: forever), with the timeline's agent tracks when there is one, and the
+    slide frames with ``slides``."""
     duration_ms = teacher.info.duration_ms
     beats = [asyncio.create_task(_every(HEARTBEAT_S, teacher.publish_catalog))]
     stacks: list[AsyncExitStack] = []
     closing: set[asyncio.Task[None]] = set()
     previous: str | None = None
     origin = time.monotonic()  # loop k starts at origin + k * duration: no drift over days of looping
+    show: asyncio.Task[None] | None = None
     try:
         index = 0
         while loops is None or index < loops:
@@ -165,6 +210,7 @@ async def run_lecture(
                 log.info("loop %d: media from %d ms", index, plan.media_offset_ms)
             cues = timeline.cues(plan) if timeline else iter(())
             start = origin + index * duration_ms / 1000
+            show = asyncio.create_task(slides.show(start, plan)) if slides is not None else None
             first = True
             for event in loop_events(packets(lecture), cues):
                 await _at(start, event_us(event) / 1e6)
@@ -182,9 +228,11 @@ async def run_lecture(
                     task.add_done_callback(closing.discard)
                 first = False
             await _at(start, duration_ms / 1000)
+            if show is not None:
+                show.cancel()
             index += 1
     finally:
-        for task in beats:
+        for task in [*beats, *([show] if show else [])]:
             task.cancel()
         for task in list(closing):
             with contextlib.suppress(Exception):
@@ -266,13 +314,41 @@ def _connector(url: str, token: str | None, insecure: bool) -> Connect:
     return lambda: connect(url, token=token, insecure=insecure)
 
 
-async def play(url: str, room: str, media: Path, *, loops: int | None, token: str | None, insecure: bool) -> None:
+async def _find_slides(media: Path, crop: Crop | None) -> list[Slide] | None:
+    """Before connecting: the scan decodes every keyframe (about a minute for a 20-minute lecture)."""
+    if crop is None:
+        return None
+    found = await asyncio.to_thread(find_slides, media, crop)
+    log.info("slides: %d found in %s", len(found), media.name)
+    return found
+
+
+async def _slide_track(relay: Relay, room: str, found: list[Slide] | None) -> SlideTrack | None:
+    if found is None:
+        return None
+    track = SlideTrack(relay, room, found)
+    await track.start()
+    return track
+
+
+async def play(
+    url: str,
+    room: str,
+    media: Path,
+    *,
+    loops: int | None,
+    token: str | None,
+    insecure: bool,
+    slides: Crop | None = None,
+) -> None:
     info = probe(media)
     log.info("lecture %s: %.1f s", media.name, info.duration_ms / 1000)
+    found = await _find_slides(media, slides)
     async with connect(url, token=token, insecure=insecure) as relay:
         teacher = Teacher(relay, room, info)
         await teacher.start()
-        await until_closed(relay, run_lecture(teacher, loops=loops, lecture=media))
+        track = await _slide_track(relay, room, found)
+        await until_closed(relay, run_lecture(teacher, loops=loops, lecture=media, slides=track))
 
 
 async def loop(url: str, room: str, recording: Path, *, media: Path | None, token: str | None, insecure: bool) -> None:
@@ -321,11 +397,21 @@ def copy_lecture(media: Path, out: Path) -> Path:
 
 
 async def generate(
-    url: str, room: str, media: Path, out: Path, *, lead_in_s: float, tail_s: float, token: str | None, insecure: bool
+    url: str,
+    room: str,
+    media: Path,
+    out: Path,
+    *,
+    lead_in_s: float,
+    tail_s: float,
+    token: str | None,
+    insecure: bool,
+    slides: Crop | None = None,
 ) -> None:
     """Play the lecture once into ``room`` (where agents run) while recording their tracks into ``out``."""
     lecture = copy_lecture(media, out)
     info = probe(lecture)
+    found = await _find_slides(lecture, slides)
     rec = RecordingWriter(out, room, wall_ms=now_ms(), media=LECTURE_FILE)
     try:
         async with (
@@ -335,10 +421,11 @@ async def generate(
             recording = asyncio.create_task(record_room(recorder, room, rec))
             teacher = Teacher(speaker, room, info)
             await teacher.start()
+            track = await _slide_track(speaker, room, found)
             log.info("lead-in %.0f s: the agents find the teacher broadcast", lead_in_s)
             await asyncio.sleep(lead_in_s)
             log.info("playing %s (%.1f s) into room %s", lecture.name, info.duration_ms / 1000, room)
-            await until_closed(speaker, run_lecture(teacher, loops=1, lecture=lecture))
+            await until_closed(speaker, run_lecture(teacher, loops=1, lecture=lecture, slides=track))
             log.info("lecture over; recording the agents' last words for %.0f s", tail_s)
             await asyncio.sleep(tail_s)
             recording.cancel()

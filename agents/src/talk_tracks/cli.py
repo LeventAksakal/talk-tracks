@@ -168,15 +168,19 @@ async def _dev(args: argparse.Namespace) -> None:
 
 async def _demo(args: argparse.Namespace) -> None:
     from . import demo
+    from .slideshow import Crop
 
     common: dict[str, Any] = {"token": args.token, "insecure": args.insecure}
+    slides = Crop.parse(args.slides) if args.slides else None
     if args.agent == "play":
-        await demo.play(args.relay, args.room, need(args.media, "--media"), loops=args.loops, **common)
+        await demo.play(args.relay, args.room, need(args.media, "--media"), loops=args.loops, slides=slides, **common)
     elif args.agent == "record":
         await demo.record(args.relay, args.room, need(args.out, "--out"), media=None, **common)
     elif args.agent == "generate":
         media, out = need(args.media, "--media"), need(args.out, "--out")
-        await demo.generate(args.relay, args.room, media, out, lead_in_s=args.lead_in_s, tail_s=args.tail_s, **common)
+        await demo.generate(
+            args.relay, args.room, media, out, lead_in_s=args.lead_in_s, tail_s=args.tail_s, slides=slides, **common
+        )
     else:
         await demo.loop(args.relay, args.room, need(args.recording, "--recording"), media=args.media, **common)
 
@@ -204,6 +208,13 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--loops", type=int, default=None, help="play: how many times (default: forever)")
     p.add_argument("--lead-in-s", type=float, default=5.0, help="generate: wait before the lecture starts")
     p.add_argument("--tail-s", type=float, default=15.0, help="generate: keep recording after the lecture ends")
+    p.add_argument(
+        "--slides",
+        nargs="?",
+        const="full",
+        default=None,
+        help="play, generate: also send the slides found in the video, cropped to x,y,w,h (fractions; default full)",
+    )
     args = p.parse_args(argv)
     if not args.relay or not args.room:
         p.error("--relay and --room are required (or TT_RELAY and TT_ROOM)")
