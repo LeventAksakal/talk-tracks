@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-28
 tags: [moq, web, speaker, upstream]
 ---
@@ -31,3 +31,7 @@ Keep the offset for the hackathon. Afterwards, open an upstream issue with the u
 publisher reloads) and patch locally only if upstream declines.
 
 ## Answer
+
+Not needed (2026-10-28). @moq/publish is not limited here: it stamps every timestamp with `performance.now()` µs
+and publishes the mapping to wall time as the hang catalog's root `clock`. The owner chose to use it (decision 0012,
+"Revision 2026-10-28"), so there is no offset and no patch.
