@@ -129,30 +129,40 @@ Each `items` track is an MSF **event timeline** (MSF §8): every object is a JSO
 - **Objects are immutable** (D18 §2.1): every Location is written once, live or by back-fill, and the archive keeps
   exactly what was sent.
 
-**Declared deviation from MSF §8.3:** MSF wants object 0 to hold *all* records accumulated so far. Over a one-hour
-talk that grows to tens of KB per 4 s, so our carry-in is bounded to what is on screen. Earlier records are reached
-by FETCH of earlier slices, which is the point of slicing.
+**Declared deviations from MSF:**
+- MSF §8.3 wants object 0 to hold *all* records accumulated so far. Over a one-hour talk that grows to tens of KB per
+  4 s, so our carry-in is bounded to what is on screen. Earlier records are reached by FETCH of earlier slices, which
+  is the point of slicing. The carry-in's records therefore start before the slice's template time (MSF §7.1.1).
+- `m` is room time ([§4.5](#45-the-room-clock)), not the teacher's PTS (MSF §8.1). The catalog template maps it to
+  wall time.
 
 Where an item goes:
 
 - **The open slice** is the one containing the agent's **input watermark**: the newest teacher media time it has
   processed, in room time. It is never the agent's own wall clock, so clock skew between machines cannot push items
-  into future groups.
+  into future groups. An idle agent has no watermark; its edge is then `⌊now/S⌋`, with `now` the room time of the
+  newest teacher media (the agent reads the teacher's catalog and audio timestamps, which costs nothing).
+- **Write-once in both directions.** Live work that starts or resumes skips any slice already in the archive, and
+  back-fill never writes a slice that exists, so a back-fill near a slice boundary and resuming live work cannot both
+  produce group `k`.
 - **Live:** an item goes into the open slice when it is produced, so groups advance with time (D18 §2.3.1). A cue
   finalised after its slice closed lands in a later slice; `L` bounds how much later.
 - **Start mid-slice:** translation starts with SUBSCRIBE plus a Joining FETCH of the captions track, so it receives
   the whole current captions slice and translates it from the start. Captions, which cannot hear the past, mark the
   carry-in with `from` (the room time it started at).
 - **Stop:** when the last subscriber leaves, an agent finishes the open slice into its archive (at most 4 s more
-  work), so no slice is left half-written.
+  work), so no slice is left half-written. The relay's cache may still hold the cut-off copy it received live and
+  serve it as complete (a relay should check objects of unknown status upstream, D18 §10.12.3; moq-relay does not).
+  We accept this: the cut-off copy is a prefix of the archived one, the viewer merges by `id`, and the relay drops
+  the group after about 30 s without reads.
 - **Back-fill:** a slice produced later for a past `k` goes into group `k`, which the agent never produced live. It
   is reachable only by FETCH (D18 §10.7).
 
 ### 4.3 The outline
 
 Chapters, glossary and recap are revised as a whole by the LLM, so a slice log would be wrong for them. The
-`outline` track is a **snapshot track**: each revision is a new group holding one object with the full outline, a
-few KB. A browser joining late gets the latest group, however old (S6); an IETF reader uses SUBSCRIBE plus a Joining
+`outline` track is an MSF event timeline with one group per revision: object 0 holds every chapter, glossary entry
+and the recap as records `{"m": <start>, "data": {...}}`, which is MSF §8.3's full accumulated timeline, a few KB. A browser joining late gets the latest group, however old (S6); an IETF reader uses SUBSCRIBE plus a Joining
 FETCH. Seeking never needs an older outline: the viewer shows the newest one, whose chapters carry their start time.
 
 ### 4.4 Wire contract changes
@@ -162,7 +172,7 @@ These go through the coordinator, because they change `contracts/`:
 - Agent `items` objects become MSF event-timeline records (above). The current envelope's full-state `lines` and
   `slides` lists, `seq` and `instance` go away: the Location (group, object) is the sequence, and the stable name
   replaces the instance.
-- The outline stays a snapshot object.
+- The outline becomes an event timeline, one group per revision ([§4.3](#43-the-outline)).
 - Every time in every contract (`start`, `end`, `at`, `m`, the recordings' `media_ms`) is room time in ms.
 
 ### 4.5 The room clock
@@ -171,16 +181,23 @@ These go through the coordinator, because they change `contracts/`:
 
 - **The mapping already exists.** @moq/publish stamps every audio and video timestamp with `performance.now()` in
   µs, and advertises the mapping to wall time in the teacher's hang catalog as the root `clock`: `wall` is the
-  wall-clock time of PTS zero, that is `performance.timeOrigin` (src `@moq/publish/catalog.d.ts`; hang §4.2). Any
-  consumer computes wall time as `clock.wall + pts` with `@moq/hang`'s `wallClockTime()`.
+  wall-clock time of PTS zero, that is `performance.timeOrigin` (src `@moq/publish/catalog.d.ts`; hang §4.2).
+- **Units.** `clock.wall` counts `clock.timescale` units (default 1 000 000, µs) since the moq epoch,
+  2020-01-01T00:00:00Z; `pts` is in the track's timescale (µs for @moq/publish). So
+  `wall_unix_ms = 1577836800000 + 1000 × wall / timescale + pts_ms`, as `@moq/hang`'s `wallClockTime()` computes.
+  `E` and every room time are Unix ms, and so is the MSF template's `startWallclock`.
 - **The epoch.** `E` is fixed once per room by the room service: the wall time of the first teacher media it ever
-  saw, rounded down to a multiple of `S`. It is kept in the archive and published in the room catalog.
+  saw, rounded down to a multiple of `S`. It is kept in the archive and published in the room catalog. The room
+  service starts before the agents; an agent stamps nothing until the catalog gives it `E`, and Docker restarts the
+  room service like any agent ([§5.9](#59-relay-restart-durability-and-vm-loss)).
 - **Why this holds across reloads.** A reload starts a new page with a later `timeOrigin`, and the new catalog's
   `clock.wall` says so. Room time therefore keeps rising with wall time, the clock and the media come from the same
   broadcast, and a pause shows up as a real gap.
-- **Guard against a skewed device.** A speaker on another device with a slow clock could map onto room time already
-  used. Every consumer keeps its last room time per room and never writes a slice at or below the last slice it
-  wrote. Items that would land there move to the next free slice, and the agent logs the skew.
+- **Guard against a skewed device, decided once.** A speaker on another device with a slow clock could map onto room
+  time already used. The room service checks each new teacher broadcast (identified by its `clock.wall`): if its
+  first media maps at or below the archived end, it publishes one shift for that broadcast in the room catalog
+  (`tt.shift`, keyed by `clock.wall`, a whole number of slices). Every consumer, the archive and the HLS playlist
+  apply the same shift, so all tracks stay aligned.
 - **The looper** publishes the teacher broadcast itself and writes the same root `clock`, with each loop placed at
   `loop_index × loop_length` after the previous one, so demo rooms never repeat a group id either.
 - **Holes.** Room time has holes where nobody broadcast. A FETCH of a slice in a hole is answered with an error and
@@ -219,12 +236,17 @@ These go through the coordinator, because they change `contracts/`:
   keeps captions producing, and the relay aggregates it with the viewers' subscriptions. This is the MoQT
   subscription chain itself; there is no side channel.
 - **A FETCH looks like demand on moq-relay.** To forward a FETCH, the relay opens an upstream SUBSCRIBE that lives
-  until the FETCH completes: 8 ms for an instant answer, 3 s for a 3 s answer (S6). A fixed settle time therefore
-  fails for slow back-fill. **Rule:** a subscription is demand only once it has been open for 1 s **and** no FETCH
-  of that track from that relay session has been in flight during the last 1 s.
-  - A real viewer who subscribes while a back-fill is running is aggregated onto the relay's existing upstream
-    subscription. That subscription then outlives the FETCH, and the rule counts it 1 s later.
-  - The existing wake debounce (`TT_WAKE_DEBOUNCE_S`, 1 s) becomes this rule.
+  until the FETCH completes: 8 ms for an instant answer, 3 s for a 3 s answer (S6). It arrives about 2 ms before its
+  FETCH. A fixed settle time therefore fails for slow back-fill. **Rule, per subscription:**
+  - a SUBSCRIBE followed within 50 ms by a standalone FETCH of the same track is **fetch-induced**. It counts as demand
+    only if it is still open 1 s after the last FETCH of that track completed (a real viewer who subscribes during a
+    back-fill is merged onto it, so it outlives the FETCH);
+  - any other SUBSCRIBE counts as demand once it has been open for 1 s;
+  - once demand is met it **latches** until the relay cancels the subscription, so later fetches cannot pause live
+    work;
+  - the back-fill queue holds at most 2 per agent; further back-fill FETCHes get REQUEST_ERROR ("busy") at once, so a
+    scroller cannot keep the track's FETCHes in flight indefinitely;
+  - the existing wake debounce (`TT_WAKE_DEBOUNCE_S`, 1 s) becomes this rule.
 - **Cost:** live output starts at least 1 s after the first viewer subscribes.
 
 ### 5.4 Recording without creating demand
@@ -246,12 +268,18 @@ These go through the coordinator, because they change `contracts/`:
     `track.rs:306-312`).
 - **Media** (speaker audio and video) plays from the archive over HTTP, as **HLS with fMP4 segments**, through
   hls.js (native HLS on Safari and iPhone):
-  - Segments conform to CMSF (one CMAF fragment per group, each starting at a sync sample; CMSF §3.3–3.4), so a later
-    MoQ replay of the archive needs no repackaging.
-  - The playlist carries `EXT-X-PROGRAM-DATE-TIME` (room time maps to it through `E`), `EXT-X-DISCONTINUITY` at each
-    new teacher broadcast, and `EXT-X-GAP` over holes. hls.js handles gaps, new init segments and discontinuities;
-    we write none of that.
-  - Codecs must play from MP4 on every target: verify Opus in MP4 on Safari, or encode AAC.
+  - **The bar to ship is "hls.js and Safari play it".** CMSF conformance (one CMAF fragment per group, each starting
+    at a sync sample; CMSF §3.3–3.4) is a nice-to-have that would let a later MoQ replay skip repackaging.
+  - **Codecs:** H.264 video with a keyframe interval of 4 s or less, and audio in its own rendition, aligned with the
+    video. Audio is Opus if Safari plays Opus from fMP4 (a day-1 check), else AAC. If @moq/publish cannot be set to
+    these, the archiver transcodes, which costs CPU on the VM; that is checked on day 1 too.
+  - **Playlist:** `EXT-X-PROGRAM-DATE-TIME` on every segment, `EXT-X-DISCONTINUITY` at each new teacher broadcast, and
+    `EXT-X-GAP` over holes. If native Safari does not honour `EXT-X-GAP` (a day-1 check), holes are marked with a
+    discontinuity and a jump in PROGRAM-DATE-TIME instead. hls.js handles gaps, new init segments and
+    discontinuities; we write none of that.
+  - **Mapping:** the viewer converts the playhead to room time through PROGRAM-DATE-TIME (hls.js `playingDate`,
+    Safari `getStartDate()` plus `currentTime`): room time = that wall time − `E` (plus the broadcast's `tt.shift`),
+    never from `currentTime` alone.
   - This is the one place the design leaves MoQ. See [§6](#6-where-our-stack-falls-short), row 1.
 - **Go live:** the viewer drops the fetched state, keeps its live subscriptions, and jumps to the current slice.
   While rewound, the live subscriptions stay open: the viewer opted into those tracks, so keeping them open adds no
@@ -277,15 +305,18 @@ minute 20 and scrolls back gets earlier slices translated on demand.
   - the input exists: captions slice `k` is in the archive;
   - the room's back-fill budget has money left ([§5.12](#512-spend-caps));
   - the room is not a demo room.
-- It then reads captions slice `k`, translates it, writes it to the archive **write-once** (a conditional create; if
-  another process wrote `k` first, it serves that copy), and answers the FETCH from the archive. The relay waits for a
+- It then FETCHes captions slice `k` through the relay (an archive read at the captions agent; its helper SUBSCRIBE
+  lasts milliseconds), translates it, writes it to the archive **write-once** (a conditional create; if another
+  process wrote `k` first, it serves that copy), and answers the FETCH from the archive. This is a FETCH chain: the
+  past of one track is built from the past of another through the relay, with no side channel. The relay waits for a
   slow origin (3 s measured, S4).
 - Otherwise it answers REQUEST_ERROR, never an empty or placeholder group, so the slice can still be produced later
   without changing a published Location (D18 §2.1). Agents never send Prior Group ID Gap for slices that could still
   be back-filled (D18 §12.8).
 - The agent's FETCH handler defines its Largest Location as the open slice, so a FETCH of a past slice it never
   published is in range (D18 §10.12.3).
-- **Bounded:** at most one back-fill at a time per agent, queued behind live work; only for slices someone fetches.
+- **Bounded:** at most one back-fill at a time per agent, queued behind live work, with at most 2 waiting
+  ([§5.3](#53-lazy-agents-and-how-demand-reaches-them)); only for slices someone fetches.
   A fetched slice is paid once and is an archive read from then on.
 - **Stretch goal, not in the build plan:** captions back-filled from archived speaker audio, and translation
   chaining onto it.
@@ -308,9 +339,9 @@ minute 20 and scrolls back gets earlier slices translated on demand.
 
 ### 5.9 Relay restart, durability and VM loss
 
-- **Relay restart** drops every session. Each agent process exits when its relay session closes
-  (`talk_tracks.moq.until_closed`) and Docker restarts it, which re-announces, re-subscribes upstream (with the
-  Joining FETCH) and re-reads the teacher clock. Browsers reconnect by themselves. The demo rehearsal includes
+- **Relay restart** drops every session. Each agent, the room service and the archiver exit when their relay
+  session closes (`talk_tracks.moq.until_closed`) and Docker restarts them, which re-announces, re-subscribes upstream
+  (with the Joining FETCH) and re-reads the catalogs. Browsers reconnect by themselves. The demo rehearsal includes
   `docker restart` of the relay, with the time until every track is live again measured.
 - **Durability (decision 0011 stands):** each agent appends its slices to the room archive on the VM's disk; the
   archiver writes the speaker's media segments and playlist; a copier sends finished files to the bucket within
@@ -335,7 +366,8 @@ minute 20 and scrolls back gets earlier slices translated on demand.
   - `tt.latenessMs` (`L`) and `tt.cost` (`paid` or `free`).
 - **Status is not a track attribute**, because MSF forbids changing a declared track (MSF §5.3). Live, idle and
   capped are read from the track itself (the carry-in carries `capped`) and from a small `tt.status` map in the
-  root, which the room service fills from the spend ledger and each agent's state file.
+  root, which the room service fills from the spend ledger and each agent's state file (producing or not, the number
+  of FETCHes it served as origin, back-fills, spend).
 - The room service learns the room's tracks through SUBSCRIBE_NAMESPACE on `talk/R`, which creates no demand.
 - Each change is a new group whose object 0 is the full catalog. MSF allows deltas but does not require them
   (MSF §5.1.6). A browser joining late gets the latest group.
@@ -411,8 +443,9 @@ minute 20 and scrolls back gets earlier slices translated on demand.
 | Standard formats on top | captions as WebVTT-MSF event timelines; slices as an MSF template; media archive as CMSF segments | MSF §7.4, §8; WebVTT-MSF; CMSF |
 | Priorities | voice and captions first under congestion; history last | D18 §7 |
 
-Demo aid: a small inspector panel in a live room shows, per track, whether the agent is producing, how many upstream
-subscriptions it holds, whether each FETCH was served by the relay cache or the origin, and the ledger spend. The
+Demo aid: a small inspector panel in a live room shows, per track, whether the agent is producing, the FETCHes it
+served as origin against the viewer's own FETCHes (the difference is the relay cache), back-fills, and the ledger
+spend, all from the catalog's `tt.status`. The
 looped demo rooms replay recordings, so this panel is where judges see the lazy agents and aggregation at work.
 
 ## 8. Changes for the other lanes (summary; the full list is in the report)
@@ -497,7 +530,8 @@ The owner's choices on 2026-10-28, recorded in
 Three jurors reviewed the first version on 2026-10-28. Each saw only that version of this page and the specs
 (MoQT transport -18 and -22, MSF, CMSF, LOC, the catalog format, WebVTT-MSF, moq-lite-06, hang-03), with no access to
 the repo, our notes or the spike logs. Their lenses were transport, media and packaging, and system and product. All
-three returned **approve with changes**. What changed in response:
+three returned **approve with changes**, and again on the revised version, with smaller text-level changes. What
+changed in response to both rounds:
 
 | Finding (juror) | Change |
 |---|---|
@@ -513,4 +547,5 @@ three returned **approve with changes**. What changed in response:
 | A relay restart was not designed (system) | [§5.9](#59-relay-restart-durability-and-vm-loss) |
 | The killed-publisher stall is a relay deviation; a shorter QUIC idle timeout should cut it (transport) | measured in S5b; agents advertise 3 s ([§5.8](#58-agent-restore-after-a-restart)) |
 | Scope for 7 days; judges cannot see the AI-side MoQT in looped rooms (system) | captions back-fill moved to a stretch goal; the inspector panel ([§7](#7-what-the-build-demonstrates-for-the-judges)) |
+| Second round: a back-fill queue could block demand; the skew guard blocked back-fill and was per consumer; an idle agent had no edge; clock units; HLS codecs and mapping; the outline's payload; translation back-fill read disk (all three) | per-subscription demand rule with a latch and a queue bound; one shift decided by the room service; idle edge from the teacher clock; units stated; codec, playlist and mapping rules with day-1 checks; outline as an event timeline; a FETCH chain |
 | Section numbers, the priority direction, the S4b cause, the S4 lifetime (transport, system) | corrected in [§2](#2-what-the-spec-says-what-moq-lite-does-what-our-stack-does), [§5.11](#511-priorities-under-congestion) and [§9](#9-spike-results) |
