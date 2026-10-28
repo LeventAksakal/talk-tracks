@@ -26,6 +26,7 @@ class SnapshotPublisher:
         clock_ms: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
     ) -> None:
         self.info = info
+        self._label = info.label
         self.instance = instance or str(clock_ms())
         self._sink = sink
         self._usage = usage
@@ -42,6 +43,12 @@ class SnapshotPublisher:
         self._seq += 1
         self._last = state
         await self._write(state)
+
+    async def notice(self, text: str) -> None:
+        """Say something about the track itself (a spend cap reached) in its label, and republish the state."""
+        self.info = self.info.model_copy(update={"label": f"{self._label} ({text})"})
+        if self._last is not None:
+            await self.publish(self._last)
 
     async def heartbeat(self) -> None:
         """Repeat the current state with the same sequence number so a late subscriber gets it within seconds."""

@@ -8,7 +8,7 @@ Everything runs on one cloud VM (decision 0004) from `deploy/compose.vm.yml`:
 | `relay` | moq-relay on UDP 443 (QUIC and WebTransport) with Caddy's certificate; asks `auth` about every session |
 | `auth` | `moq auth serve` with the public key: anyone may watch `talk/**`, publishing needs a signed token ([tokens](tokens.md)) |
 | `looper` | the demo room, replaying a recording from `$TT_DATA/demo/<lecture>/` ([demo rooms](demo-rooms.md)) |
-| `captions`, `translate-tr`, `describe`, `chapters` | live agents for `$TT_LIVE_ROOM` (profile `live`; they need the Meta key) |
+| `captions`, `translate-tr`, `describe`, `chapters` | live agents for every room a speaker opens, or `$TT_LIVE_ROOMS` (profile `live`; they need the Meta key). Lazy: they pay only while their track is subscribed, and each room has a spend cap ([lazy agents](lazy-agents.md)) |
 
 The browser reaches the relay on the page's own origin: a production build needs no relay URL.
 
@@ -19,7 +19,8 @@ Nothing here is in git; the hostname, keys and tokens stay on the VM.
 | Path | Holds |
 |---|---|
 | `~/talk-tracks` | a clone of this repo; `web/dist` is copied in from a local build |
-| `~/talk-tracks/deploy/.env` | `TT_HOST`, `TT_KEYS`, `TT_DATA`, `TT_DEMO_ROOM`, `TT_LECTURE`, `TT_LIVE_ROOM`, `TT_LOOPER_TOKEN`, `TT_AGENT_TOKEN` (mode 600) |
+| `~/talk-tracks/deploy/.env` | `TT_HOST`, `TT_KEYS`, `TT_DATA`, `TT_DEMO_ROOM`, `TT_LECTURE`, `TT_LOOPER_TOKEN`, `TT_AGENT_TOKEN` (signed for `talk/*/agents/**`, [tokens](tokens.md)), optionally `TT_LIVE_ROOMS` (default `*`) and `TT_ROOM_CAP_USD` (default 2) (mode 600) |
+| `~/tt-data/caps/` | one JSON file per judge token batch: its rooms, room cap and total cap ([tokens](tokens.md#judge-tokens)) |
 | `~/tt-keys` | `private.jwk` (mode 600, made on the VM, never copied off) and `public.jwk` |
 | `~/tt-data` | `demo/<lecture>/` recordings, the agents' `state/` and the spend ledger `ledger.jsonl` |
 | `~/tt-secrets/meta.env` | `META_API_KEY=...` (folder 700, file 600); compose passes it to the live agents only, never to the looper |

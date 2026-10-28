@@ -20,6 +20,12 @@ class TranslateCore:
             self._seen = fresh[-1].id
         return fresh
 
+    def skip_to(self, lines: list[CaptionLine], keep: int) -> None:
+        """Leave all but the newest ``keep`` of ``lines`` untranslated: the track starts from now (decision 0010)."""
+        ids = sorted(line.id for line in lines)
+        if len(ids) > keep:
+            self._seen = max(self._seen, ids[-keep - 1])
+
     def add(self, line_id: int, text: str) -> None:
         self._lines[line_id] = TranslatedLine(id=line_id, text=text)
         for old in sorted(self._lines)[:-WINDOW]:
