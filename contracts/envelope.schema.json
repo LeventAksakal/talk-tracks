@@ -27,6 +27,36 @@
       "title": "AgentInfo",
       "type": "object"
     },
+    "CaptionItem": {
+      "additionalProperties": false,
+      "properties": {
+        "final": {
+          "description": "False for an interim version; a later item with the same id replaces it",
+          "title": "Final",
+          "type": "boolean"
+        },
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "line": {
+          "$ref": "#/$defs/CaptionLine"
+        },
+        "type": {
+          "const": "caption",
+          "default": "caption",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lang",
+        "line",
+        "final"
+      ],
+      "title": "CaptionItem",
+      "type": "object"
+    },
     "CaptionLine": {
       "additionalProperties": false,
       "properties": {
@@ -36,7 +66,7 @@
           "type": "integer"
         },
         "id": {
-          "description": "Increases by one per line; stable across restarts",
+          "description": "Rises with time: the start time in media ms (or one more than the previous id); stable across restarts and back-fill",
           "minimum": 0,
           "title": "Id",
           "type": "integer"
@@ -61,37 +91,34 @@
       "title": "CaptionLine",
       "type": "object"
     },
-    "CaptionsState": {
+    "CaptionsCarry": {
       "additionalProperties": false,
       "properties": {
-        "interim": {
-          "default": "",
-          "title": "Interim",
-          "type": "string"
-        },
-        "kind": {
-          "const": "captions",
-          "default": "captions",
-          "title": "Kind",
-          "type": "string"
-        },
         "lang": {
           "title": "Lang",
           "type": "string"
         },
         "lines": {
+          "description": "The last final lines before the slice",
           "items": {
             "$ref": "#/$defs/CaptionLine"
           },
+          "maxItems": 2,
           "title": "Lines",
           "type": "array"
+        },
+        "type": {
+          "const": "captions-carry",
+          "default": "captions-carry",
+          "title": "Type",
+          "type": "string"
         }
       },
       "required": [
         "lang",
         "lines"
       ],
-      "title": "CaptionsState",
+      "title": "CaptionsCarry",
       "type": "object"
     },
     "Chapter": {
@@ -144,8 +171,9 @@
       "title": "GlossaryTerm",
       "type": "object"
     },
-    "OutlineState": {
+    "OutlineSnapshot": {
       "additionalProperties": false,
+      "description": "One revision of the whole outline: chapters, glossary and recap are revised together, never sliced.",
       "properties": {
         "chapters": {
           "items": {
@@ -161,12 +189,6 @@
           "title": "Glossary",
           "type": "array"
         },
-        "kind": {
-          "const": "outline",
-          "default": "outline",
-          "title": "Kind",
-          "type": "string"
-        },
         "lang": {
           "title": "Lang",
           "type": "string"
@@ -175,6 +197,12 @@
           "default": "",
           "title": "Recap",
           "type": "string"
+        },
+        "type": {
+          "const": "outline",
+          "default": "outline",
+          "title": "Type",
+          "type": "string"
         }
       },
       "required": [
@@ -182,7 +210,31 @@
         "chapters",
         "glossary"
       ],
-      "title": "OutlineState",
+      "title": "OutlineSnapshot",
+      "type": "object"
+    },
+    "SlideItem": {
+      "additionalProperties": false,
+      "properties": {
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "slide": {
+          "$ref": "#/$defs/SlideNote"
+        },
+        "type": {
+          "const": "slide",
+          "default": "slide",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lang",
+        "slide"
+      ],
+      "title": "SlideItem",
       "type": "object"
     },
     "SlideNote": {
@@ -212,41 +264,58 @@
       "title": "SlideNote",
       "type": "object"
     },
-    "SlidesState": {
+    "SlidesCarry": {
       "additionalProperties": false,
       "properties": {
-        "kind": {
-          "const": "slides",
-          "default": "slides",
-          "title": "Kind",
-          "type": "string"
-        },
         "lang": {
           "title": "Lang",
           "type": "string"
         },
-        "slides": {
-          "items": {
-            "$ref": "#/$defs/SlideNote"
-          },
-          "title": "Slides",
-          "type": "array"
+        "slide": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlideNote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The slide on screen when the slice starts, if any"
+        },
+        "type": {
+          "const": "slides-carry",
+          "default": "slides-carry",
+          "title": "Type",
+          "type": "string"
         }
       },
       "required": [
         "lang",
-        "slides"
+        "slide"
       ],
-      "title": "SlidesState",
+      "title": "SlidesCarry",
       "type": "object"
     },
     "TranslatedLine": {
       "additionalProperties": false,
       "properties": {
+        "end_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
         "id": {
           "description": "The source caption line's id",
           "minimum": 0,
           "title": "Id",
+          "type": "integer"
+        },
+        "start_ms": {
+          "default": 0,
+          "description": "The source line's media times",
+          "minimum": 0,
+          "title": "Start Ms",
           "type": "integer"
         },
         "text": {
@@ -261,37 +330,63 @@
       "title": "TranslatedLine",
       "type": "object"
     },
-    "TranslationState": {
+    "TranslationCarry": {
       "additionalProperties": false,
       "properties": {
-        "kind": {
-          "const": "translation",
-          "default": "translation",
-          "title": "Kind",
-          "type": "string"
-        },
         "lang": {
           "title": "Lang",
           "type": "string"
         },
         "lines": {
+          "description": "The last lines before the slice",
           "items": {
             "$ref": "#/$defs/TranslatedLine"
           },
+          "maxItems": 2,
           "title": "Lines",
           "type": "array"
+        },
+        "type": {
+          "const": "translation-carry",
+          "default": "translation-carry",
+          "title": "Type",
+          "type": "string"
         }
       },
       "required": [
         "lang",
         "lines"
       ],
-      "title": "TranslationState",
+      "title": "TranslationCarry",
+      "type": "object"
+    },
+    "TranslationItem": {
+      "additionalProperties": false,
+      "properties": {
+        "lang": {
+          "title": "Lang",
+          "type": "string"
+        },
+        "line": {
+          "$ref": "#/$defs/TranslatedLine"
+        },
+        "type": {
+          "const": "translation",
+          "default": "translation",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lang",
+        "line"
+      ],
+      "title": "TranslationItem",
       "type": "object"
     },
     "Usage": {
       "additionalProperties": false,
-      "description": "Cumulative model usage of this agent instance: the load panel shows cost per track, not per viewer.",
+      "description": "Cumulative model usage of this agent process: the load panel shows cost per track, not per viewer.",
       "properties": {
         "cost_usd": {
           "default": 0.0,
@@ -323,6 +418,7 @@
     }
   },
   "additionalProperties": false,
+  "description": "One object. ``kind`` says where it sits: object 0 of a slice (``carry``), a later one (``item``), or the only\nobject of an outline revision (``snapshot``).",
   "properties": {
     "agent": {
       "$ref": "#/$defs/AgentInfo"
@@ -333,60 +429,82 @@
       "title": "At Ms",
       "type": "integer"
     },
-    "instance": {
-      "description": "Start time of this agent process in ms; a replacement gets a new one",
-      "title": "Instance",
-      "type": "string"
-    },
-    "seq": {
-      "description": "Increases by one per state change; a heartbeat repeats the same seq",
-      "minimum": 0,
-      "title": "Seq",
-      "type": "integer"
-    },
-    "state": {
+    "body": {
       "discriminator": {
         "mapping": {
-          "captions": "#/$defs/CaptionsState",
-          "outline": "#/$defs/OutlineState",
-          "slides": "#/$defs/SlidesState",
-          "translation": "#/$defs/TranslationState"
+          "caption": "#/$defs/CaptionItem",
+          "captions-carry": "#/$defs/CaptionsCarry",
+          "outline": "#/$defs/OutlineSnapshot",
+          "slide": "#/$defs/SlideItem",
+          "slides-carry": "#/$defs/SlidesCarry",
+          "translation": "#/$defs/TranslationItem",
+          "translation-carry": "#/$defs/TranslationCarry"
         },
-        "propertyName": "kind"
+        "propertyName": "type"
       },
       "oneOf": [
         {
-          "$ref": "#/$defs/CaptionsState"
+          "$ref": "#/$defs/CaptionsCarry"
         },
         {
-          "$ref": "#/$defs/TranslationState"
+          "$ref": "#/$defs/TranslationCarry"
         },
         {
-          "$ref": "#/$defs/SlidesState"
+          "$ref": "#/$defs/SlidesCarry"
         },
         {
-          "$ref": "#/$defs/OutlineState"
+          "$ref": "#/$defs/CaptionItem"
+        },
+        {
+          "$ref": "#/$defs/TranslationItem"
+        },
+        {
+          "$ref": "#/$defs/SlideItem"
+        },
+        {
+          "$ref": "#/$defs/OutlineSnapshot"
         }
       ],
-      "title": "State"
+      "title": "Body"
+    },
+    "capped": {
+      "default": false,
+      "description": "On a carry-in: the room reached its spend cap, so no items follow in this slice",
+      "title": "Capped",
+      "type": "boolean"
+    },
+    "kind": {
+      "enum": [
+        "carry",
+        "item",
+        "snapshot"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "slice": {
+      "description": "The group: media time [slice * 4 s, (slice + 1) * 4 s); for the outline, of the revision",
+      "minimum": 0,
+      "title": "Slice",
+      "type": "integer"
     },
     "usage": {
       "$ref": "#/$defs/Usage"
     },
     "v": {
-      "const": 1,
-      "default": 1,
+      "const": 2,
+      "default": 2,
       "title": "V",
       "type": "integer"
     }
   },
   "required": [
     "agent",
-    "instance",
-    "seq",
+    "slice",
+    "kind",
     "at_ms",
     "usage",
-    "state"
+    "body"
   ],
   "title": "Envelope",
   "type": "object"

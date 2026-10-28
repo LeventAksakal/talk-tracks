@@ -10,10 +10,20 @@ export const AUDIO_TRACK = "audio";
 export const slidesPath = (room: string) => `${ROOT}/${room}/slides`;
 export const FRAMES_TRACK = "frames";
 
-/** Every agent publishes `talk/<room>/agents/<agent>/<instance>`, track `state`. */
+/** The speaker console's room clock: `{"epoch_ms","offset_ms","session"}`, a group on change and every 4 s. */
+export const CLOCK_TRACK = "clock";
+
+/**
+ * Every agent publishes `talk/<room>/agents/<agent>` under a stable name (envelope v2): track `items`
+ * (sliced: carry-in plus items per 4 s group) or, for the chapters agent, track `outline` (snapshots).
+ * The `instance` argument builds the v1 path for the legacy room store and demo script only.
+ */
 export const agentsPrefix = (room: string) => `${ROOT}/${room}/agents`;
-export const agentPath = (room: string, agent: string, instance: string) =>
-  `${agentsPrefix(room)}/${agent}/${instance}`;
+export const agentPath = (room: string, agent: string, instance?: string) =>
+  instance === undefined ? `${agentsPrefix(room)}/${agent}` : `${agentsPrefix(room)}/${agent}/${instance}`;
+export const ITEMS_TRACK = "items";
+export const OUTLINE_TRACK = "outline";
+/** @deprecated v1 track of full-state snapshots. */
 export const STATE_TRACK = "state";
 
 /** Agents send a heartbeat every 2 s; an agent with no object for this long is stale. */

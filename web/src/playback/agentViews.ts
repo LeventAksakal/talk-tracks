@@ -2,7 +2,7 @@
 // playback TrackView (at the playhead) into one, so the panels show sliced tracks unchanged until the UI
 // lane replaces them.
 
-import type { Envelope, State } from "../contracts/types";
+import type { LegacyEnvelope, State } from "../contracts/types";
 import type { AgentView, Health } from "../room/store";
 import type { TrackView } from "./aiTracks";
 
@@ -19,7 +19,7 @@ export function toAgentView(t: TrackView, now: number = Date.now()): AgentView {
       : now - t.lastLiveAt > STALE_MS && t.kind !== "outline"
         ? "stale"
         : "live";
-  const envelope: Envelope | undefined = state && {
+  const envelope: LegacyEnvelope | undefined = state && {
     v: 1,
     agent: { name: t.agent, label: t.label, model: t.model ?? "" },
     instance: "",

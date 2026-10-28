@@ -2,7 +2,7 @@
 // A room with no archived media (a looped demo room, whose recording is not served) still rewinds its
 // AI tracks: the playhead then runs on a clock of its own and the media stays silent.
 
-import { slidesPath, teacherPath } from "../contracts/names";
+import { CLOCK_TRACK, slidesPath, teacherPath } from "../contracts/names";
 import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import { ArchiveClient, archivedRanges, type RunIndex } from "./archive";
@@ -373,7 +373,6 @@ export class RoomMedia implements SpeakerMedia {
 }
 
 /** The speaker console's room-clock track in `talk/R/slides`. */
-export const CLOCK_TRACK = "clock";
 
 /** `offset_ms` from a clock object `{"epoch_ms", "offset_ms", "session"}`, or undefined. */
 export function parseClock(payload: Uint8Array): number | undefined {

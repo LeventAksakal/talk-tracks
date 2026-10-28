@@ -1,6 +1,6 @@
 import { agentsPrefix, STALE_AFTER_MS, STATE_TRACK, ROOT } from "../contracts/names";
-import type { Envelope, StateKind } from "../contracts/types";
-import { parseEnvelope } from "../contracts/validate";
+import type { LegacyEnvelope as Envelope, StateKind } from "../contracts/types";
+import { parseLegacyEnvelope as parseEnvelope } from "../contracts/validate";
 import type { Closable, ConnectionStatus, Transport } from "../transport/types";
 import { newestInstance, parseAgentPath, SnapshotFilter } from "./follow";
 

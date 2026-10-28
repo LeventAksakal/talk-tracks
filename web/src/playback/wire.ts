@@ -1,22 +1,12 @@
-// The one adapter between the sliced wire contract (decision 0012, design §4.4) and the playback layer.
-// Everything that knows the envelope's shape, the broadcast paths and the track names is here, so a
-// contract change touches this file only.
-//
-// Built against the draft envelope v2 on the Lazy agents lane (contracts/envelope.schema.json there):
-// `slice`, `kind: carry | item | snapshot`, `capped` on a carry-in, and a `body` discriminated by `type`.
-// The checks below are structural; once the v2 schema is merged into contracts/, validate it with Ajv
-// as contracts/validate.ts does for v1.
+// The one adapter between the sliced wire contract (envelope v2, decision 0012) and the playback layer.
+// The contract's types, names and validation live in ../contracts; this file maps a validated envelope
+// to what the playback layer works with, and builds envelopes for the fakes.
 
-import { ROOT } from "../contracts/names";
-import type { Chapter, GlossaryTerm } from "../contracts/types";
+import { agentPath, agentsPrefix, ITEMS_TRACK, OUTLINE_TRACK } from "../contracts/names";
+import type { Carry, Chapter, Envelope, GlossaryTerm, Usage } from "../contracts/types";
+import { parseEnvelope } from "../contracts/validate";
 
-/** Every agent publishes under a stable name, without an instance segment. */
-export const agentsPrefix = (room: string) => `${ROOT}/${room}/agents`;
-export const agentPath = (room: string, agent: string) => `${agentsPrefix(room)}/${agent}`;
-/** Every sliced agent track. */
-export const ITEMS_TRACK = "items";
-/** The chapters agent's snapshot track. */
-export const OUTLINE_TRACK = "outline";
+export { agentPath, agentsPrefix, ITEMS_TRACK, OUTLINE_TRACK };
 
 export type TrackKind = "captions" | "translation" | "slides" | "outline";
 
@@ -108,125 +98,54 @@ export type WireObject =
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const decoder = new TextDecoder();
-
 export function parseObject(payload: Uint8Array): Parsed<WireObject> {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(decoder.decode(payload));
-  } catch (e) {
-    return { ok: false, error: `not JSON: ${String(e)}` };
-  }
-  try {
-    return { ok: true, value: fromEnvelope(raw) };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  const parsed = parseEnvelope(payload);
+  return parsed.ok ? { ok: true, value: fromEnvelope(parsed.value) } : parsed;
 }
 
-function fromEnvelope(raw: unknown): WireObject {
-  const env = obj(raw, "envelope");
-  const slice = int(env.slice, "slice");
-  const kind = env.kind;
-  const body = obj(env.body, "body");
-  const type = str(body.type, "body.type");
-  const lang = typeof body.lang === "string" ? body.lang : "";
-  const agentRaw = obj(env.agent, "agent");
-  const usage = env.usage && typeof env.usage === "object" ? (env.usage as Record<string, unknown>) : {};
+function fromEnvelope(env: Envelope): WireObject {
+  const { slice } = env;
   const agent: AgentMeta = {
-    name: str(agentRaw.name, "agent.name"),
-    label: str(agentRaw.label, "agent.label"),
-    model: str(agentRaw.model, "agent.model"),
-    costUsd: typeof usage.cost_usd === "number" ? usage.cost_usd : 0,
-    requests: typeof usage.requests === "number" ? usage.requests : 0,
+    ...env.agent,
+    costUsd: env.usage.cost_usd ?? 0,
+    requests: env.usage.requests ?? 0,
   };
-
-  if (kind === "snapshot") {
-    if (type !== "outline") throw new Error(`a snapshot holds an outline, not ${type}`);
-    const outline: Outline = {
-      lang,
-      chapters: arr(body.chapters, "chapters").map(chapter),
-      glossary: arr(body.glossary, "glossary").map(term),
-      recap: typeof body.recap === "string" ? body.recap : "",
-    };
-    return { kind, slice, outline, agent };
+  const body = env.body;
+  switch (body.type) {
+    case "outline":
+      return {
+        kind: "snapshot",
+        slice,
+        agent,
+        outline: { lang: body.lang, chapters: body.chapters, glossary: body.glossary, recap: body.recap ?? "" },
+      };
+    case "captions-carry":
+    case "translation-carry":
+      return { kind: "carry", slice, capped: env.capped === true, lang: body.lang, items: body.lines.map(line), agent };
+    case "slides-carry":
+      return {
+        kind: "carry",
+        slice,
+        capped: env.capped === true,
+        lang: body.lang,
+        items: body.slide ? [slide(body.slide)] : [],
+        agent,
+      };
+    case "caption":
+      return { kind: "item", slice, lang: body.lang, item: { ...line(body.line), final: body.final }, agent };
+    case "translation":
+      return { kind: "item", slice, lang: body.lang, item: line(body.line), agent };
+    case "slide":
+      return { kind: "item", slice, lang: body.lang, item: slide(body.slide), agent };
   }
-  if (kind === "carry") {
-    const capped = env.capped === true;
-    let items: Item[];
-    if (type === "captions-carry" || type === "translation-carry") items = arr(body.lines, "lines").map(finalLine);
-    else if (type === "slides-carry") items = body.slide == null ? [] : [slide(body.slide)];
-    else throw new Error(`unknown carry-in type ${type}`);
-    return { kind, slice, capped, lang, items, agent };
-  }
-  if (kind === "item") {
-    let item: Item;
-    if (type === "caption") item = { ...line(body.line), final: body.final === true };
-    else if (type === "translation") item = finalLine(body.line);
-    else if (type === "slide") item = slide(body.slide);
-    else throw new Error(`unknown item type ${type}`);
-    return { kind, slice, lang, item, agent };
-  }
-  throw new Error(`unknown kind ${String(kind)}`);
 }
 
-function line(raw: unknown): LineItem {
-  const l = obj(raw, "line");
-  return {
-    type: "line",
-    id: int(l.id, "line.id"),
-    startMs: typeof l.start_ms === "number" ? l.start_ms : 0,
-    endMs: typeof l.end_ms === "number" ? l.end_ms : 0,
-    text: str(l.text, "line.text"),
-    final: true,
-  };
+function line(l: { id: number; start_ms?: number; end_ms?: number; text: string }): LineItem {
+  return { type: "line", id: l.id, startMs: l.start_ms ?? 0, endMs: l.end_ms ?? 0, text: l.text, final: true };
 }
 
-const finalLine = (raw: unknown): LineItem => line(raw);
-
-function slide(raw: unknown): SlideItem {
-  const s = obj(raw, "slide");
-  return {
-    type: "slide",
-    id: int(s.id, "slide.id"),
-    atMs: int(s.at_ms, "slide.at_ms"),
-    description: str(s.description, "slide.description"),
-  };
-}
-
-function chapter(raw: unknown): Chapter {
-  const c = obj(raw, "chapter");
-  return {
-    id: int(c.id, "chapter.id"),
-    start_ms: int(c.start_ms, "chapter.start_ms"),
-    title: str(c.title, "chapter.title"),
-    summary: str(c.summary, "chapter.summary"),
-  };
-}
-
-function term(raw: unknown): GlossaryTerm {
-  const t = obj(raw, "term");
-  return { term: str(t.term, "term.term"), definition: str(t.definition, "term.definition") };
-}
-
-function obj(v: unknown, what: string): Record<string, unknown> {
-  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error(`${what} is not an object`);
-  return v as Record<string, unknown>;
-}
-
-function arr(v: unknown, what: string): unknown[] {
-  if (!Array.isArray(v)) throw new Error(`${what} is not a list`);
-  return v;
-}
-
-function str(v: unknown, what: string): string {
-  if (typeof v !== "string") throw new Error(`${what} is not a string`);
-  return v;
-}
-
-function int(v: unknown, what: string): number {
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new Error(`${what} is not a whole number >= 0`);
-  return v;
+function slide(s: { id: number; at_ms: number; description: string }): SlideItem {
+  return { type: "slide", id: s.id, atMs: s.at_ms, description: s.description };
 }
 
 // --- the other direction, for fakes and fixtures ---------------------------------------------------
@@ -242,20 +161,20 @@ export interface EncodeOptions {
 
 /** Encode a carry-in, as an agent publishes object 0 of a slice. */
 export function encodeCarry(o: EncodeOptions, slice: number, items: Item[], capped = false): Uint8Array {
-  const body =
+  const first = items[0];
+  const lines = items.filter(isLine).map(lineJson);
+  const body: Carry =
     o.kind === "slides"
-      ? {
-          type: "slides-carry",
-          lang: o.lang,
-          slide: items[0] && items[0].type === "slide" ? slideJson(items[0]) : null,
-        }
-      : { type: `${o.kind}-carry`, lang: o.lang, lines: items.filter(isLine).map(lineJson) };
+      ? { type: "slides-carry", lang: o.lang, slide: first?.type === "slide" ? slideJson(first) : null }
+      : o.kind === "translation"
+        ? { type: "translation-carry", lang: o.lang, lines }
+        : { type: "captions-carry", lang: o.lang, lines };
   return envelopeJson(o, slice, "carry", body, capped);
 }
 
 /** Encode one item, as an agent publishes objects 1 and up of a slice. */
 export function encodeItem(o: EncodeOptions, slice: number, item: Item): Uint8Array {
-  const body =
+  const body: Envelope["body"] =
     item.type === "slide"
       ? { type: "slide", lang: o.lang, slide: slideJson(item) }
       : o.kind === "translation"
@@ -265,18 +184,18 @@ export function encodeItem(o: EncodeOptions, slice: number, item: Item): Uint8Ar
 }
 
 export function encodeOutline(o: EncodeOptions, slice: number, outline: Outline): Uint8Array {
-  const body = {
-    type: "outline",
-    lang: o.lang,
-    chapters: outline.chapters,
-    glossary: outline.glossary,
-    recap: outline.recap,
-  };
-  return envelopeJson(o, slice, "snapshot", body);
+  const { chapters, glossary, recap } = outline;
+  return envelopeJson(o, slice, "snapshot", { type: "outline", lang: o.lang, chapters, glossary, recap });
 }
 
-function envelopeJson(o: EncodeOptions, slice: number, kind: string, body: unknown, capped = false): Uint8Array {
-  const usage = { requests: 0, input_tokens: 0, output_tokens: 0, cost_usd: o.costUsd ?? 0 };
+function envelopeJson(
+  o: EncodeOptions,
+  slice: number,
+  kind: Envelope["kind"],
+  body: Envelope["body"],
+  capped = false,
+): Uint8Array {
+  const usage: Usage = { requests: 0, input_tokens: 0, output_tokens: 0, cost_usd: o.costUsd ?? 0 };
   const env = { v: 2, agent: o.agent, slice, kind, ...(capped ? { capped } : {}), at_ms: 0, usage, body };
   return encoder.encode(JSON.stringify(env));
 }

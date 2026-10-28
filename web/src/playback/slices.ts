@@ -1,12 +1,9 @@
-// The one clock everything lines up on: the speaker's media time, in ms. Every sliced agent track cuts
-// group k as media time [k·S, (k+1)·S) (decision 0012, design §4.1), so a seek is arithmetic.
+// The one clock everything lines up on: room time, in ms. Every sliced agent track cuts group k as room
+// time [k·S, (k+1)·S) (decision 0012, design §4.1), so a seek is arithmetic.
 
-export const SLICE_MS = 4_000;
+import { SLICE_MS, sliceOf } from "../contracts/types";
 
-/** The slice (group) that holds media time `ms`. */
-export function sliceOf(ms: number): number {
-  return Math.max(0, Math.floor(ms / SLICE_MS));
-}
+export { SLICE_MS, sliceOf };
 
 export function sliceStart(slice: number): number {
   return slice * SLICE_MS;
