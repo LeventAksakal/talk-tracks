@@ -9,7 +9,8 @@ transport-free modules ``replay``, ``recording`` and ``lecture``.
 * ``generate``: ``record`` and ``play`` once together, for agents already running in a private room.
 * ``loop``: the lecture and the recorded agent tracks together, forever, as if live: on the room clock of
   ``replay`` (anchored to the wall clock, so a restarted looper rejoins the loop in progress) and as sliced tracks
-  under stable names (``slicing``, decision 0012), each answering a FETCH of any of its groups (``origin``).
+  under stable names (``slicing``, decision 0012), each answering a FETCH of any of its groups (``origin``), with
+  long caption lines cut into subtitle cues first (``resegment``).
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from .moq import AUDIO_IDLE_S, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest, read_snapshots
 from .replay import EPOCH_MS, Cue, LoopPlan, MediaClock, event_us, loop_events, position
+from .resegment import resegment
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog, catalog_path
 from .runtime import HEARTBEAT_S, now_ms
@@ -380,7 +382,7 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
     manifest = load_manifest(recording)
     lecture = media or (recording / (manifest.media or LECTURE_FILE))
     info = probe(lecture)
-    recorded = [(agent.info, list(read_snapshots(recording, agent))) for agent in manifest.agents]
+    recorded = resegment([(agent.info, list(read_snapshots(recording, agent))) for agent in manifest.agents])
     sliced = Room(Template.build(recorded, info.duration_ms), EPOCH_MS)
     log.info(
         "looping %s (%.1f s, a loop every %.0f s) with %s in room %s",

@@ -229,6 +229,11 @@ chapters. The looper turns the recording's full-state snapshots into that wire f
   caption or translated lines, or the slide on screen), then one item per object: each new interim caption text (an
   interim version of the next line id), each new or changed final line, translated line or slide description.
   Translated lines carry their source line's media times. A slice with nothing new is a carry-in alone.
+* **Cues.** The real ASR's lines are long segments (half a minute is common), so the looper first cuts each into
+  subtitle cues of at most 7 s and 84 characters (`agents/src/talk_tracks/resegment.py`): after a sentence end, else
+  a clause mark or before a conjunction. Word times follow the recorded interims; a cue goes out final once all its
+  words were heard. Each translated line is split over its source line's cues, sentence by sentence, by character
+  share.
 * **Outline.** One group per revision of the whole outline (chapters, glossary, recap); an unchanged revision is
   not a new group.
 * **FETCH.** The looper is the origin of its tracks' history: any group up to the one in progress is rebuilt from the
