@@ -13,16 +13,17 @@ cd "$(dirname "$0")"
 [ $# -ge 1 ] || { echo "usage: sh bench/run.sh LABEL [runner options]" >&2; exit 2; }
 label=$1
 shift
+export BENCH_LABEL=$label  # the history publisher logs the FETCHes it serves to results/LABEL.origin.log
 compose="docker compose -f compose.yml"
 export BENCH_DELAY_MS=${BENCH_DELAY_MS:-0} BENCH_LOSS_PCT=${BENCH_LOSS_PCT:-0}
 
 stop() {
   $compose --profile netem stop netem-relay netem-mediamtx >/dev/null 2>&1 || true
-  $compose stop source textpub mediamtx relay
+  $compose stop source textpub historypub mediamtx relay
 }
 trap stop EXIT
 
-$compose up -d relay mediamtx source textpub
+$compose up -d relay mediamtx source textpub historypub
 if [ "$BENCH_DELAY_MS" != 0 ] || [ "$BENCH_LOSS_PCT" != 0 ]; then
   $compose --profile netem up -d --force-recreate netem-relay netem-mediamtx
 fi
