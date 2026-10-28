@@ -8,8 +8,9 @@ Three steps, all in Docker (see [run-locally](run-locally.md) for the relay and 
 
 1. **prepare**: turn the lecture into the looper's format (MP4, H.264 without B-frames and a keyframe every 2 s, Opus
    48 kHz mono in 20 ms packets) in `data/demo/<lecture>/lecture.mp4`. `data/` is not in git.
-2. **generate**: start fresh agents in a private room, play the lecture into it once as the speaker, and record what the
-   agents publish into `data/demo/<lecture>/`. This is the only step that would cost API credit with real agents.
+2. **generate**: start fresh agents in a private room, play the lecture into it once as the speaker (with its slide
+   frames for the describe agent), and record what the agents publish into `data/demo/<lecture>/`. This is the only
+   step that would cost API credit with real agents.
 3. **loop**: serve the recording in the public room, forever.
 
 ## The two public rooms
@@ -28,6 +29,28 @@ timestamps always mean the same frames. It then trims and prepares it as `data/d
 
 The cuts were found with ffmpeg `silencedetect`, a 100 ms loudness envelope, scene detection and sampled frames.
 `prepare-lecture IN OUT [START END]` cuts in the same encode as the format change.
+
+## Slide frames for the describe agent
+
+A recorded talk has no speaker console sending slides, so `play --slides` and `generate --slides` find them in the
+video (`agents/src/talk_tracks/slideshow.py`) and send them on `talk/<room>/slides`. Each frame is a JPEG of the slide
+area, sent at the media time the slide appeared and repeated every 2 s, as the console does. The frames stay in
+memory for the run. They are never written to disk or stored as assets: the slides contain third-party images
+(ticket 0001).
+
+- Only keyframes are decoded (every 2 s), and a screen counts once the next keyframe looks the same. Transitions and
+  video clips inside a slide are skipped.
+- A still screen that replaces the current slide's content is a new slide.
+- One that only adds to it is a build: the slide keeps its first time and takes the fuller image, so it is described
+  once, complete.
+- A return to an earlier slide (after a zoom) is not sent again.
+- `--slides x,y,w,h` crops to the slide area, in fractions of the frame. The EMF layout is `0,0,0.77,0.77`, which
+  leaves out the speaker inset and the logo. A bare `--slides` sends the whole frame.
+
+| Lecture | Slides sent | Of which | Scan |
+|---|---|---|---|
+| `virus` | 20 | 16 slides and 4 zoomed views | about 45 s |
+| `dataviz` | 31 | the opening stage shot, 29 slide states, the closing slide with its build collapsed | about 50 s |
 
 ## All at once
 
@@ -65,20 +88,21 @@ The commands behind the services are `python -m talk_tracks <command>` in the ag
 
 | Command | What it does |
 |---|---|
-| `play --media FILE [--loops N]` | Publishes the lecture as the speaker (`talk/<room>/teacher`), once, N times or forever |
+| `play --media FILE [--loops N] [--slides [X,Y,W,H]]` | Publishes the lecture as the speaker (`talk/<room>/teacher`), once, N times or forever; with `--slides`, its slide frames too |
 | `record --out DIR` | Records every agent in the room until stopped (Ctrl-C or `docker stop`) |
-| `generate --media FILE --out DIR [--lead-in-s 5] [--tail-s 15]` | `record` and one `play` together; copies the lecture into DIR |
+| `generate --media FILE --out DIR [--lead-in-s 5] [--tail-s 15] [--slides [X,Y,W,H]]` | `record` and one `play` together; copies the lecture into DIR |
 | `loop --recording DIR [--media FILE]` | Replays DIR's lecture and agent tracks as a live room, forever |
 
 All take `--relay`, `--room`, `--insecure` and `--token` (or `TT_RELAY`, `TT_ROOM`, `TT_TOKEN`; the token goes to the
 relay as `?jwt=`). With signed tokens (see [tokens](tokens.md)), `play` and `generate` need publish rights on
-`talk/<room>/teacher`, and `loop` on both `talk/<room>/teacher` and `talk/<room>/agents/**`.
+`talk/<room>/teacher` (and `talk/<room>/slides` with `--slides`), and `loop` on both `talk/<room>/teacher` and `talk/<room>/agents/**`.
 
 ### With real agents
 
 The agents in `compose.local.yml` run with `--fake`. For real tracks, run the agents of step 2 without `--fake` and
-with the Meta key passed through from your environment (as in [run-locally](run-locally.md)), with
-`TT_SPEND_CEILING_USD` set to what one lecture may cost. Use a private room nobody else publishes into, and a fresh
+with the Meta key passed through from your environment (as in [run-locally](run-locally.md)). Set
+`TT_SPEND_CEILING_USD` to the ledger's current total plus what one lecture may cost: the ceiling caps the ledger's
+total, not one run. Use a private room nobody else publishes into, and a fresh
 room name or recreated containers each time: the captions agent resumes its lines from its state file per room.
 
 ## What a viewer receives
