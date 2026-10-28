@@ -2,7 +2,8 @@
 
 The relay holds one upstream subscription per track while any viewer or downstream agent subscribes, and cancels
 it within milliseconds of the last clean leave (wiki/howto/lazy-agents.md). ``Gate`` turns that into wanted / not
-wanted, with a grace period so a page reload or a downstream agent resubscribing does not pause the agent.
+wanted: a wake debounce so a momentary upstream subscription does not wake the agent, and a grace period so a page
+reload or a downstream agent resubscribing does not pause it.
 ``gated`` opens an input while wanted and closes it (which unsubscribes upstream in turn) while not. Transport-free.
 """
 
@@ -17,6 +18,7 @@ from typing import Any
 
 log = logging.getLogger("talk_tracks")
 
+WAKE_DEBOUNCE_S = 1.0
 IDLE_GRACE_S = 10.0
 POLL_S = 0.1
 
@@ -28,17 +30,28 @@ class Gate:
         self,
         subscribed: Callable[[], bool],
         *,
+        wake_s: float = WAKE_DEBOUNCE_S,
         grace_s: float = IDLE_GRACE_S,
         poll_s: float = POLL_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.subscribed = subscribed
+        self._wake = wake_s
         self._grace = grace_s
         self._poll = poll_s
         self._clock = clock
 
     async def wait_wanted(self) -> None:
-        while not self.subscribed():  # noqa: ASYNC110 - aiomoqt has no event for it, and polling costs nothing
+        """Return once someone has subscribed for ``wake_s`` in a row. Any FETCH through moq-relay 0.17.8 makes it
+        subscribe upstream for ~80 ms, even a FETCH it then refuses; such a blip must not open a paid session."""
+        since: float | None = None
+        while True:
+            if not self.subscribed():
+                since = None
+            elif since is None:
+                since = self._clock()
+            if since is not None and self._clock() - since >= self._wake:
+                return
             await asyncio.sleep(self._poll)
 
     async def wait_unwanted(self) -> None:

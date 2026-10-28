@@ -26,8 +26,25 @@ class Switch:
         return self.on
 
 
-def fast_gate(switch: Switch, grace_s: float = 0.05) -> Gate:
-    return Gate(switch, grace_s=grace_s, poll_s=0.005)
+def fast_gate(switch: Switch, grace_s: float = 0.05, wake_s: float = 0.0) -> Gate:
+    return Gate(switch, wake_s=wake_s, grace_s=grace_s, poll_s=0.005)
+
+
+async def test_a_momentary_subscription_does_not_wake_the_agent() -> None:
+    switch = Switch()
+    gate = fast_gate(switch, wake_s=0.3)
+    wanted = asyncio.ensure_future(gate.wait_wanted())
+    for _ in range(3):  # three FETCH blips: the relay subscribes upstream for ~80 ms each time
+        switch.on = True
+        await asyncio.sleep(0.08)
+        switch.on = False
+        await asyncio.sleep(0.1)
+    assert not wanted.done()
+
+    switch.on = True  # a viewer that stays
+    started = asyncio.get_running_loop().time()
+    await asyncio.wait_for(wanted, 1)
+    assert asyncio.get_running_loop().time() - started >= 0.29
 
 
 async def test_gate_waits_out_the_grace_period() -> None:

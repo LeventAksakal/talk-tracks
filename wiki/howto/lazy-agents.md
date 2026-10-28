@@ -54,6 +54,12 @@ keeps captions running, and nobody else needs to. When the last subscriber leave
 `TT_IDLE_GRACE_S` (default 10 s) before it pauses, so a page reload does not reopen the ASR session or lose the
 translation context. The relay's own 10 s timeout for a vanished viewer adds to that.
 
+Waking is debounced too: an agent opens its paid inputs only once its track has been subscribed for
+`TT_WAKE_DEBOUNCE_S` (default 1 s) in a row. The MoQT design lane measured that any FETCH through moq-relay 0.17.8
+makes the relay subscribe upstream, even a FETCH the relay then refuses: a publisher with no viewers was subscribed
+21 ms after the FETCH and cancelled about 80 ms later. Without the debounce such a blip could open an ASR session.
+A real viewer waits that second for the first new output; the track's current state reaches it at once.
+
 Switched on mid-talk, a track starts from that moment (decision 0010): captions take the audio from now; a
 translation translates the newest two caption lines and then each new one; chapters summarise the transcript the
 captions track still holds (its last 40 lines). Caption line ids carry on over a pause.
