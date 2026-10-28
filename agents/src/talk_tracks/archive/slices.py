@@ -352,12 +352,23 @@ def _decode_lines(data: bytes) -> Iterator[SliceObject]:
 
 def _claim(src: Path, final: Path) -> bool:
     """Move ``src`` to ``final`` unless ``final`` exists, atomically (a hard link fails on an existing name). False,
-    and ``src`` removed, when another writer got there first."""
+    and ``src`` removed, when another writer got there first.
+
+    Where hard links are not supported (some network or Windows mounts), a rename guarded by an existence check: on
+    Windows the rename itself fails on an existing name; elsewhere only the narrow window after the check remains."""
     try:
         os.link(src, final)
         return True
     except FileExistsError:
         return False
+    except OSError:
+        if final.exists():
+            return False
+        try:
+            os.rename(src, final)
+        except FileExistsError:
+            return False
+        return True
     finally:
         src.unlink(missing_ok=True)
 

@@ -14,7 +14,7 @@ import av
 import numpy as np
 import pytest
 
-from talk_tracks.archive.bucket import Uploader
+from talk_tracks.archive.bucket import AlreadyThere, Uploader
 from talk_tracks.archive.mp4 import (
     OPUS_SILENCE,
     Sample,
@@ -266,10 +266,12 @@ class FakeBucket:
         self.existing = existing or {}
         self.fail = fail
 
-    async def put(self, name: str, data: bytes, content_type: str) -> None:
+    async def put(self, name: str, data: bytes, content_type: str, *, create_only: bool = False) -> None:
         if self.fail:
             self.fail -= 1
             raise OSError("bucket away")
+        if create_only and name in self.objects:
+            raise AlreadyThere(name)
         self.puts.append(name)
         self.objects[name] = data
 
@@ -327,6 +329,10 @@ async def test_gcs_bucket_uses_the_metadata_token_and_the_archive_folder() -> No
             return httpx.Response(200, json={"access_token": "t0k", "expires_in": 3600})
         assert request.headers["Authorization"] == "Bearer t0k"
         if request.url.path.startswith("/upload/"):
+            if request.url.params.get("ifGenerationMatch") == "0" and request.url.params["name"].endswith(
+                "taken.slice"
+            ):
+                return httpx.Response(412, json={})
             return httpx.Response(200, json={})
         if "pageToken" not in request.url.params:
             return httpx.Response(200, json={"items": [{"name": "archive/a.m4s", "size": "3"}], "nextPageToken": "p2"})
@@ -335,6 +341,11 @@ async def test_gcs_bucket_uses_the_metadata_token_and_the_archive_folder() -> No
     bucket = GcsBucket("gs://my-bucket", transport=httpx.MockTransport(handle))
     await bucket.put("live/1/run.json", b"{}", "application/json")
     assert seen[1].url.params["name"] == "archive/live/1/run.json" and "/b/my-bucket/o" in seen[1].url.path
+    assert "ifGenerationMatch" not in seen[1].url.params  # an index is replaced
+    await bucket.put("live/agents/c/items/00000001.slice", b"x", "text/plain", create_only=True)
+    assert seen[-1].url.params["ifGenerationMatch"] == "0"
+    with pytest.raises(AlreadyThere):
+        await bucket.put("live/agents/c/items/taken.slice", b"x", "text/plain", create_only=True)
     assert [x async for x in bucket.sizes()] == [("a.m4s", 3), ("b/c.json", 9)]
     assert sum(r.url.path.endswith("/token") for r in seen) == 1
     await bucket.aclose()
@@ -523,3 +534,38 @@ def test_a_slice_is_created_once_and_the_loser_serves_the_winners_copy(tmp_path:
     assert lost.value.existing is not None and lost.value.existing.objects[0].payload == b"won"
     assert winner_file.read_text().startswith('{"o":0,"t":"won"}')  # never overwritten
     live.close()
+
+
+async def test_finished_slices_go_to_the_bucket_create_only(tmp_path: Path) -> None:
+    from talk_tracks.archive.slices import SliceObject, TrackArchive
+
+    t = TrackArchive("room1", "captions", "items", root=tmp_path)
+    t.create(3, [SliceObject(0, b"ours")])
+    bucket = FakeBucket()
+    bucket.objects["room1/agents/captions/items/00000003.slice"] = b"theirs"  # another VM's copy got there first
+    uploader = Uploader(tmp_path, bucket)
+    uploader.notify("room1/agents/captions/items/00000003.slice", False)
+    await uploader.drain(2)
+    assert bucket.objects["room1/agents/captions/items/00000003.slice"] == b"theirs" and uploader.kept == 1
+
+
+def test_without_hard_links_the_finish_is_still_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from talk_tracks.archive.slices import SliceExists, SliceObject, TrackArchive
+
+    def no_links(src: object, dst: object) -> None:
+        raise PermissionError("hard links are not supported here")
+
+    monkeypatch.setattr(os, "link", no_links)
+    a = TrackArchive("room1", "captions", "items", root=tmp_path)
+    b = TrackArchive("room1", "captions", "items", root=tmp_path)
+    assert b.create(4, [SliceObject(0, b"first")])[1]
+    assert not a.create(4, [SliceObject(0, b"second")])[1]
+    a.write(5, SliceObject(0, b"live"))
+    (tmp_path / "room1/agents/captions/items/00000005.slice").write_text('{"o":0,"t":"won"}\n{"o":1,"st":3}\n')
+    with pytest.raises(SliceExists):
+        a.end_group(5)
+    assert b.read_local(4).objects[0].payload == b"first"  # pyright: ignore[reportOptionalMemberAccess]
+    assert b.read_local(5).objects[0].payload == b"won"  # pyright: ignore[reportOptionalMemberAccess]
+    a.close()

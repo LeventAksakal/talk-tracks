@@ -177,7 +177,9 @@ The library, `talk_tracks.archive.slices` (no transport code; the agents' publis
 
 `SliceObject` uses aiomoqt's field names (`FetchObject(group_id=k, **obj.fields())`); `Slice.last_object_id` is the
 End Location's object for FETCH_OK. **Each slice is written once:** the first writer wins, atomically (a hard link
-onto the final name). Writing a finished slice, or one another process holds open, raises `SliceExists`, and so does
+onto the final name; where hard links are not supported, a rename guarded by an existence check). Checked on
+ext4, overlayfs, the Docker Desktop bind mount (9p) and NTFS: 16 processes racing for one slice, one writer, one copy
+served. Writing a finished slice, or one another process holds open, raises `SliceExists`, and so does
 `end_group` when another process finished the slice first; its `existing` is the copy to serve. Objects are immutable. One process writes a track at a time (stable names), so writers never contend.
 
 ### Slices and room time
@@ -262,6 +264,9 @@ indexes and carries on: segment numbers continue, a new init segment is written.
   as it is closed. The room service finds the agents' slices by their folders' modification times, once a second.
   Indexes, `frames.jsonl` and `track.json` are uploaded at most every 2 s while they change. Open slices (`.part`)
   are not copied.
+* Files that never change (slices, media and init segments, slide images) are uploaded **create-only**
+  (`ifGenerationMatch=0`): an object already in the bucket is never replaced. A 412 means another writer got there
+  first; it is logged and their copy is kept, as on disk.
 * At start the archiver lists the bucket and uploads whatever is missing or a different size, so uploads queued when
   it stopped are not lost. Failed uploads are retried with backoff; the archive on disk never waits for them.
 * Credentials are the VM's service account, from the metadata server. It needs **`roles/storage.objectUser` on the
