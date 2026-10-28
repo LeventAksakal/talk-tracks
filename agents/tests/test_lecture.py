@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from talk_tracks.audio import split_legacy
-from talk_tracks.lecture import AUDIO_TRACK, VIDEO_TRACK, avc_codec, catalog, legacy_frame, packets, probe
+from talk_tracks.lecture import AUDIO_TRACK, VIDEO_TRACK, avc_codec, catalog, clock, legacy_frame, packets, probe
 
 from .clip import make_clip
 
@@ -40,6 +40,8 @@ def test_catalog_names_the_tracks_the_player_and_agents_read(clip: Path) -> None
     assert set(video["renditions"]) == {VIDEO_TRACK}  # pyright: ignore[reportUnknownArgumentType]
     assert audio["renditions"][AUDIO_TRACK]["container"] == {"kind": "legacy"}  # pyright: ignore[reportUnknownMemberType]
     assert root["talk_tracks"] == {"loop": 3}
+    assert "clock" not in root
+    assert catalog(info, wall_ms=1_790_812_800_000)["clock"] == clock(1_790_812_800_000)
 
 
 def test_legacy_frame_round_trips_through_the_agents_reader() -> None:
@@ -50,3 +52,10 @@ def test_codec_string_comes_from_the_avcc_record() -> None:
     assert avc_codec(bytes([1, 0x64, 0x00, 0x1F, 0xFF])) == "avc1.64001f"
     with pytest.raises(ValueError):
         avc_codec(b"\x00\x00\x00\x01")  # Annex B: not prepared
+
+
+def test_the_hang_clock_counts_microseconds_from_2020() -> None:
+    assert clock(1_790_812_800_000) == {"wall": 212_976_000_000_000, "timescale": 1_000_000}
+    assert clock(1_577_836_800_000)["wall"] == 0
+    with pytest.raises(ValueError):
+        clock(1_577_836_799_999)

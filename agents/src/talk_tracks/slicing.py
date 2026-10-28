@@ -38,9 +38,12 @@ from .contracts import (
     TranslationState,
     Usage,
     Wire,
+    agents_prefix,
 )
 from .recording import RecordedSnapshot
 from .replay import Cue
+from .room_catalog import CatalogTrack, RoomCatalog, depends_on
+from .room_catalog import Kind as TrackKind
 
 # --- the sliced wire contract ------------------------------------------------------------------------------------
 # Mirrors the Lazy agents lane's contract (its commit 90c90fd, contracts.py v2) until that is merged; then these go
@@ -161,6 +164,32 @@ class SlicedAgent:
     info: AgentInfo
     track: str
     groups: tuple[tuple[Stamped, ...], ...]
+
+    @property
+    def body(self) -> Carry | Item | OutlineSnapshot:
+        return self.groups[0][0].body
+
+    @property
+    def kind(self) -> TrackKind:
+        body = self.body
+        if isinstance(body, OutlineSnapshot):
+            return "outline"
+        if isinstance(body, CaptionsCarry):
+            return "captions"
+        return "translation" if isinstance(body, TranslationCarry) else "slides"
+
+    def lateness_ms(self) -> int:
+        """``L``: how long after its own time an item was published at most, rounded up to 100 ms. An outline
+        revision stands alone in its group, so the outline has none."""
+        late = [s.at_ms - t for g in self.groups for s in g if (t := item_ms(s.body)) is not None]
+        return -(-max(0, *late) // 100) * 100 if late else 0
+
+
+def item_ms(body: Carry | Item | OutlineSnapshot) -> int | None:
+    """An item's own time (a cue's start, a slide's appearance); None for a carry-in or an outline."""
+    if isinstance(body, CaptionItem | TranslationItem):
+        return body.line.start_ms
+    return body.slide.at_ms if isinstance(body, SlideItem) else None
 
 
 def period_of(duration_ms: int) -> int:
@@ -337,6 +366,28 @@ class Template:
             agents.append(SlicedAgent(info, ITEMS_TRACK, slice_items(items, period, empty)))
         ids = [i for agent in agents for group in agent.groups for s in group for i in body_ids(s.body)]
         return cls(duration_ms, period, max(ids, default=-1) + 1, tuple(agents))
+
+
+def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int) -> RoomCatalog:
+    """The room catalog of a looped recording: its tracks free (paid for once, when it was made) and producing,
+    its teacher broadcast (``clock_wall``) unshifted."""
+    agents = [(f"{agents_prefix(room)}/{a.info.name}", a) for a in template.agents]
+    captions = [f"{ns}/{a.track}" for ns, a in agents if a.kind == "captions"]
+    tracks = tuple(
+        CatalogTrack(
+            namespace=ns,
+            name=a.track,
+            kind=a.kind,
+            lang=a.body.lang,
+            label=a.info.label,
+            lateness_ms=a.lateness_ms(),
+            cost="free",
+            depends_on=depends_on(room, a.kind, captions),
+        )
+        for ns, a in agents
+    )
+    status = {a.info.name: {"producing": True, "capped": False} for _, a in agents}
+    return RoomCatalog(epoch_ms, tracks, shift={clock_wall: 0}, status=status)
 
 
 def body_ids(body: Carry | Item | OutlineSnapshot) -> list[int]:
