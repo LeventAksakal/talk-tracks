@@ -67,3 +67,20 @@ Chosen: the first option of each.
   sets it from the archive (verified in spikes S4c and S3).
 * Bad, because a killed agent leaves its tracks silent for about 12–15 s, until the relay times its connection out
   (spike S5); agents close their session on SIGTERM so planned restarts hand over at once.
+
+## Addendum 2026-10-28: one room clock
+
+The speaker's media clock restarts near 0 on every reload or new broadcast (@moq/publish stamps `performance.now()`),
+so slice numbers collided across broadcasts in one room. Considered: an offset in the agents only, a run segment in
+names (breaks stable names), one broadcast per room (cannot prevent reloads), patching @moq/publish, and an offset
+published by the speaker console.
+
+Chosen by the owner: **room time = speaker media timestamp + an offset the speaker console publishes per broadcast**
+on a `clock` track in `talk/R/slides`. The offset follows wall time since the room's first broadcast and never falls
+below the room's last archived time. Agents, the archive (fMP4 and slices), the media rewind and the viewer all use
+room time. Details: [the room clock](../design/moq-track-system.md#45-the-room-clock).
+
+* Good, because one clock serves every consumer, and slice numbers never collide.
+* Bad, because every consumer must read the `clock` track before stamping, and room time has holes.
+* Follow-up: patching @moq/publish, or an upstream timestamp-origin option, would remove the offset
+  ([ticket 0019](../../tickets/0019-moq-publish-timestamp-origin.md)).
