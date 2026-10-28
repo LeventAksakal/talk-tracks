@@ -1,0 +1,88 @@
+# The transport benchmark (wiki/benchmark.md): one live source fed at the same moment into Talk Tracks' MoQ relay and
+# into MediaMTX (LL-HLS and WebRTC/WHEP), and a headless Chrome viewer that measures each. Everything runs on one
+# host, so the source and the viewer read the same clock. See bench/README.md for the runs.
+#   docker compose -f bench/compose.yml up -d --build relay mediamtx source textpub
+#   docker compose -f bench/compose.yml run --rm viewer --proto moq --runs 10
+name: talk-tracks-bench
+
+networks:
+  bench:
+    ipam:
+      config: [{ subnet: 172.29.0.0/24 }]
+
+services:
+  # The relay Talk Tracks deploys (moq-relay 0.17.8), open to anyone: the benchmark has no tokens.
+  relay:
+    image: talk-tracks-relay:0.17.8
+    build: { context: ../deploy, dockerfile: Dockerfile.relay }
+    command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-public", "**",
+              "--web-http-listen", "[::]:4443", "--log-level", "warn"]
+    networks: { bench: { ipv4_address: 172.29.0.10 } }
+
+  # The baselines: MediaMTX ingests the source over RTSP and serves LL-HLS (:8888) and WebRTC/WHEP (:8889).
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    volumes: ["./mediamtx.yml:/mediamtx.yml:ro"]
+    networks: { bench: { ipv4_address: 172.29.0.11 } }
+
+  # One encode (a wall-clock barcode in every frame, a beeping tone), teed to MoQ and to MediaMTX.
+  source:
+    image: talk-tracks-moq-cli:0.14.8
+    build: { context: ../deploy, dockerfile: Dockerfile.moq-cli }
+    depends_on: [relay, mediamtx]
+    restart: unless-stopped
+    entrypoint: ["sh", "/bench/source.sh"]
+    environment:
+      BENCH_GOP_S: ${BENCH_GOP_S:-2}
+      BENCH_BITRATE: ${BENCH_BITRATE:-1000k}
+    volumes: ["./source.sh:/bench/source.sh:ro"]
+    networks: { bench: { ipv4_address: 172.29.0.12 } }
+
+  # A JSON track with its publish time, published the way the agents publish (aiomoqt over raw QUIC).
+  textpub:
+    image: talk-tracks-agents:dev
+    build: ../agents
+    init: true
+    depends_on: [relay]
+    restart: unless-stopped
+    entrypoint: ["python", "/bench/textpub.py"]
+    environment:
+      BENCH_RELAY: moqt://relay:4443
+      BENCH_TEXT_HZ: ${BENCH_TEXT_HZ:-4}
+    volumes: ["./textpub.py:/bench/textpub.py:ro"]
+    networks: { bench: { ipv4_address: 172.29.0.13 } }
+
+  # Netem on the servers' side: delay and loss on what they send to the viewer only (bench/netem.sh).
+  netem-relay:
+    image: talk-tracks-bench-viewer:dev
+    profiles: [netem]
+    network_mode: service:relay
+    cap_add: [NET_ADMIN]
+    entrypoint: ["sh", "/bench/netem.sh"]
+    environment: &netem
+      BENCH_DELAY_MS: ${BENCH_DELAY_MS:-0}
+      BENCH_LOSS_PCT: ${BENCH_LOSS_PCT:-0}
+      BENCH_VIEWER_IP: 172.29.0.50
+    volumes: ["./netem.sh:/bench/netem.sh:ro"]
+  netem-mediamtx:
+    image: talk-tracks-bench-viewer:dev
+    profiles: [netem]
+    network_mode: service:mediamtx
+    cap_add: [NET_ADMIN]
+    entrypoint: ["sh", "/bench/netem.sh"]
+    environment: *netem
+    volumes: ["./netem.sh:/bench/netem.sh:ro"]
+
+  # Headless Google Chrome under Playwright: N fresh joins per protocol, results to bench/results/.
+  viewer:
+    image: talk-tracks-bench-viewer:dev
+    build: { context: ., dockerfile: Dockerfile.viewer }
+    profiles: [run]
+    depends_on: [relay, mediamtx, source, textpub]
+    ipc: host  # Chrome needs more shared memory than Docker's default 64 MB
+    environment:
+      BENCH_LABEL: ${BENCH_LABEL:-local}
+      BENCH_DELAY_MS: ${BENCH_DELAY_MS:-0}
+      BENCH_LOSS_PCT: ${BENCH_LOSS_PCT:-0}
+    volumes: ["./results:/results"]
+    networks: { bench: { ipv4_address: 172.29.0.50 } }
