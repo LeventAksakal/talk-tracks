@@ -1,7 +1,9 @@
 """Muse Spark over the Meta Model API (OpenAI-compatible chat completions), Standard mode only.
 
 Speaker-supplied text reaches the model only inside a delimited data block and is never an instruction.
-Every call asks the spend ledger first and records its real cost after; past the ceiling nothing is sent.
+Every call reserves its worst case in the spend ledger first and settles to its real cost after; past a cap nothing
+is sent. Reasoning tokens count toward a call's output cap: a call cut at its cap is paid for, logged, and retried
+once with a larger one (its own reservation), never silently dropped.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -19,8 +22,14 @@ from talk_tracks.contracts import CaptionLine, Chapter, GlossaryTerm, Usage
 from .base import OutlineDraft
 from .ledger import SPARK_STANDARD, Prices, SpendLedger
 
+log = logging.getLogger("talk_tracks")
+
 BASE_URL = "https://api.meta.ai/v1"
 MODEL = "muse-spark-1.3"  # Standard mode. Never a "-contributor" id.
+# Output caps, reasoning included (seen live on 2026-10-27: describe cut at 900, chapters at 3000). At $4.25 per
+# million output tokens the retry caps cost at most $0.034 and $0.068 a call.
+DESCRIBE_TOKENS, DESCRIBE_RETRY_TOKENS = 2500, 8000
+OUTLINE_TOKENS, OUTLINE_RETRY_TOKENS = 6000, 16000
 LANGUAGE_NAMES = {
     "en": "English",
     "tr": "Turkish",
@@ -121,9 +130,29 @@ class MetaLlm:
         self,
         messages: list[dict[str, Any]],
         *,
+        what: str,
         max_tokens: int,
+        retry_tokens: int | None = None,
         schema: dict[str, Any] | None = None,
         effort: str | None = None,
+    ) -> str:
+        """One call, cut at ``max_tokens``; then, if it was cut, one more at ``retry_tokens``."""
+        try:
+            return await self._call(messages, what=what, max_tokens=max_tokens, schema=schema, effort=effort)
+        except TokenCapError:
+            if retry_tokens is None:
+                raise
+            log.warning("%s: cut at %d output tokens, retrying once with %d", what, max_tokens, retry_tokens)
+            return await self._call(messages, what=what, max_tokens=retry_tokens, schema=schema, effort=effort)
+
+    async def _call(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        what: str,
+        max_tokens: int,
+        schema: dict[str, Any] | None,
+        effort: str | None,
     ) -> str:
         body: dict[str, Any] = {
             "model": self._model,
@@ -137,15 +166,32 @@ class MetaLlm:
                 "json_schema": {"name": "result", "strict": True, "schema": schema},
             }
         chars = sum(len(json.dumps(m)) for m in messages)
-        # Worst case: every input char is a token (images counted generously) and the whole output cap is used.
-        self._ledger.check(self._prices.cost(chars // 3 + 2000, max_tokens))
-        data = await self._post(body)
+        label = f"chat {self._model} {what}"
+        # Worst case: a token per three input chars, 2000 more for an image, and the whole output cap used.
+        held = self._ledger.reserve(self._prices.cost(chars // 3 + 2000, max_tokens), label)
+        try:
+            data = await self._post(body)
+        except MetaLlmError:  # refused with an HTTP error: not paid for
+            self._ledger.release(held)
+            raise
         u = data.get("usage", {})
         prompt = int(u.get("prompt_tokens", 0))
         completion = int(u.get("completion_tokens", 0))
         cached = int(u.get("prompt_tokens_details", {}).get("cached_tokens", 0))
+        reasoning = int(u.get("completion_tokens_details", {}).get("reasoning_tokens", 0))
         cost = self._prices.cost(prompt, completion, cached)
-        self._ledger.record(cost, f"chat {self._model}")
+        self._ledger.settle(held, cost, label)
+        log.info(
+            "%s: %d in (%d cached), %d out (%d reasoning) of %d, $%.5f (reserved $%.5f)",
+            what,
+            prompt,
+            cached,
+            completion,
+            reasoning,
+            max_tokens,
+            cost,
+            held.usd,
+        )
         self._requests += 1
         self._in += prompt
         self._out += completion
@@ -181,10 +227,7 @@ class MetaLlm:
         # Minimal reasoning keeps a line's latency near two seconds; a long line can still spend the cap on
         # reasoning (seen live on 2026-10-27), so it gets one retry with more room rather than being dropped.
         cap = 600 + 4 * len(text)
-        try:
-            return await self._chat(messages, max_tokens=cap, effort="minimal")
-        except TokenCapError:
-            return await self._chat(messages, max_tokens=cap * 4, effort="minimal")
+        return await self._chat(messages, what="translate", max_tokens=cap, retry_tokens=cap * 4, effort="minimal")
 
     async def describe_slide(self, image: bytes, mime: str, *, lang: str) -> str:
         system = (
@@ -198,7 +241,10 @@ class MetaLlm:
             {"type": "image_url", "image_url": {"url": url, "detail": "high"}},
         ]
         return await self._chat(
-            [{"role": "system", "content": system}, {"role": "user", "content": content}], max_tokens=900
+            [{"role": "system", "content": system}, {"role": "user", "content": content}],
+            what="describe",
+            max_tokens=DESCRIBE_TOKENS,
+            retry_tokens=DESCRIBE_RETRY_TOKENS,
         )
 
     async def outline(self, lines: Sequence[CaptionLine], previous: OutlineDraft | None, *, lang: str) -> OutlineDraft:
@@ -220,7 +266,9 @@ class MetaLlm:
         user = f"<previous>{json.dumps(prev)}</previous>\n<transcript>\n{numbered}\n</transcript>"
         text = await self._chat(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            max_tokens=3000,
+            what="outline",
+            max_tokens=OUTLINE_TOKENS,
+            retry_tokens=OUTLINE_RETRY_TOKENS,
             schema=OUTLINE_SCHEMA,
         )
         raw = json.loads(text)

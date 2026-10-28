@@ -1,7 +1,8 @@
 """Spend ledger: a hard ceiling on what the build may spend on the Meta Model API, and a cap per room.
 
-The free credit is a fixed total that must never be exceeded. Every call asks the ledger first (worst case for the
-call) and records the real cost after. The ledger is a JSON-lines file so several agent processes share it.
+The free credit is a fixed total that must never be exceeded. Every model call reserves its worst case before it
+runs (``reserve``) and settles to the real cost after (``settle``), so calls running at once, in this process or
+another, cannot pass a cap together. The ledger is a JSON-lines file so several agent processes share it.
 
 Each line names the room it was spent for, so a room's own spend has a cap too (decision 0008): ``TT_ROOM_CAP_USD``
 for any room, or the cap a judge token batch was minted with. A batch also has a total cap over all its rooms.
@@ -72,6 +73,15 @@ def room_cap(room: str, caps_dir: Path | None, default_usd: float = ROOM_CAP_USD
     return RoomCap(default_usd)
 
 
+@dataclass
+class Reservation:
+    """A call's worst case, held in the ledger until the call settles."""
+
+    usd: float
+    what: str
+    settled: bool = False
+
+
 class SpendLedger:
     def __init__(
         self,
@@ -124,24 +134,41 @@ class SpendLedger:
 
     def check(self, worst_case_usd: float) -> None:
         """Refuse a call whose worst case would take the total over the ceiling, or the room over its caps. A
-        back-fill ledger also holds its share and reserves the worst case at once."""
+        back-fill ledger also holds its share and reserves the worst case at once (``record`` settles it)."""
         if self._backfill is None:
             self._check(self._lines(), worst_case_usd)
             return
+        self._reserved.append(self.reserve(worst_case_usd, "a back-fill").usd)
+
+    def reserve(self, worst_case_usd: float, what: str) -> Reservation:
+        """Hold a call's worst case, or refuse it as ``check`` does."""
         with _locked(self._path):
             lines = self._lines()
             self._check(lines, worst_case_usd)
-            assert self._cap is not None
-            budget = self._cap.room_usd * self._backfill
-            spent = sum(float(str(x["usd"])) for x in lines if x.get("room") == self._room and x.get("backfill"))
-            if spent + worst_case_usd > budget:
-                raise BudgetExceededError(
-                    f"back-fill in room {self._room} spent ${spent:.4f}; worst case ${worst_case_usd:.4f} would"
-                    f" pass its budget ${budget:.2f}",
-                    scope="backfill",
-                )
-            self._append(worst_case_usd, "reserved for a back-fill")
-            self._reserved.append(worst_case_usd)
+            if self._backfill is not None:
+                assert self._cap is not None
+                budget = self._cap.room_usd * self._backfill
+                spent = sum(float(str(x["usd"])) for x in lines if x.get("room") == self._room and x.get("backfill"))
+                if spent + worst_case_usd > budget:
+                    raise BudgetExceededError(
+                        f"back-fill in room {self._room} spent ${spent:.4f}; worst case ${worst_case_usd:.4f} would"
+                        f" pass its budget ${budget:.2f}",
+                        scope="backfill",
+                    )
+            self._append(worst_case_usd, f"reserved for {what}")
+        return Reservation(worst_case_usd, what)
+
+    def settle(self, reservation: Reservation, usd: float, what: str | None = None) -> None:
+        """The call's real cost in place of its reservation (once)."""
+        if reservation.settled:
+            return
+        reservation.settled = True
+        with _locked(self._path):
+            self._append(usd - reservation.usd, what or reservation.what)
+
+    def release(self, reservation: Reservation) -> None:
+        """A call that was refused before it was paid for."""
+        self.settle(reservation, 0.0, f"released {reservation.what}")
 
     def _check(self, lines: list[dict[str, object]], worst_case_usd: float) -> None:
         spent = sum(float(str(line["usd"])) for line in lines)

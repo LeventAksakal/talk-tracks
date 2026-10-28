@@ -107,6 +107,42 @@ async def test_translate_retries_once_with_more_room_when_reasoning_hits_the_cap
     assert caps[1] == caps[0] * 4
 
 
+@pytest.mark.parametrize("call", ["describe", "outline"])
+async def test_describe_and_chapters_retry_once_at_a_larger_cap_and_pay_for_both(tmp_path: Path, call: str) -> None:
+    """Seen live: describe cut at 900 tokens and chapters at 3000 by reasoning. Each call reserves its own worst
+    case and settles to its real cost; the cut call is paid for too."""
+    caps: list[int] = []
+    outline = json.dumps({"chapters": [], "glossary": [], "recap": "r"})
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        caps.append(json.loads(req.content)["max_completion_tokens"])
+        if len(caps) == 1:
+            return reply("", completion=caps[0], finish="length")
+        return reply("A diagram." if call == "describe" else outline, completion=1200)
+
+    m = make(tmp_path, handler)
+    if call == "describe":
+        assert await m.describe_slide(b"png", "image/png", lang="en") == "A diagram."
+    else:
+        assert (await m.outline([], None, lang="en")).recap == "r"
+    assert caps == ([2500, 8000] if call == "describe" else [6000, 16000])
+    paid = (200 * 1.25 + (caps[0] + 1200) * 4.25) / 1e6
+    assert m.usage.requests == 2 and m.usage.cost_usd == pytest.approx(paid, abs=1e-6)
+    assert SpendLedger(tmp_path / "ledger.jsonl", 1.0).total() == pytest.approx(paid, abs=1e-6)  # nothing left held
+
+
+async def test_a_reservation_is_held_during_the_call_and_released_when_refused(tmp_path: Path) -> None:
+    held: list[float] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        held.append(SpendLedger(tmp_path / "ledger.jsonl", 1.0).total())  # what another process sees meanwhile
+        return httpx.Response(400, text="bad request")
+
+    with pytest.raises(MetaLlmError):
+        await make(tmp_path, handler).translate("Hello", lang="tr", context=[])
+    assert held[0] > 0 and SpendLedger(tmp_path / "ledger.jsonl", 1.0).total() == pytest.approx(0, abs=1e-9)
+
+
 def test_key_only_goes_to_meta_and_never_contributor(tmp_path: Path) -> None:
     ledger = SpendLedger(tmp_path / "l.jsonl", 1.0)
     with pytest.raises(ValueError):
