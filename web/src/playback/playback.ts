@@ -29,6 +29,8 @@ export class Playback {
   #view: PlaybackView | undefined;
   #disposers: (() => void)[] = [];
   #onClose: (() => void) | undefined;
+  /** The outline track switched on only to list the chapters missed; switched off on dismiss. */
+  #outlineForMissed: string | undefined;
 
   constructor(source: HistorySource, media: SpeakerMedia, room: string, options: PlaybackOptions = {}) {
     this.media = media;
@@ -86,6 +88,8 @@ export class Playback {
 
   dismissMissed(): void {
     this.#missed = undefined;
+    if (this.#outlineForMissed) this.tracks.setEnabled(this.#outlineForMissed, false);
+    this.#outlineForMissed = undefined;
     this.#changed();
   }
 
@@ -145,6 +149,11 @@ export class Playback {
   #setMissed(from: number, to: number | undefined, reason: Missed["reason"]): void {
     if (to === undefined || to - from < MISSED_MIN_MS) return;
     const outlineTrack = this.tracks.getSnapshot().tracks.find((t) => t.kind === "outline");
+    // The chapters come from the outline's latest snapshot: subscribe for it while the summary shows.
+    if (outlineTrack?.announced && !outlineTrack.enabled) {
+      this.#outlineForMissed = outlineTrack.id;
+      this.tracks.setEnabled(outlineTrack.id, true);
+    }
     this.#missed = {
       fromMs: from,
       toMs: to,

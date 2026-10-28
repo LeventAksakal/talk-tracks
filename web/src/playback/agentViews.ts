@@ -35,7 +35,7 @@ export function toAgentView(t: TrackView, now: number = Date.now()): AgentView {
       : "gone"
     : t.lastLiveAt === undefined
       ? "waiting"
-      : now - t.lastLiveAt > STALE_MS && t.kind !== "outline"
+      : t.stale || (now - t.lastLiveAt > STALE_MS && t.kind !== "outline")
         ? "stale"
         : "live";
   return {

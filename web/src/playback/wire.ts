@@ -47,15 +47,17 @@ export const PRIORITY: Record<TrackKind | "unknown" | "fetch", number> = {
 
 // --- what the playback layer works with ----------------------------------------------------------
 
-/** A caption or translated line. A later version with the same id replaces it; final beats interim. */
+/** A caption or translated line. The highest `rev` with the same id replaces it; final beats interim. */
 export interface LineItem {
   type: "line";
   id: number;
-  /** Media time of the first word. 0 when the source line's time is unknown (older translations). */
+  /** Room time of the first word. 0 when the source line's time is unknown (older translations). */
   startMs: number;
   endMs: number;
   text: string;
   final: boolean;
+  /** Revision (WebVTT-MSF cue extension, design §4.2); absent on the v2 envelope. */
+  rev?: number;
 }
 
 export interface SlideItem {

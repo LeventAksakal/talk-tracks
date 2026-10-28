@@ -7,10 +7,14 @@ import { FakeRoom, fakeTalk } from "./fixtures";
 import { ClockMedia, RoomMedia } from "./media";
 import { MoqHistorySource } from "./moqSource";
 import { Playback, type PlaybackView } from "./playback";
+import { latenessOf } from "./roomCatalog";
 
 /** A Playback for a room on the relay: AI tracks over MoQ, speaker media live and from the archive. */
 export function createRoomPlayback(transport: MoqTransport, room: string): Playback {
-  return new Playback(new MoqHistorySource(transport), new RoomMedia(transport, room), room);
+  const media = new RoomMedia(transport, room);
+  return new Playback(new MoqHistorySource(transport), media, room, {
+    latenessMs: (path, track) => latenessOf(media.catalog(), path, track),
+  });
 }
 
 /**

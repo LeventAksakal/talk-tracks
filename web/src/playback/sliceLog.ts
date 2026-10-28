@@ -45,8 +45,14 @@ export function itemTime(item: Item, slice: number): number {
   return item.startMs > 0 || slice === 0 ? item.startMs : sliceStart(slice);
 }
 
-/** Whether `b` replaces `a` under the same id: a final version wins, then the later one. */
+/**
+ * Whether `b` replaces `a` under the same id: the highest `rev` wins (design §4.2); without revisions, a
+ * final version wins, then the later one.
+ */
 function replaces(a: { item: Item; order: number }, b: { item: Item; order: number }): boolean {
+  const ra = a.item.type === "line" ? a.item.rev : undefined;
+  const rb = b.item.type === "line" ? b.item.rev : undefined;
+  if (ra !== undefined && rb !== undefined && ra !== rb) return rb > ra;
   const fa = a.item.type === "line" ? a.item.final : true;
   const fb = b.item.type === "line" ? b.item.final : true;
   if (fa !== fb) return fb;

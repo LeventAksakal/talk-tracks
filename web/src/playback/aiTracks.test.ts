@@ -89,6 +89,19 @@ describe("AiTracks: live", () => {
     expect(tracks.getSnapshot().liveEdgeMs).toBe((sliceOf(40_000) + 1) * 4_000);
   });
 
+  it("marks a latest group older than the media's slice as stale", async () => {
+    const { tracks } = setup(61_000);
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    tracks.setLiveEdge(62_000);
+    expect(view(tracks, "captions/items").stale).toBe(false);
+    // The speaker media is two slices on; the agent has published nothing since.
+    tracks.setLiveEdge(70_000);
+    expect(view(tracks, "captions/items").stale).toBe(true);
+    tracks.seek(30_000);
+    expect(view(tracks, "captions/items").stale).toBe(false);
+  });
+
   it("shows the newest outline snapshot, live and rewound", async () => {
     const { room, tracks } = setup(130_000);
     tracks.setEnabled("chapters/outline", true);
@@ -170,8 +183,8 @@ describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
     const v = view(tracks, "captions/items");
     expect(v.loading).toBe(false);
     expect(v.held.filter((r) => r.start < 100_000)).toEqual([
-      { start: (k - 2) * 4000, end: k * 4000 },
-      { start: (k + 1) * 4000, end: (k + 3) * 4000 },
+      { start: (k - 1) * 4000, end: k * 4000 },
+      { start: (k + 1) * 4000, end: (k + 2) * 4000 },
     ]);
     // Not asked again while the hole is fresh.
     tracks.setPosition(50_500);
@@ -181,7 +194,7 @@ describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
 });
 
 describe("AiTracks: rewind", () => {
-  it("seeking fetches the slice at t first, then its neighbours, at the history priority", async () => {
+  it("seeking to t fetches slices t/S-1 to (t+L)/S, the slice at t first, at the history priority", async () => {
     const { source, room, tracks } = setup(200_000);
     tracks.setEnabled("captions/items", true);
     await settle();
@@ -190,8 +203,8 @@ describe("AiTracks: rewind", () => {
     await settle();
     const k = sliceOf(50_000);
     const groups = source.fetchedGroups(room.path("captions"), ITEMS_TRACK).slice(before);
-    expect(groups.slice(0, 3)).toEqual([k, k + 1, k - 1]);
-    expect(new Set(groups)).toEqual(new Set([k - 2, k - 1, k, k + 1, k + 2]));
+    // L = 4 s by default: 50 s + 4 s ends in slice k+1.
+    expect(groups).toEqual([k, k - 1, k + 1]);
     expect(source.fetches.every((f) => f.priority === PRIORITY.fetch)).toBe(true);
   });
 
@@ -220,6 +233,29 @@ describe("AiTracks: rewind", () => {
     expect(view(tracks, "translate-tr/items").sliced!.lines.map((l) => l.id)).toContain(line.id);
   });
 
+  it("fetches further ahead for a track that publishes late (L from the catalog)", async () => {
+    const source = new FakeHistorySource();
+    const room = new FakeRoom(source, ROOM, fakeTalk());
+    room.start(200_000);
+    tracks = new AiTracks(source, ROOM, {
+      liveBack: 0,
+      latenessMs: (_path, track) => (track === ITEMS_TRACK ? 10_000 : 4_000),
+    });
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    const before = source.fetches.length;
+    tracks.seek(50_000);
+    await settle();
+    const k = sliceOf(50_000);
+    expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK).slice(before)).toEqual([
+      k,
+      k - 1,
+      k + 1,
+      k + 2,
+      k + 3,
+    ]);
+  });
+
   it("keeps at most two fetches in flight across tracks", async () => {
     const { source, tracks } = setup(200_000);
     source.fetchDelayMs = 5;
@@ -227,7 +263,7 @@ describe("AiTracks: rewind", () => {
     tracks.seek(100_000);
     await new Promise((r) => setTimeout(r, 200));
     expect(source.maxInFlight).toBe(2);
-    expect(source.fetches.length).toBe(15);
+    expect(source.fetches.length).toBe(9);
     // Every track's current slice comes before any neighbour.
     expect(source.fetches.slice(0, 3).map((f) => f.group)).toEqual([25, 25, 25]);
   });

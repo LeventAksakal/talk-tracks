@@ -53,8 +53,8 @@ export interface SharedSlide {
 /**
  * Screen-share slides: sample the captured screen twice a second and publish a JPEG (≤1280 px
  * wide) as a SlideFrame only when the picture visibly changed, at most one every 2 s. `at_ms` is
- * room time (design §4.5): `stamp` turns the performance clock @moq/publish stamps audio with into
- * room time, so slide and caption times line up across reloads.
+ * wall time (design §4.5): `stamp` maps the performance clock to it the way @moq/publish maps media
+ * timestamps (performance.timeOrigin + now), so the room service turns both into room time alike.
  */
 export class SlideSharer {
   #writer: TrackWriter;
@@ -71,7 +71,11 @@ export class SlideSharer {
   onSlide?: (slide: SharedSlide) => void;
   onEnded?: () => void;
 
-  constructor(stream: MediaStream, writer: TrackWriter, stamp: (perfMs: number) => number = Math.round) {
+  constructor(
+    stream: MediaStream,
+    writer: TrackWriter,
+    stamp: (perfMs: number) => number = (perfMs) => Math.round(performance.timeOrigin + perfMs),
+  ) {
     this.#stream = stream;
     this.#writer = writer;
     this.#stamp = stamp;

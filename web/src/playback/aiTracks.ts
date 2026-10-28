@@ -3,6 +3,7 @@
 
 import type { Closable } from "../transport/types";
 import { SliceLog, type SlicedView } from "./sliceLog";
+import { DEFAULT_LATENESS_MS } from "./roomCatalog";
 import { type Range, sliceEnd, sliceOf } from "./slices";
 import { type HistorySource, NotFound } from "./source";
 import {
@@ -47,6 +48,8 @@ export interface TrackView {
   loading: boolean;
   /** Wall time of the last live object. */
   lastLiveAt: number | undefined;
+  /** Live, the newest group is older than the slice the speaker media is in: no live output yet (§5.1). */
+  stale: boolean;
 }
 
 export interface AiTracksView {
@@ -60,9 +63,11 @@ export interface AiTracksView {
 
 export interface AiTracksOptions {
   now?: () => number;
-  /** Slices fetched around the playhead: this many before and after its slice. */
-  back?: number;
-  ahead?: number;
+  /**
+   * L for a track, ms: the most it publishes after an item's room time (catalog `tt.latenessMs`). Seeking
+   * to t fetches slices ⌊t/S⌋−1 … ⌊(t+L)/S⌋ (design §5.5).
+   */
+  latenessMs?: (path: string, track: string) => number;
   /** Slices fetched behind the live edge when a track is switched on live, for scrollback. 0: none. */
   liveBack?: number;
   /** FETCHes in flight at once, across tracks (design §5.11: 2 for Safari on WebSocket). */
@@ -109,8 +114,7 @@ export class AiTracks {
   readonly room: string;
   #source: HistorySource;
   #now: () => number;
-  #back: number;
-  #ahead: number;
+  #lateness: (path: string, track: string) => number;
   #liveBack: number;
   #maxInFlight: number;
   #maxSlices: number;
@@ -132,8 +136,7 @@ export class AiTracks {
     this.room = room;
     this.#source = source;
     this.#now = options.now ?? Date.now;
-    this.#back = options.back ?? 2;
-    this.#ahead = options.ahead ?? 2;
+    this.#lateness = options.latenessMs ?? (() => DEFAULT_LATENESS_MS);
     this.#liveBack = options.liveBack ?? 3;
     this.#maxInFlight = options.maxInFlight ?? 2;
     this.#maxSlices = options.maxSlices ?? 90;
@@ -319,12 +322,13 @@ export class AiTracks {
       if (!entry.enabled || !entry.ref.sliced) continue;
       let order: number[] = [];
       if (this.#mode === "rewound" && this.#position !== undefined) {
-        const k = sliceOf(this.#position);
-        order = [k, k + 1, k - 1];
-        for (let d = 2; d <= Math.max(this.#back, this.#ahead); d++) {
-          if (d <= this.#ahead) order.push(k + d);
-          if (d <= this.#back) order.push(k - d);
-        }
+        // The playhead's slice, the one before (its carry-in may be cut), then every slice a late item
+        // for this instant can still land in.
+        const t = this.#position;
+        const k = sliceOf(t);
+        order = [k, k - 1];
+        const last = sliceOf(t + Math.max(0, this.#lateness(entry.path, entry.ref.track)));
+        for (let j = k + 1; j <= last; j++) order.push(j);
       } else {
         // Live: the slice before the first live one (the slice in progress at join, when the publisher
         // starts a subscription at the next group, design §5.1 and the looper), then scrollback.
@@ -468,6 +472,7 @@ export class AiTracks {
 
   #buildView(): AiTracksView {
     const at = this.#mode === "rewound" ? this.#position : undefined;
+    const now = this.#externalEdge === undefined ? undefined : sliceOf(this.#externalEdge);
     const tracks = [...this.#entries.values()]
       .map((e): TrackView => {
         const k = at === undefined ? undefined : sliceOf(at);
@@ -491,11 +496,18 @@ export class AiTracks {
           held: e.log.ranges(),
           loading,
           lastLiveAt: e.lastLiveAt,
+          stale: isStale(e, this.#mode, now),
         };
       })
       .sort((a, b) => order(a) - order(b) || a.id.localeCompare(b.id));
     return { mode: this.#mode, position: this.#position, liveEdgeMs: this.#liveEdgeMs(), tracks };
   }
+}
+
+function isStale(e: Entry, mode: Mode, now: number | undefined): boolean {
+  if (!e.enabled || !e.ref.sliced || mode !== "live" || now === undefined) return false;
+  const latest = e.log.liveEdge();
+  return latest !== undefined && latest < now;
 }
 
 function abortion(signal: AbortSignal): Promise<never> {

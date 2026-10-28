@@ -1,14 +1,14 @@
-// The speaker's media on the one media clock: live through @moq/watch, rewound from the archive with MSE.
-// A room with no archived media (a looped demo room, whose recording is not served) still rewinds its
-// AI tracks: the playhead then runs on a clock of its own and the media stays silent.
+// The speaker's media on the room clock (design §4.5, §5.5): live through @moq/watch, rewound from the
+// archive's HLS. Every position is room time: the wall time of a media timestamp − E. A room with no
+// archived media still rewinds its AI tracks: the playhead then runs on a clock of its own, silent.
 
-import { CLOCK_TRACK, slidesPath, teacherPath } from "../contracts/names";
+import { teacherPath } from "../contracts/names";
 import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
-import { ArchiveClient, archivedRanges, type RunIndex } from "./archive";
-import { ArchivePlayer } from "./archivePlayer";
-import { parseClock } from "./clock";
 import type { Mode } from "./aiTracks";
+import { type ArchivePlayback, archivedWallRanges, hlsUrl, openArchive } from "./hlsArchive";
+import { type RoomCatalog, watchRoomCatalog } from "./roomCatalog";
+import { type HangClock, hangClockOf, roomTimeOf, wallClockMs } from "./roomClock";
 import type { Range } from "./slices";
 
 export type MediaStatus =
@@ -20,13 +20,13 @@ export type MediaStatus =
 export interface SpeakerMedia {
   mode(): Mode;
   status(): MediaStatus;
-  /** The playhead, media ms; undefined until something plays (live) or a seek (rewound). */
+  /** The playhead, room ms; undefined until something plays (live) or a seek (rewound). */
   position(): number | undefined;
-  /** Best estimate of the live edge, media ms. */
+  /** Best estimate of the live edge, room ms. */
   liveEdge(): number | undefined;
-  /** Media time the archive can play. */
+  /** Room time the archive can play. */
   available(): Range[];
-  /** Media time the element holds. */
+  /** Room time the element holds. */
   buffered(): Range[];
   error(): string | undefined;
   seek(ms: number): void;
@@ -131,50 +131,72 @@ export interface RoomMediaElements {
   video: HTMLVideoElement;
 }
 
+export interface RoomMediaOptions {
+  now?: () => number;
+  /** Where the archive is served over HTTP. */
+  archiveBase?: string;
+  fetchFn?: typeof fetch;
+  /** How often the archive's playlist is read again for what it holds, ms. */
+  refreshMs?: number;
+}
+
 /**
- * Live: the speaker broadcast through @moq/watch (as the viewer has it today), its playback time read
- * from the player's clock. Rewound: the archive's fMP4 segments with MSE, from the seek point. Go live
- * closes the archive player and starts the live one again.
+ * Live: the speaker broadcast through @moq/watch; its playhead is the wall time of the playing media
+ * timestamp (the teacher catalog's root `clock`) − E. Rewound: the archive's HLS from the seek point,
+ * mapped through PROGRAM-DATE-TIME. Go live closes the archive playback and starts the live one again.
+ * It also holds the room catalog, which gives E and every track's L.
  */
 export class RoomMedia implements SpeakerMedia {
   readonly room: string;
   #transport: MoqTransport;
-  #archive: ArchiveClient;
   #now: () => number;
+  #archiveUrl: string;
+  #fetch: typeof fetch;
   #elements: RoomMediaElements | undefined;
   #mode: Mode = "live";
   #wantLive = false;
   #status: MediaStatus = "idle";
   #error: string | undefined;
   #listeners = new Listeners();
-  /** The last live playback time seen, and when. */
-  #lastLive: { media: number; wall: number } | undefined;
+  #catalog: RoomCatalog | undefined;
+  #teacherLive = false;
+  /** The last live playhead seen (room ms), and when (this device's wall ms). */
+  #lastLive: { room: number; wall: number } | undefined;
   #live: { close(): void } | undefined;
   #liveGeneration = 0;
-  #archivePlayer: ArchivePlayer | undefined;
-  #run: RunIndex | undefined;
-  #runLoadedAt = 0;
+  #archive: ArchivePlayback | undefined;
+  #archiveGeneration = 0;
+  /** Wall-time ranges the archive holds. */
+  #archived: Range[] = [];
   /** A clock for rooms with no archived media. */
   #clock: ClockMedia | undefined;
-  /** Room time minus the speaker's media timestamps, from the speaker console's `clock` track. */
-  #offset: number | undefined;
-  #clockTrack: Closable;
-  #timer: ReturnType<typeof setInterval>;
+  #subs: Closable[] = [];
+  #timers: ReturnType<typeof setInterval>[] = [];
   #closed = false;
 
-  constructor(transport: MoqTransport, room: string, options: { archive?: ArchiveClient; now?: () => number } = {}) {
+  constructor(transport: MoqTransport, room: string, options: RoomMediaOptions = {}) {
     this.room = room;
     this.#transport = transport;
-    this.#archive = options.archive ?? new ArchiveClient();
     this.#now = options.now ?? Date.now;
-    this.#timer = setInterval(() => this.#listeners.emit(), 250);
-    // Room time = speaker media timestamp + offset (decision 0012 addendum, design §4.5). A broadcast with
-    // no clock track (the demo looper, which already plays room time) means offset 0.
-    this.#clockTrack = transport.subscribe(slidesPath(room), CLOCK_TRACK, ({ payload }) => {
-      const offset = parseClock(payload);
-      if (offset !== undefined) this.#offset = offset;
-    });
-    void this.#loadRun();
+    this.#archiveUrl = hlsUrl(room, options.archiveBase);
+    this.#fetch = options.fetchFn ?? ((...args) => fetch(...args));
+    this.#subs.push(
+      watchRoomCatalog(transport, room, (catalog) => {
+        this.#catalog = catalog;
+        this.#listeners.emit();
+      }),
+      transport.announced(teacherPath(room), ({ path, active }) => {
+        if (path === "") this.#teacherLive = active;
+      }),
+    );
+    this.#timers.push(setInterval(() => this.#listeners.emit(), 250));
+    this.#timers.push(setInterval(() => void this.#loadArchived(), options.refreshMs ?? 10_000));
+    void this.#loadArchived();
+  }
+
+  /** The newest room catalog, once it has arrived. */
+  catalog(): RoomCatalog | undefined {
+    return this.#catalog;
   }
 
   /** Give the media its elements (from React refs). */
@@ -187,14 +209,14 @@ export class RoomMedia implements SpeakerMedia {
   play(): void {
     this.#wantLive = true;
     if (this.#mode === "live") this.#startLive();
-    else void this.#archivePlayer?.element.play().catch(() => {});
+    else void this.#archive?.element.play().catch(() => {});
   }
 
   /** Stop all sound, live or rewound; the mode stays. */
   stop(): void {
     this.#wantLive = false;
     this.#stopLive();
-    this.#archivePlayer?.element.pause();
+    this.#archive?.element.pause();
     this.#status = "idle";
     this.#listeners.emit();
   }
@@ -206,30 +228,27 @@ export class RoomMedia implements SpeakerMedia {
     return this.#status;
   }
   error(): string | undefined {
-    return this.#error ?? this.#archivePlayer?.error;
+    return this.#error ?? this.#archive?.error;
   }
 
   position(): number | undefined {
-    if (this.#mode === "rewound") return this.#clock ? this.#clock.position() : this.#archivePlayer?.position();
-    return this.#lastLive && this.#live ? this.#lastLive.media : undefined;
+    if (this.#mode === "rewound") return this.#clock ? this.#clock.position() : this.#toRoom(this.#archive?.position());
+    return this.#lastLive && this.#live ? this.#lastLive.room : undefined;
   }
 
   liveEdge(): number | undefined {
-    if (this.#lastLive) return this.#lastLive.media + (this.#live ? 0 : this.#now() - this.#lastLive.wall);
-    const run = this.#run;
-    if (!run) return undefined;
-    // From the archive: its newest media plus the time since it was written, if the room is still on air.
-    const wall = run.media_last_wall_ms ?? run.last_wall_ms;
-    const since = this.#now() - wall;
-    return since < 30_000 ? run.media_last_ms + Math.max(0, since) : run.media_last_ms;
+    if (this.#lastLive) return this.#lastLive.room + (this.#live ? 0 : this.#now() - this.#lastLive.wall);
+    // On air with no media playing here: room time now, as this device's clock has it.
+    if (this.#teacherLive) return this.#toRoom(this.#now());
+    return this.available().at(-1)?.end;
   }
 
   available(): Range[] {
-    return this.#run ? archivedRanges(this.#run) : [];
+    return this.#rangesToRoom(this.#archived);
   }
 
   buffered(): Range[] {
-    return this.#archivePlayer?.buffered() ?? [];
+    return this.#rangesToRoom(this.#archive?.buffered() ?? []);
   }
 
   seek(ms: number): void {
@@ -243,8 +262,7 @@ export class RoomMedia implements SpeakerMedia {
 
   goLive(): void {
     this.#mode = "live";
-    this.#archivePlayer?.close();
-    this.#archivePlayer = undefined;
+    this.#closeArchive();
     this.#clock?.close();
     this.#clock = undefined;
     this.#status = "idle";
@@ -258,55 +276,56 @@ export class RoomMedia implements SpeakerMedia {
 
   close(): void {
     this.#closed = true;
-    clearInterval(this.#timer);
-    this.#clockTrack.close();
+    this.#timers.forEach(clearInterval);
+    this.#subs.forEach((s) => s.close());
     this.#stopLive();
-    this.#archivePlayer?.close();
+    this.#closeArchive();
     this.#clock?.close();
     this.#listeners.clear();
   }
 
-  async #loadRun(): Promise<RunIndex | undefined> {
-    if (this.#run && this.#now() - this.#runLoadedAt < 3_000) return this.#run;
+  #toRoom(wallMs: number | undefined): number | undefined {
+    const e = this.#catalog?.epochMs;
+    return wallMs === undefined || e === undefined ? undefined : roomTimeOf(wallMs, e);
+  }
+
+  #rangesToRoom(ranges: Range[]): Range[] {
+    const e = this.#catalog?.epochMs;
+    return e === undefined ? [] : ranges.map((r) => ({ start: r.start - e, end: r.end - e }));
+  }
+
+  async #loadArchived(): Promise<void> {
     try {
-      this.#run = await this.#archive.currentRun(this.room);
-      this.#runLoadedAt = this.#now();
+      this.#archived = await archivedWallRanges(this.#archiveUrl, this.#fetch);
       this.#listeners.emit();
     } catch (e) {
-      console.warn("archive index", e);
+      console.warn("archive playlist", e);
     }
-    return this.#run;
   }
 
   async #seekArchive(ms: number, edge: number | undefined): Promise<void> {
-    const run = await this.#loadRun();
-    if (this.#closed || this.#mode !== "rewound") return;
+    const generation = ++this.#archiveGeneration;
+    if (this.#archived.length === 0) await this.#loadArchived();
+    if (this.#closed || this.#mode !== "rewound" || generation !== this.#archiveGeneration) return;
     const video = this.#elements?.video;
-    const archived = run ? archivedRanges(run) : [];
-    if (!run || !video || archived.length === 0 || typeof MediaSource === "undefined") {
+    const e = this.#catalog?.epochMs;
+    if (!video || e === undefined || this.#archived.length === 0) {
       this.#useClock(ms, edge);
       return;
     }
     this.#clock?.close();
     this.#clock = undefined;
-    if (this.#archivePlayer && this.#archivePlayer.run.run === run.run) {
-      this.#archivePlayer.seek(ms);
-    } else {
-      this.#archivePlayer?.close();
-      const player = new ArchivePlayer(video, this.#archive, run);
-      this.#archivePlayer = player;
-      player.onChange(() => this.#listeners.emit());
-      try {
-        await player.open(ms);
-      } catch (e) {
-        if (this.#archivePlayer !== player) return;
-        this.#error = e instanceof Error ? e.message : String(e);
-        player.close();
-        this.#archivePlayer = undefined;
-        this.#useClock(ms, edge);
-        return;
-      }
+    try {
+      this.#archive ??= await openArchive(video, this.#archiveUrl);
+      if (generation !== this.#archiveGeneration) return;
+      await this.#archive.open(ms + e);
+    } catch (err) {
+      if (generation !== this.#archiveGeneration) return;
+      this.#error = err instanceof Error ? err.message : String(err);
+      this.#useClock(ms, edge);
+      return;
     }
+    if (generation !== this.#archiveGeneration) return;
     this.#status = "playing";
     this.#error = undefined;
     video.muted = false;
@@ -317,9 +336,14 @@ export class RoomMedia implements SpeakerMedia {
     this.#listeners.emit();
   }
 
+  #closeArchive(): void {
+    this.#archiveGeneration++;
+    this.#archive?.close();
+    this.#archive = undefined;
+  }
+
   #useClock(ms: number, edge: number | undefined): void {
-    this.#archivePlayer?.close();
-    this.#archivePlayer = undefined;
+    this.#closeArchive();
     this.#clock?.close();
     const clock = new ClockMedia({ now: this.#now, tickMs: 0, status: "no-media" });
     if (edge !== undefined) clock.setLiveEdge(edge);
@@ -348,15 +372,24 @@ export class RoomMedia implements SpeakerMedia {
           delay: Watch.Net.Time.Milli(500),
         });
         cleanup.push(() => player.close());
+        let clock: HangClock | undefined;
         cleanup.push(
           player.broadcast.out.status.subscribe((s) => {
             this.#status = s === "live" ? "playing" : s === "loading" ? "loading" : "idle";
             this.#listeners.emit();
           }),
+          player.broadcast.out.catalog.subscribe((catalog) => {
+            clock = hangClockOf(catalog);
+            this.#error = catalog && !clock ? "The speaker's broadcast carries no clock." : undefined;
+            this.#listeners.emit();
+          }),
         );
         const poll = setInterval(() => {
-          const t = player.sync.now();
-          if (t !== undefined) this.#lastLive = { media: Number(t) + (this.#offset ?? 0), wall: this.#now() };
+          const pts = player.sync.now();
+          const e = this.#catalog?.epochMs;
+          if (pts === undefined || !clock || e === undefined) return;
+          const shift = this.#catalog?.shift[String(clock.wall)] ?? 0;
+          this.#lastLive = { room: roomTimeOf(wallClockMs(clock, Number(pts)), e, shift), wall: this.#now() };
         }, 100);
         cleanup.push(() => clearInterval(poll));
       })
@@ -372,7 +405,3 @@ export class RoomMedia implements SpeakerMedia {
     this.#live = undefined;
   }
 }
-
-/** The speaker console's room-clock track in `talk/R/slides`. */
-
-/** `offset_ms` from a clock object `{"epoch_ms", "offset_ms", "session"}`, or undefined. */

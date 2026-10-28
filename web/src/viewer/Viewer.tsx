@@ -2,6 +2,7 @@ import { Badge, Switch } from "@astryxdesign/core";
 import { useState } from "react";
 import { type AgentView, toAgentView } from "../playback/agentViews";
 import type { Playback } from "../playback/playback";
+import { Inspector } from "../playback/Inspector";
 import { PlaybackBar } from "../playback/PlaybackBar";
 import { usePlayback, usePlaybackView } from "../playback/usePlayback";
 import { type RoomStatus, useRoomStatus } from "../playback/roomStatus";
@@ -70,6 +71,7 @@ export function Viewer({
               />
             </section>
           ) : null}
+          <Inspector playback={playback} />
         </aside>
 
         <main className="viewer-main" id="main">

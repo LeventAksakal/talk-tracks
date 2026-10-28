@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ArchiveClient, archivedRanges, type RunIndex, segmentAt } from "./archive";
 import { FakeHistorySource } from "./fakeSource";
 import { FakeRoom } from "./fixtures";
-import { parseClock } from "./clock";
 import { ClockMedia } from "./media";
 import { Playback } from "./playback";
 import { formatClock } from "./timeline";
@@ -78,6 +76,20 @@ describe("Playback: Go live and what you missed", () => {
     expect(v.missed!.chapters.map((c) => c.start_ms)).toEqual([61_000, 121_000, 181_000, 241_000]);
   });
 
+  it("subscribes to the outline for the summary when it was off, and drops it on dismiss", async () => {
+    const { playback } = setup(250_000);
+    await settle();
+    playback.seek(30_000);
+    await settle();
+    playback.goLive();
+    await settle();
+    const outline = () => playback.getSnapshot().tracks.tracks.find((t) => t.kind === "outline")!;
+    expect(outline().enabled).toBe(true);
+    expect(playback.getSnapshot().missed!.chapters.length).toBeGreaterThan(0);
+    playback.dismissMissed();
+    expect(outline().enabled).toBe(false);
+  });
+
   it("loads the missed captions on request, one fetch per slice", async () => {
     const { playback, room, source } = setup(250_000);
     playback.tracks.setEnabled("captions/items", true);
@@ -114,78 +126,6 @@ describe("Playback: Go live and what you missed", () => {
     playback.seek(95_000);
     playback.goLive();
     expect(playback.getSnapshot().missed).toBeUndefined();
-  });
-});
-
-describe("archive index", () => {
-  const run: RunIndex = {
-    room: "live",
-    run: "1761650000000",
-    started_wall_ms: 0,
-    last_wall_ms: 0,
-    media_first_ms: 1_520,
-    media_last_ms: 30_000,
-    tracks: [
-      {
-        track: "audio",
-        kind: "audio",
-        codec: "opus",
-        mime: 'audio/mp4; codecs="opus"',
-        segments: [
-          { n: 0, init: "init-0.mp4", start_ms: 1_520, end_ms: 7_540 },
-          { n: 1, init: "init-0.mp4", start_ms: 7_540, end_ms: 13_560 },
-          { n: 2, init: "init-2.mp4", start_ms: 20_000, end_ms: 26_000 },
-        ],
-      },
-      { track: "video", kind: "video", codec: "avc1.64001f", mime: 'video/mp4; codecs="avc1.64001f"', segments: [] },
-    ],
-  };
-
-  it("finds the segment holding a time, or the next one across a gap", () => {
-    const s = run.tracks[0]!.segments;
-    expect([0, 1_520, 7_539, 7_540, 15_000, 25_999, 26_000].map((ms) => segmentAt(s, ms))).toEqual([
-      0, 0, 0, 1, 2, 2, -1,
-    ]);
-  });
-
-  it("lists what can be played, gaps included", () => {
-    expect(archivedRanges(run)).toEqual([
-      { start: 1_520, end: 13_560 },
-      { start: 20_000, end: 26_000 },
-    ]);
-  });
-
-  it("names files as the archive lays them out", async () => {
-    const asked: string[] = [];
-    const client = new ArchiveClient("/archive/", async (url) => {
-      asked.push(String(url));
-      return String(url).endsWith("room.json")
-        ? Response.json({ room: "live", runs: [{ run: "1" }, { run: run.run }] })
-        : Response.json(run);
-    });
-    const current = (await client.currentRun("live"))!;
-    expect(asked).toEqual(["/archive/live/room.json", `/archive/live/${run.run}/run.json`]);
-    const audio = current.tracks[0]!;
-    expect(client.segmentUrl(current, audio, audio.segments[1]!)).toBe(
-      `/archive/live/${run.run}/teacher/audio/000001.m4s`,
-    );
-    expect(client.initUrl(current, audio, audio.segments[2]!)).toBe(
-      `/archive/live/${run.run}/teacher/audio/init-2.mp4`,
-    );
-  });
-
-  it("a room with nothing archived is undefined, not an error", async () => {
-    const client = new ArchiveClient("/archive", async () => new Response("", { status: 404 }));
-    expect(await client.currentRun("demo")).toBeUndefined();
-  });
-});
-
-describe("room clock", () => {
-  it("reads offset_ms from the speaker console's clock object", () => {
-    const enc = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
-    expect(parseClock(enc({ epoch_ms: 1, offset_ms: 123_456, session: "9" }))).toBe(123_456);
-    expect(parseClock(enc({ epoch_ms: 1 }))).toBeUndefined();
-    expect(parseClock(new TextEncoder().encode("x"))).toBeUndefined();
   });
 });
 
