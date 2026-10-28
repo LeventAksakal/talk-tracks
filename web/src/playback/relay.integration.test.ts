@@ -94,7 +94,7 @@ describe.skipIf(!RELAY)("against the relay", () => {
       agentPath(ROOM, "captions"),
       ITEMS_TRACK,
       (o) => {
-        const p = parseObject(o.payload);
+        const p = parseObject(o.payload, "captions", o.index);
         objects.push({ group: o.group, kind: p.ok ? p.value.kind : `bad: ${p.error}` });
       },
       { priority: 224 },
@@ -114,13 +114,13 @@ describe.skipIf(!RELAY)("against the relay", () => {
     for (const k of [live - 1, live - 5]) {
       const t0 = performance.now();
       const objects = await source.fetchGroup(agentPath(ROOM, "captions"), ITEMS_TRACK, k, { priority: 32 });
-      const kinds = objects.map((o) => {
-        const p = parseObject(o);
+      const kinds = objects.map((o, i) => {
+        const p = parseObject(o, "captions", i);
         return p.ok ? p.value.kind : "bad";
       });
       console.log(`fetch slice ${k}: ${objects.length} objects in ${Math.round(performance.now() - t0)} ms`);
       expect(kinds[0]).toBe("carry");
-      expect(kinds.slice(1).every((k) => k === "item")).toBe(true);
+      expect(kinds.slice(1).every((k) => k === "items")).toBe(true);
     }
     await expect(
       source.fetchGroup(agentPath(ROOM, "captions"), ITEMS_TRACK, live + 50, { priority: 32 }),

@@ -3,6 +3,7 @@
 // chapters start. Every slice before the viewer arrives sits in the origin's archive (FETCH only);
 // from then on objects go out live as their production time passes. Drives tests and the offline demo.
 
+import type { RoomCatalog } from "../contracts/types";
 import type { FakeHistorySource } from "./fakeSource";
 import { sliceOf, sliceStart } from "./slices";
 import {
@@ -10,7 +11,6 @@ import {
   encodeCarry,
   encodeItem,
   encodeOutline,
-  type EncodeOptions,
   type Item,
   ITEMS_TRACK,
   type LineItem,
@@ -84,7 +84,7 @@ export function fakeTalk(durationMs = 300_000, options: { arabic?: boolean } = {
   const arabic: LineItem[] = [];
   for (let id = 0, t = 1_000; t + 3_600 <= durationMs; id++, t += 4_500) {
     const [en, tr, ar] = SENTENCES[id % SENTENCES.length]!;
-    const line = { type: "line", id, startMs: t, endMs: t + 3_600, final: true } as const;
+    const line = { type: "line", id: String(id), startMs: t, endMs: t + 3_600, final: true, rev: 1 } as const;
     captions.push({ ...line, text: `${en} (${id})` });
     translation.push({ ...line, text: `${tr} (${id})` });
     arabic.push({ ...line, text: `${ar} (${id})` });
@@ -109,7 +109,6 @@ export function fakeTalk(durationMs = 300_000, options: { arabic?: boolean } = {
     outlines.push({
       atMs: t + 8_000,
       outline: {
-        lang: "en",
         chapters: [...chapters],
         glossary: [{ term: "Sediment", definition: "Sand and stones a river carries." }],
         recap: `So far: ${chapters.map((c) => c.title.toLowerCase()).join(", ")}.`,
@@ -159,29 +158,17 @@ export class FakeRoom {
     this.#source = source;
     const never = (agent: string, k: number) => options.neverProduced?.[agent]?.includes(k) ?? false;
     const capped = (agent: string, k: number) => options.capped?.[agent]?.includes(k) ?? false;
-    const sliced = (
-      agent: string,
-      kind: EncodeOptions["kind"],
-      lang: string,
-      items: { atMs: number; item: Item }[],
-      carryOf: (k: number) => Item[],
-    ) => {
-      const o: EncodeOptions = {
-        agent: { name: agent, label: labelOf(agent), model: "fake" },
-        lang,
-        kind,
-        costUsd: 0.01,
-      };
+    const sliced = (agent: string, items: { atMs: number; item: Item }[], carryOf: (k: number) => Item[]) => {
       return {
         agent,
         track: ITEMS_TRACK,
         slice: (k: number) => {
           if (never(agent, k)) return [];
           const isCapped = capped(agent, k);
-          const out = [{ atMs: sliceStart(k), payload: encodeCarry(o, k, carryOf(k), isCapped) }];
+          const out = [{ atMs: sliceStart(k), payload: encodeCarry(k, carryOf(k), isCapped) }];
           if (isCapped) return out;
           const inSlice = items.filter(({ atMs }) => sliceOf(atMs) === k).sort((a, b) => a.atMs - b.atMs);
-          for (const { atMs, item } of inSlice) out.push({ atMs, payload: encodeItem(o, k, item) });
+          for (const { atMs, item } of inSlice) out.push({ atMs, payload: encodeItem(item) });
           return out;
         },
       } satisfies AgentScript;
@@ -189,39 +176,28 @@ export class FakeRoom {
     const linesWithInterim = talk.captions.flatMap((l) => [
       {
         atMs: l.startMs + 1_800,
-        item: { ...l, endMs: l.startMs + 1_800, text: firstHalf(l.text), final: false } as Item,
+        item: { ...l, endMs: l.startMs + 1_800, text: firstHalf(l.text), final: false, rev: 0 } as Item,
       },
       { atMs: l.endMs + CAPTION_LATENCY_MS, item: l as Item },
     ]);
     const lastLines = (lines: LineItem[], producedAfter: number) => (k: number) =>
       lines.filter((l) => l.endMs + producedAfter < sliceStart(k)).slice(-2);
-    const outlineOpts: EncodeOptions = {
-      agent: { name: "chapters", label: labelOf("chapters"), model: "fake" },
-      lang: "en",
-      kind: "outline",
-    };
     this.#scripts = [
-      sliced("captions", "captions", "en", linesWithInterim, lastLines(talk.captions, CAPTION_LATENCY_MS)),
+      sliced("captions", linesWithInterim, lastLines(talk.captions, CAPTION_LATENCY_MS)),
       sliced(
         "translate-tr",
-        "translation",
-        "tr",
         talk.translation.map((l) => ({ atMs: l.endMs + TRANSLATE_LATENCY_MS, item: l })),
         lastLines(talk.translation, TRANSLATE_LATENCY_MS),
       ),
       ...Object.entries(talk.more).map(([lang, lines]) =>
         sliced(
           `translate-${lang}`,
-          "translation",
-          lang,
           lines.map((l) => ({ atMs: l.endMs + TRANSLATE_LATENCY_MS, item: l })),
           lastLines(lines, TRANSLATE_LATENCY_MS),
         ),
       ),
       sliced(
         "describe",
-        "slides",
-        "en",
         talk.slides.map((s) => ({ atMs: s.atMs + DESCRIBE_LATENCY_MS, item: s })),
         (k) => talk.slides.filter((s) => s.atMs + DESCRIBE_LATENCY_MS < sliceStart(k)).slice(-1),
       ),
@@ -232,10 +208,32 @@ export class FakeRoom {
         snapshots: talk.outlines.map(({ atMs, outline }) => ({
           atMs,
           group: sliceOf(atMs),
-          payload: encodeOutline(outlineOpts, sliceOf(atMs), outline),
+          payload: encodeOutline(outline, atMs),
         })),
       },
     ];
+  }
+
+  /** The room catalog the room service would publish: each agent's track with its label and language. */
+  catalog(): RoomCatalog {
+    const track = (agent: string, label: string, lang: string, name = ITEMS_TRACK) => ({
+      namespace: this.path(agent),
+      name,
+      packaging: "eventtimeline",
+      label,
+      lang,
+      tt: { latenessMs: 4_000, cost: "free" as const },
+    });
+    return {
+      tracks: [
+        track("captions", "Captions (English)", "en"),
+        track("translate-tr", "Translation (Turkish)", "tr"),
+        ...Object.keys(this.talk.more).map((lang) => track(`translate-${lang}`, `Translation (${lang})`, lang)),
+        track("describe", "Slide descriptions", "en"),
+        track("chapters", "Chapters, glossary and recap", "en", OUTLINE_TRACK),
+      ],
+      tt: { E: 0, shift: {} },
+    };
   }
 
   path(agent: string): string {
@@ -302,12 +300,4 @@ export class FakeRoom {
 function firstHalf(text: string): string {
   const words = text.split(" ");
   return words.slice(0, Math.ceil(words.length / 2)).join(" ");
-}
-
-function labelOf(agent: string): string {
-  if (agent === "captions") return "Captions (English)";
-  if (agent === "translate-tr") return "Translation (Turkish)";
-  if (agent === "translate-ar") return "Translation (Arabic)";
-  if (agent === "describe") return "Slide descriptions";
-  return "Chapters, glossary and recap";
 }

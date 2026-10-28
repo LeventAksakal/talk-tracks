@@ -1,12 +1,24 @@
-// The one adapter between the sliced wire contract (envelope v2, decision 0012) and the playback layer.
-// The contract's types, names and validation live in ../contracts; this file maps a validated envelope
-// to what the playback layer works with, and builds envelopes for the fakes.
+// The one adapter between the wire contract (MSF event-timeline records, design §4.2) and the playback
+// layer. The contract's types, names and validation live in ../contracts; this file maps a validated
+// object to what the playback layer works with, and builds objects for the fakes.
 
 import { agentPath, agentsPrefix, ITEMS_TRACK, OUTLINE_TRACK } from "../contracts/names";
-import type { Carry, Chapter, Envelope, GlossaryTerm, Usage } from "../contracts/types";
-import { parseEnvelope } from "../contracts/validate";
+import {
+  type CarryRecord,
+  type Chapter,
+  type Cue,
+  type CueRecord,
+  type GlossaryTerm,
+  isCarryRecord,
+  type OutlineRecord,
+  type Slide,
+  type SlideRecord,
+  SLICE_MS,
+} from "../contracts/types";
+import { type Parsed, parseCueObject, parseOutlineObject, parseSlideObject } from "../contracts/validate";
 
 export { agentPath, agentsPrefix, ITEMS_TRACK, OUTLINE_TRACK };
+export type { Parsed };
 
 export type TrackKind = "captions" | "translation" | "slides" | "outline";
 
@@ -16,7 +28,7 @@ export interface TrackRef {
   track: string;
   kind: TrackKind | undefined;
   lang: string | undefined;
-  /** Sliced on the media clock (items), or a snapshot track (outline). */
+  /** Sliced on the room clock (items), or a snapshot track (outline). */
   sliced: boolean;
 }
 
@@ -25,7 +37,7 @@ export function parseAgentPath(rel: string): string | null {
   return /^[a-z0-9][a-z0-9-]*$/i.test(rel) ? rel : null;
 }
 
-/** What an agent publishes, from its name (until the room catalog lists tracks, design §5.10). */
+/** What an agent publishes, from its name (the room catalog adds labels and L, design §5.10). */
 export function tracksOf(agent: string): TrackRef[] {
   if (agent === "chapters") return [{ agent, track: OUTLINE_TRACK, kind: "outline", lang: undefined, sliced: false }];
   if (agent === "captions") return [{ agent, track: ITEMS_TRACK, kind: "captions", lang: undefined, sliced: true }];
@@ -47,23 +59,23 @@ export const PRIORITY: Record<TrackKind | "unknown" | "fetch", number> = {
 
 // --- what the playback layer works with ----------------------------------------------------------
 
-/** A caption or translated line. The highest `rev` with the same id replaces it; final beats interim. */
+/** A caption or translated cue. The highest `rev` with the same id replaces it; final beats interim. */
 export interface LineItem {
   type: "line";
-  id: number;
-  /** Room time of the first word. 0 when the source line's time is unknown (older translations). */
+  /** Stable across revisions; a translated cue keeps its caption's id. */
+  id: string;
+  /** Room time of the first word. */
   startMs: number;
   endMs: number;
   text: string;
   final: boolean;
-  /** Revision (WebVTT-MSF cue extension, design §4.2); absent on the v2 envelope. */
   rev?: number;
 }
 
 export interface SlideItem {
   type: "slide";
   id: number;
-  /** Media time when the slide appeared. */
+  /** Room time when the slide appeared. */
   atMs: number;
   description: string;
 }
@@ -71,137 +83,96 @@ export interface SlideItem {
 export type Item = LineItem | SlideItem;
 
 export interface Outline {
-  lang: string;
   chapters: Chapter[];
   glossary: GlossaryTerm[];
   recap: string;
 }
 
-export interface AgentMeta {
-  name: string;
-  label: string;
-  model: string;
-  costUsd: number;
-  requests: number;
-}
-
 export type WireObject =
-  | {
-      kind: "carry";
-      slice: number;
-      capped: boolean;
-      lang: string;
-      /** The state at the slice start: the last lines, or the slide on screen. */
-      items: Item[];
-      agent: AgentMeta;
-    }
-  | { kind: "item"; slice: number; lang: string; item: Item; agent: AgentMeta }
-  | { kind: "snapshot"; slice: number; outline: Outline; agent: AgentMeta };
+  /** Object 0 of a slice: the state at its start (the last cues, or the slide on screen). */
+  | { kind: "carry"; capped: boolean; items: Item[] }
+  /** Objects 1 and up: new records. */
+  | { kind: "items"; items: Item[] }
+  | { kind: "snapshot"; outline: Outline };
 
-export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
-
-export function parseObject(payload: Uint8Array): Parsed<WireObject> {
-  const parsed = parseEnvelope(payload);
-  return parsed.ok ? { ok: true, value: fromEnvelope(parsed.value) } : parsed;
-}
-
-function fromEnvelope(env: Envelope): WireObject {
-  const { slice } = env;
-  const agent: AgentMeta = {
-    ...env.agent,
-    costUsd: env.usage.cost_usd ?? 0,
-    requests: env.usage.requests ?? 0,
-  };
-  const body = env.body;
-  switch (body.type) {
-    case "outline":
-      return {
-        kind: "snapshot",
-        slice,
-        agent,
-        outline: { lang: body.lang, chapters: body.chapters, glossary: body.glossary, recap: body.recap ?? "" },
-      };
-    case "captions-carry":
-    case "translation-carry":
-      return { kind: "carry", slice, capped: env.capped === true, lang: body.lang, items: body.lines.map(line), agent };
-    case "slides-carry":
-      return {
-        kind: "carry",
-        slice,
-        capped: env.capped === true,
-        lang: body.lang,
-        items: body.slide ? [slide(body.slide)] : [],
-        agent,
-      };
-    case "caption":
-      return { kind: "item", slice, lang: body.lang, item: { ...line(body.line), final: body.final }, agent };
-    case "translation":
-      return { kind: "item", slice, lang: body.lang, item: line(body.line), agent };
-    case "slide":
-      return { kind: "item", slice, lang: body.lang, item: slide(body.slide), agent };
+/** One object of a track, by the track's kind and the object's index in its group. */
+export function parseObject(payload: Uint8Array, kind: TrackKind | undefined, index: number): Parsed<WireObject> {
+  if (kind === "outline") {
+    const parsed = parseOutlineObject(payload);
+    return parsed.ok ? { ok: true, value: { kind: "snapshot", outline: outlineOf(parsed.value) } } : parsed;
   }
+  const parsed: Parsed<(CarryRecord | CueRecord | SlideRecord)[]> =
+    kind === "slides"
+      ? parseSlideObject(payload)
+      : kind === undefined
+        ? orElse(parseCueObject(payload), () => parseSlideObject(payload))
+        : parseCueObject(payload);
+  if (!parsed.ok) return parsed;
+  let capped = false;
+  const items: Item[] = [];
+  for (const r of parsed.value) {
+    if (isCarryRecord(r)) capped ||= r.data.tt.capped === true;
+    else items.push("at" in r.data ? slide(r.data) : line(r.data));
+  }
+  return { ok: true, value: index === 0 ? { kind: "carry", capped, items } : { kind: "items", items } };
 }
 
-function line(l: { id: number; start_ms?: number; end_ms?: number; text: string }): LineItem {
-  return { type: "line", id: l.id, startMs: l.start_ms ?? 0, endMs: l.end_ms ?? 0, text: l.text, final: true };
+function orElse<T, U>(a: Parsed<T>, b: () => Parsed<U>): Parsed<T | U> {
+  return a.ok ? a : b();
 }
 
-function slide(s: { id: number; at_ms: number; description: string }): SlideItem {
-  return { type: "slide", id: s.id, atMs: s.at_ms, description: s.description };
+function line(c: Cue): LineItem {
+  return { type: "line", id: c.id, startMs: c.start, endMs: c.end, text: c.text, final: c.final, rev: c.rev };
+}
+
+function slide(s: Slide): SlideItem {
+  return { type: "slide", id: s.id, atMs: s.at, description: s.text };
+}
+
+function outlineOf(records: OutlineRecord[]): Outline {
+  const outline: Outline = { chapters: [], glossary: [], recap: "" };
+  for (const { data } of records) {
+    if (data.kind === "chapter")
+      outline.chapters.push({ id: data.id, start_ms: data.start, title: data.title, summary: data.summary });
+    else if (data.kind === "term") outline.glossary.push({ term: data.term, definition: data.definition });
+    else outline.recap = data.text;
+  }
+  outline.chapters.sort((a, b) => a.start_ms - b.start_ms);
+  return outline;
 }
 
 // --- the other direction, for fakes and fixtures ---------------------------------------------------
 
 const encoder = new TextEncoder();
+const json = (records: unknown[]) => encoder.encode(JSON.stringify(records));
 
-export interface EncodeOptions {
-  agent: { name: string; label: string; model: string };
-  lang: string;
-  kind: TrackKind;
-  costUsd?: number;
+/** Encode a carry-in, as an agent publishes object 0 of slice `slice`. */
+export function encodeCarry(slice: number, items: Item[], capped = false): Uint8Array {
+  const note: CarryRecord[] = capped ? [{ m: slice * SLICE_MS, data: { tt: { capped: true } } }] : [];
+  return json([...note, ...items.map(record)]);
 }
 
-/** Encode a carry-in, as an agent publishes object 0 of a slice. */
-export function encodeCarry(o: EncodeOptions, slice: number, items: Item[], capped = false): Uint8Array {
-  const first = items[0];
-  const lines = items.filter(isLine).map(lineJson);
-  const body: Carry =
-    o.kind === "slides"
-      ? { type: "slides-carry", lang: o.lang, slide: first?.type === "slide" ? slideJson(first) : null }
-      : o.kind === "translation"
-        ? { type: "translation-carry", lang: o.lang, lines }
-        : { type: "captions-carry", lang: o.lang, lines };
-  return envelopeJson(o, slice, "carry", body, capped);
+/** Encode one new record, as an agent publishes objects 1 and up of a slice. */
+export function encodeItem(item: Item): Uint8Array {
+  return json([record(item)]);
 }
 
-/** Encode one item, as an agent publishes objects 1 and up of a slice. */
-export function encodeItem(o: EncodeOptions, slice: number, item: Item): Uint8Array {
-  const body: Envelope["body"] =
-    item.type === "slide"
-      ? { type: "slide", lang: o.lang, slide: slideJson(item) }
-      : o.kind === "translation"
-        ? { type: "translation", lang: o.lang, line: lineJson(item) }
-        : { type: "caption", lang: o.lang, line: lineJson(item), final: item.final };
-  return envelopeJson(o, slice, "item", body);
+/** Encode an outline revision, its terms and recap at `watermarkMs`. */
+export function encodeOutline(outline: Outline, watermarkMs: number): Uint8Array {
+  const records: OutlineRecord[] = [
+    ...outline.chapters.map((c) => ({
+      m: c.start_ms,
+      data: { kind: "chapter" as const, id: c.id, start: c.start_ms, title: c.title, summary: c.summary },
+    })),
+    ...outline.glossary.map((g) => ({ m: watermarkMs, data: { kind: "term" as const, ...g } })),
+    ...(outline.recap ? [{ m: watermarkMs, data: { kind: "recap" as const, text: outline.recap } }] : []),
+  ];
+  return json(records);
 }
 
-export function encodeOutline(o: EncodeOptions, slice: number, outline: Outline): Uint8Array {
-  const { chapters, glossary, recap } = outline;
-  return envelopeJson(o, slice, "snapshot", { type: "outline", lang: o.lang, chapters, glossary, recap });
+function record(item: Item): CueRecord | SlideRecord {
+  if (item.type === "slide") return { m: item.atMs, data: { id: item.id, at: item.atMs, text: item.description } };
+  const cue: Cue = { start: item.startMs, end: item.endMs, id: item.id, text: item.text, final: item.final };
+  if (item.rev !== undefined) cue.rev = item.rev;
+  return { m: item.startMs, data: cue };
 }
-
-function envelopeJson(
-  o: EncodeOptions,
-  slice: number,
-  kind: Envelope["kind"],
-  body: Envelope["body"],
-  capped = false,
-): Uint8Array {
-  const usage: Usage = { requests: 0, input_tokens: 0, output_tokens: 0, cost_usd: o.costUsd ?? 0 };
-  const env = { v: 2, agent: o.agent, slice, kind, ...(capped ? { capped } : {}), at_ms: 0, usage, body };
-  return encoder.encode(JSON.stringify(env));
-}
-
-const isLine = (i: Item): i is LineItem => i.type === "line";
-const lineJson = (l: LineItem) => ({ id: l.id, start_ms: l.startMs, end_ms: l.endMs, text: l.text });
-const slideJson = (s: SlideItem) => ({ id: s.id, at_ms: s.atMs, description: s.description });

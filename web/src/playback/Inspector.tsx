@@ -1,11 +1,12 @@
-// What the relay and the agents are doing, per track, for judges (design §5.10): producing or idle,
-// FETCHes the agent served as origin (relay cache misses), back-fills, and spend. All of it from the
-// room catalog's `tt.status`; reading it subscribes to the room service only.
+// What the relay and the agents are doing, for judges (design §5.10): per agent, live, idle or capped;
+// FETCHes it served as origin (relay cache misses, the rest came from the relay's cache); back-fills; and
+// spend. All of it from the room catalog's `tt.status`; reading it subscribes to the room service only.
 
 import { useSyncExternalStore } from "react";
 import { RoomMedia } from "./media";
 import type { Playback } from "./playback";
-import type { RoomCatalog } from "./roomCatalog";
+import { latenessOf, type RoomCatalog, statusOf } from "./roomCatalog";
+import { agentPath } from "./wire";
 
 export function Inspector({ playback }: { playback: Playback }) {
   const media = playback.media instanceof RoomMedia ? playback.media : undefined;
@@ -17,52 +18,57 @@ export function Inspector({ playback }: { playback: Playback }) {
   return (
     <details className="panel inspector">
       <summary className="panel-title">Inspector</summary>
-      {catalog ? <InspectorTable catalog={catalog} /> : <p className="muted">Waiting for the room catalog.</p>}
+      {catalog ? (
+        <InspectorTable catalog={catalog} room={playback.tracks.room} />
+      ) : (
+        <p className="muted">Waiting for the room catalog.</p>
+      )}
     </details>
   );
 }
 
-function InspectorTable({ catalog }: { catalog: RoomCatalog }) {
-  const keys = new Set([...catalog.tracks.map((t) => `${t.namespace}/${t.name}`), ...Object.keys(catalog.status)]);
-  const total = Object.values(catalog.status).reduce((n, s) => n + s.spendUsd, 0);
-  if (keys.size === 0) return <p className="muted">No tracks in the catalog yet.</p>;
+function InspectorTable({ catalog, room }: { catalog: RoomCatalog; room: string }) {
+  const prefix = agentPath(room, "");
+  const agents = new Set([
+    ...catalog.tracks.filter((t) => t.namespace.startsWith(prefix)).map((t) => t.namespace.slice(prefix.length)),
+    ...Object.keys(catalog.tt.status ?? {}),
+  ]);
+  const total = Object.values(catalog.tt.status ?? {}).reduce((n, s) => n + s.spend_usd, 0);
+  if (agents.size === 0) return <p className="muted">No agents in the catalog yet.</p>;
   return (
     <table className="inspector-table">
       <thead>
         <tr>
-          <th scope="col">Track</th>
-          <th scope="col">Producing</th>
-          <th scope="col" title="FETCHes the agent answered itself: the relay had no copy">
-            Origin
-          </th>
-          <th scope="col" title="FETCHes the relay answered from its cache">
-            Cached
+          <th scope="col">Agent</th>
+          <th scope="col">Status</th>
+          <th scope="col" title="FETCHes the agent answered itself because the relay had no copy">
+            Origin FETCHes
           </th>
           <th scope="col">Back-fills</th>
           <th scope="col">Spend</th>
         </tr>
       </thead>
       <tbody>
-        {[...keys].sort().map((key) => {
-          const s = catalog.status[key];
-          const track = catalog.tracks.find((t) => `${t.namespace}/${t.name}` === key);
+        {[...agents].sort().map((agent) => {
+          const s = statusOf(catalog, agent);
+          const track = catalog.tracks.find((t) => t.namespace === prefix + agent);
+          const l = track ? latenessOf(catalog, track.namespace, track.name) : undefined;
           return (
-            <tr key={key}>
-              <th scope="row" title={track ? `L = ${track.latenessMs / 1000} s` : undefined}>
-                {shortName(key)}
+            <tr key={agent}>
+              <th scope="row" title={l === undefined ? undefined : `Publishes up to ${l / 1000} s late`}>
+                {track?.label ?? agent}
               </th>
-              <td>{s ? (s.capped ? "capped" : s.producing ? "yes" : "idle") : "–"}</td>
-              <td>{s?.originFetches ?? "–"}</td>
-              <td>{s?.cachedFetches ?? "–"}</td>
+              <td>{s ? (s.status === "live" && !s.producing ? "live, waiting" : s.status) : "–"}</td>
+              <td>{s?.fetches_served ?? "–"}</td>
               <td>{s?.backfills ?? "–"}</td>
-              <td>{s ? `$${s.spendUsd.toFixed(3)}` : "–"}</td>
+              <td>{s ? `$${s.spend_usd.toFixed(3)}` : "–"}</td>
             </tr>
           );
         })}
       </tbody>
       <tfoot>
         <tr>
-          <th scope="row" colSpan={5}>
+          <th scope="row" colSpan={4}>
             Spend in this room
           </th>
           <td>${total.toFixed(3)}</td>
@@ -70,10 +76,4 @@ function InspectorTable({ catalog }: { catalog: RoomCatalog }) {
       </tfoot>
     </table>
   );
-}
-
-/** `talk/R/agents/captions/items` → `captions/items`. */
-function shortName(key: string): string {
-  const i = key.indexOf("/agents/");
-  return i >= 0 ? key.slice(i + "/agents/".length) : key.split("/").slice(2).join("/");
 }

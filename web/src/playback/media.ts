@@ -8,7 +8,7 @@ import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
 import { type ArchivePlayback, archivedWallRanges, hlsUrl, openArchive } from "./hlsArchive";
 import { type RoomCatalog, watchRoomCatalog } from "./roomCatalog";
-import { type HangClock, hangClockOf, roomTimeOf, wallClockMs } from "./roomClock";
+import { type HangClock, hangClockOf, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
 import type { Range } from "./slices";
 
 export type MediaStatus =
@@ -285,12 +285,12 @@ export class RoomMedia implements SpeakerMedia {
   }
 
   #toRoom(wallMs: number | undefined): number | undefined {
-    const e = this.#catalog?.epochMs;
+    const e = this.#catalog?.tt.E;
     return wallMs === undefined || e === undefined ? undefined : roomTimeOf(wallMs, e);
   }
 
   #rangesToRoom(ranges: Range[]): Range[] {
-    const e = this.#catalog?.epochMs;
+    const e = this.#catalog?.tt.E;
     return e === undefined ? [] : ranges.map((r) => ({ start: r.start - e, end: r.end - e }));
   }
 
@@ -308,7 +308,7 @@ export class RoomMedia implements SpeakerMedia {
     if (this.#archived.length === 0) await this.#loadArchived();
     if (this.#closed || this.#mode !== "rewound" || generation !== this.#archiveGeneration) return;
     const video = this.#elements?.video;
-    const e = this.#catalog?.epochMs;
+    const e = this.#catalog?.tt.E;
     if (!video || e === undefined || this.#archived.length === 0) {
       this.#useClock(ms, edge);
       return;
@@ -386,9 +386,9 @@ export class RoomMedia implements SpeakerMedia {
         );
         const poll = setInterval(() => {
           const pts = player.sync.now();
-          const e = this.#catalog?.epochMs;
+          const e = this.#catalog?.tt.E;
           if (pts === undefined || !clock || e === undefined) return;
-          const shift = this.#catalog?.shift[String(clock.wall)] ?? 0;
+          const shift = shiftOf(this.#catalog?.tt.shift, clock);
           this.#lastLive = { room: roomTimeOf(wallClockMs(clock, Number(pts)), e, shift), wall: this.#now() };
         }, 100);
         cleanup.push(() => clearInterval(poll));

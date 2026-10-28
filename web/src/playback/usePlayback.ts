@@ -7,13 +7,12 @@ import { FakeRoom, fakeTalk } from "./fixtures";
 import { ClockMedia, RoomMedia } from "./media";
 import { MoqHistorySource } from "./moqSource";
 import { Playback, type PlaybackView } from "./playback";
-import { latenessOf } from "./roomCatalog";
 
 /** A Playback for a room on the relay: AI tracks over MoQ, speaker media live and from the archive. */
 export function createRoomPlayback(transport: MoqTransport, room: string): Playback {
   const media = new RoomMedia(transport, room);
   return new Playback(new MoqHistorySource(transport), media, room, {
-    latenessMs: (path, track) => latenessOf(media.catalog(), path, track),
+    catalog: () => media.catalog(),
   });
 }
 
@@ -31,7 +30,8 @@ export function createDemoPlayback(room: string, startMs = 180_000, options: { a
   const media = new ClockMedia();
   media.setLiveEdge(startMs);
   const timer = setInterval(() => fake.advanceTo(Date.now() - t0), 250);
-  return new Playback(source, media, room, { onClose: () => clearInterval(timer) });
+  const catalog = fake.catalog();
+  return new Playback(source, media, room, { catalog: () => catalog, onClose: () => clearInterval(timer) });
 }
 
 /** The room's Playback for the component's lifetime: over the relay for a MoqTransport, none otherwise. */

@@ -5,7 +5,7 @@ import { encodeCarry, encodeItem, encodeOutline, type LineItem, parseObject } fr
 
 const line = (id: number, startMs: number, text: string, final = true): LineItem => ({
   type: "line",
-  id,
+  id: String(id),
   startMs,
   endMs: startMs + 2_000,
   text,
@@ -13,41 +13,47 @@ const line = (id: number, startMs: number, text: string, final = true): LineItem
 });
 
 describe("wire adapter", () => {
-  const o = { agent: { name: "captions", label: "Captions", model: "fake" }, lang: "en", kind: "captions" as const };
-
-  it("round-trips a carry-in, an item and an outline", () => {
-    const carry = parseObject(encodeCarry(o, 7, [line(1, 26_000, "a")], true));
-    expect(carry).toMatchObject({
+  it("round-trips a carry-in, new records and an outline", () => {
+    const carry = parseObject(encodeCarry(7, [line(1, 26_000, "a")], true), "captions", 0);
+    expect(carry).toMatchObject({ ok: true, value: { kind: "carry", capped: true, items: [{ id: "1", text: "a" }] } });
+    const item = parseObject(encodeItem({ ...line(2, 28_000, "b", false), rev: 3 }), "captions", 1);
+    expect(item).toMatchObject({ ok: true, value: { kind: "items", items: [{ id: "2", final: false, rev: 3 }] } });
+    const slide = { type: "slide" as const, id: 4, atMs: 30_000, description: "a map" };
+    expect(parseObject(encodeCarry(7, [slide]), "slides", 0)).toMatchObject({
       ok: true,
-      value: { kind: "carry", slice: 7, capped: true, items: [{ id: 1, text: "a" }] },
+      value: { kind: "carry", capped: false, items: [slide] },
     });
-    const item = parseObject(encodeItem(o, 7, line(2, 28_000, "b", false)));
-    expect(item).toMatchObject({ ok: true, value: { kind: "item", item: { id: 2, final: false } } });
+    const chapter = { id: 0, start_ms: 1_000, title: "Intro", summary: "s" };
     const outline = parseObject(
-      encodeOutline({ ...o, kind: "outline" }, 3, { lang: "en", chapters: [], glossary: [], recap: "r" }),
+      encodeOutline({ chapters: [chapter], glossary: [{ term: "t", definition: "d" }], recap: "r" }, 9_000),
+      "outline",
+      0,
     );
-    expect(outline).toMatchObject({ ok: true, value: { kind: "snapshot", outline: { recap: "r" } } });
+    expect(outline).toMatchObject({
+      ok: true,
+      value: { kind: "snapshot", outline: { chapters: [chapter], glossary: [{ term: "t" }], recap: "r" } },
+    });
   });
 
   it("refuses what is not the contract", () => {
-    expect(parseObject(new TextEncoder().encode("{}"))).toMatchObject({ ok: false });
-    expect(parseObject(new TextEncoder().encode("nope"))).toMatchObject({ ok: false });
-    const v1 = { v: 1, agent: o.agent, instance: "1", seq: 1, at_ms: 1, usage: {}, state: { kind: "captions" } };
-    expect(parseObject(new TextEncoder().encode(JSON.stringify(v1)))).toMatchObject({ ok: false });
+    expect(parseObject(new TextEncoder().encode("{}"), "captions", 0)).toMatchObject({ ok: false });
+    expect(parseObject(new TextEncoder().encode("nope"), "captions", 1)).toMatchObject({ ok: false });
+    const v2 = { v: 2, agent: { name: "captions" }, slice: 1, kind: "item", body: {} };
+    expect(parseObject(new TextEncoder().encode(JSON.stringify(v2)), "captions", 1)).toMatchObject({ ok: false });
   });
 });
 
 describe("SliceLog", () => {
   it("merges by id across slices: final beats interim, wherever it landed", () => {
     const log = new SliceLog();
-    log.addLive(2, { items: [], capped: false }, undefined);
-    log.addLive(2, undefined, line(5, 9_000, "half", false));
-    log.addLive(3, { items: [], capped: false }, undefined);
-    log.addLive(3, undefined, line(5, 9_000, "half then whole"));
-    log.addLive(3, undefined, line(6, 13_000, "next", false));
+    log.addLive(2, { items: [], capped: false }, []);
+    log.addLive(2, undefined, [line(5, 9_000, "half", false)]);
+    log.addLive(3, { items: [], capped: false }, []);
+    log.addLive(3, undefined, [line(5, 9_000, "half then whole")]);
+    log.addLive(3, undefined, [line(6, 13_000, "next", false)]);
     expect(log.view(undefined).lines.map((l) => [l.id, l.text, l.final])).toEqual([
-      [5, "half then whole", true],
-      [6, "next", false],
+      ["5", "half then whole", true],
+      ["6", "next", false],
     ]);
   });
 
@@ -57,18 +63,18 @@ describe("SliceLog", () => {
       line(10, 40_500, "ten"),
       line(11, 42_500, "eleven"),
     ]);
-    expect(log.view(41_000).lines.map((l) => l.id)).toEqual([8, 9, 10]);
-    expect(log.view(41_000).current?.id).toBe(10);
-    expect(log.view(40_100).lines.map((l) => l.id)).toEqual([8, 9]);
+    expect(log.view(41_000).lines.map((l) => l.id)).toEqual(["8", "9", "10"]);
+    expect(log.view(41_000).current?.id).toBe("10");
+    expect(log.view(40_100).lines.map((l) => l.id)).toEqual(["8", "9"]);
   });
 
   it("a live copy of a group replaces a fetched one, never the reverse", () => {
     const log = new SliceLog();
-    log.addLive(4, { items: [], capped: false }, undefined);
+    log.addLive(4, { items: [], capped: false }, []);
     log.addFetched(4, { items: [], capped: true }, []);
     expect(log.get(4)).toMatchObject({ origin: "live", capped: false });
     log.addFetched(5, undefined, [line(1, 20_000, "x")]);
-    log.addLive(5, { items: [], capped: false }, undefined);
+    log.addLive(5, { items: [], capped: false }, []);
     expect(log.get(5)).toMatchObject({ origin: "live", items: [] });
     log.dropFetched();
     expect(log.slices()).toEqual([4, 5]);

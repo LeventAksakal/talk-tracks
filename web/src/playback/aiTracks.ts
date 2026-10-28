@@ -3,11 +3,10 @@
 
 import type { Closable } from "../transport/types";
 import { SliceLog, type SlicedView } from "./sliceLog";
-import { DEFAULT_LATENESS_MS } from "./roomCatalog";
+import { latenessOf, type RoomCatalog, statusOf, trackOf } from "./roomCatalog";
 import { type Range, sliceEnd, sliceOf } from "./slices";
 import { type HistorySource, NotFound } from "./source";
 import {
-  type AgentMeta,
   agentPath,
   agentsPrefix,
   type Item,
@@ -31,9 +30,8 @@ export interface TrackView {
   kind: TrackKind | undefined;
   lang: string | undefined;
   label: string;
-  model: string | undefined;
+  /** What the agent has spent in this room (catalog `tt.status`). */
   costUsd: number;
-  requests: number;
   /** The agent's broadcast is announced. */
   announced: boolean;
   /** This viewer opted in: one live subscription is open. */
@@ -64,10 +62,10 @@ export interface AiTracksView {
 export interface AiTracksOptions {
   now?: () => number;
   /**
-   * L for a track, ms: the most it publishes after an item's room time (catalog `tt.latenessMs`). Seeking
-   * to t fetches slices ⌊t/S⌋−1 … ⌊(t+L)/S⌋ (design §5.5).
+   * The newest room catalog: each track's label and L (seeking to t fetches slices ⌊t/S⌋−1 … ⌊(t+L)/S⌋,
+   * design §5.5), each agent's spend.
    */
-  latenessMs?: (path: string, track: string) => number;
+  catalog?: () => RoomCatalog | undefined;
   /** Slices fetched behind the live edge when a track is switched on live, for scrollback. 0: none. */
   liveBack?: number;
   /** FETCHes in flight at once, across tracks (design §5.11: 2 for Safari on WebSocket). */
@@ -92,7 +90,6 @@ interface Entry {
   subscription: Closable | undefined;
   log: SliceLog;
   outline: { group: number; outline: Outline } | undefined;
-  meta: AgentMeta | undefined;
   lastLiveAt: number | undefined;
   /** The first slice the open subscription delivered: it and every later slice come live, never by FETCH. */
   firstLive: number | undefined;
@@ -114,7 +111,7 @@ export class AiTracks {
   readonly room: string;
   #source: HistorySource;
   #now: () => number;
-  #lateness: (path: string, track: string) => number;
+  #catalog: () => RoomCatalog | undefined;
   #liveBack: number;
   #maxInFlight: number;
   #maxSlices: number;
@@ -136,7 +133,7 @@ export class AiTracks {
     this.room = room;
     this.#source = source;
     this.#now = options.now ?? Date.now;
-    this.#lateness = options.latenessMs ?? (() => DEFAULT_LATENESS_MS);
+    this.#catalog = options.catalog ?? (() => undefined);
     this.#liveBack = options.liveBack ?? 3;
     this.#maxInFlight = options.maxInFlight ?? 2;
     this.#maxSlices = options.maxSlices ?? 90;
@@ -255,7 +252,6 @@ export class AiTracks {
           subscription: undefined,
           log: new SliceLog(),
           outline: undefined,
-          meta: undefined,
           lastLiveAt: undefined,
           firstLive: undefined,
           missing: new Map(),
@@ -274,7 +270,7 @@ export class AiTracks {
       entry.subscription = this.#source.subscribe(
         entry.path,
         entry.ref.track,
-        ({ group, payload }) => this.#onLive(entry, group, payload),
+        ({ group, index, payload }) => this.#onLive(entry, group, index, payload),
         { priority },
       );
     } else if (!entry.enabled && entry.subscription) {
@@ -284,9 +280,9 @@ export class AiTracks {
     }
   }
 
-  #onLive(entry: Entry, group: number, payload: Uint8Array): void {
+  #onLive(entry: Entry, group: number, index: number, payload: Uint8Array): void {
     if (!entry.enabled) return;
-    const parsed = parseObject(payload);
+    const parsed = parseObject(payload, entry.ref.kind, index);
     if (!parsed.ok) {
       console.warn(
         `dropping an object from ${entry.path}/${entry.ref.track} that does not match the contract: ${parsed.error}`,
@@ -294,16 +290,15 @@ export class AiTracks {
       return;
     }
     const o = parsed.value;
-    entry.meta = o.agent;
     entry.lastLiveAt = this.#now();
     if (entry.ref.sliced && (entry.firstLive === undefined || group < entry.firstLive)) entry.firstLive = group;
     const before = entry.log.liveEdge();
     if (o.kind === "snapshot") {
       if (!entry.outline || group >= entry.outline.group) entry.outline = { group, outline: o.outline };
     } else if (o.kind === "carry") {
-      entry.log.addLive(group, { items: o.items, capped: o.capped }, undefined);
+      entry.log.addLive(group, { items: o.items, capped: o.capped }, []);
     } else {
-      entry.log.addLive(group, undefined, o.item);
+      entry.log.addLive(group, undefined, o.items);
     }
     entry.log.trim(this.#maxSlices, this.#mode === "rewound" ? sliceOf(this.#position ?? 0) : group);
     // A new live slice: scrollback, or a slice fetched while in progress, may want fetching now.
@@ -327,7 +322,7 @@ export class AiTracks {
         const t = this.#position;
         const k = sliceOf(t);
         order = [k, k - 1];
-        const last = sliceOf(t + Math.max(0, this.#lateness(entry.path, entry.ref.track)));
+        const last = sliceOf(t + latenessOf(this.#catalog(), entry.path, entry.ref.track));
         for (let j = k + 1; j <= last; j++) order.push(j);
       } else {
         // Live: the slice before the first live one (the slice in progress at join, when the publisher
@@ -405,14 +400,13 @@ export class AiTracks {
       if (job.controller.signal.aborted || !entry.enabled) return;
       let carry: { items: Item[]; capped: boolean } | undefined;
       const items: Item[] = [];
-      for (const payload of objects) {
-        const parsed = parseObject(payload);
-        if (!parsed.ok) continue;
+      objects.forEach((payload, index) => {
+        const parsed = parseObject(payload, entry.ref.kind, index);
+        if (!parsed.ok) return;
         const o = parsed.value;
-        entry.meta ??= o.agent;
         if (o.kind === "carry") carry = { items: o.items, capped: o.capped };
-        else if (o.kind === "item") items.push(o.item);
-      }
+        else if (o.kind === "items") items.push(...o.items);
+      });
       // The slice at the live edge may still be growing: fetch it again once it is over.
       const edge = this.#edgeSlice();
       into.addFetched(slice, carry, items, edge === undefined || slice >= edge);
@@ -472,6 +466,7 @@ export class AiTracks {
 
   #buildView(): AiTracksView {
     const at = this.#mode === "rewound" ? this.#position : undefined;
+    const catalog = this.#catalog();
     const now = this.#externalEdge === undefined ? undefined : sliceOf(this.#externalEdge);
     const tracks = [...this.#entries.values()]
       .map((e): TrackView => {
@@ -479,16 +474,15 @@ export class AiTracks {
         const loading = this.#queue.some(
           (j) => j.entry === e && j.into === e.log && (k === undefined || j.slice === k),
         );
+        const track = trackOf(catalog, e.path, e.ref.track);
         return {
           id: e.id,
           agent: e.ref.agent,
           track: e.ref.track,
           kind: e.ref.kind,
-          lang: e.ref.lang,
-          label: e.meta?.label ?? defaultLabel(e.ref),
-          model: e.meta?.model,
-          costUsd: e.meta?.costUsd ?? 0,
-          requests: e.meta?.requests ?? 0,
+          lang: track?.lang ?? e.ref.lang,
+          label: track?.label ?? defaultLabel(e.ref),
+          costUsd: statusOf(catalog, e.ref.agent)?.spend_usd ?? 0,
           announced: e.announced,
           enabled: e.enabled,
           sliced: e.ref.sliced && e.enabled ? e.log.view(at) : undefined,

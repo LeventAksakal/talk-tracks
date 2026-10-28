@@ -10,12 +10,14 @@ export const AUDIO_TRACK = "audio";
 export const slidesPath = (room: string) => `${ROOT}/${room}/slides`;
 export const FRAMES_TRACK = "frames";
 
-/** The speaker console's room clock: `{"epoch_ms","offset_ms","session"}`, a group on change and every 4 s. */
-export const CLOCK_TRACK = "clock";
+/** The room catalog (MSF, design §5.10), published by the room service: a new group per change. */
+export const catalogPath = (room: string) => `${ROOT}/${room}/catalog`;
+export const CATALOG_TRACK = "catalog";
 
 /**
- * Every agent publishes `talk/<room>/agents/<agent>` under a stable name (envelope v2): track `items`
- * (sliced: carry-in plus items per 4 s group) or, for the chapters agent, track `outline` (snapshots).
+ * Every agent publishes `talk/<room>/agents/<agent>` under a stable name: track `items` (an MSF
+ * event timeline in 4 s slices: carry-in plus new records) or, for the chapters agent, track `outline` (one group
+ * per revision).
  * The `instance` argument builds the v1 path for the legacy room store and demo script only.
  */
 export const agentsPrefix = (room: string) => `${ROOT}/${room}/agents`;

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { archivedWallRanges, firstVariant, hlsUrl, playlistWallRanges } from "./hlsArchive";
-import { DEFAULT_LATENESS_MS, latenessOf, parseRoomCatalog } from "./roomCatalog";
-import { hangClockOf, hangClockOfPayload, MOQ_EPOCH_UNIX_MS, roomTimeOf, wallClockMs } from "./roomClock";
+import { MOQ_EPOCH_UNIX_MS } from "../contracts/types";
+import { DEFAULT_LATENESS_MS, latenessOf, type RoomCatalog, statusOf } from "./roomCatalog";
+import { hangClockOf, hangClockOfPayload, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
 import { SliceLog } from "./sliceLog";
 import type { LineItem } from "./wire";
 
@@ -29,46 +30,43 @@ describe("room clock", () => {
 });
 
 describe("room catalog", () => {
-  const catalog = parseRoomCatalog(
-    JSON.stringify({
-      version: 1,
-      tt: {
-        epochMs: 1_700_000_000_000,
-        shift: { "123": 400 },
-        status: { "talk/r/agents/captions/items": { producing: true, originFetches: 3, backfills: 1, spendUsd: 0.02 } },
+  const status = { status: "live" as const, producing: true, fetches_served: 3, backfills: 1, spend_usd: 0.02 };
+  const catalog: RoomCatalog = {
+    tracks: [
+      {
+        namespace: "talk/r/agents/captions",
+        name: "items",
+        packaging: "eventtimeline",
+        tt: { latenessMs: 6000, cost: "paid" },
       },
-      tracks: [
-        {
-          namespace: "talk/r/agents/captions",
-          name: "items",
-          eventType: "webvtt",
-          tt: { latenessMs: 6000, cost: "paid" },
-        },
-        { namespace: "talk/r/agents/describe", name: "items" },
-        { name: "no namespace" },
-      ],
-    }),
-  )!;
+      { namespace: "talk/r/agents/describe", name: "items", packaging: "eventtimeline" },
+    ],
+    tt: {
+      E: 1_700_000_000_000,
+      shift: { "123": 4000 },
+      status: {
+        captions: { ...status, updated_ms: 1_700_000_100_000 },
+        describe: { ...status, updated_ms: 1_700_000_000_000 },
+      },
+    },
+  };
 
-  it("reads E, the shift, the status and each track's L", () => {
-    expect(catalog.epochMs).toBe(1_700_000_000_000);
-    expect(catalog.shift).toEqual({ "123": 400 });
-    expect(catalog.status["talk/r/agents/captions/items"]).toEqual({
-      producing: true,
-      originFetches: 3,
-      cachedFetches: 0,
-      backfills: 1,
-      spendUsd: 0.02,
-      capped: false,
-    });
-    expect(catalog.tracks).toHaveLength(2);
+  it("gives each track's L, 4 s when it declares none", () => {
     expect(latenessOf(catalog, "talk/r/agents/captions", "items")).toBe(6000);
     expect(latenessOf(catalog, "talk/r/agents/describe", "items")).toBe(DEFAULT_LATENESS_MS);
     expect(latenessOf(undefined, "x", "y")).toBe(DEFAULT_LATENESS_MS);
   });
 
-  it("refuses what is not JSON", () => {
-    expect(parseRoomCatalog("nope")).toBeUndefined();
+  it("reads an agent's status, idle once its entry is older than 15 s", () => {
+    const now = 1_700_000_105_000;
+    expect(statusOf(catalog, "captions", now)).toMatchObject({ status: "live", fetches_served: 3, spend_usd: 0.02 });
+    expect(statusOf(catalog, "describe", now)).toMatchObject({ status: "idle", producing: false });
+    expect(statusOf(catalog, "chapters", now)).toBeUndefined();
+  });
+
+  it("finds the shift for a broadcast by its clock.wall", () => {
+    expect(shiftOf(catalog.tt.shift, { wall: 123, timescale: 1e6 })).toBe(4000);
+    expect(shiftOf(catalog.tt.shift, { wall: 456, timescale: 1e6 })).toBe(0);
   });
 });
 
@@ -119,7 +117,7 @@ describe("archive playlist", () => {
 describe("cue revisions", () => {
   const cue = (rev: number, text: string, final = false): LineItem => ({
     type: "line",
-    id: 4,
+    id: "4",
     startMs: 1_000,
     endMs: 2_000,
     text,
@@ -129,10 +127,10 @@ describe("cue revisions", () => {
 
   it("keeps the highest rev, whatever order the records arrive in", () => {
     const log = new SliceLog();
-    log.addLive(0, undefined, cue(2, "two"));
-    log.addLive(0, undefined, cue(1, "one"));
-    log.addLive(0, undefined, cue(3, "three", true));
-    log.addLive(0, undefined, cue(2, "two again"));
+    log.addLive(0, undefined, [cue(2, "two")]);
+    log.addLive(0, undefined, [cue(1, "one")]);
+    log.addLive(0, undefined, [cue(3, "three", true)]);
+    log.addLive(0, undefined, [cue(2, "two again")]);
     expect(log.view(undefined).lines.map((l) => l.text)).toEqual(["three"]);
   });
 });

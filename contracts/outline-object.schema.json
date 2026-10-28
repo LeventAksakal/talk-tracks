@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "ChapterData": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "chapter",
+          "default": "chapter",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "description": "Room ms where the chapter starts",
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "start",
+        "title",
+        "summary"
+      ],
+      "title": "ChapterData",
+      "type": "object"
+    },
+    "OutlineRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "chapter": "#/$defs/ChapterData",
+              "recap": "#/$defs/RecapData",
+              "term": "#/$defs/TermData"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ChapterData"
+            },
+            {
+              "$ref": "#/$defs/TermData"
+            },
+            {
+              "$ref": "#/$defs/RecapData"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "description": "Room ms: a chapter's start; for a term or the recap, the revision's watermark",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "OutlineRecord",
+      "type": "object"
+    },
+    "RecapData": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "recap",
+          "default": "recap",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "RecapData",
+      "type": "object"
+    },
+    "TermData": {
+      "additionalProperties": false,
+      "properties": {
+        "definition": {
+          "title": "Definition",
+          "type": "string"
+        },
+        "kind": {
+          "const": "term",
+          "default": "term",
+          "title": "Kind",
+          "type": "string"
+        },
+        "term": {
+          "title": "Term",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "definition"
+      ],
+      "title": "TermData",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/OutlineRecord"
+  },
+  "title": "OutlineObject",
+  "type": "array"
+}

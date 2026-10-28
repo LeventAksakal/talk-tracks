@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "at_ms": {
-      "description": "Media time when the slide appeared",
+      "description": "Unix wall ms when the slide appeared (timeOrigin + performance.now())",
       "minimum": 0,
       "title": "At Ms",
       "type": "integer"

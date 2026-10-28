@@ -21,7 +21,7 @@ export interface Slice {
 
 /** What a sliced track shows at one media time. */
 export interface SlicedView {
-  /** Lines up to the time, merged by id, in id order (captions and translations). */
+  /** Lines up to the time, merged by id, in start order (captions and translations). */
   lines: LineItem[];
   /** The line being spoken at the time, if any. */
   current: LineItem | undefined;
@@ -96,8 +96,8 @@ export class SliceLog {
     return slicesToRanges(this.#slices.keys());
   }
 
-  /** One live object: the carry-in, or an item. */
-  addLive(slice: number, carry: { items: Item[]; capped: boolean } | undefined, item: Item | undefined): void {
+  /** One live object: the carry-in, or new records. */
+  addLive(slice: number, carry: { items: Item[]; capped: boolean } | undefined, items: Item[]): void {
     let s = this.#slices.get(slice);
     if (!s || (s.origin === "fetch" && carry)) {
       // A live copy is the same group as a fetched one (objects are immutable): its carry-in starts it over.
@@ -112,7 +112,7 @@ export class SliceLog {
       s.carry = carry.items;
       s.capped = carry.capped;
     }
-    if (item) s.items.push(item);
+    s.items.push(...items);
   }
 
   /**
@@ -171,7 +171,7 @@ export class SliceLog {
     const entries = [...best.values()];
     const lines = entries
       .filter((e): e is { item: LineItem; order: number; time: number } => e.item.type === "line")
-      .sort((a, b) => a.item.id - b.item.id)
+      .sort((a, b) => a.time - b.time || a.item.id.localeCompare(b.item.id))
       .map((e) => e.item);
     const slides = entries
       .filter((e): e is { item: SlideItem; order: number; time: number } => e.item.type === "slide")

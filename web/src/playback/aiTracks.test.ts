@@ -239,7 +239,17 @@ describe("AiTracks: rewind", () => {
     room.start(200_000);
     tracks = new AiTracks(source, ROOM, {
       liveBack: 0,
-      latenessMs: (_path, track) => (track === ITEMS_TRACK ? 10_000 : 4_000),
+      catalog: () => ({
+        tracks: [
+          {
+            namespace: room.path("captions"),
+            name: ITEMS_TRACK,
+            packaging: "eventtimeline",
+            tt: { latenessMs: 10_000, cost: "paid" },
+          },
+        ],
+        tt: { E: 0, shift: {} },
+      }),
     });
     tracks.setEnabled("captions/items", true);
     await settle();
