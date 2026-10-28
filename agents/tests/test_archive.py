@@ -186,7 +186,8 @@ def test_each_broadcast_is_a_run_on_one_room_clock(tmp_path: Path) -> None:
     room.clock(RoomClock(epoch_ms=WALL, offset_ms=0, session=str(WALL)), WALL)
     feed_audio(archive, "live", 120_000_000, 50)
     room.teacher_gone()
-    feed_audio(archive, "live", 0, 50, wall=WALL + 130_000)  # a reload: media time restarts near 0, held
+    room.slides_gone()  # a reload: the console goes too
+    feed_audio(archive, "live", 0, 50, wall=WALL + 130_000)  # media time restarts near 0: held for the new clock
     assert room.offset_ms is None
     room.clock(RoomClock(epoch_ms=WALL, offset_ms=125_000, session=str(WALL + 130_000)), WALL + 130_100)
     archive.close()
@@ -197,6 +198,19 @@ def test_each_broadcast_is_a_run_on_one_room_clock(tmp_path: Path) -> None:
     assert second.offset_ms == 125_000 and second.tracks[0].segments[0].start_ms == 125_000
     assert room.end_ms == 125_980
     assert RoomsIndex.model_validate_json((tmp_path / "rooms.json").read_bytes()).rooms[0].runs == 2
+
+
+def test_a_teacher_rejoining_under_the_same_console_keeps_its_clock(tmp_path: Path) -> None:
+    archive = Archive(tmp_path)
+    room = archive.room("live")
+    room.clock(RoomClock(epoch_ms=WALL, offset_ms=40_000, session="s1"), WALL)
+    feed_audio(archive, "live", 1_000_000, 10)
+    room.teacher_gone()  # the microphone restarted; the console (and its clock) stayed
+    feed_audio(archive, "live", 9_000_000, 10, wall=WALL + 9_000)
+    assert room.offset_ms == 40_000
+    archive.close()
+    rooms = RoomIndex.model_validate_json((tmp_path / "live" / "room.json").read_bytes())
+    assert len(rooms.runs) == 1 and rooms.runs[0].media_first_ms == 41_000 and rooms.runs[0].media_last_ms == 49_180
 
 
 def test_without_a_clock_track_room_time_is_media_time(tmp_path: Path) -> None:

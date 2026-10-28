@@ -151,6 +151,7 @@ class Archiver:
                 for task in state.slides:
                     task.cancel()
                 state.slides = []
+                self.archive.room(room).slides_gone()
         elif kind == "agents" and len(parts) >= 3:
             paths = state.agents.setdefault(parts[2], set())
             log.info("room %s: agent %s %s", room, parts[2], "announced" if active else "gone")

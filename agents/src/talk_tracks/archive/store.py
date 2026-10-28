@@ -470,6 +470,7 @@ class RoomArchive:
         self.offset_ms: int | None = None  # None: waiting for the clock of the current teacher broadcast
         self._held: list[tuple[str, bytes, int]] = []
         self._waiting_ms: int | None = None
+        self._clock: RoomClock | None = None  # the console's latest clock object, while its slides broadcast is up
         index_path = self.dir / "room.json"
         if index_path.exists():
             try:
@@ -535,24 +536,35 @@ class RoomArchive:
         return self.teacher.catalog.get(track)
 
     def clock(self, clock: RoomClock, wall_ms: int) -> None:
-        """The room clock of the speaker's broadcast (design §4.5). A new session is a new run, on the same clock."""
+        """The latest object of the speaker console's ``clock`` track (design §4.5). It applies to the next teacher
+        broadcast, or to the current one if that is still waiting for its clock."""
         if self.epoch_ms is None or clock.epoch_ms < self.epoch_ms:
             self.epoch_ms = clock.epoch_ms
             self.dirty = True
+        self._clock = clock
+        if self.offset_ms is None and self._held:
+            self._bind(clock, wall_ms)
+        elif self.offset_ms is not None and self.run is not None and self.run.index.session != clock.session:
+            log.info("room %s: clock session %s waits for its teacher broadcast", self.name, clock.session)
+
+    def slides_gone(self) -> None:
+        """The speaker console left: its clock goes with it, so a reload never inherits the old offset."""
+        self._clock = None
+
+    def _bind(self, clock: RoomClock, wall_ms: int) -> None:
+        """Put the current teacher broadcast on ``clock``: its session is a run (a new one when it changes)."""
         run = self.run
         if run is None or run.index.session != clock.session:
             if run is not None and run.index.session is None and run.index.media_first_ms is None:
                 run.index = run.index.model_copy(update={"session": clock.session, "offset_ms": clock.offset_ms})
                 run.dirty = True
             else:
-                self._new_run(wall_ms, clock.session, clock.offset_ms)
+                run = self._new_run(wall_ms, clock.session, clock.offset_ms)
         elif run.index.offset_ms != clock.offset_ms:
             log.warning("room %s: session %s changed its offset; keeping the first", self.name, clock.session)
-        if self.offset_ms is None:
-            assert self.run is not None
-            self.offset_ms = self.run.index.offset_ms
-            log.info("room %s: room time = media time + %d ms (session %s)", self.name, self.offset_ms, clock.session)
-            self._release(wall_ms)
+        self.offset_ms = run.index.offset_ms
+        log.info("room %s: room time = media time + %d ms (session %s)", self.name, self.offset_ms, clock.session)
+        self._release(wall_ms)
 
     def _release(self, wall_ms: int) -> None:
         held, self._held, self._waiting_ms = self._held, [], None
@@ -565,6 +577,8 @@ class RoomArchive:
         config = self.config(track)
         if config is None or not payload:
             return
+        if self.offset_ms is None and self._clock is not None:
+            self._bind(self._clock, wall_ms)
         if self.offset_ms is None:
             if self._waiting_ms is None:
                 self._waiting_ms = wall_ms
