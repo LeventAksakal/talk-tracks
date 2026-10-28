@@ -16,6 +16,24 @@
 		}
 	}
 
+	# The track archive (wiki/howto/archive.md), for rewind: static files with range requests. Segments and images
+	# never change once written; indexes and snapshot chunks are revalidated by ETag.
+	handle /archive/* {
+		uri strip_prefix /archive
+		root * /archive
+		header Cross-Origin-Opener-Policy same-origin
+		header Cross-Origin-Embedder-Policy require-corp
+		header Cross-Origin-Resource-Policy same-origin
+		@immutable path *.m4s *.mp4 *.jpg *.png
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		@index path *.json *.jsonl
+		header @index Cache-Control no-cache
+		encode @index zstd gzip
+		file_server {
+			hide *.tmp
+		}
+	}
+
 	handle /healthz {
 		header Content-Type text/plain
 		respond "ok" 200

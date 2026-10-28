@@ -10,6 +10,9 @@ x-agent: &agent
   init: true  # Python as PID 1 ignores SIGTERM; a clean stop withdraws the agent's tracks at once
   restart: unless-stopped  # aiomoqt does not reconnect: the process exits and comes back as a fresh instance
   depends_on: [relay]
+  # The track archive, read-only: a recreated captions container resumes from it (archive/ beside data/state).
+  # Agents write what they publish to the archive's spool (archive-spool/ beside data/state).
+  volumes: ["../data/archive:/app/data/archive:ro", "../data/archive-spool:/app/data/archive-spool"]
   environment:
     TT_RELAY: moqt://relay:4443
     TT_ROOM: ${TT_ROOM:-dev}
@@ -24,6 +27,27 @@ services:
               "--web-http-listen", "[::]:4443", "--log-level", "info"]
     ports: ["${TT_RELAY_PORT:-4443}:4443/udp", "${TT_RELAY_PORT:-4443}:4443/tcp"]
     restart: unless-stopped
+
+  # The track archive (wiki/howto/archive.md) of every room, in data/archive/ (not in git). No bucket copy unless
+  # TT_ARCHIVE_BUCKET is set (it needs Google credentials, so leave it unset on a laptop).
+  archive:
+    <<: *agent
+    volumes: ["../data/archive:/data/archive", "../data/archive-spool:/data/archive-spool"]
+    environment:
+      TT_RELAY: moqt://relay:4443
+      TT_ARCHIVE_DIR: /data/archive
+      TT_ARCHIVE_SPOOL: /data/archive-spool
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
+      TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
+    entrypoint: ["python", "-m", "talk_tracks.archive"]
+    command: ["--insecure"]
+  # The archive over HTTP, as Caddy serves it under /archive/ on the VM (the dev server can proxy /archive here).
+  archive-files:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    volumes: ["../data/archive:/archive:ro"]
+    command: ["caddy", "file-server", "--root", "/archive", "--listen", ":8080", "--browse"]
+    ports: ["${TT_ARCHIVE_PORT:-8090}:8080/tcp"]
 
   captions:
     <<: *agent
