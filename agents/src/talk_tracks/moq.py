@@ -10,7 +10,9 @@ and handled here:
 * ``Reader.read(n, timeout)`` waits for all n objects, so read one with a short deadline, then drain;
 * an empty payload must never reach the Opus decoder;
 * aiomoqt does not reconnect: when the relay session closes the agent exits and Docker starts a fresh instance;
-* the writer queues objects while nobody subscribes, so its queue is small and drops the oldest snapshot.
+* the writer queues objects while nobody subscribes, so its queue is small and drops the oldest snapshot;
+* the relay subscribes upstream while anyone subscribes and cancels within ms of the last leave, which the writer
+  sees as ``producing`` (wiki/howto/lazy-agents.md); ``close_reader`` alone does not unsubscribe on the wire.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from numpy.typing import NDArray
 from pydantic import ValidationError
 
 from .audio import AudioAssembler
-from .contracts import Envelope, SlideFrame, agents_prefix, slides_path, teacher_path
+from .contracts import ROOT, Envelope, SlideFrame, agents_prefix, slides_path, teacher_path
 from .follow import NewestInstance, SnapshotFilter
 
 log = logging.getLogger("talk_tracks.moq")
@@ -67,6 +69,10 @@ class TrackWriter:
 
     def __init__(self, writer: Any) -> None:
         self._writer = writer
+
+    def subscribed(self) -> bool:
+        """Whether the relay holds a subscription to this track: some viewer or downstream agent reads it."""
+        return bool(self._writer._track.producing)
 
     async def write(self, data: bytes) -> None:
         await asyncio.wait_for(self._writer.snapshot(data), WRITE_TIMEOUT_S)
@@ -121,23 +127,34 @@ class Relay:
                         if obj.payload:
                             yield obj.payload
             finally:
-                self.agent.close_reader(str(ref))
+                self._unsubscribe(reader, str(ref))
             await asyncio.sleep(RETRY_S)
+
+    def _unsubscribe(self, reader: Any, name: str) -> None:
+        """Cancel on the wire too, so the relay stops forwarding and can release its upstream subscription."""
+        if reader.request_id is not None and not reader.done:
+            with contextlib.suppress(Exception):
+                self.session.unsubscribe(reader.request_id)
+        self.agent.close_reader(name)
 
     async def announced(self, prefix: str) -> AsyncIterator[tuple[str, bool]]:
         """(path below ``prefix``, active) for each namespace announced or withdrawn under ``prefix``.
 
         One per connection: aiomoqt delivers every namespace message of a session through one queue.
         """
-        await self.session.subscribe_namespace(prefix, subscribe_options=1, wait_response=True)
-        while True:
-            try:
-                msg = await self.session.await_namespace(timeout=1.0)
-            except TimeoutError:
-                continue
-            parts = msg.namespace_suffix or ()
-            suffix = "/".join(p.decode() if isinstance(p, bytes) else str(p) for p in parts)
-            yield suffix, "Done" not in type(msg).__name__
+        reply = await self.session.subscribe_namespace(prefix, subscribe_options=1, wait_response=True)
+        try:
+            while True:
+                try:
+                    msg = await self.session.await_namespace(timeout=1.0)
+                except TimeoutError:
+                    continue
+                parts = msg.namespace_suffix or ()
+                suffix = "/".join(p.decode() if isinstance(p, bytes) else str(p) for p in parts)
+                yield suffix, "Done" not in type(msg).__name__
+        finally:
+            with contextlib.suppress(Exception):
+                self.session.unsubscribe_namespace(prefix, request_id=getattr(reply, "request_id", None))
 
 
 @asynccontextmanager
@@ -169,7 +186,7 @@ async def until_closed(relay: Relay, work: Awaitable[None]) -> None:
 # --- what the agents read -------------------------------------------------------------------------------------
 
 
-async def teacher_audio(relay: Relay, room: str) -> AsyncIterator[tuple[NDArray[np.int16], int]]:
+async def teacher_audio(relay: Relay, room: str) -> AsyncGenerator[tuple[NDArray[np.int16], int]]:
     """The speaker's microphone as 16 kHz mono PCM chunks with their media end time in ms."""
     assembler = AudioAssembler()
     async for payload in relay.objects(teacher_path(room), "audio", idle_s=AUDIO_IDLE_S):
@@ -177,7 +194,15 @@ async def teacher_audio(relay: Relay, room: str) -> AsyncIterator[tuple[NDArray[
             yield chunk
 
 
-async def slide_frames(relay: Relay, room: str) -> AsyncIterator[SlideFrame]:
+async def rooms_on_air(relay: Relay) -> AsyncIterator[tuple[str, bool]]:
+    """(room, on air) each time a speaker's broadcast (``talk/<room>/teacher``) is announced or withdrawn."""
+    async for suffix, active in relay.announced(ROOT):
+        parts = suffix.split("/")
+        if len(parts) == 2 and parts[1] == "teacher":
+            yield parts[0], active
+
+
+async def slide_frames(relay: Relay, room: str) -> AsyncGenerator[SlideFrame]:
     async for payload in relay.objects(slides_path(room), "frames"):
         try:
             yield SlideFrame.model_validate_json(payload)
