@@ -132,7 +132,7 @@ services:
       TT_RELAY: moqt://relay:443
       TT_TOKEN: ${TT_ARCHIVE_TOKEN:-}
       TT_ARCHIVE_DIR: /data/archive
-      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-virus,dataviz}
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]
     command: ["--insecure"]
