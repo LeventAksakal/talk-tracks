@@ -393,6 +393,7 @@ minute 20 and scrolls back gets earlier slices translated on demand.
 | 11 | aiomoqt's `close_reader` sends no unsubscribe | D18 §3.3.2 | call `session.unsubscribe(request_id)` (fixed by the Lazy agents lane) | — |
 | 12 | Safari and iOS on WebSocket: no datagrams, TCP head-of-line blocking | — | history at the lowest priority, at most 2 fetches in flight | weaker prioritisation for those viewers |
 | 13 | One route per namespace instead of subscriptions to every publisher; a killed publisher stalls its open subscriptions until the QUIC idle timeout (S5) | D18 §9.3, §9.5 | agents close cleanly on SIGTERM and advertise a 3 s idle timeout with a 1 s keep-alive (S5b) | ~1–3.5 s of silence after a crash |
+| 14 | A FETCH of the slice in which the relay's upstream subscription began never completes: the relay answers it from its partial cached group and never asks the origin, not at the slice's end, not 20 s later, not from another session; other slices take 7–16 ms (Benchmark lane, `wiki/benchmark.md` Results) | FETCH of a past group (D18 §10.12) | viewers take the open slice from their SUBSCRIBE, FETCH only slices below the first slice they received live, and put a ~2 s timeout on every FETCH | the first live slice's earlier part, before the relay subscribed, is not reachable by FETCH until the relay evicts the group |
 
 ## 7. What the build demonstrates (for the judges)
 
