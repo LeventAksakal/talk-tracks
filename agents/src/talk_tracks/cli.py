@@ -32,12 +32,13 @@ import logging
 import os
 import signal
 import sys
+import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .archive.slices import TrackInfo
+from .archive.slices import Status, TrackArchive, TrackInfo
 from .contracts import CARRY_CUES, ITEMS_TRACK, OUTLINE_TRACK, AgentInfo, Usage, agent_path, parse_room
 from .live_slices import payloads
 from .llm.base import Llm
@@ -116,6 +117,12 @@ Run = Callable[[RoomIo, Any, Any], Coroutine[Any, Any, None]]  # (io, track, gat
 Backfill = Callable[[RoomIo, Any], Any]  # (io, track) -> live_slices.Produce, or None when nothing is back-filled
 
 
+# L (design §4.1): how long after its time a record may still be published, so a seek fetches far enough. A cue
+# is stamped with its start and its final comes up to 7 s later plus the ASR's finalisation; a translation adds a
+# model call; a slide description is a model call over an image.
+CAPTIONS_LATE_MS, TRANSLATION_LATE_MS, SLIDES_LATE_MS = 10_000, 15_000, 15_000
+
+
 @dataclass
 class Agent:
     """One room's agent: what it publishes, how it runs live, and how it produces a past slice."""
@@ -165,7 +172,7 @@ def build(args: argparse.Namespace, room: str) -> Agent:
         return Agent(  # captions are never back-filled (design §5.7): an unwatched slice stays unproduced
             AgentInfo(name="captions", label=label, model=model),
             Usage,
-            TrackInfo(kind="captions", label=label, lang=lang),
+            TrackInfo(kind="captions", label=label, lang=lang, lateness_ms=CAPTIONS_LATE_MS),
             transcribe,
             marks_from=True,
         )
@@ -238,7 +245,9 @@ def build(args: argparse.Namespace, room: str) -> Agent:
         return Agent(
             AgentInfo(name=f"translate-{lang}", label=label, model=llm.model),
             usage,
-            TrackInfo(kind="translation", label=label, lang=lang, depends=["captions/items"]),
+            TrackInfo(
+                kind="translation", label=label, lang=lang, depends=["captions/items"], lateness_ms=TRANSLATION_LATE_MS
+            ),
             translate,
             backfill=translate_backfill,
         )
@@ -247,14 +256,14 @@ def build(args: argparse.Namespace, room: str) -> Agent:
         return Agent(  # slide descriptions are never back-filled (design §5.7)
             AgentInfo(name="describe", label=label, model=llm.model),
             usage,
-            TrackInfo(kind="slides", label=label, lang=lang),
+            TrackInfo(kind="slides", label=label, lang=lang, lateness_ms=SLIDES_LATE_MS),
             describe,
         )
     label = "Chapters, glossary and recap"
     return Agent(
         AgentInfo(name="chapters", label=label, model=llm.model),
         usage,
-        TrackInfo(kind="outline", label=label, lang=lang, packaging="snapshot", depends=["captions/items"]),
+        TrackInfo(kind="outline", label=label, lang=lang, depends=["captions/items"]),
         chapters,
         sliced=False,
     )
@@ -296,11 +305,24 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
             await agent.run(io, track, gate)
             await asyncio.Event().wait()  # stopped at a spend cap: the track stays up and says so
 
+        def state() -> TrackState:
+            """What the room service shows for this track (design §5.10): all the counters, in one place."""
+            capped = isinstance(track, SlicedTrack) and track.capped
+            producing = not track.paused if isinstance(track, SlicedTrack) else out.demand.wanted()
+            status: Status = "capped" if capped else "live" if producing else "idle"
+            stats = track.stats
+            return status, producing, stats.fetches_served, stats.backfills, round(agent.usage().cost_usd, 6)
+
         async def status() -> None:
+            """Report on every change, and at least every ``REPORT_EVERY_S`` as a heartbeat (stale after 15 s)."""
+            last: TrackState | None = None
+            since = 0.0
             while True:
-                capped = isinstance(track, SlicedTrack) and track.capped
-                archive.set_status("capped" if capped else "live" if out.subscribed() else "idle")
-                await asyncio.sleep(1)
+                now = state()
+                if now != last or time.monotonic() - since >= REPORT_EVERY_S:
+                    report(archive, now)
+                    last, since = now, time.monotonic()
+                await asyncio.sleep(0.5)
 
         background = [
             asyncio.create_task(moq.room_catalog(relay, room, room_time)),
@@ -322,8 +344,18 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
             if isinstance(track, SlicedTrack):  # a clean stop closes the open slice; a replacement starts at the next
                 with contextlib.suppress(Exception):
                     await track.pause()
-            archive.set_status("idle")
+            status_now, _, fetched, filled, spent = state()
+            report(archive, ("capped" if status_now == "capped" else "idle", False, fetched, filled, spent))
             archive.close()
+
+
+REPORT_EVERY_S = 5.0
+TrackState = tuple[Status, bool, int, int, float]  # status, producing, FETCHes served, back-fills, spend in USD
+
+
+def report(archive: TrackArchive, state: TrackState) -> None:
+    status, producing, fetches_served, backfills, spend_usd = state
+    archive.report(status, producing=producing, fetches_served=fetches_served, backfills=backfills, spend_usd=spend_usd)
 
 
 async def run_agent(args: argparse.Namespace) -> None:
