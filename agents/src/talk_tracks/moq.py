@@ -303,12 +303,15 @@ async def connect(url: str, *, token: str | None = None, insecure: bool = False)
 async def until_closed(relay: Relay, work: Awaitable[None]) -> None:
     """Run ``work``; if the relay session closes first, stop it and raise so the process exits and restarts."""
     task = asyncio.ensure_future(work)
-    await asyncio.wait({task, relay.closed}, return_when=asyncio.FIRST_COMPLETED)
-    if task.done():
+    try:
+        await asyncio.wait({task, relay.closed}, return_when=asyncio.FIRST_COMPLETED)
+    finally:  # cancelled too (SIGTERM, the talk is over): stop the work before the caller closes its track
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+    if not task.cancelled():
         return task.result()
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
     raise ConnectionError(f"relay session closed: {relay.closed.result()}")
 
 

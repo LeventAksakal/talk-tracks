@@ -69,3 +69,42 @@ def test_no_other_aiomoqt_client_is_built() -> None:
     }
     assert builders == {"moq.py"}
     assert len(re.findall(r"\bMOQTClient\s*\(", (SRC / "moq.py").read_text(encoding="utf-8"))) == 1
+
+
+def test_until_closed_stops_the_work_when_cancelled(moq: Any) -> None:
+    """SIGTERM cancels the agent: its work must stop before the track closes, or it keeps writing slices that a
+    replacement then skips."""
+    import asyncio
+
+    async def scenario() -> bool:
+        loop = asyncio.get_running_loop()
+        relay = types.SimpleNamespace(closed=loop.create_future())
+        stopped = asyncio.Event()
+
+        async def work() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        outer = asyncio.ensure_future(moq.until_closed(relay, work()))
+        await asyncio.sleep(0)
+        outer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await outer
+        return stopped.is_set()
+
+    assert asyncio.run(scenario())
+
+
+def test_until_closed_raises_when_the_relay_goes(moq: Any) -> None:
+    import asyncio
+
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        relay = types.SimpleNamespace(closed=loop.create_future())
+        loop.call_soon(relay.closed.set_result, "gone")
+        await moq.until_closed(relay, asyncio.Event().wait())
+
+    with pytest.raises(ConnectionError, match="gone"):
+        asyncio.run(scenario())

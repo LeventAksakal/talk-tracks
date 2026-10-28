@@ -1,47 +1,82 @@
 import { describe, expect, it } from "vitest";
 import { demoEvents } from "../demo/script";
 import { captions, envelope } from "../test/envelopes";
-import { isEnvelope, parseEnvelope, parseSlideFrame } from "./validate";
+import type { Envelope } from "./types";
+import { isEnvelope, isLegacyEnvelope, parseEnvelope, parseLegacyEnvelope, parseSlideFrame } from "./validate";
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 
-describe("envelope validation", () => {
-  it("accepts every kind of state", () => {
-    const states = [
-      captions(["Hello"], "and"),
-      { kind: "translation", lang: "tr", lines: [{ id: 0, text: "Merhaba" }] },
-      { kind: "slides", lang: "en", slides: [{ id: 0, at_ms: 5, description: "A chart" }] },
+const base = {
+  v: 2,
+  agent: { name: "captions", label: "Captions", model: "fake" },
+  slice: 3,
+  at_ms: 1,
+  usage: { requests: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+} as const;
+
+const line = { id: 12000, start_ms: 12000, end_ms: 13500, text: "Hello" };
+
+describe("envelope v2 validation", () => {
+  it("accepts every kind of body", () => {
+    const envelopes: Envelope[] = [
+      { ...base, kind: "carry", body: { type: "captions-carry", lang: "en", lines: [line] } },
+      { ...base, kind: "carry", capped: true, body: { type: "captions-carry", lang: "en", lines: [] } },
+      { ...base, kind: "item", body: { type: "caption", lang: "en", line, final: true } },
       {
-        kind: "outline",
-        lang: "en",
-        chapters: [{ id: 0, start_ms: 0, title: "Intro", summary: "Hi" }],
-        glossary: [{ term: "MoQ", definition: "Media over QUIC" }],
-        recap: "So far",
+        ...base,
+        kind: "carry",
+        body: { type: "translation-carry", lang: "tr", lines: [{ id: 12000, text: "Merhaba" }] },
+      },
+      {
+        ...base,
+        kind: "item",
+        body: { type: "translation", lang: "tr", line: { id: 12000, start_ms: 12000, end_ms: 13500, text: "Merhaba" } },
+      },
+      { ...base, kind: "carry", body: { type: "slides-carry", lang: "en", slide: null } },
+      {
+        ...base,
+        kind: "item",
+        body: { type: "slide", lang: "en", slide: { id: 0, at_ms: 12500, description: "A chart" } },
+      },
+      {
+        ...base,
+        kind: "snapshot",
+        body: {
+          type: "outline",
+          lang: "en",
+          chapters: [{ id: 0, start_ms: 0, title: "Intro", summary: "Hi" }],
+          glossary: [{ term: "MoQ", definition: "Media over QUIC" }],
+          recap: "So far",
+        },
       },
     ];
-    for (const state of states) {
-      const parsed = parseEnvelope(json(envelope({ state: state as never })));
+    for (const e of envelopes) {
+      const parsed = parseEnvelope(json(e));
       expect(parsed.ok, JSON.stringify(parsed)).toBe(true);
     }
   });
 
-  it("accepts the defaults the agents may leave out (kind-less interim, recap, usage fields)", () => {
-    const e = envelope();
-    const minimal = { ...e, usage: {}, state: { kind: "captions", lang: "en", lines: [] } };
+  it("accepts the defaults the agents may leave out (v, capped, usage fields)", () => {
+    const minimal = { ...base, usage: {}, kind: "item", body: { type: "caption", lang: "en", line, final: false } };
     delete (minimal as { v?: number }).v;
     expect(isEnvelope(minimal)).toBe(true);
   });
 
   it("rejects objects that break the contract", () => {
+    const item = { ...base, kind: "item", body: { type: "caption", lang: "en", line, final: true } };
     const bad: unknown[] = [
-      { ...envelope(), extra: 1 },
-      { ...envelope(), seq: -1 },
-      { ...envelope(), v: 2 },
-      { ...envelope(), instance: 1000 },
-      { ...envelope(), agent: { name: "x", label: "y" } },
-      { ...envelope(), state: { kind: "captions", lang: "en", lines: [{ id: 0, text: "no times" }] } },
-      { ...envelope(), state: { kind: "weather", lang: "en" } },
-      { ...envelope(), state: { kind: "translation", lang: "tr", lines: [], extra: true } },
+      { ...item, extra: 1 },
+      { ...item, v: 1 },
+      { ...item, slice: -1 },
+      { ...item, seq: 0 },
+      { ...item, instance: "1000" },
+      { ...item, kind: "carry" },
+      { ...item, kind: "snapshot" },
+      { ...item, capped: true },
+      { ...item, body: { type: "caption", lang: "en", line: { id: 0, text: "no times" }, final: true } },
+      { ...item, body: { type: "weather", lang: "en" } },
+      { ...base, kind: "carry", body: { type: "captions-carry", lang: "en", lines: [line, line, line] } },
+      { ...base, kind: "carry", body: { type: "translation-carry", lang: "tr", lines: [], extra: true } },
     ];
     for (const value of bad) expect(parseEnvelope(json(value)).ok, JSON.stringify(value)).toBe(false);
   });
@@ -51,11 +86,22 @@ describe("envelope validation", () => {
     expect(parsed.ok).toBe(false);
   });
 
+  it("does not take a v1 envelope for a v2 one", () => {
+    expect(isEnvelope(envelope())).toBe(false);
+  });
+});
+
+describe("legacy envelope (v1) validation", () => {
+  it("accepts the full-state snapshots the room store and demo script still use", () => {
+    expect(parseLegacyEnvelope(json(envelope({ state: captions(["Hello"], "and") }))).ok).toBe(true);
+    expect(parseLegacyEnvelope(json({ ...envelope(), seq: -1 })).ok).toBe(false);
+  });
+
   it("accepts every envelope the demo script publishes", () => {
     const { events } = demoEvents("demo");
     const emitted = events.filter((e) => e.type === "emit");
     expect(emitted.length).toBeGreaterThan(50);
-    for (const e of emitted) expect(isEnvelope(e.value), JSON.stringify(e.value)).toBe(true);
+    for (const e of emitted) expect(isLegacyEnvelope(e.value), JSON.stringify(e.value)).toBe(true);
   });
 });
 

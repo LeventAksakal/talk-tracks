@@ -6,7 +6,7 @@
 // replaces, and a killed process's broadcast can linger on the relay for seconds: following the
 // newest numeric instance that is still announced handles both.
 
-import type { Envelope } from "../contracts/types";
+import type { LegacyEnvelope as Envelope } from "../contracts/types";
 
 export function instanceNumber(instance: string): number | null {
   return /^\d+$/.test(instance) ? Number(instance) : null;
