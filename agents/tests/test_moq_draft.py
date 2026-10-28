@@ -5,6 +5,7 @@ is built.
 """
 
 import importlib
+import json
 import re
 import sys
 import types
@@ -176,33 +177,65 @@ class EchoAssembler:
         return []
 
 
-def clock_json(offset_ms: int, session: str) -> bytes:
-    return f'{{"epoch_ms": 1000, "offset_ms": {offset_ms}, "session": "{session}"}}'.encode()
+W_A = 300_000_000_000_000  # µs since 2020-01-01: broadcast a's wall time of PTS zero
+W_B = W_A + 60_000_000  # broadcast b, a reload 60 s later
+EPOCH = 1_577_836_800_000 + W_A // 1000  # the room started with broadcast a
+
+
+def hang(wall: int) -> bytes:
+    return json.dumps({"audio": {}, "clock": {"wall": wall, "timescale": 1_000_000}}).encode()
+
+
+def room_catalog(shift: dict[str, int]) -> bytes:
+    return json.dumps({"version": "draft-01", "tracks": [], "tt": {"E": EPOCH, "shift": shift}}).encode()
 
 
 def test_teacher_audio_is_stamped_in_room_time_per_broadcast(moq: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Room time = media time + the broadcast's offset (design §4.5). A new broadcast (subscription) reads the clock
-    again; one without a clock track (the looper) is offset 0."""
+    """Room time = wall time of the media - E + the broadcast's shift (design §4.5). Each broadcast's hang clock is
+    read afresh; nothing is stamped until the room catalog lists the broadcast; one with no clock is not stamped."""
     import asyncio
+
+    from talk_tracks.roomtime import RoomTime
 
     for name in ("TrackRef", "SubscribeSpec", "StartAt"):
         monkeypatch.setattr(moq, name, types.SimpleNamespace)
     monkeypatch.setattr(moq, "AudioAssembler", EchoAssembler)
+    monkeypatch.setattr(moq, "split_legacy", lambda payload: (int(bytes(payload)) * 1000, b""))  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     relay = ClockRelay(
         audio=[(1, b"100"), (1, b"120"), (2, b"20"), (2, b"40"), (3, b"60")],
-        clocks=[[b"not a clock", clock_json(50_000, "a")], [clock_json(90_000, "b")], None],
+        clocks=[[hang(W_A)], [hang(W_B)], [b'{"audio": {}}']],
     )
+    room_time = RoomTime()
 
     async def scenario() -> list[int]:
-        return [end_ms async for _, end_ms in moq.teacher_audio(relay, "r")]
+        feed = moq.TeacherFeed(relay, "r", room_time)
+        audio = moq.teacher_audio(feed)
+        first = asyncio.ensure_future(audio.__anext__())  # attaches, then waits for audio
+        await asyncio.sleep(0)
+        run = asyncio.ensure_future(feed.run())
+        await asyncio.sleep(0.05)
+        assert not first.done() and room_time.edge is None  # no room catalog yet: nothing stamped
+        await room_time.on_room_catalog(room_catalog({str(W_A): 0, str(W_B): 8000}))
+        got = [(await first)[1]] + [(await asyncio.wait_for(audio.__anext__(), 1))[1] for _ in range(3)]
+        await run
+        await audio.aclose()
+        return got
 
-    assert asyncio.run(scenario()) == [50_100, 50_120, 90_020, 90_040, 60]
+    assert asyncio.run(scenario()) == [100, 120, 60_000 + 8000 + 20, 60_000 + 8000 + 40]
+
+    async def idle() -> int | None:  # no consumer: the feed still moves the room's edge, for idle agents
+        relay.audio, relay.clocks = [(4, b"100"), (4, b"300")], [[hang(W_B)], None]
+        await moq.TeacherFeed(relay, "r", room_time).run()
+        return room_time.edge
+
+    assert asyncio.run(idle()) == 60_000 + 8000 + 300
 
 
-def test_a_silent_clock_track_means_no_room_clock(moq: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_hang_catalog_without_a_clock_means_no_clock(moq: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
 
     for name in ("TrackRef", "SubscribeSpec", "StartAt"):
         monkeypatch.setattr(moq, name, types.SimpleNamespace)
-    relay = ClockRelay(audio=[], clocks=[[]])
-    assert asyncio.run(moq.room_clock(relay, "r", wait_s=0.1)) is None
+    assert asyncio.run(moq.teacher_clock(ClockRelay(audio=[], clocks=[[]]), "r", wait_s=0.1)) is None
+    found = asyncio.run(moq.teacher_clock(ClockRelay(audio=[], clocks=[[hang(W_A)]]), "r", wait_s=0.1))
+    assert found is not None and found.key == str(W_A)

@@ -6,26 +6,18 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from talk_tracks import statefile
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
 from talk_tracks.asr.scripted import ScriptedAsr, ScriptedLine
-from talk_tracks.contracts import (
-    CaptionItem,
-    CaptionsCarry,
-    Envelope,
-    OutlineSnapshot,
-    SlideFrame,
-    SlideItem,
-    TranslationItem,
-)
+from talk_tracks.contracts import OutlineObject, RecapData, SlideFrame
 from talk_tracks.cores.captions import CaptionsCore
 from talk_tracks.cores.outline import OutlineCore
 from talk_tracks.cores.slides import SlidesCore
 from talk_tracks.cores.translate import TranslateCore
 from talk_tracks.llm.fake import FakeLlm
-from talk_tracks.runtime import caption_lines, run_captions, run_describe, run_outline, run_translate
+from talk_tracks.records import cues_of, slides_of
+from talk_tracks.runtime import CaptionsObject, captions_object, run_captions, run_describe, run_outline, run_translate
 
-from .slicekit import ListOut, sliced, snapshot_track
+from .slicekit import ListOut, objects, sliced, snapshot_track
 
 SCRIPT = [
     ScriptedLine(0, 2_000, "Media over Quick lets a relay fan out named tracks."),
@@ -39,10 +31,15 @@ async def audio(seconds: float, start_ms: int = 0) -> AsyncIterator[tuple[NDArra
         yield np.zeros(1600, dtype=np.int16), start_ms + (i + 1) * 100
 
 
-async def replay(out: ListOut) -> AsyncIterator[Envelope]:
+async def replay(out: ListOut) -> AsyncIterator[CaptionsObject]:
     """What a downstream agent reads from a captions track, in order."""
-    for env in out.envelopes():
-        yield env
+    for group, object_id, payload in out.objects:
+        yield captions_object(group, object_id, payload)
+
+
+def finals(out: ListOut) -> list[str]:
+    """The final cues published, carry-ins left out."""
+    return [c.text for _, o, p in out.objects if o > 0 for c in cues_of(p)[1] if c.final]
 
 
 async def captions_out(tmp_path: Path) -> ListOut:
@@ -54,100 +51,97 @@ async def captions_out(tmp_path: Path) -> ListOut:
     return out
 
 
-async def test_captions_in_slices_with_a_carry_in_then_items(tmp_path: Path) -> None:
+async def test_captions_in_slices_with_a_carry_in_then_cues(tmp_path: Path) -> None:
     track, out = sliced(tmp_path)
     core = CaptionsCore("en")
     track.carry = core.carry
     await run_captions(audio(7), ScriptedAsr(SCRIPT), track, core)
     await track.pause()
 
-    assert out.groups() == [0, 1] and out.ended == [0, 1]  # media 0-4 s, 4-7 s; each closed with End of Group
-    first, second = out.envelopes(0), out.envelopes(1)
-    assert first[0].kind == "carry" and first[0].body == CaptionsCarry(lang="en", lines=[])
-    assert all(e.kind == "item" and e.slice == 0 for e in first[1:])
-    finals = [e.body.line.text for e in first + second if isinstance(e.body, CaptionItem) and e.body.final]
-    assert finals == [line.text for line in SCRIPT]
-    assert any(isinstance(e.body, CaptionItem) and not e.body.final for e in first)  # interim versions are items too
-    carry = second[0].body
-    assert isinstance(carry, CaptionsCarry) and [x.text for x in carry.lines] == [SCRIPT[0].text]  # line 2 ends at 4 s
-    assert [o for g, o, _ in out.objects if g == 1][:2] == [0, 1]  # object 0 is the carry-in, items follow
+    assert out.groups() == [0, 1] and out.ended == [0, 1]  # room time 0-4 s, 4-7 s; each closed with End of Group
+    first, second = objects(out.payloads(0)), objects(out.payloads(1))
+    assert first[0] == (None, [])  # nothing before the talk
+    assert all(len(cues) == 1 for _, cues in first[1:])  # one record per later object
+    assert finals(out) == [line.text for line in SCRIPT]  # each final once
+    assert any(not c.final for _, cues in first for c in cues)  # interim revisions are records too
+    assert [c.text for c in second[0][1]] == [SCRIPT[0].text]  # slice 1 opens before line 2, final at 4 s, lands
+    assert [o for g, o, _ in out.objects if g == 1][:2] == [0, 1]  # object 0 is the carry-in, records follow
 
     for k in (0, 1):  # the record is byte for byte what went live, ending with End of Group
         stored = track.archive.read_local(k)
         assert stored is not None and stored.complete
-        assert [o.payload for o in stored.objects if o.payload] == [p for g, _, p in out.objects if g == k]
+        assert [o.payload for o in stored.objects if o.payload] == out.payloads(k)
 
 
-async def test_a_restarted_agent_starts_at_the_next_slice_and_keeps_its_lines(tmp_path: Path) -> None:
+async def test_a_restarted_agent_starts_at_the_next_slice_and_keeps_its_cues(tmp_path: Path) -> None:
     track, _ = sliced(tmp_path)
     core = CaptionsCore("en")
     track.carry = core.carry
     await run_captions(audio(5), ScriptedAsr(SCRIPT[:2]), track, core)  # killed 5 s in, inside slice 1
     track.archive.close()
 
-    again, out = sliced(tmp_path)  # same name, same archive
-    seeded = CaptionsCore("en", lines=[x for env in again.seed_envelopes() for x in caption_lines(env)])
-    assert [x.text for x in seeded.lines] == [s.text for s in SCRIPT[:2]]
+    again, out = sliced(tmp_path, marks_from=True)  # same name, same archive
+    seeded = CaptionsCore("en", cues=[c for p in again.seed_objects() for c in cues_of(p)[1]])
+    assert [c.text for c in seeded.carry()] == [s.text for s in SCRIPT[:2]]
     again.carry = seeded.carry
     later = [ScriptedLine(500, 1_500, "After the restart.")]
     await run_captions(audio(6, start_ms=5_000), ScriptedAsr(later), again, seeded)
     await again.pause()
     assert out.groups() == [2]  # slice 1 was partly published by the old process: never continued, never rewritten
-    carry = out.envelopes(2)[0].body  # the line said inside slice 1 was not published; slice 2's carry-in has it
-    assert isinstance(carry, CaptionsCarry)
-    assert [x.text for x in carry.lines] == [SCRIPT[1].text, "After the restart."]
-    assert carry.lines[1].id > carry.lines[0].id
-
-
-def test_a_stale_or_broken_state_file_is_ignored(tmp_path: Path) -> None:
-    path = tmp_path / "s.json"
-    assert statefile.load_captions(path) is None
-    path.write_text("{", encoding="utf-8")
-    assert statefile.load_captions(path) is None
-    statefile.save(path, CaptionsCore("en").state())
-    assert statefile.load_captions(path) is not None
-    assert statefile.load_captions(path, max_age_s=-1) is None
+    note, carry = objects(out.payloads(2))[
+        0
+    ]  # the cue said inside slice 1 was not published; slice 2's carry-in has it
+    assert note is None  # it has heard everything since 5.1 s, so slice 2 is whole
+    assert [c.text for c in carry] == [SCRIPT[1].text, "After the restart."]
+    assert int(carry[1].id) > int(carry[0].id)
 
 
 async def test_translate_outline_and_describe_follow_the_captions(tmp_path: Path) -> None:
     cap = await captions_out(tmp_path)
 
     llm = FakeLlm()
-    tr, tr_out = sliced(tmp_path / "tr", "translate-tr", llm=llm)
+    tr, tr_out = sliced(tmp_path / "tr", "translate-tr")
     core = TranslateCore("tr")
     tr.carry = core.carry
     await run_translate(replay(cap), llm, tr, core)
     await tr.pause()
-    lines = [e.body.line for e in tr_out.envelopes() if isinstance(e.body, TranslationItem)]
-    assert lines[0].text.startswith("[tr] Media over Quick") and lines[0].start_ms == 0
-    assert llm.usage.requests == 3 and tr_out.groups() == [0, 1]  # each line in the slice open when it was made
+    made = [c for p in tr_out.payloads() for c in cues_of(p)[1]][: len(SCRIPT)]
+    source = {c.id: c for p in cap.payloads() for c in cues_of(p)[1] if c.final}
+    assert made[0].text.startswith("[tr] Media over Quick") and made[0].start == 0
+    assert all(c.id in source and (c.start, c.end) == (source[c.id].start, source[c.id].end) for c in made)
+    assert llm.usage.requests == 3 and tr_out.groups() == [0, 1]  # each cue in the slice open when it was made
 
     llm2 = FakeLlm()
     ol, ol_out = snapshot_track(tmp_path / "ol")
     ticks = iter(range(0, 10**9, 70_000))
     await run_outline(replay(cap), llm2, ol, OutlineCore("en"), clock=lambda: next(ticks))
-    revisions = ol_out.envelopes()
-    assert revisions and all(e.kind == "snapshot" and len(ol_out.envelopes(e.slice)) == 1 for e in revisions)
-    assert isinstance(revisions[-1].body, OutlineSnapshot) and revisions[-1].body.recap
-    assert ol.seed() == revisions[-1]  # what a restarted chapters agent carries on from
+    revisions = ol_out.payloads()
+    assert revisions and all(len(ol_out.payloads(g)) == 1 for g in ol_out.groups())
+    last = OutlineObject.model_validate_json(revisions[-1]).root
+    assert any(isinstance(r.data, RecapData) and r.data.text for r in last)
+    assert ol.seed_object() == revisions[-1]  # what a restarted chapters agent carries on from
 
     llm3 = FakeLlm()
-    sl, sl_out = sliced(tmp_path / "sl", "describe", llm=llm3)
+    sl, sl_out = sliced(tmp_path / "sl", "describe")
     slides = SlidesCore("en")
     sl.carry = slides.carry
 
-    async def frames() -> AsyncIterator[SlideFrame]:
+    async def frames() -> AsyncIterator[tuple[SlideFrame, int]]:
         # Slide 3 shows slide 1's image again: it reuses the description instead of paying for it twice.
         for i, image in ((1, b"one"), (1, b"one"), (2, b"two"), (3, b"one")):
-            yield SlideFrame(id=i, at_ms=i * 3000, mime="image/png", data_b64=base64.b64encode(image).decode())
+            frame = SlideFrame(
+                id=i, at_ms=1_800_000_000_000 + i, mime="image/png", data_b64=base64.b64encode(image).decode()
+            )
+            yield frame, i * 3000
 
     await run_describe(frames(), llm3, sl, slides)
     await sl.pause()
-    notes = [e.body.slide for e in sl_out.envelopes() if isinstance(e.body, SlideItem)]
-    assert [n.id for n in notes] == [1, 2, 3] and notes[2].description == notes[0].description
+    made_slides = [s for p in sl_out.payloads() for s in slides_of(p)[1]]
+    unique = list({s.id: s for s in made_slides}.values())
+    assert [s.id for s in unique] == [1, 2, 3] and unique[2].text == unique[0].text and unique[1].at == 6000
     assert llm3.usage.requests == 2
     # Each slice opens with the slide on screen when it starts: slide 2 shows at 6 s, inside slice 1 (4-8 s).
-    assert [getattr(sl_out.envelopes(k)[0].body, "slide", None) for k in (1, 2)] == [notes[0], notes[1]]
+    assert [slides_of(sl_out.payloads(k)[0])[1] for k in (1, 2)] == [[unique[0]], [unique[1]]]
 
 
 async def test_failing_model_does_not_stop_the_track(tmp_path: Path) -> None:
@@ -162,7 +156,7 @@ async def test_failing_model_does_not_stop_the_track(tmp_path: Path) -> None:
     core = TranslateCore("tr")
     tr.carry = core.carry
     await run_translate(replay(cap), Flaky(), tr, core)
-    assert len([e for e in out.envelopes() if e.kind == "item"]) == 2
+    assert len([p for _, o, p in out.objects if o > 0]) == 2
 
 
 async def test_asr_opens_on_first_audio_and_reopens_after_a_failure(tmp_path: Path) -> None:
@@ -192,5 +186,5 @@ async def test_asr_opens_on_first_audio_and_reopens_after_a_failure(tmp_path: Pa
     track.carry = core.carry
     await run_captions(audio(3, start_ms=5_000), provider, track, core)  # the talk was 5 s in when it started
     assert provider.offsets == [5_000, 6_500]  # first chunk's start; then the chunk after the failure at 6.5 s
-    assert [x.text for x in core.lines] == ["to 6000", "to 7000", "to 8000"]
+    assert finals(out) == ["to 6000", "to 7000", "to 8000"]
     assert out.groups() == [1, 2]

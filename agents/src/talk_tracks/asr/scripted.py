@@ -40,7 +40,7 @@ class ScriptedAsrSession:
                 heard = min(len(words), 1 + (end_ms - line.start_ms) * len(words) // span)
                 if heard != self._partial_words:
                     self._partial_words = heard
-                    events.append(AsrPartial(" ".join(words[:heard])))
+                    events.append(AsrPartial(" ".join(words[:heard]), line.start_ms))
             break
         return events
 

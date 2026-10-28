@@ -9,14 +9,15 @@ import pytest
 from numpy.typing import NDArray
 
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
-from talk_tracks.contracts import AgentInfo, CaptionItem, CaptionLine, CaptionsCarry, Envelope, TranslationItem, Usage
+from talk_tracks.contracts import Cue
 from talk_tracks.cores.captions import CaptionsCore
 from talk_tracks.cores.translate import TranslateCore
 from talk_tracks.demand import Gate, gated
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger, room_cap
+from talk_tracks.records import cues_of
 from talk_tracks.rooms import RoomPolicy, serve_rooms
-from talk_tracks.runtime import run_captions, run_translate
+from talk_tracks.runtime import CaptionsObject, run_captions, run_translate
 
 from .slicekit import sliced
 
@@ -172,27 +173,27 @@ async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after(tmp_pa
     track.carry = core.carry
     await run_captions(audio(), provider, track, core)
     assert provider.log == ["open 0", "close", "open 5000", "close"]
-    assert [line.id for line in core.lines] == [400, 900, 5400, 5900]  # ids carry on over the pause
+    ids = [c.id for _, o, p in out.objects if o > 0 for c in cues_of(p)[1] if c.final]
+    assert ids == ["400", "900", "5400", "5900"]  # ids carry on over the pause
     assert out.groups() == [0, 1] and out.ended == [0]  # the pause closed slice 0; nothing was produced while idle
 
 
-def line(i: int) -> CaptionLine:
-    return CaptionLine(id=i, start_ms=i * 1000, end_ms=i * 1000 + 900, text=f"line {i}")
+def cue(i: int) -> Cue:
+    return Cue(start=i * 1000, end=i * 1000 + 900, id=str(i * 1000), text=f"line {i}", final=True)
 
 
-def captions(kind: Literal["carry", "item"], *ids: int) -> Envelope:
-    """An object of the captions track: a carry-in with these lines, or the final line ``ids[0]``."""
+def captions(kind: Literal["carry", "item"], *ids: int) -> CaptionsObject:
+    """An object of the captions track: a carry-in with these cues, or the final cue ``ids[0]``."""
     k = max(ids) * 1000 // 4000
-    info = AgentInfo(name="captions", label="c", model="fake")
-    if kind == "carry":
-        body: Any = CaptionsCarry(lang="en", lines=[line(i) for i in ids])
-    else:
-        body = CaptionItem(lang="en", line=line(ids[0]), final=True)
-    return Envelope(agent=info, slice=k, kind=kind, at_ms=0, usage=Usage(), body=body)
+    return CaptionsObject(k, 0 if kind == "carry" else 1, [cue(i) for i in (ids if kind == "carry" else ids[:1])])
+
+
+def translated(out: Any) -> list[str]:
+    return [c.id for _, o, p in out.objects if o > 0 for c in cues_of(p)[1]]
 
 
 async def test_translation_switched_on_mid_talk_starts_from_now(tmp_path: Path) -> None:
-    async def objects() -> AsyncIterator[Envelope | None]:
+    async def objects() -> AsyncIterator[CaptionsObject | None]:
         yield captions("carry", 8, 9)  # 10 lines already said when someone first wants the translation
         yield captions("item", 10)
         yield None
@@ -200,11 +201,11 @@ async def test_translation_switched_on_mid_talk_starts_from_now(tmp_path: Path) 
         yield captions("item", 20)
 
     llm = FakeLlm()
-    track, out = sliced(tmp_path, "translate-tr", llm=llm)
+    track, out = sliced(tmp_path, "translate-tr")
     core = TranslateCore("tr")
     track.carry = core.carry
     await run_translate(objects(), llm, track, core)
-    assert [e.body.line.id for e in out.envelopes() if isinstance(e.body, TranslationItem)] == [8, 9, 10, 18, 19, 20]
+    assert translated(out) == ["8000", "9000", "10000", "18000", "19000", "20000"]  # from each join's slice start
     assert llm.usage.requests == 6
 
 
@@ -248,20 +249,21 @@ async def test_at_its_cap_an_agent_stops_paying_and_says_so(tmp_path: Path) -> N
     ledger = SpendLedger(tmp_path / "ledger.jsonl", 100).for_room("judge-a", RoomCap(0.03))
     llm = FakeLlm(ledger, usd_per_call=0.01)
 
-    async def objects() -> AsyncIterator[Envelope | None]:
+    async def objects() -> AsyncIterator[CaptionsObject | None]:
         for n in range(6):
             yield captions("item", n)
 
-    track, out = sliced(tmp_path, "translate-tr", llm=llm)
+    track, out = sliced(tmp_path, "translate-tr")
     core = TranslateCore("tr")
     track.carry = core.carry
     await run_translate(objects(), llm, track, core)
-    assert [e.body.line.id for e in out.envelopes() if isinstance(e.body, TranslationItem)] == [0, 1, 2]
+    assert translated(out) == ["0", "1000", "2000"]
     assert llm.usage.requests == 3 and track.capped
     track.clock.observe(8_000)
     await track.tick()  # the next slice says why the track is silent
-    (carry,) = out.envelopes(2)
-    assert carry.kind == "carry" and carry.capped
+    (carry,) = out.payloads(2)
+    note, _ = cues_of(carry)
+    assert note is not None and note.capped
     assert ledger.room_total() == pytest.approx(0.03)
 
 

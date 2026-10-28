@@ -1,10 +1,10 @@
 """The agent loops: what each agent does with its inputs, live and for a back-filled slice. Transport-free, so tests
 run them without a relay.
 
-Live loops publish through a ``SlicedTrack`` (or the outline's ``SnapshotTrack``), which cuts 4 s slices on the media
-clock and records every object (decision 0012). Inputs are gated by demand (``demand.gated``): ``None`` marks a
-pause, while nobody subscribes to the agent's track. Back-fill functions produce one past slice when a FETCH asks
-for it; they are charged to the same room cap.
+Live loops publish through a ``SlicedTrack`` (or the outline's ``SnapshotTrack``), which cuts 4 s slices at the
+input watermark and records every object (design §4). Inputs are gated by demand (``demand.gated``): ``None`` marks
+a pause, while nobody subscribes to the agent's track. Every input is already in room time: audio chunks end at a
+room ms, captions are cues, slide frames come with the room ms they appeared at.
 """
 
 from __future__ import annotations
@@ -15,84 +15,52 @@ import contextlib
 import logging
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .asr.base import AsrEvent, AsrProvider, AsrSession
 from .audio import SAMPLE_RATE
-from .contracts import (
-    CARRY_LINES,
-    SLICE_MS,
-    CaptionItem,
-    CaptionLine,
-    CaptionsCarry,
-    Envelope,
-    SlideFrame,
-    SlideItem,
-    SlideNote,
-    SlidesCarry,
-    TranslatedLine,
-    TranslationCarry,
-    TranslationItem,
-)
+from .contracts import SLICE_MS, Cue, SlideFrame
 from .cores.captions import CaptionsCore
 from .cores.outline import OutlineCore
 from .cores.slides import SlidesCore
 from .cores.translate import TranslateCore
-from .live_slices import SlicedTrack, SnapshotTrack, envelopes_of
+from .live_slices import SlicedTrack, SnapshotTrack
 from .llm.base import Llm
 from .llm.ledger import BudgetExceededError
+from .records import cues_of, line_of
 
 log = logging.getLogger("talk_tracks")
 
-BACKLOG_LINES = 2  # a translation switched on mid-talk starts with the last lines, not the whole history
-CONTEXT_LINES = 3
+CONTEXT_CUES = 3
 
-Pcm = tuple[NDArray[np.int16], int]  # 16 kHz mono PCM and the media time its last sample ends at, in ms
+Pcm = tuple[NDArray[np.int16], int]  # 16 kHz mono PCM and the room time its last sample ends at, in ms
+
+
+@dataclass(frozen=True)
+class CaptionsObject:
+    """One object of the captions track as another agent reads it: where it sits and its cues."""
+
+    group: int
+    object_id: int
+    cues: list[Cue]
 
 
 def now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
-def caption_lines(env: Envelope, *, interim: bool = False) -> list[CaptionLine]:
-    """The caption lines an object of the captions track carries: the carry-in's, or the item's (final ones only,
-    unless ``interim``)."""
-    body = env.body
-    if isinstance(body, CaptionsCarry):
-        return list(body.lines)
-    if isinstance(body, CaptionItem) and (body.final or interim):
-        return [body.line]
-    return []
+def captions_object(group: int, object_id: int, payload: bytes) -> CaptionsObject:
+    return CaptionsObject(group, object_id, cues_of(payload)[1])
 
 
-def translated_lines(envelopes: list[Envelope]) -> list[TranslatedLine]:
-    out: list[TranslatedLine] = []
-    for env in envelopes:
-        if isinstance(env.body, TranslationCarry):
-            out += env.body.lines
-        elif isinstance(env.body, TranslationItem):
-            out.append(env.body.line)
-    return out
-
-
-def translation_carry(lang: str, envelopes: list[Envelope]) -> TranslationCarry:
-    """The carry-in that follows a slice: its last lines."""
-    lines = {line.id: line for line in translated_lines(envelopes)}
-    return TranslationCarry(lang=lang, lines=[lines[i] for i in sorted(lines)][-CARRY_LINES:])
-
-
-def slide_notes(envelopes: list[Envelope]) -> list[SlideNote]:
-    notes = [env.body.slide for env in envelopes if isinstance(env.body, SlidesCarry | SlideItem)]
-    return [note for note in notes if note is not None]
-
-
-def observe_captions(track: SlicedTrack | SnapshotTrack, env: Envelope) -> None:
-    """A downstream agent's media clock follows the captions it reads."""
-    track.clock.observe(env.slice * SLICE_MS)
-    if isinstance(env.body, CaptionItem):
-        track.clock.observe(env.body.line.end_ms)
+def observe_captions(track: SlicedTrack | SnapshotTrack, obj: CaptionsObject) -> None:
+    """A downstream agent's watermark follows the captions it reads: each slice's start, each cue's end."""
+    track.clock.observe(obj.group * SLICE_MS)
+    for cue in obj.cues:
+        track.clock.observe(cue.end)
 
 
 # --- captions ------------------------------------------------------------------------------------------------
@@ -101,9 +69,9 @@ def observe_captions(track: SlicedTrack | SnapshotTrack, env: Envelope) -> None:
 async def run_captions(
     audio: AsyncIterator[Pcm | None], asr: AsrProvider, track: SlicedTrack, core: CaptionsCore
 ) -> None:
-    """Audio (pcm, media end ms) in; caption items out, an interim version as a line grows, then the final one.
+    """Audio (pcm, room end ms) in; cues out, interim revisions as a cue grows, then the final one.
 
-    The ASR session opens on the first audio, so its clock starts at that chunk's media time, and reopens on the next
+    The ASR session opens on the first audio, so its clock starts at that chunk's room time, and reopens on the next
     chunk after any failure (a dropped stream, the server's session cap): captions pause for a moment, never stop.
     A pause (``None``) closes the session, so nothing is paid while nobody reads the captions. Past a spend cap the
     track carries on with capped slices.
@@ -112,8 +80,8 @@ async def run_captions(
 
     async def apply(events: list[AsrEvent], at_ms: int) -> None:
         for event in events:
-            if (item := core.on_event(event, at_ms)) is not None:
-                await track.item(item)
+            for cue in core.on_event(event, at_ms):
+                await track.item(cue)
 
     async def close(at_ms: int) -> None:
         nonlocal session
@@ -146,7 +114,7 @@ async def run_captions(
                 log.exception("ASR session failed; reopening on the next audio")
                 await close(last_ms)
     except asyncio.CancelledError:
-        # Stopping (SIGTERM, the talk is over): publish nothing more, or the line would open a slice the
+        # Stopping (SIGTERM, the room is closed): publish nothing more, or the cue would open a slice the
         # replacement then has to skip. It shows in the replacement's carry-in once its ASR hears it again.
         if session is not None:
             with contextlib.suppress(Exception):
@@ -159,71 +127,76 @@ async def run_captions(
 
 
 async def run_translate(
-    captions: AsyncIterator[Envelope | None], llm: Llm, track: SlicedTrack, core: TranslateCore
+    captions: AsyncIterator[CaptionsObject | None], llm: Llm, track: SlicedTrack, core: TranslateCore
 ) -> None:
-    """Each new final caption line, translated once. After a pause the translation picks up at the last few lines."""
+    """Each final caption cue, translated once, with the same id.
+
+    The first object after a (re)start is the Joining FETCH's: the whole current captions slice from its carry-in,
+    so the translation starts at that slice's start (design §5.1). Earlier cues are left untranslated.
+    """
     context: list[str] = []
     resumed = True
-    async for env in captions:
-        if env is None:
+    async for obj in captions:
+        if obj is None:
             resumed = True
             await track.pause()
             continue
-        observe_captions(track, env)
+        if resumed:
+            core.skip_before(obj.group * SLICE_MS)
+            resumed = False
+        observe_captions(track, obj)
         track.wake()
         await track.tick()
-        lines = caption_lines(env)
-        if resumed and lines:
-            core.skip_to(lines, keep=BACKLOG_LINES)
-            resumed = False
-        for line in core.pending(lines):
+        for cue in core.pending(obj.cues):
             try:
-                text = await llm.translate(line.text, lang=core.lang, context=context)
+                text = await llm.translate(cue.text, lang=core.lang, context=context)
             except BudgetExceededError as exc:
                 log.warning("translate capped: %s", exc)
                 await track.cap()
                 return
             except Exception:
-                log.exception("translate failed for line %s", line.id)
+                log.exception("translate failed for cue %s", cue.id)
                 continue
-            await track.item(core.add(line, text))
-            context.append(line.text)
-            del context[:-CONTEXT_LINES]
+            await track.item(core.add(cue, text))
+            context.append(cue.text)
+            del context[:-CONTEXT_CUES]
 
 
 async def backfill_translate(
-    llm: Llm, lang: str, envelopes: Sequence[Envelope], before: TranslationCarry | None
-) -> tuple[TranslationCarry, list[TranslationItem]]:
-    """A translation slice from its captions slice (from the archive): each final line translated. The carry-in is
-    the end of the slice before when this track has it, else empty (no paid call for it)."""
-    lines: dict[int, CaptionLine] = {}
-    context: list[str] = []
-    for env in envelopes:
-        for line in caption_lines(env):
-            if env.kind == "carry":
-                context.append(line.text)
-            else:
-                lines[line.id] = line
+    llm: Llm, lang: str, captions: Sequence[bytes], before: Sequence[Cue]
+) -> tuple[list[Cue], list[Cue]]:
+    """A translation slice from its captions slice (objects fetched through the relay): each final cue of the slice
+    translated, latest revision only. The carry-in is the end of the slice before when this track has it, else empty
+    (no paid call for it)."""
+    context = [c.text for c in cues_of(captions[0])[1]] if captions else []
+    newest: dict[str, Cue] = {}
+    for payload in captions[1:]:
+        for cue in cues_of(payload)[1]:
+            if cue.final and (cue.id not in newest or cue.rev >= newest[cue.id].rev):
+                newest[cue.id] = cue
     core = TranslateCore(lang)
-    items: list[TranslationItem] = []
-    for line in [lines[i] for i in sorted(lines)]:
-        items.append(core.add(line, await llm.translate(line.text, lang=lang, context=context[-CONTEXT_LINES:])))
-        context.append(line.text)
-    return before or TranslationCarry(lang=lang, lines=[]), items
+    out: list[Cue] = []
+    for cue in sorted(newest.values(), key=lambda c: c.start):
+        text = await llm.translate(cue.text, lang=lang, context=context[-CONTEXT_CUES:])
+        out.append(core.add(cue, text))
+        context.append(cue.text)
+    return list(before), out
 
 
 # --- slide descriptions --------------------------------------------------------------------------------------
 
 
 async def run_describe(
-    frames: AsyncIterator[SlideFrame | None], llm: Llm, track: SlicedTrack, core: SlidesCore
+    frames: AsyncIterator[tuple[SlideFrame, int] | None], llm: Llm, track: SlicedTrack, core: SlidesCore
 ) -> None:
+    """Slide frames, each with the room ms it appeared at, in; one record per new slide out."""
     lang = core.lang
-    async for frame in frames:
-        if frame is None:
+    async for item in frames:
+        if item is None:
             await track.pause()
             continue
-        track.clock.observe(frame.at_ms)
+        frame, at_ms = item
+        track.clock.observe(at_ms)
         track.wake()
         await track.tick()
         if not core.wants(frame):
@@ -239,14 +212,14 @@ async def run_describe(
             except Exception:
                 log.exception("describe failed for slide %s", frame.id)
                 continue
-        await track.item(core.add(frame, text))
+        await track.item(core.add(frame, at_ms, text))
 
 
 # --- chapters, glossary and recap ------------------------------------------------------------------------------
 
 
 async def run_outline(
-    captions: AsyncIterator[Envelope | None],
+    captions: AsyncIterator[CaptionsObject | None],
     llm: Llm,
     track: SnapshotTrack,
     core: OutlineCore,
@@ -254,11 +227,14 @@ async def run_outline(
     clock: Callable[[], int] = now_ms,
 ) -> None:
     lang = core.lang
-    async for env in captions:
-        if env is None:
+    watermark = 0
+    async for obj in captions:
+        if obj is None:
             continue
-        observe_captions(track, env)
-        core.add_lines(caption_lines(env))
+        observe_captions(track, obj)
+        finals = [c for c in obj.cues if c.final]
+        core.add_lines([line_of(c) for c in finals])
+        watermark = max([watermark, *(c.end for c in finals)])
         if not core.due(clock()):
             continue
         lines, previous = core.request(clock())
@@ -271,13 +247,13 @@ async def run_outline(
             log.exception("outline failed")
             continue
         core.apply(draft)
-        await track.publish(core.snapshot())
+        await track.publish(core.records(watermark))
 
 
 __all__ = [
+    "CaptionsObject",
     "backfill_translate",
-    "caption_lines",
-    "envelopes_of",
+    "captions_object",
     "now_ms",
     "run_captions",
     "run_describe",

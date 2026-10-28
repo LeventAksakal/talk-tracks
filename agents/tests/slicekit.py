@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
 
-from talk_tracks.archive.slices import TrackArchive
-from talk_tracks.contracts import ENVELOPE, AgentInfo, CaptionsCarry, Carry, Envelope, Usage
-from talk_tracks.live_slices import MediaClock, SlicedTrack, SnapshotTrack
-from talk_tracks.llm.fake import FakeLlm
+from talk_tracks.archive.slices import Slice, TrackArchive
+from talk_tracks.contracts import AgentInfo, CarryNote, Cue
+from talk_tracks.live_slices import SlicedTrack, SnapshotTrack, Watermark, payloads
+from talk_tracks.records import Data, cues_of
 
 
 class ListOut:
@@ -32,16 +32,16 @@ class ListOut:
     async def end_track(self) -> None:
         self.track_ended = True
 
-    def envelopes(self, group: int | None = None) -> list[Envelope]:
-        return [ENVELOPE.validate_json(p) for g, _, p in self.objects if group is None or g == group]
+    def payloads(self, group: int | None = None) -> list[bytes]:
+        return [p for g, _, p in self.objects if group is None or g == group]
 
     def groups(self) -> list[int]:
         return sorted({g for g, _, _ in self.objects})
 
 
-def still_clock() -> MediaClock:
-    """Media time is exactly what the inputs last said: no wall clock running on between them."""
-    return MediaClock(hold_s=None, clock=lambda: 0.0)
+def still_clock(edge: Callable[[], int | None] = lambda: None) -> Watermark:
+    """A watermark that never goes stale: room time is exactly what the inputs last said."""
+    return Watermark(hold_s=float("inf"), edge=edge, clock=lambda: 0.0)
 
 
 def archive(tmp_path: Path, agent: str = "captions", track: str = "items") -> TrackArchive:
@@ -52,19 +52,18 @@ def sliced(
     tmp_path: Path,
     name: str = "captions",
     out: ListOut | None = None,
-    llm: FakeLlm | None = None,
-    carry: Any = None,
+    carry: Callable[[], Sequence[Data]] = list,
+    *,
+    marks_from: bool = False,
 ) -> tuple[SlicedTrack, ListOut]:
     out = out or ListOut()
-    empty: Carry = CaptionsCarry(lang="en", lines=[])
     track = SlicedTrack(
         AgentInfo(name=name, label=name, model="fake"),
         out,
         archive(tmp_path, name),
-        (lambda: llm.usage) if llm else Usage,
-        carry or (lambda: empty),
+        carry,
         clock=still_clock(),
-        wall_ms=lambda: 1,
+        marks_from=marks_from,
     )
     return track, out
 
@@ -75,8 +74,11 @@ def snapshot_track(tmp_path: Path, out: ListOut | None = None) -> tuple[Snapshot
         AgentInfo(name="chapters", label="chapters", model="fake"),
         out,
         archive(tmp_path, "chapters", "outline"),
-        Usage,
         clock=still_clock(),
-        wall_ms=lambda: 1,
     )
     return track, out
+
+
+def objects(found: Slice | list[bytes]) -> list[tuple[CarryNote | None, list[Cue]]]:
+    """Each object of a cue slice: its note and cues."""
+    return [cues_of(p) for p in (found if isinstance(found, list) else payloads(found))]

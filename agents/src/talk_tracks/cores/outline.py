@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from talk_tracks.contracts import CaptionLine, OutlineSnapshot, OutlineState
+from collections.abc import Sequence
+
+from talk_tracks.contracts import (
+    CaptionLine,
+    Chapter,
+    ChapterData,
+    GlossaryTerm,
+    OutlineRecord,
+    OutlineState,
+    RecapData,
+    TermData,
+)
 from talk_tracks.llm.base import OutlineDraft
 
 EVERY_LINES = 6
@@ -40,13 +51,33 @@ class OutlineCore:
     def apply(self, draft: OutlineDraft) -> None:
         self._draft = draft
 
-    def seed(self, snapshot: OutlineSnapshot) -> None:
+    def seed(self, records: Sequence[OutlineRecord]) -> None:
         """A predecessor's newest revision: the next request refines it instead of starting over."""
-        self._draft = OutlineDraft(chapters=snapshot.chapters, glossary=snapshot.glossary, recap=snapshot.recap)
+        chapters = [
+            Chapter(id=r.data.id, start_ms=r.data.start, title=r.data.title, summary=r.data.summary)
+            for r in records
+            if isinstance(r.data, ChapterData)
+        ]
+        terms = [
+            GlossaryTerm(term=r.data.term, definition=r.data.definition)
+            for r in records
+            if isinstance(r.data, TermData)
+        ]
+        recap = next((r.data.text for r in records if isinstance(r.data, RecapData)), "")
+        self._draft = OutlineDraft(chapters=chapters, glossary=terms, recap=recap)
 
-    def snapshot(self) -> OutlineSnapshot:
+    def records(self, watermark_ms: int) -> list[OutlineRecord]:
+        """The whole outline as one timeline (design §4.3): chapters at their start, terms and the recap at the
+        watermark (the newest caption this revision has read)."""
         d = self._draft or OutlineDraft()
-        return OutlineSnapshot(lang=self._lang, chapters=d.chapters, glossary=d.glossary, recap=d.recap)
+        out = [
+            OutlineRecord(m=c.start_ms, data=ChapterData(id=c.id, start=c.start_ms, title=c.title, summary=c.summary))
+            for c in d.chapters
+        ]
+        out += [OutlineRecord(m=watermark_ms, data=TermData(term=t.term, definition=t.definition)) for t in d.glossary]
+        if d.recap:
+            out.append(OutlineRecord(m=watermark_ms, data=RecapData(text=d.recap)))
+        return out
 
     def state(self) -> OutlineState:
         d = self._draft or OutlineDraft()
