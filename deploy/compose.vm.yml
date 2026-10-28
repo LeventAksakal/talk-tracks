@@ -63,10 +63,10 @@ services:
     image: talk-tracks-relay:0.17.8
     build: { context: ., dockerfile: Dockerfile.relay }
     restart: unless-stopped
-    depends_on: [caddy]
+    depends_on: [caddy, auth]
     ports: ["443:443/udp"]
     environment: [TT_HOST]
-    volumes: ["caddy_data:/caddy:ro"]
+    volumes: ["caddy_data:/caddy:ro", "auth_sock:/run/auth"]
     entrypoint: ["sh", "-c"]
     command:
       - |
@@ -77,16 +77,21 @@ services:
         done
         exec moq-relay --listen '[::]:443' --listen-tls-cert "$$crt" --listen-tls-key "$${crt%.crt}.key" \
           --web-https-listen '[::]:8443' --web-https-cert "$$crt" --web-https-key "$${crt%.crt}.key" \
-          --auth-url http://127.0.0.1:4440/ --log-level info
+          --auth-url unix:///run/auth/auth.sock --log-level info
 
+  # The relay speaks plain HTTP to its auth server only on loopback or a unix socket. The socket lives in a shared
+  # volume, so either container restarts on its own and finds the other again. (Sharing the relay's network namespace
+  # left auth cut off after the relay restarted by itself: 3 hours down on 2026-10-28.) Auth needs no network.
   auth:
     image: talk-tracks-auth:0.14.8
     build: { context: ., dockerfile: Dockerfile.auth }
-    network_mode: service:relay
+    network_mode: none
     restart: unless-stopped
-    command: ["auth", "serve", "--listen", "127.0.0.1:4440", "--key", "/keys/public.jwk",
-              "--public-subscribe", "talk/**"]
-    volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro"]
+    entrypoint: ["sh", "-c"]
+    command:  # a socket left by a killed auth server would block the bind
+      - rm -f /run/auth/auth.sock; exec moq auth serve --listen unix:/run/auth/auth.sock --key /keys/public.jwk
+        --public-subscribe 'talk/**'
+    volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro", "auth_sock:/run/auth"]
 
   looper:
     <<: *agent
@@ -110,6 +115,7 @@ services:
     command: ["chapters", "--insecure"]
 
 volumes:
+  auth_sock: {}  # the auth server's unix socket, shared with the relay
   # The volume the pre-event stack already filled, so the certificate carries over.
   caddy_data: { external: true, name: moq_caddy_data }
   caddy_config: { external: true, name: moq_caddy_config }
