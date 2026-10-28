@@ -6,10 +6,10 @@ in ``wiki/design/lane-briefs.md`` ("Catalog field names"). This module fills it 
 * tracks: each announced agent's tracks that have a ``track.json`` (``TrackArchive(..., info=TrackInfo(...))``), never
   a subscription to an agent track, which would be demand;
 * ``tt.epoch`` and ``tt.shift`` (ms per teacher ``clock.wall``): the room clock, from the archive (``store``);
-* ``tt.status.<agent>``: ``status``, ``producing``, ``capped``, ``fetches_served``, ``backfills``, ``spend_usd`` and
+* ``tt.status.<agent>``: ``status``, ``producing``, ``fetches_served``, ``backfills``, ``spend_usd`` and
   ``updated_ms``, summed over the agent's tracks from what each last wrote with ``TrackArchive.report``. A
   ``track.json`` older than 15 s counts as idle and not producing, and a room at its spend cap (or the build at its
-  ceiling, from the agents' ledger) makes every paid agent ``capped``.
+  ceiling, from the agents' ledger) makes every paid agent's ``status`` ``capped``.
 
 No catalog is published before the room has an epoch: every template needs E, and agents stamp nothing before it.
 """
@@ -67,13 +67,11 @@ def agent_status(infos: list[dict[str, Any]], *, capped: bool, now_ms: int) -> d
             status = said
         producing = producing or bool(info.get("producing"))
     paid = any(info.get("cost", "paid") == "paid" for info in infos)
-    capped = status == "capped" or (capped and paid)
-    if capped:
+    if status == "capped" or (capped and paid):
         status, producing = "capped", False
     return {
         "status": status,
         "producing": producing,
-        "capped": capped,
         "fetches_served": sum(int(info.get("fetches_served") or 0) for info in infos),
         "backfills": sum(int(info.get("backfills") or 0) for info in infos),
         "spend_usd": round(sum(float(info.get("spend_usd") or 0) for info in infos), 6),

@@ -289,7 +289,7 @@ names"). Read it as raw JSON: `@moq/msf` 0.3.1 drops the fields it does not decl
 ```json
 {"version": "draft-01",
  "tt": {"epoch": 1761650000000, "shift": {"183813200000000": 0, "183813203600000": 4000},
-        "status": {"captions": {"status": "live", "producing": true, "capped": false, "fetches_served": 12,
+        "status": {"captions": {"status": "live", "producing": true, "fetches_served": 12,
                                 "backfills": 0, "spend_usd": 0.0421, "updated_ms": 1761650030000}}},
  "tracks": [
   {"name": "items", "namespace": "talk/live/agents/captions", "packaging": "eventtimeline",
@@ -314,9 +314,9 @@ names"). Read it as raw JSON: `@moq/msf` 0.3.1 drops the fields it does not decl
   `dependsOn` (full track paths: `<agent>/<track>` in `TrackInfo.depends` becomes `talk/<room>/agents/<agent>/<track>`;
   a full path such as `talk/<room>/slides/frames` is kept), `latenessMs` and `cost`.
 * **`tt.status.<agent>`** sums what each of its tracks last wrote with `TrackArchive.report`: `status` (the highest of
-  `idle`, `live`, `capped`), `producing`, `capped`, `fetches_served`, `backfills`, `spend_usd` and `updated_ms` (the
+  `idle`, `live`, `capped`), `producing`, `fetches_served`, `backfills`, `spend_usd` and `updated_ms` (the
   newest). A `track.json` older than 15 s counts as idle and not producing. When the spend ledger shows the room at
-  its cap, or the build at its ceiling, every paid agent is `capped`. Status is in the root because MSF forbids
+  its cap, or the build at its ceiling, every paid agent's `status` is `capped`. Status is in the root because MSF forbids
   changing a declared track.
 * The speaker's media is at `/archive/<room>/index.m3u8` ([HLS playlists](#hls-playlists)).
 * The room service publishes the catalog of every archived room, on air or not. Demo rooms it skips
