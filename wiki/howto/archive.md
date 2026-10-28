@@ -16,32 +16,37 @@ Every room's tracks are kept as plain files on the VM and copied to a cloud buck
 The room service never subscribes to an agent track: a subscription is demand, and would keep a lazy agent (decision
 0010) awake. A replacement VM copies the bucket back and carries on under the same names and group numbers.
 
-## One clock: media time
+## One clock: room time
 
-Everything in the archive is placed on the **room's media time**: the speaker's clock, read from the teacher
-broadcast (the µs varint every legacy-container object starts with). This is the clock the recorder already uses
-([demo rooms](demo-rooms.md#the-recording)), and the one agents already write into their states (caption
-`start_ms`/`end_ms`, slide `at_ms`, chapter `start_ms`).
+Everything in the archive is placed on the **room time** of [the room clock](../design/moq-track-system.md#45-the-room-clock)
+(addendum to decision 0012): the speaker's media timestamp (the µs varint every legacy-container object starts with)
+plus the broadcast's `offset_ms`. The speaker console publishes the offset on track `clock` in `talk/<room>/slides`,
+`{"epoch_ms", "offset_ms", "session"}`, before it publishes audio. Room time never goes back across reloads or new
+broadcasts, and has holes where nobody broadcast.
 
-* **Media** samples keep their own media time, in µs, as MP4 timestamps. A player's `currentTime` in seconds is
-  media time / 1000.
-* **Agent slices** are cut on it by the agents: group `k` covers media time `[4k, 4k+4)` s, so slice `⌊t/4000⌋` holds
-  media time `t` ms.
-* **Slide frames** are stamped with the newest teacher media time the room service had seen when they arrived
-  (`media_ms`), plus the wall clock (`wall_ms`).
+* The room service holds a teacher broadcast's media until that broadcast's `clock` object arrives, for up to 5 s.
+  No `clock` by then (the demo looper, which already writes room time; the dev `teacher` stand-in) means offset 0.
+  It reads the clock again whenever the teacher broadcast is announced again.
+* **Media** samples are written at room time, in µs, as MP4 timestamps. A player's `currentTime` in seconds is
+  room time / 1000.
+* **Agent slices** are cut on it by the agents: group `k` covers room time `[4k, 4k+4)` s, so slice `⌊t/4000⌋` holds
+  room time `t` ms.
+* **Slide frames** are stamped with the newest room time the room service had seen when they arrived (`media_ms`),
+  plus the wall clock (`wall_ms`).
 
-To show the room at media time `t`: play media from `t`, and FETCH each agent track's slice `⌊t/4000⌋` (and its
+To show the room at room time `t`: play media from `t`, and FETCH each agent track's slice `⌊t/4000⌋` (and its
 neighbours) through the relay.
 
 ### Runs
 
-A room's life is split into **runs**, each with one continuous media clock. A new run starts when:
+Each speaker broadcast (a `clock` session) is a **run**: its own folder of media segments, slides and indexes. Runs
+are metadata, not separate clocks: all runs of a room are on the one room time and never overlap, so a player plays
+them as one timeline with holes. A broadcast without a clock stays in the current run. A run's id is the wall-clock
+ms when it started (a decimal string), so runs sort by name; `run.json` names its `session` and `offset_ms`, and
+`room.json` the room's `epoch_ms`.
 
-* the speaker's media time jumps back by more than 30 s (the publisher restarted its clock), or
-* teacher media comes back after more than 10 minutes without any (a new talk in the same room).
-
-Within a run, media time never goes backwards: late samples are dropped. A run's id is the wall-clock ms when it started (a decimal string, like agent instance names), so
-runs sort by name.
+Media time going back within a run is a clock bug, not a late sample: the samples are dropped and a warning is
+logged.
 
 ## Layout
 
@@ -64,7 +69,7 @@ rooms.json                                   every archived room
 
 `<track>` is the teacher track name (`audio`, and `video` when the broadcast has video). `<agent>` is the agent name
 (`captions`, `translate-tr`, `describe`, `chapters`, ...). Agent slices are per room, not per run: their group
-numbers come from the media clock (see [slices and runs](#slices-and-runs)).
+numbers come from room time (see [slices and room time](#slices-and-room-time)).
 
 A file appears only once complete (written to a temporary name, then renamed), except an open slice (`.part`) and
 `slides/frames.jsonl`, which grow by whole lines. Media segments (`.m4s`) and init segments never
@@ -80,9 +85,9 @@ change once written; JSON indexes are rewritten in place.
 ### `<room>/room.json`
 
 ```json
-{"format": "talk-tracks-archive", "v": 1, "room": "live",
- "runs": [{"run": "1761650000000", "started_wall_ms": 1761650000000, "last_wall_ms": 1761653600000,
-           "media_first_ms": 1520, "media_last_ms": 3600480}]}
+{"format": "talk-tracks-archive", "v": 1, "room": "live", "epoch_ms": 1761650000000,
+ "runs": [{"run": "1761650000000", "session": "1761650000000", "started_wall_ms": 1761650000000,
+           "last_wall_ms": 1761653600000, "media_first_ms": 1520, "media_last_ms": 3600480}]}
 ```
 
 Runs are in order; the last one is the newest (and the one still being written, if the room is live).
@@ -92,6 +97,7 @@ Runs are in order; the last one is the newest (and the one still being written, 
 ```json
 {
   "format": "talk-tracks-archive", "v": 1, "room": "live", "run": "1761650000000",
+  "session": "1761650000000", "offset_ms": 0,
   "started_wall_ms": 1761650000000, "last_wall_ms": 1761653600000,
   "media_first_ms": 1520, "media_last_ms": 3600480, "media_last_wall_ms": 1761653600000,
   "tracks": [
@@ -116,9 +122,9 @@ Runs are in order; the last one is the newest (and the one still being written, 
 Fragmented MP4 (ISO BMFF, the CMAF shape), one track per file, so a browser plays it with Media Source Extensions:
 one `SourceBuffer` per track, append the init segment, then the media segments.
 
-* **Timescale 1 000 000** (µs): sample times are the teacher's media time exactly, with no offset. `tfdt` is the
-  first sample's media time; append segments as they are and the `<video>`/`<audio>` element's `currentTime` is
-  media time in seconds.
+* **Timescale 1 000 000** (µs): sample times are room time (the teacher's media time plus the broadcast's offset).
+  `tfdt` is the first sample's room time; append segments as they are and the `<video>`/`<audio>` element's
+  `currentTime` is room time in seconds.
 * **Audio**: Opus, sample entry `Opus` with a `dOps` box (from the catalog's `description` when it has one,
   otherwise mono or the catalog's channel count at 48 kHz, pre-skip 0). Every packet is a sync sample.
 * **Video**: H.264 (`avc1`, the avcC record from the catalog's `description`), sync samples at IDR frames. A video
@@ -133,7 +139,7 @@ A broadcast without `catalog.json` (the dev `teacher` stand-in) is archived as o
 
 ## Agent tracks: the slice store
 
-Every AI track except the outline cuts group `k` as media time `[4k, 4k+4)` s. Object 0 is a small carry-in state;
+Every AI track except the outline cuts group `k` as room time `[4k, 4k+4)` s. Object 0 is a small carry-in state;
 items follow, one per object, and the group ends with End of Group (decision 0012). The agent that publishes a track
 records every object it sends, and its FETCH handler reads the slice back, so live and fetched copies are
 byte-identical.
@@ -172,12 +178,10 @@ The library, `talk_tracks.archive.slices` (no transport code; the agents' publis
 End Location's object for FETCH_OK. Writing a finished slice, or one another process left open, raises
 `SliceExists`: objects are immutable. One process writes a track at a time (stable names), so writers never contend.
 
-### Slices and runs
+### Slices and room time
 
-Slice numbers come from the media clock. If a speaker stops and starts a new broadcast in the same room and the
-clock starts again at 0, the new slices would get the numbers of old ones (the room service starts a new media
-[run](#runs) then). Open question for the design and Lazy agents lanes: keep `k` rising per room (an offset when the
-clock jumps back), or one broadcast per room.
+Slice numbers come from room time, which never goes back, so they never repeat in a room. Writing a slice that
+exists (`SliceExists`) is therefore a bug: two publishers of one track, or a clock that went back.
 
 ## Slides
 
@@ -197,7 +201,7 @@ change and every 4 s (under moq-relay's 5 s max age, so a late joiner always get
 streaming format's catalog (draft-ietf-moq-msf-01 §5):
 
 ```json
-{"version": 1, "room": "live", "archive": "/archive/live/room.json",
+{"version": 1, "room": "live", "epoch_ms": 1761650000000, "end_ms": 3604000, "archive": "/archive/live/room.json",
  "tracks": [
   {"namespace": "talk/live/teacher", "name": "audio", "kind": "audio", "packaging": "legacy", "codec": "opus",
    "status": "live", "cost": "free"},
@@ -213,6 +217,10 @@ streaming format's catalog (draft-ietf-moq-msf-01 §5):
 * Agent tracks are listed while `talk/<room>/agents/<agent>` is announced and the track has a `track.json` (written
   by `TrackArchive(..., info=...)`, its status by `set_status`). Nothing here subscribes to an agent track.
 * `archive` is where the media rewind starts (HTTP, MSE).
+* `epoch_ms` (the wall time of the room's first broadcast) and `end_ms` (the latest room time archived: the speaker's
+  media, or the end of the newest agent slice) are what the speaker console reads to choose a new broadcast's
+  offset. The room service publishes the catalog of every archived room, on air or not, so a returning speaker
+  finds them.
 * Demo rooms the room service skips (`TT_ARCHIVE_SKIP`) get no catalog from it; their looper publishes one.
 
 ## Serving

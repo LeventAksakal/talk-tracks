@@ -1,9 +1,9 @@
 """The slice store: each agent writes every object it publishes, and reads a slice back to answer a FETCH.
 
-Decision 0012: every AI track cuts group k as media time [k·S, (k+1)·S), S = 4 s. Its publisher is the origin of the
-track's history, so it records what it sends and serves FETCH misses from the record (disk, then the bucket). Nothing
-here touches the transport: the agents' publish path calls ``write`` beside each object it sends, ``end_group`` when
-a slice is over, and ``read`` in its FETCH handler.
+Decision 0012: every AI track cuts group k as room time [k·S, (k+1)·S), S = 4 s (the room clock, design §4.5). Its
+publisher is the origin of the track's history, so it records what it sends and serves FETCH misses from the record
+(disk, then the bucket). Nothing here touches the transport: the agents' publish path calls ``write`` beside each
+object it sends, ``end_group`` when a slice is over, and ``read`` in its FETCH handler.
 
 Layout under the archive (``TT_ARCHIVE_DIR``, by default ``archive/`` beside ``TT_STATE_DIR``)::
 
@@ -46,7 +46,7 @@ Status = Literal["idle", "live", "capped"]
 
 
 def slice_of(media_ms: int) -> int:
-    """The group that holds media time ``media_ms``."""
+    """The group that holds room time ``media_ms`` (the speaker's media timestamp plus the broadcast's offset)."""
     return max(0, media_ms) // SLICE_MS
 
 
@@ -123,7 +123,10 @@ class TrackInfo:
 
 
 class SliceExists(Exception):
-    """The slice was finished, or another process left it open: objects are immutable, so it is not rewritten."""
+    """The slice was finished, or another process left it open: objects are immutable, so it is not rewritten.
+
+    Slice numbers come from room time, which never goes back (design §4.5), so outside ``discard`` this is a bug: two
+    publishers of one track, or a clock that went back."""
 
 
 class ReadBucket(Protocol):
@@ -308,7 +311,7 @@ def _decode_lines(data: bytes) -> Iterator[SliceObject]:
 def listdir(path: Path) -> list[str]:
     try:
         return os.listdir(path)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return []
 
 

@@ -36,8 +36,8 @@ SEGMENT_US = 6_000_000  # a segment closes at the first sync sample at least thi
 TRACK_IDLE_MS = 3_000  # ... or when its track has been silent this long
 MAX_FILL_US = 10_000_000  # an audio gap up to this long is filled with silence; a longer one starts a new segment
 REORDER = 5  # samples held back to put late groups in order
-RUN_JUMP_BACK_MS = 30_000  # media time this far behind the run's: the speaker's clock restarted, a new run
-RUN_GAP_MS = 10 * 60_000  # teacher media after this long without any: a new talk, a new run
+CLOCK_WAIT_MS = 5_000  # teacher media is held this long for the room clock; none by then means offset 0 (the looper)
+HELD_MAX = 4_000  # objects held while waiting for the clock
 DEFAULT_AUDIO = TrackConfig(kind="audio", codec="opus")
 
 OnFile = Callable[[str, bool], None]  # (path relative to the root, mutable)
@@ -62,8 +62,17 @@ class RoomsIndex(Doc):
     rooms: list[RoomEntry] = Field(default_factory=list[RoomEntry])
 
 
+class RoomClock(Wire):
+    """An object of track ``clock`` in ``talk/<room>/slides``: room time = media timestamp + ``offset_ms``."""
+
+    epoch_ms: int = Field(ge=0, description="Wall time of the room's first broadcast")
+    offset_ms: int
+    session: str = Field(description="The broadcast's start, wall ms")
+
+
 class RunEntry(Wire):
     run: str
+    session: str | None = None
     started_wall_ms: int = Field(ge=0)
     last_wall_ms: int = Field(ge=0)
     media_first_ms: int | None = Field(default=None, ge=0)
@@ -72,6 +81,7 @@ class RunEntry(Wire):
 
 class RoomIndex(Doc):
     room: str
+    epoch_ms: int | None = Field(default=None, ge=0, description="Wall time of the room's first broadcast")
     runs: list[RunEntry] = Field(default_factory=list[RunEntry])
 
 
@@ -106,6 +116,8 @@ class SlidesEntry(Wire):
 class RunIndex(Doc):
     room: str
     run: str
+    session: str | None = Field(default=None, description="The speaker's broadcast (its clock's session)")
+    offset_ms: int = Field(default=0, description="Added to the speaker's media timestamps to get room time")
     started_wall_ms: int = Field(ge=0)
     last_wall_ms: int = Field(ge=0)
     media_first_ms: int | None = Field(default=None, ge=0)
@@ -258,6 +270,9 @@ class MediaTrack:
     def _place(self, time_us: int, data: bytes, sync: bool) -> None:
         end = self._end_us()
         if end is not None and time_us < end - 1_000:
+            if end - time_us > 1_000_000 and not self._warned:
+                self._warned = True  # room time never goes back; this is a clock bug, not a late sample
+                log.warning("%s: media time went back %d ms; dropping samples", self.dir, (end - time_us) // 1000)
             return  # too late to place, or a repeat
         if end is not None and time_us > end + MAX_FILL_US:
             self._close(None)  # a long gap: the next segment starts at this sample
@@ -308,6 +323,8 @@ class MediaTrack:
         self.entry = self.entry.model_copy(update={"segments": [*self.entry.segments, segment]})
         self._next_n, self._next_us = n + 1, end_us
         self.run.dirty = True
+
+    _warned = False
 
     def _write(self, name: str, data: bytes) -> None:
         path = self.dir / name
@@ -425,6 +442,7 @@ class RunArchive:
         i = self.index
         return RunEntry(
             run=i.run,
+            session=i.session,
             started_wall_ms=i.started_wall_ms,
             last_wall_ms=i.last_wall_ms,
             media_first_ms=i.media_first_ms,
@@ -448,10 +466,15 @@ class RoomArchive:
         self.runs: list[RunEntry] = []
         self.run: RunArchive | None = None
         self.dirty = False
+        self.epoch_ms: int | None = None
+        self.offset_ms: int | None = None  # None: waiting for the clock of the current teacher broadcast
+        self._held: list[tuple[str, bytes, int]] = []
+        self._waiting_ms: int | None = None
         index_path = self.dir / "room.json"
         if index_path.exists():
             try:
-                self.runs = list(RoomIndex.model_validate_json(index_path.read_bytes()).runs)
+                index = RoomIndex.model_validate_json(index_path.read_bytes())
+                self.runs, self.epoch_ms = list(index.runs), index.epoch_ms
             except ValidationError:
                 log.warning("room %s: room.json unreadable, starting a new run", room)
         if self.runs:
@@ -462,14 +485,22 @@ class RoomArchive:
             except (OSError, ValidationError):
                 log.warning("room %s: run %s unreadable, starting a new run", room, self.runs[-1].run)
 
-    def _new_run(self, wall_ms: int) -> RunArchive:
+    def _new_run(self, wall_ms: int, session: str | None = None, offset_ms: int = 0) -> RunArchive:
         if self.run is not None:
             self.run.close()
             self.run.save()
             self._update_entry(self.run)
         floor = int(self.runs[-1].run) + 1 if self.runs and self.runs[-1].run.isdigit() else 0
         run_id = str(max(wall_ms, floor))
-        self.run = RunArchive(self, RunIndex(room=self.name, run=run_id, started_wall_ms=wall_ms, last_wall_ms=wall_ms))
+        index = RunIndex(
+            room=self.name,
+            run=run_id,
+            session=session,
+            offset_ms=offset_ms,
+            started_wall_ms=wall_ms,
+            last_wall_ms=wall_ms,
+        )
+        self.run = RunArchive(self, index)
         self.runs.append(self.run.entry())
         if self.teacher.raw is not None:
             self.run.catalog(self.teacher.raw)
@@ -503,33 +534,79 @@ class RoomArchive:
             return DEFAULT_AUDIO if track == "audio" else None
         return self.teacher.catalog.get(track)
 
+    def clock(self, clock: RoomClock, wall_ms: int) -> None:
+        """The room clock of the speaker's broadcast (design §4.5). A new session is a new run, on the same clock."""
+        if self.epoch_ms is None or clock.epoch_ms < self.epoch_ms:
+            self.epoch_ms = clock.epoch_ms
+            self.dirty = True
+        run = self.run
+        if run is None or run.index.session != clock.session:
+            if run is not None and run.index.session is None and run.index.media_first_ms is None:
+                run.index = run.index.model_copy(update={"session": clock.session, "offset_ms": clock.offset_ms})
+                run.dirty = True
+            else:
+                self._new_run(wall_ms, clock.session, clock.offset_ms)
+        elif run.index.offset_ms != clock.offset_ms:
+            log.warning("room %s: session %s changed its offset; keeping the first", self.name, clock.session)
+        if self.offset_ms is None:
+            assert self.run is not None
+            self.offset_ms = self.run.index.offset_ms
+            log.info("room %s: room time = media time + %d ms (session %s)", self.name, self.offset_ms, clock.session)
+            self._release(wall_ms)
+
+    def _release(self, wall_ms: int) -> None:
+        held, self._held, self._waiting_ms = self._held, [], None
+        for track, payload, at_ms in held:
+            self.media(track, payload, at_ms)
+
     def media(self, track: str, payload: bytes, wall_ms: int) -> None:
-        """One object of a teacher track (legacy container: a varint of µs, then the codec payload)."""
+        """One object of a teacher track (legacy container: a varint of µs, then the codec payload), written in room
+        time. Held until the broadcast's clock is known, for up to ``CLOCK_WAIT_MS``."""
         config = self.config(track)
         if config is None or not payload:
             return
+        if self.offset_ms is None:
+            if self._waiting_ms is None:
+                self._waiting_ms = wall_ms
+            if wall_ms - self._waiting_ms < CLOCK_WAIT_MS:
+                if len(self._held) < HELD_MAX:
+                    self._held.append((track, payload, wall_ms))
+                return
+            self._no_clock(wall_ms)
         try:
             time_us, data = split_legacy(payload)
         except IndexError:
             return
-        run = self.current(wall_ms)
-        i = run.index
-        if i.media_last_ms is not None and (
-            time_us // 1000 < i.media_last_ms - RUN_JUMP_BACK_MS
-            or (i.media_last_wall_ms is not None and wall_ms - i.media_last_wall_ms > RUN_GAP_MS)
-        ):
-            run = self._new_run(wall_ms)
-        run.media(track, config, time_us, data, wall_ms)
+        assert self.offset_ms is not None
+        self.current(wall_ms).media(track, config, time_us + self.offset_ms * 1000, data, wall_ms)
+
+    def _no_clock(self, wall_ms: int) -> None:
+        log.info("room %s: the broadcast has no clock track; room time = media time", self.name)
+        self.offset_ms = 0
+        self._release(wall_ms)
+
+    @property
+    def end_ms(self) -> int | None:
+        """The latest room time of the speaker's media in the archive."""
+        if self.run is not None:
+            self._update_entry(self.run)
+        ends = [r.media_last_ms for r in self.runs if r.media_last_ms is not None]
+        return max(ends) if ends else None
 
     def slide(self, frame: SlideFrame, wall_ms: int) -> bool:
         return self.current(wall_ms).slide(frame, wall_ms)
 
     def teacher_gone(self) -> None:
+        if self.offset_ms is None and self._held:
+            self._no_clock(self._waiting_ms or 0)  # it left before any clock: it had none
         if self.run is not None:
             for track in self.run.tracks.values():
                 track.flush()
+        self.offset_ms, self._waiting_ms, self._held = None, None, []  # the next broadcast brings its own clock
 
     def tick(self, wall_ms: int) -> None:
+        if self.offset_ms is None and self._waiting_ms is not None and wall_ms - self._waiting_ms >= CLOCK_WAIT_MS:
+            self._no_clock(wall_ms)
         if self.run is not None:
             self.run.tick(wall_ms)
 
@@ -538,12 +615,16 @@ class RoomArchive:
             self.run.save()
             self._update_entry(self.run)
         if self.dirty:
-            write_atomic(self.dir / "room.json", dump(RoomIndex(room=self.name, runs=self.runs)))
+            write_atomic(
+                self.dir / "room.json", dump(RoomIndex(room=self.name, epoch_ms=self.epoch_ms, runs=self.runs))
+            )
             self.archive.reported(self.dir / "room.json", mutable=True)
             self.dirty = False
             self.archive.dirty = True
 
     def close(self) -> None:
+        if self.offset_ms is None and self._held:
+            self._no_clock(self._waiting_ms or 0)
         if self.run is not None:
             self.run.close()
         self.save()
@@ -578,6 +659,9 @@ class Archive:
     def reported(self, path: Path, *, mutable: bool) -> None:
         if self._on_file is not None:
             self._on_file(path.relative_to(self.root).as_posix(), mutable)
+
+    def known_rooms(self) -> list[str]:
+        return sorted({*self._known, *self.rooms})
 
     def room(self, name: str) -> RoomArchive:
         room = self.rooms.get(name)

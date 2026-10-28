@@ -5,7 +5,8 @@ Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk
 
 * ``<room>/teacher``: ``catalog.json``, then every legacy-container track it names (``audio`` straight away, so a
   broadcast without a catalog is archived too), into fMP4 segments;
-* ``<room>/slides``: ``frames``;
+* ``<room>/slides``: ``frames``, and ``clock``, the room clock (design §4.5): media is written in room time, the
+  speaker's timestamps plus the broadcast's offset;
 * ``<room>/agents/<agent>``: never subscribed. A subscription is demand and keeps a lazy agent awake; agents record
   their own slices (decision 0012). Their announcements only list them in the catalog;
 * ``<room>/catalog``: published here (``archive.catalog``).
@@ -28,11 +29,12 @@ from ..lecture import AUDIO_TRACK, CATALOG_TRACK
 from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
 from ..runtime import now_ms
 from .catalog import REFRESH_S, TRACK, RoomCatalog, catalog_path
-from .store import DEFAULT_AUDIO, Archive, RoomFilter
+from .store import DEFAULT_AUDIO, Archive, RoomClock, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
 
 TICK_S = 1.0
+CLOCK_TRACK = "clock"
 
 
 @dataclass
@@ -40,7 +42,7 @@ class _Room:
     catalog: RoomCatalog
     agents: dict[str, set[str]] = field(default_factory=dict[str, set[str]])  # agent -> its announced paths
     teacher: dict[str, asyncio.Task[None]] = field(default_factory=dict[str, asyncio.Task[None]])
-    slides: asyncio.Task[None] | None = None
+    slides: list[asyncio.Task[None]] = field(default_factory=list[asyncio.Task[None]])
     writer: TrackWriter | None = None
     sent_s: float = 0.0
 
@@ -70,6 +72,9 @@ class Archiver:
             log.error("reader %s stopped", task.get_name(), exc_info=task.exception())
 
     async def run(self) -> None:
+        for name in self.archive.known_rooms():  # their catalog carries epoch_ms and end_ms for the next broadcast
+            if self.wanted(name):
+                self._room(name)
         ticker = asyncio.create_task(self._tick())
         try:
             async for path, active in self.relay.announced(ROOT):
@@ -77,9 +82,8 @@ class Archiver:
         finally:
             ticker.cancel()
             for room in self.rooms.values():
-                for task in [*room.teacher.values(), room.slides]:
-                    if task is not None:
-                        task.cancel()
+                for task in [*room.teacher.values(), *room.slides]:
+                    task.cancel()
 
     async def _tick(self) -> None:
         while True:
@@ -104,15 +108,13 @@ class Archiver:
         return state
 
     async def _publish(self, name: str, room: _Room) -> None:
-        cat = room.catalog
-        cat.teacher = (
-            (self.archive.room(name).teacher.catalog or {AUDIO_TRACK: DEFAULT_AUDIO}) if room.teacher else None
-        )
-        on_air = bool(cat.teacher or cat.slides or cat.agents)
+        cat, archived = room.catalog, self.archive.room(name)
+        cat.teacher = (archived.teacher.catalog or {AUDIO_TRACK: DEFAULT_AUDIO}) if room.teacher else None
+        cat.epoch_ms, cat.media_end_ms = archived.epoch_ms, archived.end_ms
         data = cat.changed()
         now = time.monotonic()
         if data is None:
-            if not on_air or now - room.sent_s < REFRESH_S:
+            if now - room.sent_s < REFRESH_S:
                 return
             data = cat.latest
         if data is None:
@@ -140,13 +142,18 @@ class Archiver:
                 self.archive.room(room).teacher_gone()
         elif kind == "slides" and len(parts) == 2:
             state.catalog.slides = active
-            if active and state.slides is None:
-                state.slides = self._spawn(self._slides(room), f"{room}/slides")
-            elif not active and state.slides is not None:
-                state.slides.cancel()
-                state.slides = None
+            if active and not state.slides:
+                state.slides = [
+                    self._spawn(self._slides(room), f"{room}/slides"),
+                    self._spawn(self._clock(room), f"{room}/clock"),
+                ]
+            elif not active:
+                for task in state.slides:
+                    task.cancel()
+                state.slides = []
         elif kind == "agents" and len(parts) >= 3:
             paths = state.agents.setdefault(parts[2], set())
+            log.info("room %s: agent %s %s", room, parts[2], "announced" if active else "gone")
             if active:
                 paths.add(path)
             else:
@@ -174,6 +181,15 @@ class Archiver:
                 log.warning("room %s: skipping a slide frame that does not match the contract", room)
                 continue
             self._safely(f"{room}/slides", self.archive.room(room).slide, frame, now_ms())
+
+    async def _clock(self, room: str) -> None:
+        async for payload in self.relay.objects(slides_path(room), CLOCK_TRACK):
+            try:
+                clock = RoomClock.model_validate_json(payload)
+            except ValidationError:
+                log.warning("room %s: skipping a clock object that does not match the design", room)
+                continue
+            self._safely(f"{room}/clock", self.archive.room(room).clock, clock, now_ms())
 
     @staticmethod
     def _safely(what: str, write: Callable[..., object], *args: Any) -> None:

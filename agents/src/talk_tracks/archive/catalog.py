@@ -2,8 +2,9 @@
 
 Shaped after the MoQ streaming format's catalog (draft-ietf-moq-msf-01 §5): a list of tracks by namespace and name,
 with ``packaging``, ``lang``, ``label`` and ``depends``. Talk Tracks adds ``kind``, ``sliceMs``, ``status`` (idle,
-live or capped) and ``cost`` (paid on use, or free). Transport-free: the archiver feeds it the room's announcements
-and publishes ``document()`` as a new group on every change and every ``REFRESH_S``.
+live or capped) and ``cost`` (paid on use, or free). For the room clock (design §4.5) it carries ``epoch_ms`` and
+``end_ms``, which the speaker console reads to choose a new broadcast's offset. Transport-free: the archiver feeds it
+the room's announcements and publishes ``document()`` as a new group on every change and every ``REFRESH_S``.
 
 Where each entry comes from, none of it a subscription to an agent track:
 
@@ -21,7 +22,7 @@ from typing import Any
 
 from ..contracts import ROOT, slides_path, teacher_path
 from .mp4 import TrackConfig
-from .slices import TRACK_INFO, listdir
+from .slices import SLICE_MS, TRACK_INFO, listdir
 
 log = logging.getLogger("talk_tracks.archive.catalog")
 
@@ -39,6 +40,8 @@ class RoomCatalog:
         self.teacher: dict[str, TrackConfig] | None = None  # None: the speaker is not broadcasting
         self.slides = False
         self.agents: set[str] = set()
+        self.epoch_ms: int | None = None  # the room clock (design §4.5): wall time of the room's first broadcast
+        self.media_end_ms: int | None = None  # the latest room time of the speaker's archived media
         self._last: bytes | None = None
 
     def document(self) -> dict[str, Any]:
@@ -75,7 +78,26 @@ class RoomCatalog:
                 entry |= {k: v for k, v in info.items() if k not in ("name", "agent", "updated_ms") and v is not None}
                 entry["depends"] = [f"{ROOT}/{self.room}/agents/{d}" for d in info.get("depends", [])]
                 tracks.append(entry)
-        return {"version": 1, "room": self.room, "archive": f"/archive/{self.room}/room.json", "tracks": tracks}
+        return {
+            "version": 1,
+            "room": self.room,
+            "epoch_ms": self.epoch_ms,
+            "end_ms": self.end_ms(),
+            "archive": f"/archive/{self.room}/room.json",
+            "tracks": tracks,
+        }
+
+    def end_ms(self) -> int | None:
+        """The latest room time in the archive: the speaker's media, or the end of the newest slice of any agent
+        track. A new broadcast's offset puts its first slice after it."""
+        ends = [] if self.media_end_ms is None else [self.media_end_ms]
+        agents = self.root / self.room / "agents"
+        for agent in listdir(agents):
+            for track in listdir(agents / agent):
+                groups = [int(n[:8]) for n in listdir(agents / agent / track) if n[:8].isdigit()]
+                if groups:
+                    ends.append((max(groups) + 1) * SLICE_MS)
+        return max(ends) if ends else None
 
     def changed(self) -> bytes | None:
         """The catalog as JSON when it differs from the last one returned, else None."""
