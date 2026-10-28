@@ -456,8 +456,7 @@ that keeps its page clock across reconnects, `docker restart` on the relay), tim
 The archiver resumed the same run (`resuming run ...`): one E, one shift entry, no second run or discontinuity, and
 the outage is an `EXT-X-GAP` stretch in the playlists. In the rehearsal the speaker came back after 31 s, not 5 s,
 because the test client's first reconnect was attempted while the relay was down and waited for QUIC's 30 s idle
-timeout; a browser's reconnect timing is its own (check it on day 1). Agents publish no captions without a viewer's
-demand, so captions were not timed.
+timeout; a browser's reconnect timing is its own (check it on day 1). Captions flowing again was not timed.
 
 ## Restore a lost VM
 
