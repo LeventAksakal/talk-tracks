@@ -18,10 +18,10 @@ from numpy.typing import NDArray
 
 from .audio import OpusEncoder, write_varint
 from .contracts import (
-    ENVELOPE,
     CaptionsState,
     SlideFrame,
     SlidesState,
+    State,
     TranslationState,
     slides_path,
     teacher_path,
@@ -84,9 +84,7 @@ async def publish_slides(relay: Relay, room: str, images: list[Path], every_s: f
             slide_id += 1
 
 
-def summary(payload: bytes) -> str:
-    env = ENVELOPE.validate_json(payload)
-    state = env.state
+def summary(agent: str, state: State) -> str:
     if isinstance(state, CaptionsState):
         last = state.lines[-1] if state.lines else None
         what = (
@@ -105,43 +103,43 @@ def summary(payload: bytes) -> str:
         what = f"{len(state.slides)} slides, last {state.slides[-1].description!r}" if state.slides else "no slides"
     else:
         what = f"{len(state.chapters)} chapters, {len(state.glossary)} terms"
-    return f"{env.agent.name}/{env.instance} seq {env.seq} ${env.usage.cost_usd:.4f}: {what}"
+    return f"{agent}: {what}"
 
 
 async def watch_room(relay: Relay, room: str) -> None:
-    """Print every agent snapshot published in the room, as a viewer would receive it, with the speaker's media time
-    when the snapshot arrived (from the teacher audio), so you can see the tracks keep step with the talk."""
-    from .contracts import agents_prefix
-    from .follow import RoomFollower
+    """Print every agent track the room catalog lists, rebuilt into the agent's state after each object as a viewer
+    would see it, with the speaker's media time when it arrived (from the teacher audio), so you can see the tracks keep
+    step with the talk."""
+    from .contracts import CATALOG_TRACK, RoomCatalog, catalog_path
+    from .follow import FollowedTrack, TrackFollower, catalog_tracks
     from .replay import MediaClock
 
-    prefix = agents_prefix(room)
-    following: dict[str, asyncio.Task[None]] = {}  # agent -> the reader of its newest instance
-    newest = RoomFollower()
+    readers: dict[tuple[str, str], asyncio.Task[None]] = {}
     clock = MediaClock()
 
     async def media() -> None:
         async for payload in relay.objects(teacher_path(room), "audio", idle_s=5.0):
             clock.observe(payload)
 
-    async def read(path: str) -> None:
-        async for payload in relay.objects(f"{prefix}/{path}", "state"):
-            stamp = f"[media {clock.ms / 1000:8.1f} s] " if clock.us is not None else ""
-            print(stamp + summary(payload), flush=True)
+    async def read(track: FollowedTrack) -> None:
+        follower = TrackFollower(track.kind, track.lang)
+        async for payload in relay.objects(track.namespace, track.name):
+            state = follower.accept(payload)
+            if state is not None:
+                stamp = f"[media {clock.ms / 1000:8.1f} s] " if clock.us is not None else ""
+                print(stamp + summary(f"{track.agent}/{track.name}", state), flush=True)
 
     teacher = asyncio.create_task(media())
     try:
-        async for path, active in relay.announced(prefix):
-            print(f"{'announced' if active else 'withdrawn'}: {path}", flush=True)
-            found = newest.offer(path) if active else None
-            if found is not None:
-                agent, _ = found
-                if agent in following:
-                    following[agent].cancel()  # replaced (a restart, or the next loop of a demo room)
-                following[agent] = asyncio.create_task(read(path))
+        async for payload in relay.objects(catalog_path(room), CATALOG_TRACK):
+            catalog = RoomCatalog.model_validate_json(payload)
+            for track in catalog_tracks(catalog):
+                if (track.namespace, track.name) not in readers:
+                    print(f"following {track.agent}/{track.name} ({track.kind})", flush=True)
+                    readers[(track.namespace, track.name)] = asyncio.create_task(read(track))
     finally:
         teacher.cancel()
-        for task in following.values():
+        for task in readers.values():
             task.cancel()
 
 

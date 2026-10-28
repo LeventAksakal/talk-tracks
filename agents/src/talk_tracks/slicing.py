@@ -1,14 +1,19 @@
 """A recording as sliced tracks (decision 0012): what a looping demo room publishes and serves by FETCH.
 
-A recording holds each agent's full-state snapshots; the wire carries one item per object, cut in 4 s slices on the
-media clock (wiki/design/moq-track-system.md §4). ``Template`` diffs each agent's snapshots once into items on the
-lecture's own clock (file time), cuts them into slices and works out each slice's carry-in:
+A recording holds each agent's full-state snapshots; the wire carries MSF event-timeline records, cut in 4 s slices
+on the room clock (wiki/design/moq-track-system.md §4, ``contracts``). ``Template`` diffs each agent's snapshots once
+into items on the lecture's own clock (file time), cuts them into slices by when they were published (the open slice
+of the agent's input watermark, §4.2) and works out each slice's carry-in:
 
-* captions: each new or changed final line is an item, and so is each new interim text (an interim version of the
-  next line id, replaced by the final line later);
-* translation: each new or changed translated line, with its source caption line's media times;
+* captions: each new or changed final cue is an item, and so is each new interim text (``final: false`` under the
+  next cue's id, its ``rev`` rising, replaced by the final cue later); the carry-in holds the last two final cues;
+* translation: each new or changed translated cue, with its source cue's id and times;
 * slides: each new or changed slide description; its carry-in is the slide on screen;
-* chapters: the ``outline`` track instead, one group per revision of the whole outline.
+* chapters: the ``outline`` track instead, one group per revision whose single object holds every chapter, glossary
+  term and the recap (terms and recap at the revision's time).
+
+Each object is one ``CueObject``, ``SlideObject`` or ``OutlineObject``; a cue's id is its caption cue's id as a
+decimal string.
 
 ``Room`` places loop k of the template on the room's clock: media time, ids and groups move by k periods, so a group
 is a pure function of its number. The looper writes it live and answers a FETCH of it from the same function, and
@@ -21,52 +26,49 @@ import functools
 import heapq
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import Field, TypeAdapter, model_validator
+from pydantic import Field
 
 from .contracts import (
+    CARRY_CUES,
+    ITEMS_TRACK,
+    OUTLINE_TRACK,
+    SLICE_MS,
     AgentInfo,
     CaptionLine,
     CaptionsState,
     Chapter,
+    ChapterData,
+    CueObject,
+    CueRecord,
     GlossaryTerm,
+    OutlineObject,
+    OutlineRecord,
     OutlineState,
+    RecapData,
     SlideNote,
+    SlideObject,
+    SlideRecord,
     SlidesState,
     State,
+    TermData,
+    TrackStatus,
+    TranslatedLine,
     TranslationState,
     Usage,
     Wire,
     agents_prefix,
+    slice_of,
 )
+from .contracts import Cue as WebVttCue
+from .contracts import Slide as WireSlide
 from .recording import RecordedSnapshot
 from .replay import Cue
-from .room_catalog import AgentStatus, CatalogTrack, RoomCatalog, depends_on
+from .room_catalog import CatalogTrack, RoomCatalog, depends_on
 from .room_catalog import Kind as TrackKind
 
-# --- the sliced wire contract ------------------------------------------------------------------------------------
-# Mirrors the Lazy agents lane's contract (its commit 90c90fd, contracts.py v2) until that is merged; then these go
-# and the names below are imported from ``contracts``. ``WireTranslatedLine`` is its ``TranslatedLine``.
-
-SCHEMA_VERSION = 2
-SLICE_MS = 4000  # group k of a sliced track covers media time [k * SLICE_MS, (k + 1) * SLICE_MS)
-CARRY_LINES = 2  # caption or translated lines a carry-in repeats from before its slice
-ITEMS_TRACK = "items"
-OUTLINE_TRACK = "outline"
-
-
-class WireTranslatedLine(Wire):
-    id: int = Field(ge=0)
-    start_ms: int = Field(ge=0, default=0)
-    end_ms: int = Field(ge=0, default=0)
-    text: str
-
-
-class CaptionsCarry(Wire):
-    type: Literal["captions-carry"] = "captions-carry"
-    lang: str
-    lines: list[CaptionLine] = Field(max_length=CARRY_LINES)
+# --- one loop's bodies on the lecture clock; ``records`` turns them into the wire's objects ----------------------
 
 
 class CaptionItem(Wire):
@@ -74,18 +76,26 @@ class CaptionItem(Wire):
     lang: str
     line: CaptionLine
     final: bool
-
-
-class TranslationCarry(Wire):
-    type: Literal["translation-carry"] = "translation-carry"
-    lang: str
-    lines: list[WireTranslatedLine] = Field(max_length=CARRY_LINES)
+    rev: int = Field(ge=0, default=0, description="Revision of this cue id: interim versions, then the final")
 
 
 class TranslationItem(Wire):
     type: Literal["translation"] = "translation"
     lang: str
-    line: WireTranslatedLine
+    line: TranslatedLine
+    rev: int = Field(ge=0, default=0)
+
+
+class CaptionsCarry(Wire):
+    type: Literal["captions-carry"] = "captions-carry"
+    lang: str
+    lines: list[CaptionItem] = Field(max_length=CARRY_CUES, description="The last final cues before the slice")
+
+
+class TranslationCarry(Wire):
+    type: Literal["translation-carry"] = "translation-carry"
+    lang: str
+    lines: list[TranslationItem] = Field(max_length=CARRY_CUES)
 
 
 class SlidesCarry(Wire):
@@ -110,38 +120,45 @@ class OutlineSnapshot(Wire):
 
 Carry = CaptionsCarry | TranslationCarry | SlidesCarry
 Item = CaptionItem | TranslationItem | SlideItem
-Body = Annotated[Carry | Item | OutlineSnapshot, Field(discriminator="type")]
-Kind = Literal["carry", "item", "snapshot"]
+WireObject = CueObject | SlideObject | OutlineObject
 
 
-def kind_of(body: Carry | Item | OutlineSnapshot) -> Kind:
-    if isinstance(body, OutlineSnapshot):
-        return "snapshot"
-    return "carry" if body.type.endswith("-carry") else "item"
+def _cue(line: CaptionLine | TranslatedLine, *, rev: int, final: bool) -> CueRecord:
+    start = line.start_ms
+    cue = WebVttCue(start=start, end=max(start, line.end_ms), id=str(line.id), text=line.text, rev=rev, final=final)
+    return CueRecord(m=start, data=cue)
 
 
-class SlicedEnvelope(Wire):
-    v: Literal[2] = SCHEMA_VERSION
-    agent: AgentInfo
-    slice: int = Field(ge=0)
-    kind: Kind
-    capped: bool = False
-    at_ms: int = Field(ge=0, description="Wall-clock time of publication")
-    usage: Usage
-    body: Body
-
-    @model_validator(mode="after")
-    def _kind_matches_body(self) -> SlicedEnvelope:
-        if kind_of(self.body) != self.kind:
-            raise ValueError(f"a {self.body.type} body is a {kind_of(self.body)}, not a {self.kind}")
-        return self
+def _slide(note: SlideNote) -> SlideRecord:
+    return SlideRecord(m=note.at_ms, data=WireSlide(id=note.id, at=note.at_ms, text=note.description))
 
 
-SLICED: TypeAdapter[SlicedEnvelope] = TypeAdapter(SlicedEnvelope)
+def _chapter(c: Chapter) -> OutlineRecord:
+    return OutlineRecord(m=c.start_ms, data=ChapterData(id=c.id, start=c.start_ms, title=c.title, summary=c.summary))
 
 
-def slice_of(media_ms: int) -> int:
-    return max(0, media_ms) // SLICE_MS
+def records(body: Carry | Item | OutlineSnapshot, at_ms: int) -> WireObject:
+    """The wire object of a body already on the room clock; ``at_ms`` is when it goes out (an outline's terms and
+    recap carry it as their ``m``)."""
+    if isinstance(body, CaptionItem):
+        return CueObject([_cue(body.line, rev=body.rev, final=body.final)])
+    if isinstance(body, TranslationItem):
+        return CueObject([_cue(body.line, rev=body.rev, final=True)])
+    if isinstance(body, CaptionsCarry | TranslationCarry):
+        return CueObject([_cue(i.line, rev=i.rev, final=True) for i in body.lines])
+    if isinstance(body, SlideItem):
+        return SlideObject([_slide(body.slide)])
+    if isinstance(body, SlidesCarry):
+        return SlideObject([_slide(body.slide)] if body.slide else [])
+    out = [_chapter(c) for c in body.chapters]
+    out += [OutlineRecord(m=at_ms, data=TermData(term=t.term, definition=t.definition)) for t in body.glossary]
+    if body.recap:
+        out.append(OutlineRecord(m=at_ms, data=RecapData(text=body.recap)))
+    return OutlineObject(out)
+
+
+def encode(obj: WireObject) -> bytes:
+    return obj.model_dump_json(by_alias=True).encode()
 
 
 # --- the template: one loop's objects on the lecture clock ----------------------------------------------------------
@@ -207,7 +224,13 @@ def period_of(duration_ms: int) -> int:
 
 def caption_items(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterator[Stamped]:
     seen: dict[int, CaptionLine] = {}
+    revs: dict[int, int] = {}  # the last revision sent of each cue id
     interim = ""
+
+    def rev(i: int) -> int:
+        revs[i] = revs.get(i, -1) + 1
+        return revs[i]
+
     for snap in snapshots:
         state = snap.state
         assert isinstance(state, CaptionsState)
@@ -216,7 +239,7 @@ def caption_items(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterato
             line = at.line(line)
             if seen.get(line.id) != line:
                 seen[line.id] = line
-                yield Stamped(t, snap.usage, CaptionItem(lang=state.lang, line=line, final=True))
+                yield Stamped(t, snap.usage, CaptionItem(lang=state.lang, line=line, final=True, rev=rev(line.id)))
         if state.interim != interim:
             interim = state.interim
             if interim:
@@ -228,19 +251,20 @@ def caption_items(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterato
                     end_ms=max(start, at.media(snap.media_ms)),
                     text=interim,
                 )
-                yield Stamped(t, snap.usage, CaptionItem(lang=state.lang, line=line, final=False))
+                yield Stamped(t, snap.usage, CaptionItem(lang=state.lang, line=line, final=False, rev=rev(line.id)))
 
 
 def translation_items(
     snapshots: Iterable[RecordedSnapshot], at: Lecture, sources: dict[int, CaptionLine]
 ) -> Iterator[Stamped]:
-    seen: dict[int, WireTranslatedLine] = {}
+    seen: dict[int, TranslatedLine] = {}
+    revs: dict[int, int] = {}
     for snap in snapshots:
         state = snap.state
         assert isinstance(state, TranslationState)
         for line in state.lines:
             source = sources.get(line.id)
-            wire = WireTranslatedLine(
+            wire = TranslatedLine(
                 id=line.id,
                 start_ms=source.start_ms if source else 0,
                 end_ms=source.end_ms if source else 0,
@@ -248,7 +272,9 @@ def translation_items(
             )
             if seen.get(line.id) != wire:
                 seen[line.id] = wire
-                yield Stamped(at.time(snap.media_ms), snap.usage, TranslationItem(lang=state.lang, line=wire))
+                revs[line.id] = revs.get(line.id, -1) + 1
+                item = TranslationItem(lang=state.lang, line=wire, rev=revs[line.id])
+                yield Stamped(at.time(snap.media_ms), snap.usage, item)
 
 
 def slide_items(snapshots: Iterable[RecordedSnapshot], at: Lecture) -> Iterator[Stamped]:
@@ -298,11 +324,11 @@ class Lecture:
 def _carry(prior: Sequence[Item], empty: Carry) -> Carry:
     """The carry-in after ``prior`` items: the last lines, or the slide on screen."""
     if isinstance(empty, CaptionsCarry):
-        finals = {item.line.id: item.line for item in prior if isinstance(item, CaptionItem) and item.final}
-        return empty.model_copy(update={"lines": [finals[i] for i in sorted(finals)[-CARRY_LINES:]]})
+        finals = {item.line.id: item for item in prior if isinstance(item, CaptionItem) and item.final}
+        return empty.model_copy(update={"lines": [finals[i] for i in sorted(finals)[-CARRY_CUES:]]})
     if isinstance(empty, TranslationCarry):
-        lines = {item.line.id: item.line for item in prior if isinstance(item, TranslationItem)}
-        return empty.model_copy(update={"lines": [lines[i] for i in sorted(lines)[-CARRY_LINES:]]})
+        lines = {item.line.id: item for item in prior if isinstance(item, TranslationItem)}
+        return empty.model_copy(update={"lines": [lines[i] for i in sorted(lines)[-CARRY_CUES:]]})
     slides = [item.slide for item in prior if isinstance(item, SlideItem)]
     return empty.model_copy(update={"slide": slides[-1] if slides else None})
 
@@ -394,7 +420,13 @@ def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int, 
         )
         for ns, a in agents
     )
-    status = {a.info.name: AgentStatus("live", True, False, 0, 0, round(a.spend_usd(), 6), now_ms) for _, a in agents}
+    spend = {a.info.name: round(a.spend_usd(), 6) for _, a in agents}
+    status = {
+        name: TrackStatus(
+            status="live", producing=True, fetches_served=0, backfills=0, spend_usd=usd, updated_ms=now_ms
+        )
+        for name, usd in spend.items()
+    }
     return RoomCatalog(epoch_ms, tracks, shift={clock_wall: 0}, status=status)
 
 
@@ -402,7 +434,7 @@ def body_ids(body: Carry | Item | OutlineSnapshot) -> list[int]:
     if isinstance(body, CaptionItem | TranslationItem):
         return [body.line.id]
     if isinstance(body, CaptionsCarry | TranslationCarry):
-        return [line.id for line in body.lines]
+        return [item.line.id for item in body.lines]
     if isinstance(body, SlideItem):
         return [body.slide.id]
     if isinstance(body, SlidesCarry):
@@ -415,7 +447,7 @@ def shift_body[B: Carry | Item | OutlineSnapshot](body: B, *, media_ms: int, ids
     if media_ms == 0 and ids == 0:
         return body
 
-    def line[L: CaptionLine | WireTranslatedLine](x: L) -> L:
+    def line[L: CaptionLine | TranslatedLine](x: L) -> L:
         return x.model_copy(update={"id": x.id + ids, "start_ms": x.start_ms + media_ms, "end_ms": x.end_ms + media_ms})
 
     def note(s: SlideNote) -> SlideNote:
@@ -424,7 +456,7 @@ def shift_body[B: Carry | Item | OutlineSnapshot](body: B, *, media_ms: int, ids
     if isinstance(body, CaptionItem | TranslationItem):
         return body.model_copy(update={"line": line(body.line)})
     if isinstance(body, CaptionsCarry | TranslationCarry):
-        return body.model_copy(update={"lines": [line(x) for x in body.lines]})
+        return body.model_copy(update={"lines": [x.model_copy(update={"line": line(x.line)}) for x in body.lines]})
     if isinstance(body, SlideItem):
         return body.model_copy(update={"slide": note(body.slide)})
     if isinstance(body, SlidesCarry):
@@ -477,15 +509,7 @@ class Room:
         out: list[Placed] = []
         for s in track.groups[j]:
             at = media + s.at_ms
-            envelope = SlicedEnvelope(
-                agent=track.info,
-                slice=slice_of(at) if track.track == OUTLINE_TRACK else group,
-                kind=kind_of(s.body),
-                at_ms=self.epoch_ms + at,
-                usage=s.usage,
-                body=shift_body(s.body, media_ms=media, ids=ids),
-            )
-            out.append(Placed(at, SLICED.dump_json(envelope)))
+            out.append(Placed(at, encode(records(shift_body(s.body, media_ms=media, ids=ids), at))))
         return tuple(out)
 
     def published(self, agent: str, group: int, now_ms: int) -> tuple[Placed, ...]:

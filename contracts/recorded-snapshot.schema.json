@@ -312,18 +312,18 @@
   "description": "One state change of one agent, as a line of ``agents/<agent>.jsonl``.",
   "properties": {
     "instance": {
-      "description": "The agent instance that published it",
+      "description": "The agent instance that published it; empty under a stable name",
       "title": "Instance",
       "type": "string"
     },
     "media_ms": {
-      "description": "Speaker media time when the snapshot arrived at the recorder",
+      "description": "Teacher media time when the snapshot arrived at the recorder (room ms with room_origin_ms)",
       "minimum": 0,
       "title": "Media Ms",
       "type": "integer"
     },
     "seq": {
-      "description": "Its sequence number within that instance",
+      "description": "Its sequence number within that instance, or within the recording",
       "minimum": 0,
       "title": "Seq",
       "type": "integer"

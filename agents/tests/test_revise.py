@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from talk_tracks import revise
-from talk_tracks.contracts import AgentInfo, CaptionsState, Envelope, SlideNote, SlidesState, TranslationState, Usage
+from talk_tracks.contracts import AgentInfo, CaptionsState, SlideNote, SlidesState, TranslationState, Usage
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import SpendLedger
 from talk_tracks.recording import RecordedSnapshot, RecordingWriter
@@ -22,9 +22,8 @@ SLIDES = AgentInfo(name="describe", label="Slides", model="fake")
 def write(directory: Path, recorded: list[tuple[AgentInfo, list[RecordedSnapshot]]]) -> Path:
     rec = RecordingWriter(directory, "gen-test", wall_ms=0)
     for info, snapshots in recorded:
-        for seq, snap in enumerate(snapshots):
-            envelope = Envelope(agent=info, instance="1", seq=seq, at_ms=0, usage=snap.usage, state=snap.state)
-            rec.add(envelope, media_ms=snap.media_ms, wall_ms=0)
+        for snap in snapshots:
+            rec.add(info, snap.state, snap.usage, media_ms=snap.media_ms, wall_ms=0)
     rec.close(wall_ms=1)
     return directory
 

@@ -587,7 +587,7 @@ def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path
     cat.epoch_ms, cat.shift = WALL, {"183813200000000": 0, "183813203600000": 4000}
     doc = json.loads(cat.changed() or b"")
     assert doc["version"] == "draft-01"
-    assert doc["tt"]["epoch"] == WALL and doc["tt"]["shift"] == {"183813200000000": 0, "183813203600000": 4000}
+    assert doc["tt"]["E"] == WALL and doc["tt"]["shift"] == {"183813200000000": 0, "183813203600000": 4000}
     names = [(e["namespace"], e["name"]) for e in doc["tracks"]]
     assert names == [
         ("talk/room1/agents/captions", "items"),
@@ -604,7 +604,6 @@ def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path
         "eventType": "urn:msf:captions:webvtt",
         "role": "caption",
         "lang": "en",
-        "label": "",
         "isLive": True,
         "template": [0, 4000, [0, 0], [1, 0], WALL, 4000],
         "tt": {"dependsOn": [], "latenessMs": 8000, "cost": "paid"},
@@ -619,7 +618,6 @@ def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path
     assert status["translate-tr"] | {"updated_ms": 0} == {
         "status": "idle",
         "producing": False,
-        "capped": False,
         "fetches_served": 0,
         "backfills": 0,
         "spend_usd": 0.0,
@@ -632,7 +630,6 @@ def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path
     assert status == {
         "status": "live",
         "producing": True,
-        "capped": False,
         "fetches_served": 3,
         "backfills": 1,
         "spend_usd": 0.0125,
@@ -659,9 +656,9 @@ def test_room_catalog_marks_paid_agents_capped_from_the_ledger(tmp_path: Path) -
     with ledger.open("a") as f:
         f.write('{"t": 3, "usd": 0.5, "what": "llm", "room": "room1"}\n{"t": 4, "usd"')  # the last line half-written
     status = json.loads(cat.changed() or b"")["tt"]["status"]
-    assert status["captions"]["status"] == "capped" and status["captions"]["capped"]
+    assert status["captions"]["status"] == "capped" and "capped" not in status["captions"]
     assert not status["captions"]["producing"]
-    assert status["echo"]["status"] == "idle" and not status["echo"]["capped"]  # free tracks are never capped
+    assert status["echo"]["status"] == "idle"  # free tracks are never capped
 
 
 def test_a_slice_is_created_once_and_the_loser_serves_the_winners_copy(tmp_path: Path) -> None:
