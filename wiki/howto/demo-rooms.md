@@ -53,6 +53,108 @@ memory for the run. They are never written to disk or stored as assets: the slid
 | `virus` | 21 | 17 numbered slides and 4 zoomed views | about 20–45 s |
 | `dataviz` | 34 | about 27 distinct slides, the opening stage shot, the closing clip, 2 builds that move earlier content, and 5 frames of an animated scroll | about 25–50 s |
 
+## Generating the public rooms on the VM
+
+Real agents make the recordings once, on the VM (its spend ledger, decision 0004), one lecture at a time. The VM's
+live agents are lazy and serve every room a speaker opens, so a generation room `gen-<room>` needs no agent setup.
+
+**1. Copy the prepared lectures.** Copy them from a machine that ran `sh deploy/media/demo-lectures.sh`; re-encoding
+on a 2-vCPU VM would hold both cores for over half an hour. Copy only `lecture.mp4`: a local folder may also hold a
+fake-agent recording.
+
+| Room | `lecture.mp4` size | SHA-256 |
+|---|---|---|
+| `virus` | 198,131,908 B | `289ba3285df3e5ef45e6660032c2ed46a40e1e6f9061517da4019185af9a3810` |
+| `dataviz` | 223,180,421 B | `e26f170e17ccab899f637bc72515bf4f9c5655956cb7ec82e5efdcc66c1aa37f` |
+
+```bash
+ssh $VM 'mkdir -p ~/tt-data/demo/virus ~/tt-data/demo/dataviz'
+scp data/demo/virus/lecture.mp4   $VM:tt-data/demo/virus/lecture.mp4
+scp data/demo/dataviz/lecture.mp4 $VM:tt-data/demo/dataviz/lecture.mp4
+ssh $VM 'cd ~/tt-data/demo && sha256sum virus/lecture.mp4 dataviz/lecture.mp4'   # must match the table
+```
+
+**2. Generate**, on the VM in `tmux` (each run lasts its lecture plus about 1.5 min):
+
+```bash
+cd ~/talk-tracks && git pull
+(cd agents && docker build -q -t talk-tracks-agents:dev .)
+D="docker compose -f deploy/compose.vm.yml"
+$D --profile live up -d captions translate-tr describe chapters   # the new image and exclude list
+
+# A cap batch for the generation rooms, read when a room opens: $3 a room, $4 for both
+cat > ~/tt-data/caps/gen-demo.json <<'EOF'
+{"group": "gen-demo", "room_usd": 3, "total_usd": 4, "rooms": ["gen-virus", "gen-dataviz"]}
+EOF
+ls ~/tt-data/state/ | grep gen- && echo "move these aside first: captions resumes line ids per room"
+
+sign() { docker run --rm -u $(id -u):$(id -g) -v ~/tt-keys:/keys talk-tracks-auth:0.14.8 auth sign \
+  --key /keys/private.jwk --expires $(date -d "+6 hours" +%s) "$@"; }
+for L in virus dataviz; do   # one after the other
+  GEN=$(sign --publish talk/gen-$L/teacher --publish talk/gen-$L/slides --subscribe "talk/gen-$L/**")
+  $D run --rm -e TT_ROOM=gen-$L -e TT_TOKEN="$GEN" looper-$L \
+    generate --insecure --media /data/demo/$L/lecture.mp4 --out /data/demo/$L --slides 0,0,0.77,0.77
+  unset GEN
+done
+grep gen-demo ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f\n", s}'
+```
+
+- **Tokens.** The speaker token is per run and is never printed; `generate` uses it for its speaker and its recorder.
+  The live agents' `TT_AGENT_TOKEN` (`talk/*/agents/**`) already covers the generation rooms.
+- **What a run does:**
+  1. scans the keyframes for slides (about 1 min);
+  2. announces `talk/gen-<room>/teacher`; the agents pick the room up and wake when the recorder subscribes (1 s
+     debounce);
+  3. after a 5 s lead-in, plays the lecture in real time with its slide frames;
+  4. records 15 s more.
+
+  The recording lands in `~/tt-data/demo/<room>/` (`recording.json`, `agents/*.jsonl`). Run it before the agents
+  move to the sliced contract: `record` reads the instance tracks until it is ported.
+- **Spend.** A batch cap file scopes the cap to the generation rooms. An env override (`TT_ROOM_CAP_USD`) would apply
+  to every room, judges' included, and would have to be put back. `TT_SPEND_CEILING_USD` needs no change.
+
+**Cost per lecture.**
+
+| Agent | virus (17:00) | dataviz (19:00) | From |
+|---|---|---|---|
+| captions | $0.054 | $0.060 | ASR $0.003 per started minute, paid a minute ahead (`asr/meta.py`) |
+| translate-tr | $0.14 | $0.16 | about 12 lines a minute, about $0.0007 a line ($1.25 / $4.25 per M tokens in / out, `llm/ledger.py`) |
+| chapters | $0.20 | $0.23 | a revision every 6 lines or 60 s (`cores/outline.py`), about 2k tokens in and 0.8k out, about $0.006 each |
+| describe | $0.08 | $0.14 | 21 / 34 slide frames, a high-detail image of about 1.5k tokens in and 0.45k out, about $0.004 each |
+| **Total** | **about $0.47** | **about $0.59** | up to about $0.65 / $0.75 at the fake script's pace of 17 lines a minute |
+
+A live test on 2026-10-27 cost about $0.02 a minute of speech, which agrees.
+
+**Checks after generation:**
+- `recording.json` lists four agents, its `media_last_ms` is near the lecture length (1,020,200 / 1,138,800), and
+  `ended_wall_ms` is set.
+- Each agent has well over zero snapshots. Fake runs had about 3,200 captions, 300 translations, 21 / 34 slide notes
+  and 50 chapter revisions.
+- `describe.jsonl` holds real descriptions.
+- The `gen-demo` spend is near the estimate.
+- `$D logs --since 1h captions translate-tr describe chapters | grep -i cap` finds nothing.
+
+**3. Switch the public rooms on.** Do this once the web viewer reads the sliced tracks; until then `demo` loops as
+before, and the new rooms would show video with empty AI panels.
+
+1. In `deploy/.env`, re-sign `TT_LOOPER_TOKEN` for both rooms (`--publish talk/virus/teacher --publish
+   'talk/virus/agents/**' --publish talk/dataviz/teacher --publish 'talk/dataviz/agents/**' --subscribe
+   'talk/virus/**' --subscribe 'talk/dataviz/**'`, with the same expiry as the current one).
+2. `TT_DEMO_ROOM` and `TT_LECTURE` are no longer read.
+3. Start the loopers and remove the old one:
+
+   ```bash
+   $D up -d looper-virus looper-dataviz
+   docker rm -f talk-tracks-looper-1   # the old looper (room demo): /watch/demo goes dark
+   ```
+
+4. Check:
+   - each looper's log says "a loop every 1024 s" (virus) or "1140 s" (dataviz);
+   - `/watch/virus` and `/watch/dataviz` play with every track;
+   - a FETCH of a past slice of `talk/<room>/agents/captions` track `items` comes back in tens of ms.
+
+   The live agents keep excluding `virus`, `dataviz` and `demo` (`TT_DEMO_ROOMS`).
+
 ## All at once
 
 ```bash
