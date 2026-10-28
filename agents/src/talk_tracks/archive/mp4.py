@@ -1,8 +1,8 @@
-"""Fragmented MP4 (ISO BMFF) for one track: an init segment and media segments a browser appends with MSE.
+"""Fragmented MP4 (ISO BMFF) for one track: an init segment and media segments that HLS players play.
 
 Just the boxes the archive needs, written by hand so the bytes are exact and need no encoder: ``ftyp`` + ``moov``
 for the init segment, ``moof`` + ``mdat`` for each media segment. One track per file, timescale in µs, so sample
-times are the teacher's media times with no offset. Codecs: Opus (``Opus`` + ``dOps``) and H.264 (``avc1`` +
+times are room times with no rescaling. Codecs: Opus (``Opus`` + ``dOps``) and H.264 (``avc1`` +
 ``avcC``), both straight from the legacy container's payloads.
 """
 
