@@ -375,6 +375,89 @@ segment is written.
   and what is in flight.
 * Agents read from the bucket too (a slice missing on disk); the same role covers it.
 
+## Deploy the room service to the VM
+
+The coordinator deploys; this is the checklist for the locked design (room clock, MSF catalog, HLS). The general
+steps are in [deploy](deploy.md#update). Nothing below goes in git: the bucket name, hostname and tokens stay in
+`deploy/.env` on the VM.
+
+**What changes**
+
+| Where | Change |
+|---|---|
+| `deploy/compose.vm.yml`, service `archive` | mounts `${TT_DATA}:/data` (was only `${TT_DATA}/archive`), so it reads the spend ledger; new env `TT_LEDGER`, `TT_CAPS_DIR`, `TT_ROOM_CAP_USD`, `TT_SPEND_CEILING_USD`; `TT_ARCHIVE_SKIP` defaults to `TT_DEMO_ROOMS` |
+| `deploy/Caddyfile`, `/archive/*` | `*.m3u8` is `no-cache` and `application/vnd.apple.mpegurl`; `*.m4s` is `video/iso.segment` |
+| `deploy/.env` | `TT_ARCHIVE_TOKEN`: a token that may publish `talk/*/catalog` and subscribe `talk/**` (unset only if the relay lets anyone publish) |
+| the agents image | rebuilt from `main`: the archiver is `python -m talk_tracks.archive` in it |
+| `$TT_DATA/archive` | format `v: 2`. An earlier archive (`v: 1`, from before the room clock) is not read: move it aside first |
+
+**Steps**
+
+1. Before anything, keep what runs now, for a roll-back:
+
+   ```bash
+   ssh $VM 'docker tag talk-tracks-agents:dev talk-tracks-agents:before-archive-v2'
+   ssh $VM 'cd ~/talk-tracks && git rev-parse HEAD > ~/tt-data/before-archive-v2.commit'
+   ```
+
+2. Move an old-format archive aside (its media predates E and cannot be placed on room time). Agents' slices in it
+   go too; they are from before decision 0012's names as well:
+
+   ```bash
+   ssh $VM 'grep -ls "\"v\": 1" ~/tt-data/archive/*/room.json ~/tt-data/archive/rooms.json'
+   ssh $VM 'docker compose -f ~/talk-tracks/deploy/compose.vm.yml stop archive; mv ~/tt-data/archive ~/tt-data/archive-v1'
+   ```
+
+   If the bucket copy is on, its `archive/` folder holds the same old files; a later restore would bring them back.
+   Move them in the bucket too (`gcloud storage mv gs://$BUCKET/archive gs://$BUCKET/archive-v1`), or restore
+   with care.
+3. Sign `TT_ARCHIVE_TOKEN` if `.env` lacks it ([sign a token](deploy.md#sign-a-token-on-the-vm), with
+   `--publish "talk/*/catalog" --subscribe "talk/**"` and a long expiry), then pull, rebuild and start as in
+   [deploy](deploy.md#update), then `docker compose -f deploy/compose.vm.yml up -d --force-recreate caddy archive`:
+   the Caddyfile is a single-file mount, which `git pull` replaces, so only a new container is sure to read it.
+
+**Check after the deploy**
+
+* `docker compose -f deploy/compose.vm.yml logs archive` shows `connected to relay`, `archiving into /data/archive`,
+  and, once a speaker broadcasts, `epoch E = ...`, `broadcast ..., shift 0 ms` and `run ...`. A `refusing the
+  teacher broadcast: its catalog has no clock` means the speaker's page publishes no hang `clock`.
+* After 20 s of a test broadcast in room `R`:
+  * `curl -sI https://<host>/archive/R/index.m3u8` is 200 with `application/vnd.apple.mpegurl` and `no-cache`; a
+    segment (`curl -sI` on a `.m4s` named in `audio.m3u8`) is `video/iso.segment` and `immutable`;
+  * `index.m3u8` plays in Safari or hls.js, and its PROGRAM-DATE-TIME is the broadcast's wall time (this is also the
+    day-1 Safari check: Opus in fMP4, `EXT-X-GAP`);
+  * `~/tt-data/archive/R/room.json` has `epoch_ms` and one `shift` entry, `0` unless the speaker's device clock is
+    behind the archive.
+* The room catalog: a viewer of `talk/R/catalog` gets `version: "draft-01"` with `tt.E` (or `epoch` until
+  `room_catalog.py` is renamed) and the shift, and, once agents call `TrackArchive.report`, their `tt.status`.
+* After an hour: `du -sh ~/tt-data/archive` grows about 15 MB an hour per audio-only room (more with video), and the
+  bucket copy logs no repeated failures.
+
+**Roll back**
+
+1. `docker compose -f deploy/compose.vm.yml stop archive`.
+2. Put the code and image back: `git checkout $(cat ~/tt-data/before-archive-v2.commit) -- deploy` in
+   `~/talk-tracks` and `docker tag talk-tracks-agents:before-archive-v2 talk-tracks-agents:dev`.
+3. Swap the data back: `mv ~/tt-data/archive ~/tt-data/archive-v2 && mv ~/tt-data/archive-v1 ~/tt-data/archive`.
+   The old archiver cannot read `v: 2` files and would start those rooms afresh, so never run it on the new folder.
+4. `docker compose -f deploy/compose.vm.yml up -d --force-recreate caddy archive` (Caddy for the old Caddyfile).
+
+**A relay restart** (rehearsed locally 2026-10-28: relay, archiver and four `--fake` agents in Docker, a teacher
+that keeps its page clock across reconnects, `docker restart` on the relay), times from the restart:
+
+| What | Back after |
+|---|---|
+| the relay (`docker restart`) | 2.6 s |
+| archiver and agents: session closed, process exits, Docker restarts it, reconnected | 4.3 s |
+| agents announced again (seen by the archiver) | 4.3 s |
+| room catalog published again (same E, same shift) | 5.4 s |
+| teacher media archived again | when the speaker's page reconnects, plus up to one keyframe |
+
+The archiver resumed the same run (`resuming run ...`): one E, one shift entry, no second run or discontinuity, and
+the outage is an `EXT-X-GAP` stretch in the playlists. In the rehearsal the speaker came back after 31 s, not 5 s,
+because the test client's first reconnect was attempted while the relay was down and waited for QUIC's 30 s idle
+timeout; a browser's reconnect timing is its own (check it on day 1). Captions flowing again was not timed.
+
 ## Restore a lost VM
 
 About 15 minutes by hand. History comes back from the bucket; what is not in the bucket must come from elsewhere
