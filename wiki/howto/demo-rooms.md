@@ -113,25 +113,36 @@ room name or recreated containers each time: the captions agent resumes its line
 
 | Track | Content |
 |---|---|
-| `catalog.json` | hang catalog, plain JSON, one object per group, repeated every 2 s. `video.renditions.video`: `avc1.<profile>`, `container: {kind: legacy}`, the avcC record as `description`, size and frame rate. `audio.renditions.audio`: `opus`, legacy container, 48 kHz, mono. An extra section `talk_tracks: {loop, loop_start_ms, duration_ms}` says which loop is playing |
+| `catalog.json` | hang catalog, plain JSON, one object per group, repeated every 2 s. `video.renditions.video`: `avc1.<profile>`, `container: {kind: legacy}`, the avcC record as `description`, size and frame rate. `audio.renditions.audio`: `opus`, legacy container, 48 kHz, mono. An extra section `talk_tracks: {loop, loop_start_ms, duration_ms, period_ms}` says which loop is playing |
 | `video` | H.264, one group per GOP (2 s), each object a QUIC varint of the media time in µs and one access unit (AVCC) |
 | `audio` | Opus, one 20 ms packet per object and per group, same varint prefix: the format the speaker's browser publishes and the agents read |
 
-**The agent tracks** are the usual `talk/<room>/agents/<agent>/<instance>` track `state` envelopes, with a heartbeat
-every 2 s. `agent` and `usage` are the recorded ones, so the load panel shows what generating the track cost once.
+**The agent tracks** follow decision 0012 (wiki/design/moq-track-system.md §4), under stable names
+`talk/<room>/agents/<agent>`: track `items` for captions, translation and slide descriptions, track `outline` for
+chapters. The looper turns the recording's full-state snapshots into that wire format:
 
-**At each loop restart** the room behaves as if every agent had been restarted:
+* **Slices.** Group k of an `items` track is media time [4k, 4k + 4) s. Object 0 is the carry-in (the last two final
+  caption or translated lines, or the slide on screen), then one item per object: each new interim caption text (an
+  interim version of the next line id), each new or changed final line, translated line or slide description.
+  Translated lines carry their source line's media times. A slice with nothing new is a carry-in alone.
+* **Outline.** One group per revision of the whole outline (chapters, glossary, recap); an unchanged revision is
+  not a new group.
+* **FETCH.** The looper is the origin of its tracks' history: any group up to the one in progress is rebuilt from the
+  recording on demand, so a FETCH of any past slice is answered (about 35 ms through the relay, locally), and its copy
+  is byte for byte what went out live. A future group is refused (code 17).
+* `agent` and `usage` are the recorded ones, so the load panel shows what generating the track cost once. The wire
+  types mirror the Lazy agents lane's contract (`v: 2`, `slice`, `kind`, `body`) until it is merged into `contracts/`.
 
-* the teacher's media time keeps rising (loop k plays lecture time t at k × duration + t), so the player and the
-  agents' audio reader never see the clock jump back;
-* every agent gets a new instance, named by the wall clock and always larger than the last, published on a new
-  connection; the previous loop's instances are withdrawn just after. A viewer that follows the newest instance per
-  agent switches by itself;
-* sequence numbers start again at 1 (they belong to the instance);
-* media times inside states (caption `start_ms`/`end_ms`, slide `at_ms`, chapter `start_ms`) move by k × duration and
-  ids (caption, translated line, slide, chapter) by k × (largest id + 1), so a caption still points at the right video
-  moment and ids never repeat in a room's life. A viewer may keep scrollback keyed by id across loops, or clear it
-  when the instance changes; both look right.
+**The room clock** is the wall clock: media time m happens at wall time 2026-10-01 00:00 UTC + m. A loop lasts the
+lecture rounded up to whole 4 s slices (up to 4 s of pause between loops), and loop k covers media time
+[k·period, (k + 1)·period). So:
+
+* the teacher's media time only rises, so the player and the agents' audio reader never see the clock jump back;
+* a looper that restarts (deploy, crash) rejoins the loop in progress at the same position, under the same group
+  numbers and ids: the room looks like one broadcast that never stopped;
+* group numbers, media times inside items (caption `start_ms`/`end_ms`, slide `at_ms`, chapter `start_ms`) and ids
+  (caption, translated line, slide, chapter: moved by k × (largest id + 1)) never repeat in a room's life, so a
+  viewer can keep scrollback keyed by id across loops.
 
 ## The recording
 
@@ -153,8 +164,9 @@ lecture from media time 0, so recording time is lecture time.
 
 ## Checking a looped room
 
-* `watch` prints each snapshot with the teacher media time when it arrived: the last caption's end time stays within
-  about 0.1 s of it, through every loop restart.
+* A subscriber to `talk/<room>/agents/captions` track `items` sees one group per 4 s, each opened by its carry-in, and
+  a FETCH of a group k slices back (`StartAt.range(k, k)`) returns the same objects. (`watch` reads the old instance
+  tracks until it moves to the sliced contract.)
 * The moq project's own CLI reads the teacher broadcast as hang and writes it to a file that ffprobe can check:
   `docker build -t talk-tracks-moq-cli:0.14.8 -f deploy/Dockerfile.moq-cli deploy`, then
   `docker run --rm --network <compose network> --entrypoint timeout talk-tracks-moq-cli:0.14.8 15 moq --connect moql://relay:4443 --connect-tls-insecure export --broadcast talk/demo/teacher mkv > out.mkv`.
@@ -164,9 +176,14 @@ lecture from media time 0, so recording time is lecture time.
 
 ## Known limits
 
-* A long-running aiomoqt subscriber (the `watch` stand-in) is not told when an old instance is withdrawn; a new
-  subscriber sees only the current one. Viewers should follow the newest instance per agent rather than wait for
-  withdrawals.
-* The looper reads the recording and the lecture from disk on every loop, so memory stays flat for long lectures.
+* Two moq-relay 0.17.8 behaviours the looper works around (`agents/src/talk_tracks/origin.py`), and any origin of
+  sliced tracks must too: an End of Group object in a FETCH reply fails the whole FETCH (code 18 "short buffer"); and
+  a first subscription that starts mid-group gets that group's tail relabelled as the next group, after which the
+  real next group is dropped. The looper starts every new subscription at the next group (a first viewer waits up
+  to 4 s; the slice in progress is reachable by a Joining FETCH).
+* `watch` and `record` still read the old instance tracks (`.../<agent>/<instance>`, track `state`); they move to the
+  sliced contract with the agents.
+* The looper builds one loop's slices in memory at start (a few MB for a 20-minute lecture) and reads the lecture
+  from disk on every loop.
 * Rewind (ticket 0002) and the demo moments in looped rooms (ticket 0004) are open; the recording directory is meant
   to be servable as static files for rewind option B.
