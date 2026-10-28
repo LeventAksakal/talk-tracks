@@ -73,6 +73,16 @@ const rxBytes = () => {
   }
 };
 
+const fetchSummary = (rounds) => {
+  const ms = (k) => rounds.map((r) => r[k]?.ms).filter((x) => x !== undefined);
+  const failed = rounds.filter((r) => r.errors?.length).length;
+  const bytes = rounds.map((r) => r.uncached?.bytes).filter((x) => x !== undefined);
+  return (
+    `fetch uncached p50 ${pct(ms("uncached"), 50)} cached ${pct(ms("cached"), 50)} recent ${pct(ms("recent"), 50)} ms, ` +
+    `${pct(bytes, 50)} bytes per slice` + (failed ? `, ${failed} rounds failed` : "")
+  );
+};
+
 const pct = (xs, p) => {
   if (!xs.length) return NaN;
   const s = [...xs].sort((a, b) => a - b);
@@ -118,6 +128,8 @@ for (let run = 1; run <= runs; run++) {
         `latency p50 ${pct(lat, 50)} p95 ${pct(lat, 95)} ms (${lat.length} frames, ${result.unreadable ?? 0} unreadable)` +
         (rx0 !== undefined ? `, ${(((rx1 - rx0) * 8) / rxMs).toFixed(0)} kbit/s on the wire` : "") +
         (txt.length ? `, text p50 ${pct(txt, 50)} p95 ${pct(txt, 95)} ms` : "") +
+        (result.fetches?.length ? `, ${fetchSummary(result.fetches)}` : "") +
+        (result.joinSlice ? `, join slice ${result.joinSlice.fetched ? `${result.joinSlice.fetched.ms} ms` : result.joinSlice.error}` : "") +
         (result.errors?.length ? `, errors: ${result.errors.join("; ")}` : ""),
     );
   }

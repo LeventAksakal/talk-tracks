@@ -5,13 +5,25 @@
 //   ?proto=hls      LL-HLS from MediaMTX through hls.js in low-latency mode
 //   ?proto=webrtc   WebRTC from MediaMTX through a plain WHEP client
 //   &media=0        MoQ only: subscribe to the text track alone (selective subscription), no audio or video
+//   ?proto=fetch    history (decision 0012): subscribe to the sliced track `bench/history` live, then `fetchGroup`
+//                   archive slices the relay has never seen (from the origin), each again (from the relay's cache),
+//                   and the previous live slice (cached by live delivery); &fetches=N rounds
 //
 // Each frame carries the time it was made as a barcode (bench/source.sh); latency is this page's clock minus it.
 // The result lands in `window.__bench` for the Playwright runner (bench/runner/run.mjs).
 import type * as MoqNet from "@moq/net";
 import Hls from "hls.js";
 
-type Proto = "moq" | "moq-ws" | "hls" | "webrtc";
+type Proto = "moq" | "moq-ws" | "hls" | "webrtc" | "fetch";
+
+/** One timed `fetchGroup`: until the first object, until the group's end, and what it carried. */
+interface Fetched {
+  group: number;
+  firstMs: number;
+  ms: number;
+  objects: number;
+  bytes: number;
+}
 
 interface Result {
   proto: Proto;
@@ -32,6 +44,12 @@ interface Result {
   /** Bytes received over the measured span (after the first frame), as the transport counts them. */
   bytes?: number;
   measuredMs?: number;
+  /** proto=fetch: one entry per round. */
+  fetches?: { uncached?: Fetched; cached?: Fetched; recent?: Fetched; errors?: string[] }[];
+  /** proto=fetch: one fetch, at the end, of the slice that was open when the viewer joined. */
+  joinSlice?: { group: number; fetched?: Fetched; error?: string };
+  /** proto=fetch: each complete live slice as received, [group, objects, payload bytes]. */
+  slices?: [number, number, number][];
   errors: string[];
 }
 
@@ -289,8 +307,134 @@ async function startWebRtc() {
   await video.play().catch((e: unknown) => result.errors.push(`play: ${String(e)}`));
 }
 
+/** proto=fetch: the history track, live and past (wiki/design/moq-track-system.md §4, decision 0012). */
+async function startFetch() {
+  const Moq = await import("@moq/net");
+  const rounds = Number(params.get("fetches") ?? "5");
+  result.startMs = performance.now();
+  result.fetches = [];
+  result.slices = [];
+  const origin = new Moq.Origin.Producer();
+  const connection = new Moq.Connection({
+    url: new URL(relay),
+    consume: origin,
+    websocket: { enabled: true },
+    delay: { timeout: Moq.Time.Milli(0) },
+  });
+  connection.transport.subscribe((t) => {
+    if (t) result.transport = t;
+  });
+
+  const requesting = origin.request(Moq.Path.from("bench/history"), { announced: true });
+  let broadcast = requesting.active.peek();
+  for (let i = 0; !broadcast && i < 200; i++) {
+    await sleep(50);
+    broadcast = requesting.active.peek();
+  }
+  if (!broadcast) throw new Error("bench/history never announced");
+  const track = broadcast.track("items");
+
+  // Live, as a viewer with the track switched on: the current slice first, then each new one.
+  const live = track.subscribe({ maxAge: Moq.Time.Milli(0) });
+  let archive = 0;
+  let joinSlice = -1;
+  /** The newest slice received live from its carry-in to its end: complete at the relay, not the join slice. */
+  let lastWhole = -1;
+  const firstGroup = new Promise<void>((resolve) => {
+    void (async () => {
+      for (;;) {
+        const group = await live.recvGroup().catch(() => undefined);
+        if (!group) return;
+        void (async () => {
+          let objects = 0;
+          let bytes = 0;
+          try {
+            for (;;) {
+              const frame = await group.readFrame();
+              if (!frame) break;
+              if (objects === 0) {
+                // The join slice starts mid-way, with an item; every later one with its carry-in.
+                const first = JSON.parse(new TextDecoder().decode(frame.payload)) as { kind: string; archive?: number };
+                if (first.kind === "carry" && first.archive !== undefined) archive = first.archive;
+                if (joinSlice < 0) joinSlice = group.sequence;
+                if (firstFrameAt === undefined) started(now(), `live slice ${group.sequence}`);
+                if (archive > 0) resolve();
+              }
+              objects++;
+              bytes += frame.payload.byteLength;
+            }
+            result.slices!.push([group.sequence, objects, bytes]);
+            if (group.sequence !== joinSlice) lastWhole = Math.max(lastWhole, group.sequence);
+          } catch {
+            // a slice the relay reset
+          } finally {
+            group.close();
+          }
+        })();
+      }
+    })();
+  });
+  await firstGroup;
+  clearTimeout(finishTimer); // this row ends after its fetch rounds, not after --seconds
+
+  // The whole fetch is bounded, not only its start: a group whose stream never ends counts as a failure.
+  const timed = (seq: number): Promise<Fetched> =>
+    Promise.race([
+      fetchOne(seq),
+      sleep(6000).then(() => Promise.reject(new Error(`fetchGroup ${seq}: no end of group in 6 s`))),
+    ]);
+  const fetchOne = async (seq: number): Promise<Fetched> => {
+    const t = performance.now();
+    const group = await track.fetchGroup(seq);
+    let firstMs = NaN;
+    let objects = 0;
+    let bytes = 0;
+    for (;;) {
+      const frame = await group.readFrame();
+      if (!frame) break;
+      if (objects === 0) firstMs = performance.now() - t;
+      objects++;
+      bytes += frame.payload.byteLength;
+    }
+    group.close();
+    return { group: seq, firstMs: Math.round(firstMs * 10) / 10, ms: Math.round((performance.now() - t) * 10) / 10, objects, bytes };
+  };
+
+  // A slice received whole after the join, so "recent" has something to fetch: at most two slices (8 s).
+  for (let i = 0; lastWhole < 0 && i < 200; i++) await sleep(50);
+  for (let i = 0; i < rounds; i++) {
+    const round: NonNullable<Result["fetches"]>[number] = {};
+    const step = async (key: "uncached" | "cached" | "recent", seq: number) => {
+      try {
+        round[key] = await timed(seq);
+      } catch (e) {
+        (round.errors ??= []).push(`${key} ${seq}: ${String(e)}`);
+      }
+    };
+    // An archive slice picked at random: the relay has not seen it, unless an earlier join fetched the same one
+    // within the relay's ~30 s cache life (the origin logs every FETCH it serves, to check).
+    const old = Math.floor(Math.random() * archive);
+    await step("uncached", old);
+    await step("cached", old);
+    if (lastWhole >= 0) await step("recent", lastWhole);
+    result.fetches.push(round);
+    await sleep(500);
+  }
+  // The join slice, which the relay assembled from a Joining FETCH and the live objects: in the local check its
+  // fetch never ended. Measured once per join, apart from the rounds.
+  result.joinSlice = { group: joinSlice };
+  try {
+    result.joinSlice.fetched = await timed(joinSlice);
+  } catch (e) {
+    result.joinSlice.error = String(e);
+  }
+  await finish();
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function main() {
-  canvas.hidden = !proto.startsWith("moq");
+  canvas.hidden = !proto.startsWith("moq") || proto === "fetch";
   video.hidden = proto.startsWith("moq");
   // Give up when nothing plays: the runner records the run as failed.
   setTimeout(
@@ -302,6 +446,7 @@ async function main() {
   );
   try {
     if (proto === "moq" || proto === "moq-ws") await startMoq(proto === "moq-ws");
+    else if (proto === "fetch") await startFetch();
     else if (proto === "hls") await startHls();
     else if (proto === "webrtc") await startWebRtc();
     else throw new Error(`unknown proto ${String(proto)}`);

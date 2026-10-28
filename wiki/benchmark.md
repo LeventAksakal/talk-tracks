@@ -28,6 +28,7 @@ servers.
 | Text-track latency, published through the agents' MoQ code | yes | 2 |
 | Extra: bytes per viewer, captions only against everything (selective subscription) | yes | 1 |
 | Extra: behaviour under 2 % and 5 % loss (`tc netem`) | yes | 2 |
+| Added on 2026-10-28 for decision 0012: FETCH of one 4 s slice from the origin, uncached against cached, and bytes per slice | yes | 3 |
 | Analysis, tables and chart, results on this page | yes | 3 |
 | Local validation, VM hand-over | yes | 2 |
 | Stretch: server CPU, memory and egress at 10 and 100 viewers, MoQ against WebRTC and LL-HLS | owner decides Sun Nov 1 | 5 |
@@ -47,6 +48,7 @@ Derived from the code and the decisions:
 | Non-media tracks: JSON snapshots, slide images | agent `state` envelopes, `slides/frames` ([contracts](../contracts/)) |
 | Selective subscription: a viewer takes only the tracks it switched on, and the publisher can tell nobody is listening | [decision 0010](decisions/0010-agent-tracks-are-opt-in-and-lazy.md) |
 | Late join with the latest state: a viewer who arrives mid-talk sees the current captions and slide at once | snapshot envelopes, one per group |
+| Live and past on one track: the viewer subscribes to new items and fetches earlier slices of the same track | [decision 0012](decisions/0012-ai-track-history-by-fetch-from-the-agent.md) |
 | Rewind and history | [decisions 0007](decisions/0007-rewind-from-a-static-track-archive.md) and [0009](decisions/0009-agents-restart-from-durable-track-history.md) |
 | Fan-out through a cache or CDN, not per-viewer work at the publisher | one relay on one VM ([decision 0004](decisions/0004-relay-web-and-agents-on-one-vm.md)), relays in front later |
 | Browsers: Chrome, Firefox, Safari, phones | [plan](plan.md) end-to-end checks |
@@ -65,6 +67,7 @@ What each protocol delivers for each requirement. Numbers in brackets point to t
 | Selective subscription | Yes: pull-only, nothing flows until a subscriber asks; relays merge duplicate subscriptions upstream, so a publisher sees when nobody listens [4][6]. | Yes: the client fetches only what it wants [9]; the origin never knows who stopped. | Yes, the same [13][14]. | Per SFU: WHEP has no per-track selection [11]; SFUs add it (for example LiveKit's explicit subscribe [21]). |
 | Late join with latest state | Yes: a subscription starts at the latest group, and each group starts at a decodable point (keyframe or full snapshot) [4][7]. | The player starts near the live edge at an independent part [9][12]; metadata sent earlier is gone unless repeated. | Starts at the live edge from the MPD [13][14]; earlier events only if still listed. | Video: the SFU asks the publisher for a keyframe (PLI) [unverified]; **data channels have no history**: the app resends state. |
 | Rewind and history | Per-track retention window, 30 s by default (moq-cli `--max-age`); FETCH of one past group at a time [4][7]; **no long DVR window**: Talk Tracks adds a static archive ([decision 0007](decisions/0007-rewind-from-a-static-track-archive.md)). | DVR through a sliding or EVENT playlist, mature [9]. | Time-shift buffer in the MPD [13][14], mature. | **None**: real-time only; rewind needs a parallel recording path. |
+| Live and past on the same track (SUBSCRIBE + FETCH) | Yes: SUBSCRIBE asks only for new objects and FETCH for past ones, of the same track by the same name [36, §10.7]; a relay that misses may forward the FETCH to the publisher [36, §10.12.3]. In Talk Tracks the agent answers those from its archive, one 4 s slice per FETCH, as moq-relay 0.17.8 refuses FETCH across several groups ([decision 0012](decisions/0012-ai-track-history-by-fetch-from-the-agent.md)). Measured below. | Partly: one playlist serves the live edge and a DVR window [9]; the past outside the window is a separate VOD playlist, and text is WebVTT segments on the same timeline. | Partly: the MPD's time-shift buffer covers live and recent past [13][14]; older content is another MPD. | **No**: real-time only; the past needs a second protocol and a recording. |
 | Cache and CDN fan-out | Relays fan out and cache groups; moq-relay clusters [6][7][22]. **One CDN offers MoQ (Cloudflare, beta), speaking MoQT drafts 14 and 16, not moq-lite** [17][18]. | Plain HTTP objects on any CDN; blocking reloads need CDN support for held requests [9][12]. | Plain HTTP; chunked transfer must pass through the CDN [13][14]. | SFU cascades, vendor-specific (for example Cloudflare's per-track trees [23]); no HTTP caching. |
 | Browser support | WebTransport in Chrome, Edge, Firefox 114+ and Safari 26.4+ [24][25], but **the pinned @moq/net 0.4.5 sends every WebKit engine (all iOS browsers, Safari) and Firefox before 153 to the WebSocket fallback** over TCP (its `isWebTransportUserAgentSupported`, citing WebKit bug 319818). Playback needs WebCodecs: Chrome, Firefox 130+, Safari 26+; **Firefox for Android has none** [26][27]. | Native in Safari and Chrome 142+; hls.js over MSE elsewhere, Managed Media Source on iPhone (Safari 17.1+) [28][29][30][31]. | No native player; dash.js over MSE, Managed Media Source on iPhone [29][31]. | **Broadest**: every current engine, desktop and mobile [32]. |
 | Latency class | Sub-second is claimed [16][4] but nobody publishes measurements; each subscriber sets its own latency budget [6]. Measured below. | Apple's goal 1–2 s [12]; about 3 s in practice [16]. Measured below. | dash.js examples target 3–4 s [13]. Not measured (MediaMTX has no DASH). | Under 500 ms [16]. Measured below. |
@@ -109,6 +112,12 @@ against WebRTC to get there.
 - **Text-track latency** (MoQ): a JSON object stamped with its publish time, 4 a second, published through the agents'
   own MoQ code (aiomoqt over raw QUIC), received in the page. Measured with the media playing, and alone (`moq-text`,
   a captions-only viewer).
+- **History by FETCH** (decision 0012): a history publisher in the agents' image publishes `bench/history` in 4 s
+  slices (a carry-in object, 16 items, End of Group; about 2.4 KB) and serves the track's past from its own history,
+  holding 300 "archive" slices the relay has never seen, with the spikes' `fix_end`. The page subscribes live, as
+  a viewer with the track on, then times `fetchGroup` to the group's end, ten rounds per join: a random archive slice
+  (the relay forwards the FETCH to the origin; the origin logs each one it serves), the same slice again (the relay's
+  cache), and the newest slice received whole live.
 - **Join time**: from creating the player to the first decoded frame, in a fresh browser context each time.
 - **Bytes per viewer**: the viewer container's interface counter over each join (headers, playlists and
   retransmissions included), the same count for every protocol.
@@ -130,6 +139,22 @@ to validate the harness. The VM runs replace it.
 | MoQ, text track only | 83–89 | – | – | 3 / 6 | 16 |
 | WebRTC (WHEP) | 531–559 | 336 / 397 | 95 | not carried | 1153 |
 | LL-HLS (hls.js) | 341–351 | 907 / 923 | 868 | not carried | 2688 |
+
+History by FETCH, two joins of ten rounds each (relay, origin and viewer on the laptop):
+
+| FETCH of one 4 s slice | p50 / p95 ms, to the end of the group |
+|---|---|
+| uncached: an archive slice, forwarded by the relay to the origin | 12 / 16 (the first of each join 30–44) |
+| cached: the same slice again, from the relay | 7 / 10 |
+| recent: the newest slice received live, from the relay | 7 / 10 |
+| bytes per slice | 2,408, against about 623,000 for 4 s of the full media |
+
+The design lane measured 34–42 ms from an aiomoqt origin and about 50 ms for a browser `fetchGroup` on a host at
+100 % CPU; this host was less loaded. One case fails in every join tried (2 of 2 in this run, and every earlier
+trial): a FETCH of the slice that was open when the viewer joined never ends. The relay assembled that group from a
+Joining FETCH (which it sends upstream when the first viewer subscribes) and the live objects, and its copy apparently
+never completes. Every other slice, including the next one, comes back. The rewind lane should fetch from the slice
+after the join slice, or with a timeout.
 
 What it already shows, to be confirmed on the VM: MoQ sits at the viewer's 500 ms setting plus about 70 ms; WebRTC
 is lower; LL-HLS is about 1.6 times MoQ. A captions-only viewer receives about 1 % of the bytes of a full one. LL-HLS
@@ -194,6 +219,7 @@ Over WebSocket, MoQ starts from the latest keyframe up to 2 s back and takes lon
 33. Mux, on LL-HLS (2019): https://www.mux.com/blog/the-community-gave-us-low-latency-live-streaming-then-apple-took-it-away
 34. W3C TAG review of the Media WG charter: https://tag-github-bot.w3.org/gh/w3ctag/design-reviews/1082
 35. W3C webrtc-nv-use-cases issue 86: https://github.com/w3c/webrtc-nv-use-cases/issues/86
+36. draft-ietf-moq-transport-18 (§10.7 SUBSCRIBE and FETCH, §10.12.3 relays forwarding FETCH): https://www.ietf.org/archive/id/draft-ietf-moq-transport-18.html
 
 Citations marked *unverified* were not confirmed against a primary source. Facts about the pinned libraries were
 checked in their published code (`@moq/net` 0.4.5 `connection/browser.js`, `moq import --help` of moq-cli 0.14.8).

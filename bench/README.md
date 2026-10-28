@@ -9,6 +9,7 @@ results: [wiki/benchmark.md](../wiki/benchmark.md). Needs Docker only; no API ke
 | `mediamtx` | MediaMTX 1.21.3: LL-HLS on :8888 and WebRTC/WHEP on :8889 ([mediamtx.yml](mediamtx.yml)) |
 | `source` | [source.sh](source.sh): one ffmpeg encode with a wall-clock barcode in every frame, teed to `moq import ts` (broadcast `bench/live`) and to MediaMTX over RTSP (path `bench`). Image: moq-cli 0.14.8 with ffmpeg (`deploy/Dockerfile.moq-cli`) |
 | `textpub` | [textpub.py](textpub.py): a JSON track `bench/text` / `state` with its publish time, 4 a second, through the agents' MoQ code (the agents image already built, never rebuilt here) |
+| `historypub` | [historypub.py](historypub.py): a history track as decision 0012 shapes AI tracks, `bench/history` / `items`, in 4 s slices (carry-in, 16 items, End of Group), and the origin of its own past by FETCH: 300 archive slices the relay has never seen, then the live ones. Uses `fix_end` from the MoQT spikes |
 | `viewer` | [Dockerfile.viewer](Dockerfile.viewer): the measuring page ([web/](web/)) and the Playwright runner ([runner/run.mjs](runner/run.mjs)) driving headless Google Chrome |
 | `netem-relay`, `netem-mediamtx` | [netem.sh](netem.sh) in each server's network namespace: delay and loss towards the viewer only (profile `netem`) |
 
@@ -50,7 +51,7 @@ BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh loss2 --proto moq,moq-ws,webr
 
 | Setting | Default | Where |
 |---|---|---|
-| `--proto` | `moq,hls,webrtc` | runner: any of `moq`, `moq-ws` (WebTransport removed, as in Safari), `moq-text` (the text track alone), `hls`, `webrtc` |
+| `--proto` | `moq,hls,webrtc` | runner: any of `moq`, `moq-ws` (WebTransport removed, as in Safari), `moq-text` (the text track alone), `fetch` (the history track: live, then `fetchGroup` of slices uncached, cached and recent; `--query fetches=N` rounds), `hls`, `webrtc` |
 | `--runs`, `--seconds` | 10, 20 | runner: joins per protocol, seconds measured per join after its first frame |
 | `--delay` | 500 | runner: @moq/watch's delay in ms (the viewer's setting in `web/src/viewer/TeacherMedia.tsx`) |
 | `--no-isolation` | off | runner: serve the page without COOP/COEP (production sends them, see `deploy/Caddyfile`) |
@@ -78,10 +79,12 @@ BENCH_DELAY_MS=40 sh bench/run.sh vm-rtt40 --proto moq,moq-ws,webrtc,hls --runs 
 BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh vm-loss2 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30    # ~25 min
 BENCH_DELAY_MS=40 BENCH_LOSS_PCT=5 sh bench/run.sh vm-loss5 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30    # ~25 min
 sh bench/run.sh vm-moq-delay100 --proto moq,moq-ws --runs 10 --seconds 30 --delay 100    # ~12 min
+sh bench/run.sh vm-fetch --proto fetch --runs 15 --query fetches=10    # ~6 min
+BENCH_DELAY_MS=40 sh bench/run.sh vm-fetch-rtt40 --proto fetch --runs 10 --query fetches=10    # ~4 min
 python3 bench/analyze.py bench/results/vm-*.jsonl --json bench/results/vm-summary.json
 ```
 
-About 2.5 hours in all. Then bring back `bench/results/vm-*` (the JSON lines and the summary). The last run shows
+About 2.7 hours in all. Then bring back `bench/results/vm-*` (the JSON lines and the summary). The last run shows
 what MoQ does with a tighter player setting than the viewer's 500 ms.
 
 Before starting, check these:

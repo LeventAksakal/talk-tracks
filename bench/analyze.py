@@ -9,6 +9,9 @@ Per label (one network condition) and protocol:
             since players differ in how they catch up to live
   text      publish-to-receive of the JSON text track, MoQ only
   stalls    gaps of more than 250 ms between rendered frames (the source runs at 25 fps), per minute of playback
+  fetch     (proto fetch) `fetchGroup` of one 4 s slice of the history track: an archive slice the relay has not
+            seen (served by the origin), the same again (the relay's cache), and the newest slice received whole live;
+            ms to the group's end, pooled over all rounds; bytes per slice against a full media viewer's 4 s
   received  bytes per second into the viewer container over a whole join (its interface counter: headers,
             playlists and retransmissions included, the same count for every protocol)
 """
@@ -46,6 +49,8 @@ def fmt(x: float) -> str:
 def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict]:
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for line in lines:
+        if line["proto"] == "fetch":
+            continue  # its own table: fetch_table()
         groups[(line["label"], line["proto"])].append(line)
     out = {}
     for key, runs in groups.items():
@@ -98,6 +103,31 @@ def table(summary: dict[tuple[str, str], dict]) -> str:
     return "\n".join(rows)
 
 
+def fetch_table(lines: list[dict], summary: dict[tuple[str, str], dict]) -> str:
+    rows = [
+        "| Condition | Joins | Rounds (failed) | Uncached p50 / p95 ms | Cached p50 / p95 ms | Recent p50 / p95 ms "
+        "| Bytes per slice | Full media per 4 s | Join slice fetched |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    by_label: dict[str, list[dict]] = defaultdict(list)
+    for line in lines:
+        if line["proto"] == "fetch":
+            by_label[line["label"]].append(line)
+    for label, runs in sorted(by_label.items()):
+        rounds = [f for r in runs for f in r.get("fetches") or []]
+        ms = {k: [f[k]["ms"] for f in rounds if k in f] for k in ("uncached", "cached", "recent")}
+        slice_bytes = [f["uncached"]["bytes"] for f in rounds if "uncached" in f]
+        joined = [r.get("joinSlice") or {} for r in runs]
+        media = summary.get((label, "moq"), {}).get("kbit_s", math.nan)
+        rows.append(
+            f"| {label} | {len(runs)} | {len(rounds)} ({sum(1 for f in rounds if f.get('errors'))}) "
+            + " ".join(f"| {fmt(pct(ms[k], 50))} / {fmt(pct(ms[k], 95))}" for k in ("uncached", "cached", "recent"))
+            + f" | {fmt(pct(slice_bytes, 50))} | {fmt(media * 4000 / 8)} "
+            f"| {sum(1 for j in joined if j.get('fetched'))} of {len(joined)} |"
+        )
+    return "\n".join(rows)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+", type=Path)
@@ -108,13 +138,27 @@ def main() -> None:
     summary = summarise(lines, args.warmup_s * 1000)
     print(table(summary))
     print()
+    if any(x["proto"] == "fetch" for x in lines):
+        print(fetch_table(lines, summary))
+        print()
     for (label, proto), s in sorted(summary.items()):
         print(
             f"- {label} / {proto}: transports {', '.join(s['transports'])}; network {s['network']}; "
             f"unreadable frames {s['unreadable_pct']:.1f} %; Chrome {s['chrome']}"
         )
     if args.json:
+        fetch_rounds = defaultdict(list)
+        for x in lines:
+            if x["proto"] == "fetch":
+                fetch_rounds[x["label"]] += x.get("fetches") or []
         stats = {
+            f"{label}/fetch": {
+                k + "_" + q: pct([f[k]["ms"] for f in rounds if k in f], int(q[1:]))
+                for k in ("uncached", "cached", "recent")
+                for q in ("p50", "p95")
+            }
+            for label, rounds in fetch_rounds.items()
+        } | {
             f"{label}/{proto}": {
                 "runs": s["runs"],
                 "failed": s["failed"],
