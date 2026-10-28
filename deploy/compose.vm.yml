@@ -8,8 +8,7 @@
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
 #   TT_LIVE_ROOMS    rooms the live agents serve: * (default) for any room a speaker opens, or a list a,b
 #   TT_ROOM_CAP_USD  spend cap of any room (default 2); judge rooms take theirs from $TT_DATA/caps/ (mint script)
-#   TT_WAKE_DEBOUNCE_S, TT_IDLE_GRACE_S  how long a track is subscribed, with no FETCH of it, before its agent wakes (default 1) and
-#                    unsubscribed before it pauses (default 10)
+#   TT_IDLE_GRACE_S  how long a track goes without demand before its agent pauses (default 10)
 #   TT_ARCHIVE_BUCKET the Cloud Storage bucket the track archive is copied to (optional); TT_ARCHIVE_SKIP rooms
 #                    not archived (default: the demo rooms); TT_ARCHIVE_TOKEN the room service's relay token
 #   docker compose -f deploy/compose.vm.yml up -d
@@ -49,7 +48,6 @@ x-live: &live
     TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # and never back-filled
     TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
     TT_CAPS_DIR: /data/caps
-    TT_WAKE_DEBOUNCE_S: ${TT_WAKE_DEBOUNCE_S:-1}
     TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
 
 services:
