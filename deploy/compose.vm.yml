@@ -2,15 +2,16 @@
 # demo room and, once the Meta key is on the box, live agents. Settings come from deploy/.env on the VM (not in git):
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
-#   TT_DATA          folder with demo/<lecture>/ recordings, the agents' state, the spend ledger and archive/
-#   TT_LOOPER_TOKEN  signed for the demo room; TT_AGENT_TOKEN signed for the agents of every room they serve
+#   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state, the spend ledger and archive/
+#   TT_LOOPER_TOKEN  signed for the demo rooms virus and dataviz; TT_AGENT_TOKEN signed for the agents of every room
+#                    they serve
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
 #   TT_LIVE_ROOMS    rooms the live agents serve: * (default) for any room a speaker opens, or a list a,b
 #   TT_ROOM_CAP_USD  spend cap of any room (default 2); judge rooms take theirs from $TT_DATA/caps/ (mint script)
 #   TT_WAKE_DEBOUNCE_S, TT_IDLE_GRACE_S  how long a track is subscribed before its agent wakes (default 1) and
 #                    unsubscribed before it pauses (default 10)
 #   TT_ARCHIVE_BUCKET the Cloud Storage bucket the track archive is copied to (optional); TT_ARCHIVE_SKIP rooms
-#                    not archived (default: the demo room); TT_ARCHIVE_TOKEN the room service's relay token
+#                    not archived (default: the demo rooms); TT_ARCHIVE_TOKEN the room service's relay token
 #   docker compose -f deploy/compose.vm.yml up -d
 #   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
 # Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
@@ -42,7 +43,7 @@ x-live: &live
   environment:
     <<: *agent-env
     TT_ROOMS: ${TT_LIVE_ROOMS:-*}
-    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOM:-demo}
+    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # the looped demo rooms are the loopers'
     TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
     TT_CAPS_DIR: /data/caps
     TT_WAKE_DEBOUNCE_S: ${TT_WAKE_DEBOUNCE_S:-1}
@@ -97,13 +98,22 @@ services:
         --public-subscribe 'talk/**'
     volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro", "auth_sock:/run/auth"]
 
-  looper:
+  # One looping demo room per lecture (ticket 0001), named after it: the recording is $TT_DATA/demo/<room>/.
+  # TT_LOOPER_TOKEN is signed for both rooms (wiki/howto/tokens.md, one --publish pair per room).
+  looper-virus:
     <<: *agent
     environment:
       <<: *agent-env
-      TT_ROOM: ${TT_DEMO_ROOM:-demo}
+      TT_ROOM: virus
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/${TT_LECTURE:-test}"]
+    command: ["loop", "--insecure", "--recording", "/data/demo/virus"]
+  looper-dataviz:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      TT_ROOM: dataviz
+      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
+    command: ["loop", "--insecure", "--recording", "/data/demo/dataviz"]
 
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
   # serves under /archive/. It records the speaker's media and slides off the relay and publishes talk/<room>/catalog
@@ -122,7 +132,7 @@ services:
       TT_RELAY: moqt://relay:443
       TT_TOKEN: ${TT_ARCHIVE_TOKEN:-}
       TT_ARCHIVE_DIR: /data/archive
-      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-virus,dataviz}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]
     command: ["--insecure"]

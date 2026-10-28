@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-10-28
 decision-makers: project owner
-supersedes: 0007 in part (rewind of AI tracks), 0011 in part (who records agent tracks)
+supersedes: 0007 (rewind: AI tracks by FETCH, media by HLS), 0011 in part (who records agent tracks)
 refines: 0009 (restore from the agent's own slices, under a stable name)
 ---
 
@@ -68,19 +68,36 @@ Chosen: the first option of each.
 * Bad, because a killed agent leaves its tracks silent for about 12–15 s, until the relay times its connection out
   (spike S5); agents close their session on SIGTERM so planned restarts hand over at once.
 
-## Addendum 2026-10-28: one room clock
+## Revision 2026-10-28, after an independent review
 
-The speaker's media clock restarts near 0 on every reload or new broadcast (@moq/publish stamps `performance.now()`),
-so slice numbers collided across broadcasts in one room. Considered: an offset in the agents only, a run segment in
-names (breaks stable names), one broadcast per room (cannot prevent reloads), patching @moq/publish, and an offset
-published by the speaker console.
+Three jurors (transport, media and packaging, system and product) reviewed the design with access only to the design
+page and the specs: MoQT transport -18 and -22, MSF, CMSF, LOC, the catalog format, WebVTT-MSF, moq-lite-06 and
+hang-03. After three rounds all three approved
+([the design, §11](../design/moq-track-system.md#11-independent-review)). The owner chose the following, which
+replace the earlier "one room clock" addendum and the parts of the decision above that they contradict:
 
-Chosen by the owner: **room time = speaker media timestamp + an offset the speaker console publishes per broadcast**
-on a `clock` track in `talk/R/slides`. The offset follows wall time since the room's first broadcast and never falls
-below the room's last archived time. Agents, the archive (fMP4 and slices), the media rewind and the viewer all use
-room time. Details: [the room clock](../design/moq-track-system.md#45-the-room-clock).
+* **Room clock:** room time = the wall time of the speaker's media, from the teacher's hang catalog root `clock`
+  (which @moq/publish already writes), minus a room epoch set by the room service. There is no separate clock track.
+  A skewed speaker device gets one shift, decided by the room service and published in the catalog.
+  [Ticket 0019](../../tickets/0019-moq-publish-timestamp-origin.md) closes: the library was not limited.
+* **Media rewind:** HLS with fMP4 segments from the archive, played by hls.js (natively on Safari), instead of a
+  hand-rolled MSE player. Decision 0007 is superseded.
+* **Back-fill:** on FETCH, for translation only in this build, built from captions slices fetched through the relay.
+  It has its own budget of at most 25 % of the room cap, runs one at a time with at most 2 waiting, and is off in
+  demo rooms. Captions back-fill from archived audio is a stretch goal.
+* **Formats:** an MSF catalog; agent tracks as MSF event timelines; captions and translations in the WebVTT-MSF cue
+  shape. The deviations (a bounded carry-in, `m` in room time) are declared.
+* **Rules the review added:**
+  * missing or capped slices are answered with REQUEST_ERROR, never a placeholder group;
+  * every slice is written once;
+  * End of Track only when a room is closed;
+  * a per-subscription demand rule that tells the relay's FETCH-forwarding subscriptions from viewers;
+  * a 3 s QUIC idle timeout on agents.
 
-* Good, because one clock serves every consumer, and slice numbers never collide.
-* Bad, because every consumer must read the `clock` track before stamping, and room time has holes.
-* Follow-up: patching @moq/publish, or an upstream timestamp-origin option, would remove the offset
-  ([ticket 0019](../../tickets/0019-moq-publish-timestamp-origin.md)).
+### Consequences of the revision
+
+* Good, because every format a judge might check is a published one, and the clock is the library's own.
+* Good, because spend from anonymous viewers is bounded by a separate back-fill budget.
+* Bad, because the media archive must meet codec rules (H.264, keyframes every 4 s or less, Opus or AAC), with
+  day-1 checks on Safari and possibly a transcoder on the VM.
+* Bad, because the lanes reshape their payloads to MSF this week.

@@ -1,11 +1,17 @@
 #!/bin/sh
 # Turn any lecture video into what the looper publishes: MP4 with H.264 (no B-frames, a keyframe every 2 s, at most
-# 720p) and Opus (48 kHz mono, 20 ms packets). Usage: prepare-lecture IN OUT.mp4
+# 720p) and Opus (48 kHz mono, 20 ms packets). With START and END (seconds in the source), only that part is kept,
+# cut frame-accurately in the same encode. Usage: prepare-lecture IN OUT.mp4 [START END]
 set -eu
 in=$1
 out=$2
+trim=""
+if [ $# -ge 4 ]; then
+  trim="-ss $3 -t $(awk -v s="$3" -v e="$4" 'BEGIN { printf "%.3f", e - s }')"
+fi
 mkdir -p "$(dirname "$out")"
-exec ffmpeg -hide_banner -loglevel warning -y -i "$in" \
+# shellcheck disable=SC2086  # $trim is empty or two options with their values
+exec ffmpeg -hide_banner -loglevel warning -y $trim -i "$in" \
   -map 0:v:0 -map 0:a:0 \
   -c:v libx264 -preset veryfast -profile:v high -pix_fmt yuv420p -vf "scale=-2:'min(720,ih)'" \
   -bf 0 -force_key_frames "expr:gte(t,n_forced*2)" -sc_threshold 0 -b:v 1500k -maxrate 2000k -bufsize 3000k \
