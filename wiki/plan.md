@@ -12,7 +12,8 @@ with a placeholder clip. Live agents answer a speaker in room `live`. Spend $0.2
 ## Order of work
 
 The owner's order: inspect the running app → design the UI, functional requirements and features together → build.
-The benchmark runs beside the build.
+The benchmark runs beside the build. Each piece of work is a lane with its own agent, run by a coordinator session
+([team.md](team.md)).
 
 | Day | Work | Needs |
 |---|---|---|

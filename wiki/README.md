@@ -25,3 +25,4 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | Rewind from a static archive of the room's tracks | [0007](decisions/0007-rewind-from-a-static-track-archive.md) |
 | Judges get pre-minted room tokens with a spend cap | [0008](decisions/0008-judges-get-capped-room-tokens.md) |
 | Agents restart from durable track history | [0009](decisions/0009-agents-restart-from-durable-track-history.md) |
+| Agent tracks are opt-in; agents spend only while subscribed | [0010](decisions/0010-agent-tracks-are-opt-in-and-lazy.md) |

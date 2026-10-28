@@ -19,6 +19,6 @@ sets `status: closed`.
 | [0011](0011-loop-caption-history.md) | Does a looped room's caption history carry into the next loop? | open |
 | [0012](0012-where-recordings-live.md) | Where do generated recordings live? | open |
 | [0013](0013-speaker-on-air-check.md) | How does the speaker console prove it is on air? | open |
-| [0014](0014-web-defaults.md) | Are the web app's working defaults right? | open |
+| [0014](0014-web-defaults.md) | Are the web app's working defaults right? | answered |
 | [0015](0015-track-history-store.md) | Where does a room's track history live, so it survives restarts and the VM? | open |
-| [0016](0016-benchmark.md) | What does the benchmark against HLS, DASH and WebRTC measure? | open |
+| [0016](0016-benchmark.md) | What does the benchmark against HLS, DASH and WebRTC measure? | answered |

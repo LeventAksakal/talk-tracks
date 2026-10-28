@@ -1,5 +1,5 @@
 ---
-status: open
+status: answered
 created: 2026-10-28
 tags: [benchmark, submission, transport]
 ---
@@ -45,4 +45,4 @@ B, with fan-out cost added for MoQ and WebRTC at 100 viewers if a day frees up. 
 capability table carry the story. Fan-out at 500 viewers needs a bigger load generator than one laptop.
 
 ## Answer
-
+The comparison cannot be performance only. A capability matrix is crucial too: the features the app requires against the capabilities each protocol delivers, alongside the performance numbers. Scope (B or C) is left to the benchmark lane to propose with a time estimate.

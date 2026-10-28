@@ -1,5 +1,5 @@
 ---
-status: open
+status: answered
 created: 2026-10-27
 tags: [web, viewer, deploy, contracts]
 ---
@@ -33,4 +33,4 @@ Keep all five as built: 3000-entry cap, all tracks but other translations, SPA f
 served from one origin), no `.hang` rename, slides on the media clock (and the contract text updated to say it).
 
 ## Answer
-
+Item 2 (default subscriptions): no. Agent tracks are opt-in, like subtitles on a video: the viewer turns each on or off, and API use is lazy, not eager. Recorded in [decision 0010](../wiki/decisions/0010-agent-tracks-are-opt-in-and-lazy.md). Items 1, 3, 4 and 5 are not answered yet.
