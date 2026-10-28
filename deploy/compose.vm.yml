@@ -21,6 +21,7 @@ x-agent: &agent
   build: ../agents
   init: true
   restart: unless-stopped
+  stop_grace_period: 15s  # time to close the session cleanly, so a replacement takes the track over at once
   depends_on: [relay]
   volumes: ["${TT_DATA:?}:/data"]
   environment: &agent-env
@@ -29,6 +30,8 @@ x-agent: &agent
     TT_TOKEN: ${TT_AGENT_TOKEN:-}
     TT_LEDGER: /data/ledger.jsonl
     TT_STATE_DIR: /data/state
+    TT_ARCHIVE_DIR: /data/archive  # each agent's slices: what it serves FETCH from and restarts from (decision 0012)
+    TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}  # where slices no longer on disk are read back from
     TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
 
 # Live agents call the Meta API: only they get the key, and the ledger in $TT_DATA holds them under the ceiling and

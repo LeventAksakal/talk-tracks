@@ -9,6 +9,7 @@ for it; they are charged to the same room cap.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import logging
@@ -147,10 +148,14 @@ async def run_captions(
             except Exception:
                 log.exception("ASR session failed; reopening on the next audio")
                 await close(last_ms)
-    finally:
+    except asyncio.CancelledError:
+        # Stopping (SIGTERM, the talk is over): publish nothing more, or the line would open a slice the
+        # replacement then has to skip. It shows in the replacement's carry-in once its ASR hears it again.
         if session is not None:
             with contextlib.suppress(Exception):
-                await apply(await session.close(), last_ms)
+                await asyncio.wait_for(session.close(), 1)
+        raise
+    await close(last_ms)
 
 
 async def backfill_captions(

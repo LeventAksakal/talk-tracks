@@ -9,10 +9,11 @@ x-agent: &agent
   build: ../agents
   init: true  # Python as PID 1 ignores SIGTERM; a clean stop withdraws the agent's tracks at once
   restart: unless-stopped  # aiomoqt does not reconnect: the process exits and comes back as a fresh instance
+  stop_grace_period: 15s  # time to close the session cleanly, so a replacement takes the track over at once
   depends_on: [relay]
-  # The track archive, read-only: a recreated captions container resumes from it (archive/ beside data/state).
-  # Agents write what they publish to the archive's spool (archive-spool/ beside data/state).
-  volumes: ["../data/archive:/app/data/archive:ro", "../data/archive-spool:/app/data/archive-spool"]
+  # The track archive (archive/ beside data/state): each agent writes the slices it publishes, serves FETCH from
+  # them and restarts from its newest one (decision 0012). The archive's spool is for agents that do not slice yet.
+  volumes: ["../data/archive:/app/data/archive", "../data/archive-spool:/app/data/archive-spool"]
   environment:
     TT_RELAY: moqt://relay:4443
     TT_ROOM: ${TT_ROOM:-dev}
