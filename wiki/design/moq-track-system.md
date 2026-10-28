@@ -295,6 +295,8 @@ viewer share one clock.
   - `depends` (MSF §5.2.14; for example translation depends on captions);
   - a status: idle, live or capped;
   - a cost class: paid on use, or free.
+- At room level it carries the room clock: `epoch_ms` (the first broadcast's wall time) and `end_ms` (the latest
+  room time archived), which a reconnecting speaker console needs to choose its offset ([§4.5](#45-the-room-clock)).
 - It is published by the **room service**, the archiver. It learns the room's tracks through SUBSCRIBE_NAMESPACE on
   `talk/R`, which creates no demand, and the status from the agents' own announcements.
 - **Snapshot semantics:** a new group per change, plus a fresh group every 4 s so it stays inside the relay's 5 s
