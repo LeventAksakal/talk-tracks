@@ -257,7 +257,7 @@ class TrackArchive:
     def groups(self) -> list[int]:
         """Every slice on disk, finished or open, in order."""
         found: set[int] = set()
-        for p in _listdir(self.dir):
+        for p in listdir(self.dir):
             stem, dot, suffix = p.partition(".")
             if dot and "." + suffix in (FINISHED, PART) and stem.isdigit():
                 found.add(int(stem))
@@ -305,7 +305,7 @@ def _decode_lines(data: bytes) -> Iterator[SliceObject]:
         )
 
 
-def _listdir(path: Path) -> list[str]:
+def listdir(path: Path) -> list[str]:
     try:
         return os.listdir(path)
     except FileNotFoundError:
@@ -327,10 +327,10 @@ class SliceWatcher:
     def poll(self) -> list[tuple[str, bool]]:
         """(relpath, mutable) for each new finished slice and each changed ``track.json``."""
         out: list[tuple[str, bool]] = []
-        for room in _listdir(self.root):
+        for room in listdir(self.root):
             agents = self.root / room / "agents"
-            for agent in _listdir(agents):
-                for track in _listdir(agents / agent):
+            for agent in listdir(agents):
+                for track in listdir(agents / agent):
                     folder = agents / agent / track
                     key = f"{room}/agents/{agent}/{track}"
                     try:
@@ -340,10 +340,10 @@ class SliceWatcher:
                     before = self._seen.get(key)
                     if before is not None and before[0] == mtime:
                         continue
-                    names = {n for n in _listdir(folder) if n.endswith(FINISHED)}
+                    names = {n for n in listdir(folder) if n.endswith(FINISHED)}
                     new = names - (before[1] if before else set())
                     out += [(f"{key}/{n}", False) for n in sorted(new)]
-                    if TRACK_INFO in _listdir(folder):
+                    if TRACK_INFO in listdir(folder):
                         out.append((f"{key}/{TRACK_INFO}", True))
                     self._seen[key] = (mtime, names)
         return out

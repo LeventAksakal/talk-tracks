@@ -1,4 +1,6 @@
-"""The archive on disk: rooms, runs, fMP4 media segments, agent snapshot chunks, slides. Transport-free.
+"""The archive on disk: rooms, runs, the speaker's fMP4 media segments and slides. Transport-free.
+
+Agent tracks are not here: each agent records its own slices (``archive.slices``, decision 0012).
 
 The format is ``wiki/howto/archive.md``. The archiver's MoQ side (``archive.relay``) feeds this module what it
 reads; everything here is plain file writing, so tests run it without a relay. Every finished file is reported to
@@ -19,13 +21,12 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import Field, ValidationError
 
 from ..audio import split_legacy
-from ..contracts import AgentInfo, Envelope, SlideFrame, Wire
-from ..recording import RecordedSnapshot, agent_file
+from ..contracts import SlideFrame, Wire
 from .mp4 import OPUS_SILENCE, Sample, TrackConfig, avc_is_keyframe, init_segment, media_segment, opus_duration_us
 
 log = logging.getLogger("talk_tracks.archive")
@@ -37,8 +38,6 @@ MAX_FILL_US = 10_000_000  # an audio gap up to this long is filled with silence;
 REORDER = 5  # samples held back to put late groups in order
 RUN_JUMP_BACK_MS = 30_000  # media time this far behind the run's: the speaker's clock restarted, a new run
 RUN_GAP_MS = 10 * 60_000  # teacher media after this long without any: a new talk, a new run
-CHUNK_MS = 10_000  # a snapshot chunk closes this long (wall clock) after its first line
-CHUNK_BYTES = 4 << 20
 DEFAULT_AUDIO = TrackConfig(kind="audio", codec="opus")
 
 OnFile = Callable[[str, bool], None]  # (path relative to the root, mutable)
@@ -98,21 +97,6 @@ class TrackEntry(Wire):
     segments: list[SegmentEntry] = Field(default_factory=list[SegmentEntry])
 
 
-class ChunkEntry(Wire):
-    n: int = Field(ge=0)
-    snapshots: int = Field(ge=0)
-    first_media_ms: int = Field(ge=0)
-    last_media_ms: int = Field(ge=0)
-    first_wall_ms: int = Field(ge=0)
-    last_wall_ms: int = Field(ge=0)
-    open: bool
-
-
-class AgentEntry(Wire):
-    info: AgentInfo
-    chunks: list[ChunkEntry] = Field(default_factory=list[ChunkEntry])
-
-
 class SlidesEntry(Wire):
     frames: int = Field(ge=0)
     first_media_ms: int = Field(ge=0)
@@ -128,7 +112,6 @@ class RunIndex(Doc):
     media_last_ms: int | None = Field(default=None, ge=0)
     media_last_wall_ms: int | None = Field(default=None, ge=0, description="Wall clock of the last teacher media")
     tracks: list[TrackEntry] = Field(default_factory=list[TrackEntry])
-    agents: list[AgentEntry] = Field(default_factory=list[AgentEntry])
     slides: SlidesEntry | None = None
 
 
@@ -139,15 +122,6 @@ class SlideLine(Wire):
     at_ms: int = Field(ge=0)
     mime: Literal["image/jpeg", "image/png"]
     file: str
-
-
-class Latest(Doc):
-    """``<room>/latest/<agent>.json``: what a restarting agent seeds from."""
-
-    room: str
-    run: str
-    info: AgentInfo
-    snapshot: RecordedSnapshot
 
 
 # --- files ------------------------------------------------------------------------------------------------------
@@ -341,87 +315,6 @@ class MediaTrack:
         self.run.archive.reported(path, mutable=False)
 
 
-# --- agent snapshots ------------------------------------------------------------------------------------------
-
-
-class AgentTimeline:
-    """One agent's snapshot chunks in one run."""
-
-    def __init__(self, run: RunArchive, entry: AgentEntry) -> None:
-        self.run, self.entry = run, entry
-        self.dir = run.dir / "agents" / entry.info.name
-        self._open_bytes = 0
-        self._file: BinaryIO | None = None  # the open chunk, kept open: one write per line, not an open and a close
-        if entry.chunks and entry.chunks[-1].open:
-            self._set_last(entry.chunks[-1].model_copy(update={"open": False}))  # a restarted archiver starts anew
-        self.last_media_ms = entry.chunks[-1].last_media_ms if entry.chunks else 0
-
-    def _set_last(self, chunk: ChunkEntry) -> None:
-        self.entry = self.entry.model_copy(update={"chunks": [*self.entry.chunks[:-1], chunk]})
-
-    def path(self, n: int) -> Path:
-        return self.dir / f"{n:06d}.jsonl"
-
-    def add(self, info: AgentInfo, snapshot: RecordedSnapshot) -> None:
-        line = (snapshot.model_dump_json() + "\n").encode()
-        if self.due(snapshot.wall_ms):
-            self.close()
-        chunks = self.entry.chunks
-        last = chunks[-1] if chunks else None
-        if last is None or not last.open:
-            n = last.n + 1 if last else 0
-            chunk = ChunkEntry(
-                n=n,
-                snapshots=1,
-                first_media_ms=snapshot.media_ms,
-                last_media_ms=snapshot.media_ms,
-                first_wall_ms=snapshot.wall_ms,
-                last_wall_ms=snapshot.wall_ms,
-                open=True,
-            )
-            self.entry = self.entry.model_copy(update={"info": info, "chunks": [*chunks, chunk]})
-            self._open_bytes = 0
-        else:
-            chunk = last.model_copy(
-                update={
-                    "snapshots": last.snapshots + 1,
-                    "last_media_ms": snapshot.media_ms,
-                    "last_wall_ms": snapshot.wall_ms,
-                }
-            )
-            self._set_last(chunk)
-            if info != self.entry.info:
-                self.entry = self.entry.model_copy(update={"info": info})
-        path = self.path(chunk.n)
-        if self._file is None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self._file = path.open("ab")
-        self._file.write(line)
-        self._file.flush()
-        self._open_bytes += len(line)
-        self.last_media_ms = snapshot.media_ms
-        self.run.dirty = True
-        if self._open_bytes >= CHUNK_BYTES:
-            self.close()
-        else:
-            self.run.archive.reported(path, mutable=True)
-
-    def due(self, wall_ms: int) -> bool:
-        chunks = self.entry.chunks
-        return bool(chunks) and chunks[-1].open and wall_ms - chunks[-1].first_wall_ms >= CHUNK_MS
-
-    def close(self) -> None:
-        chunks = self.entry.chunks
-        if self._file is not None:
-            self._file.close()
-            self._file = None
-        if not chunks or not chunks[-1].open:
-            return
-        self._set_last(chunks[-1].model_copy(update={"open": False}))
-        self.run.dirty = True
-        self.run.archive.reported(self.path(chunks[-1].n), mutable=False)
-
-
 # --- runs and rooms ---------------------------------------------------------------------------------------------
 
 
@@ -442,7 +335,6 @@ class RunArchive:
                 height=entry.height or 0,
             )
             self.tracks[entry.track] = MediaTrack(self, entry.track, config, entry)
-        self.agents = {a.info.name: AgentTimeline(self, a) for a in index.agents}
         self.clock_ms = index.media_last_ms or 0
         self._last_slide: tuple[int, str] | None = None
 
@@ -470,26 +362,7 @@ class RunArchive:
                 "media_last_wall_ms": wall_ms,
                 "last_wall_ms": max(i.last_wall_ms, wall_ms),
             }
-        )  # saved with the next segment or snapshot: not worth a rewrite per sample
-
-    def snapshot(self, envelope: Envelope, wall_ms: int) -> RecordedSnapshot:
-        name = envelope.agent.name
-        agent_file(name)  # checks the name is usable as a folder
-        timeline = self.agents.get(name)
-        if timeline is None:
-            timeline = AgentTimeline(self, AgentEntry(info=envelope.agent))
-            self.agents[name] = timeline
-        snapshot = RecordedSnapshot(
-            media_ms=max(self.clock_ms, timeline.last_media_ms),
-            wall_ms=wall_ms,
-            instance=envelope.instance,
-            seq=envelope.seq,
-            usage=envelope.usage,
-            state=envelope.state,
-        )
-        timeline.add(envelope.agent, snapshot)
-        self.index = self.index.model_copy(update={"last_wall_ms": max(self.index.last_wall_ms, wall_ms)})
-        return snapshot
+        )  # saved with the next segment: not worth a rewrite per sample
 
     def slide(self, frame: SlideFrame, wall_ms: int) -> bool:
         """Keep a slide frame unless it repeats the last one. True when it was written."""
@@ -534,22 +407,16 @@ class RunArchive:
             if track.last_wall_ms and wall_ms - track.last_wall_ms >= TRACK_IDLE_MS:
                 track.flush()
                 track.last_wall_ms = 0
-        for timeline in self.agents.values():
-            if timeline.due(wall_ms):
-                timeline.close()
 
     def close(self) -> None:
         for track in self.tracks.values():
             track.flush()
-        for timeline in self.agents.values():
-            timeline.close()
 
     def save(self) -> None:
         if not self.dirty:
             return
         tracks = [t.entry for t in self.tracks.values()]
-        agents = [a.entry for a in self.agents.values()]
-        self.index = self.index.model_copy(update={"tracks": tracks, "agents": agents})
+        self.index = self.index.model_copy(update={"tracks": tracks})
         write_atomic(self.dir / "run.json", dump(self.index))
         self.archive.reported(self.dir / "run.json", mutable=True)
         self.dirty = False
@@ -572,7 +439,7 @@ class _Teacher:
 
 
 class RoomArchive:
-    """One room: its runs (the newest is written to), its catalog, and each agent's latest snapshot."""
+    """One room: its runs (the newest is written to) and the speaker's catalog."""
 
     def __init__(self, archive: Archive, room: str) -> None:
         self.archive, self.name = archive, room
@@ -580,7 +447,6 @@ class RoomArchive:
         self.teacher = _Teacher()
         self.runs: list[RunEntry] = []
         self.run: RunArchive | None = None
-        self._latest: dict[str, Latest] = {}
         self.dirty = False
         index_path = self.dir / "room.json"
         if index_path.exists():
@@ -655,13 +521,6 @@ class RoomArchive:
             run = self._new_run(wall_ms)
         run.media(track, config, time_us, data, wall_ms)
 
-    def snapshot(self, envelope: Envelope, wall_ms: int) -> RecordedSnapshot:
-        run = self.current(wall_ms)
-        snapshot = run.snapshot(envelope, wall_ms)
-        # Written with the next save (about a second): a rewrite per snapshot costs more than it buys.
-        self._latest[envelope.agent.name] = Latest(room=self.name, run=run.id, info=envelope.agent, snapshot=snapshot)
-        return snapshot
-
     def slide(self, frame: SlideFrame, wall_ms: int) -> bool:
         return self.current(wall_ms).slide(frame, wall_ms)
 
@@ -675,11 +534,6 @@ class RoomArchive:
             self.run.tick(wall_ms)
 
     def save(self) -> None:
-        for name, latest in self._latest.items():
-            path = self.dir / "latest" / f"{name}.json"
-            write_atomic(path, dump(latest))
-            self.archive.reported(path, mutable=True)
-        self._latest.clear()
         if self.run is not None:
             self.run.save()
             self._update_entry(self.run)
@@ -706,8 +560,7 @@ class RoomArchive:
 
 
 class Archive:
-    """The archive root. Call ``tick`` about once a second: it closes idle segments and due chunks and saves the
-    indexes."""
+    """The archive root. Call ``tick`` about once a second: it closes idle segments and saves the indexes."""
 
     def __init__(self, root: Path, *, on_file: OnFile | None = None) -> None:
         self.root = root

@@ -1,6 +1,7 @@
-"""The track archive: every room's tracks on disk, served for rewind, copied to a bucket, read back on restart.
+"""The track archive: every room's tracks on disk, served for rewind, copied to a bucket (``wiki/howto/archive.md``).
 
-``store`` writes the format of ``wiki/howto/archive.md``, ``mp4`` its media segments, ``restore`` reads the newest
-snapshot of an agent, ``bucket`` copies finished files off the VM, and ``relay`` follows the rooms over MoQ.
-Run it with ``python -m talk_tracks.archive``.
+``slices`` is the library agents record their own tracks with and answer FETCH from (decision 0012). The rest is the
+room service, run with ``python -m talk_tracks.archive``: ``store`` writes the speaker's media (``mp4``) and slides,
+``catalog`` builds ``talk/<room>/catalog``, ``relay`` follows the rooms over MoQ, ``bucket`` copies finished files off
+the VM.
 """

@@ -1,15 +1,14 @@
-"""The archiver's MoQ side: follow every room under ``talk/**`` and feed what arrives to the archive.
+"""The archiver's MoQ side: the room service. It records what browsers publish and publishes each room's catalog.
 
 Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk`` finds every room as it appears
-(aiomoqt delivers a session's namespace messages through one queue, so there is exactly one), and each announced
-broadcast gets its readers:
+(aiomoqt delivers a session's namespace messages through one queue, so there is exactly one):
 
 * ``<room>/teacher``: ``catalog.json``, then every legacy-container track it names (``audio`` straight away, so a
-  broadcast without a catalog is archived too);
+  broadcast without a catalog is archived too), into fMP4 segments;
 * ``<room>/slides``: ``frames``;
-* ``<room>/agents/<agent>/<instance>``: only with ``subscribe_agents``. A subscription is demand and keeps a lazy
-  agent awake, so by default agent output comes from the agents' own spool (``archive.spool``) instead, read here
-  every ``SPOOL_S``.
+* ``<room>/agents/<agent>``: never subscribed. A subscription is demand and keeps a lazy agent awake; agents record
+  their own slices (decision 0012). Their announcements only list them in the catalog;
+* ``<room>/catalog``: published here (``archive.catalog``).
 """
 
 from __future__ import annotations
@@ -17,32 +16,33 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
 
-from ..contracts import ROOT, SlideFrame, agents_prefix, slides_path, teacher_path
-from ..follow import RoomFollower
+from ..contracts import ROOT, SlideFrame, slides_path, teacher_path
 from ..lecture import AUDIO_TRACK, CATALOG_TRACK
-from ..moq import AUDIO_IDLE_S, Relay
+from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
 from ..runtime import now_ms
-from .spool import SpoolReader
-from .store import Archive, RoomFilter
+from .catalog import REFRESH_S, TRACK, RoomCatalog, catalog_path
+from .store import DEFAULT_AUDIO, Archive, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
 
 TICK_S = 1.0
-SPOOL_S = 0.25
 
 
 @dataclass
 class _Room:
-    follower: RoomFollower = field(default_factory=RoomFollower)
-    agents: dict[str, asyncio.Task[None]] = field(default_factory=dict[str, asyncio.Task[None]])
+    catalog: RoomCatalog
+    agents: dict[str, set[str]] = field(default_factory=dict[str, set[str]])  # agent -> its announced paths
     teacher: dict[str, asyncio.Task[None]] = field(default_factory=dict[str, asyncio.Task[None]])
     slides: asyncio.Task[None] | None = None
+    writer: TrackWriter | None = None
+    sent_s: float = 0.0
 
 
 class Archiver:
@@ -52,11 +52,11 @@ class Archiver:
         archive: Archive,
         rooms: RoomFilter,
         *,
-        spool: SpoolReader | None = None,
-        subscribe_agents: bool = False,
+        on_tick: Callable[[], None] | None = None,
+        publish_catalog: bool = True,
     ) -> None:
         self.relay, self.archive, self.wanted = relay, archive, rooms
-        self.spool, self.subscribe_agents = spool, subscribe_agents
+        self.on_tick, self.publish_catalog = on_tick, publish_catalog
         self.rooms: dict[str, _Room] = {}
 
     def _spawn(self, work: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
@@ -71,16 +71,13 @@ class Archiver:
 
     async def run(self) -> None:
         ticker = asyncio.create_task(self._tick())
-        spool = asyncio.create_task(self._spool()) if self.spool is not None else None
         try:
             async for path, active in self.relay.announced(ROOT):
                 self.announced(path, active)
         finally:
             ticker.cancel()
-            if spool is not None:
-                spool.cancel()
             for room in self.rooms.values():
-                for task in [*room.agents.values(), *room.teacher.values(), room.slides]:
+                for task in [*room.teacher.values(), room.slides]:
                     if task is not None:
                         task.cancel()
 
@@ -89,30 +86,48 @@ class Archiver:
             await asyncio.sleep(TICK_S)
             try:
                 self.archive.tick(now_ms())
-                if self.spool is not None:
-                    self.spool.save()
+                if self.on_tick is not None:
+                    self.on_tick()
             except Exception:
                 log.exception("archive tick failed")
+            if self.publish_catalog:
+                for name, room in list(self.rooms.items()):
+                    try:
+                        await self._publish(name, room)
+                    except Exception:
+                        log.exception("room %s: publishing the catalog failed", name)
 
-    async def _spool(self) -> None:
-        assert self.spool is not None
-        while True:
-            await asyncio.sleep(SPOOL_S)
-            try:
-                for room, envelope in self.spool.poll():
-                    if self.wanted(room):
-                        self._safely(
-                            f"{room}/{envelope.agent.name}", self.archive.room(room).snapshot, envelope, now_ms()
-                        )
-            except Exception:
-                log.exception("reading the spool failed")
+    def _room(self, room: str) -> _Room:
+        state = self.rooms.get(room)
+        if state is None:
+            state = self.rooms[room] = _Room(RoomCatalog(room, self.archive.root))
+        return state
+
+    async def _publish(self, name: str, room: _Room) -> None:
+        cat = room.catalog
+        cat.teacher = (
+            (self.archive.room(name).teacher.catalog or {AUDIO_TRACK: DEFAULT_AUDIO}) if room.teacher else None
+        )
+        on_air = bool(cat.teacher or cat.slides or cat.agents)
+        data = cat.changed()
+        now = time.monotonic()
+        if data is None:
+            if not on_air or now - room.sent_s < REFRESH_S:
+                return
+            data = cat.latest
+        if data is None:
+            return
+        if room.writer is None:
+            room.writer = await self.relay.publish(catalog_path(name), TRACK)
+        await room.writer.write(data)
+        room.sent_s = now
 
     def announced(self, path: str, active: bool) -> None:
         parts = path.split("/")
         if len(parts) < 2 or not self.wanted(parts[0]):
             return
         room, kind = parts[0], parts[1]
-        state = self.rooms.setdefault(room, _Room())
+        state = self._room(room)
         if kind == "teacher" and len(parts) == 2:
             if active and not state.teacher:
                 log.info("room %s: archiving the teacher broadcast", room)
@@ -124,19 +139,19 @@ class Archiver:
                 state.teacher.clear()
                 self.archive.room(room).teacher_gone()
         elif kind == "slides" and len(parts) == 2:
+            state.catalog.slides = active
             if active and state.slides is None:
                 state.slides = self._spawn(self._slides(room), f"{room}/slides")
             elif not active and state.slides is not None:
                 state.slides.cancel()
                 state.slides = None
-        elif kind == "agents" and len(parts) == 4 and active and self.subscribe_agents:
-            found = state.follower.offer(f"{parts[2]}/{parts[3]}")
-            if found is not None:
-                agent, instance = found
-                log.info("room %s: archiving %s instance %s", room, agent, instance)
-                if agent in state.agents:
-                    state.agents[agent].cancel()
-                state.agents[agent] = self._spawn(self._agent(room, state, agent, instance), f"{room}/{agent}")
+        elif kind == "agents" and len(parts) >= 3:
+            paths = state.agents.setdefault(parts[2], set())
+            if active:
+                paths.add(path)
+            else:
+                paths.discard(path)
+            state.catalog.agents = {agent for agent, held in state.agents.items() if held}
 
     async def _catalog(self, room: str, state: _Room) -> None:
         async for payload in self.relay.objects(teacher_path(room), CATALOG_TRACK):
@@ -160,16 +175,6 @@ class Archiver:
                 continue
             self._safely(f"{room}/slides", self.archive.room(room).slide, frame, now_ms())
 
-    async def _agent(self, room: str, state: _Room, agent: str, instance: str) -> None:
-        async for payload in self.relay.objects(f"{agents_prefix(room)}/{agent}/{instance}", "state"):
-            try:
-                envelope = state.follower.accept(agent, payload)
-            except ValueError:
-                log.warning("room %s: skipping an object from %s that does not match the contract", room, agent)
-                continue
-            if envelope is not None:
-                self._safely(f"{room}/{agent}", self.archive.room(room).snapshot, envelope, now_ms())
-
     @staticmethod
     def _safely(what: str, write: Callable[..., object], *args: Any) -> None:
         """A disk error on one object is logged; the reader carries on with the next."""
@@ -180,9 +185,14 @@ class Archiver:
 
 
 async def archive_rooms(
-    relay: Relay, archive: Archive, rooms: RoomFilter, *, spool: SpoolReader | None, subscribe_agents: bool
+    relay: Relay,
+    archive: Archive,
+    rooms: RoomFilter,
+    *,
+    on_tick: Callable[[], None] | None = None,
+    publish_catalog: bool = True,
 ) -> None:
-    archiver = Archiver(relay, archive, rooms, spool=spool, subscribe_agents=subscribe_agents)
+    archiver = Archiver(relay, archive, rooms, on_tick=on_tick, publish_catalog=publish_catalog)
     try:
         await archiver.run()
     finally:

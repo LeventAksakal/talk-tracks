@@ -7,18 +7,13 @@ import asyncio
 import base64
 import io
 import json
-import os
-import time
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, cast
 
 import av
 import numpy as np
 import pytest
 
-from talk_tracks import statefile
-from talk_tracks.archive import restore
 from talk_tracks.archive.bucket import Uploader
 from talk_tracks.archive.mp4 import (
     OPUS_SILENCE,
@@ -30,9 +25,7 @@ from talk_tracks.archive.mp4 import (
     opus_duration_us,
 )
 from talk_tracks.archive.store import (
-    CHUNK_MS,
     Archive,
-    Latest,
     RoomFilter,
     RoomIndex,
     RoomsIndex,
@@ -40,20 +33,12 @@ from talk_tracks.archive.store import (
     track_configs,
 )
 from talk_tracks.audio import OpusEncoder, write_varint
-from talk_tracks.contracts import (
-    AgentInfo,
-    CaptionLine,
-    CaptionsState,
-    Envelope,
-    SlideFrame,
-    Usage,
-)
+from talk_tracks.contracts import SlideFrame
 from talk_tracks.lecture import catalog, legacy_frame, packets, probe
 
 from .clip import make_clip
 
 WALL = 1_761_650_000_000
-INFO = AgentInfo(name="captions", label="Captions (English)", model="fake")
 
 
 def opus_packets(n: int) -> list[bytes]:
@@ -64,14 +49,6 @@ def opus_packets(n: int) -> list[bytes]:
     for i in range(n):
         out += encoder.encode(pcm[i * OpusEncoder.FRAME : (i + 1) * OpusEncoder.FRAME])
     return out
-
-
-def envelope(seq: int, lines: int, *, instance: str = "100") -> Envelope:
-    state = CaptionsState(
-        lang="en",
-        lines=[CaptionLine(id=i, start_ms=i * 1000, end_ms=i * 1000 + 900, text=f"line {i}") for i in range(lines)],
-    )
-    return Envelope(agent=INFO, instance=instance, seq=seq, at_ms=WALL, usage=Usage(), state=state)
 
 
 def decode(init: bytes, segments: list[bytes]) -> list[av.Packet]:  # pyright: ignore[reportMissingTypeArgument, reportUnknownParameterType]
@@ -204,56 +181,30 @@ def test_video_segments_open_with_a_keyframe(tmp_path: Path) -> None:
 def test_a_clock_restart_starts_a_new_run(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
     feed_audio(archive, "live", 120_000_000, 50)
-    archive.room("live").snapshot(envelope(1, 1), WALL + 2000)
     feed_audio(archive, "live", 0, 50, wall=WALL + 5000)  # the speaker's publisher restarted at 0
-    archive.room("live").snapshot(envelope(2, 2), WALL + 6000)
     archive.close()
     rooms = RoomIndex.model_validate_json((tmp_path / "live" / "room.json").read_bytes())
     assert len(rooms.runs) == 2 and rooms.runs[0].media_first_ms == 120_000 and rooms.runs[1].media_first_ms == 0
-    first = RunIndex.model_validate_json((tmp_path / "live" / rooms.runs[0].run / "run.json").read_bytes())
     second = RunIndex.model_validate_json((tmp_path / "live" / rooms.runs[1].run / "run.json").read_bytes())
-    assert first.agents[0].chunks[0].first_media_ms == 120_980
-    assert second.agents[0].chunks[0].first_media_ms == 980
+    assert second.tracks[0].segments[0].start_ms == 0
     assert RoomsIndex.model_validate_json((tmp_path / "rooms.json").read_bytes()).rooms[0].runs == 2
 
 
 def test_a_restarted_archiver_continues_the_run(tmp_path: Path) -> None:
     archive = Archive(tmp_path)
     feed_audio(archive, "live", 0, 400)
-    archive.room("live").snapshot(envelope(1, 1), WALL + 1000)
     archive.close()
     archive = Archive(tmp_path)
     feed_audio(archive, "live", 8_000_000, 400, wall=WALL + 10_000)
-    archive.room("live").snapshot(envelope(1, 2, instance="200"), WALL + 12_000)
     archive.close()
     rooms = RoomIndex.model_validate_json((tmp_path / "live" / "room.json").read_bytes())
     assert len(rooms.runs) == 1
     run = RunIndex.model_validate_json((run_dir(tmp_path, "live") / "run.json").read_bytes())
     segments = run.tracks[0].segments
     assert [s.n for s in segments] == [0, 1, 2, 3] and segments[2].init == "init-2.mp4"
-    assert [c.n for c in run.agents[0].chunks] == [0, 1] and not run.agents[0].chunks[0].open
 
 
-# --- snapshots ----------------------------------------------------------------------------------------------------
-
-
-def test_snapshots_are_chunked_by_wall_time_and_latest_is_kept(tmp_path: Path) -> None:
-    files: list[tuple[str, bool]] = []
-    archive = Archive(tmp_path, on_file=lambda p, m: files.append((p, m)))
-    feed_audio(archive, "live", 5_000_000, 10)
-    for seq in range(1, 6):
-        archive.room("live").snapshot(envelope(seq, seq), WALL + seq * 3000)
-    archive.tick(WALL + 5 * 3000 + CHUNK_MS)  # the second chunk is due as well
-    run = RunIndex.model_validate_json((run_dir(tmp_path, "live") / "run.json").read_bytes())
-    chunks = run.agents[0].chunks
-    assert [(c.n, c.snapshots, c.open) for c in chunks] == [(0, 4, False), (1, 1, False)]
-    assert all(c.first_media_ms == 5_180 for c in chunks)
-    lines = (run_dir(tmp_path, "live") / "agents" / "captions" / "000000.jsonl").read_text().splitlines()
-    assert [json.loads(line)["seq"] for line in lines] == [1, 2, 3, 4]
-    latest = Latest.model_validate_json((tmp_path / "live" / "latest" / "captions.json").read_bytes())
-    assert latest.snapshot.seq == 5 and latest.run == run.run
-    assert (f"live/{run.run}/agents/captions/000000.jsonl", False) in files
-    assert ("live/latest/captions.json", True) in files
+# --- slides -------------------------------------------------------------------------------------------------------
 
 
 def test_slides_are_kept_once_per_change(tmp_path: Path) -> None:
@@ -268,45 +219,6 @@ def test_slides_are_kept_once_per_change(tmp_path: Path) -> None:
     lines = [json.loads(line) for line in (folder / "frames.jsonl").read_text().splitlines()]
     assert [line["id"] for line in lines] == [0, 1] and lines[0]["file"] == lines[1]["file"]
     assert (folder / lines[0]["file"]).read_bytes() == b"\x89PNG fake"
-
-
-# --- restore ------------------------------------------------------------------------------------------------------
-
-
-def test_captions_restore_from_the_archive_when_the_state_file_is_gone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("TT_ARCHIVE_DIR", raising=False)
-    archive = Archive(tmp_path / "archive")
-    archive.room("live-1").snapshot(envelope(7, 12), time.time_ns() // 1_000_000)
-    archive.close()
-    state_file = tmp_path / "state" / "captions-live-1-en.json"
-    state = statefile.load_captions(state_file)
-    assert state is not None and state.lines[-1].id == 11
-    assert statefile.load_captions(tmp_path / "state" / "captions-live-1-tr.json") is None  # another language
-
-
-def test_the_newer_of_state_file_and_archive_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TT_ARCHIVE_DIR", str(tmp_path / "elsewhere"))
-    archive = Archive(tmp_path / "elsewhere")
-    archive.room("live").snapshot(envelope(3, 5), time.time_ns() // 1_000_000)
-    archive.close()
-    state_file = tmp_path / "state" / "captions-live-en.json"
-    statefile.save(state_file, envelope(9, 8).state)  # pyright: ignore[reportArgumentType]
-    assert (state := statefile.load_captions(state_file)) is not None and state.lines[-1].id == 7
-    statefile.save(state_file, envelope(1, 2).state)  # pyright: ignore[reportArgumentType]
-    assert (state := statefile.load_captions(state_file)) is not None and state.lines[-1].id == 4
-    os.utime(state_file, (0, 0))  # stale: the archive wins anyway
-    assert (state := statefile.load_captions(state_file)) is not None and state.lines[-1].id == 4
-
-
-def test_an_old_archived_state_is_not_restored(tmp_path: Path) -> None:
-    archive = Archive(tmp_path)
-    archive.room("live").snapshot(envelope(3, 5), WALL)
-    archive.close()
-    assert restore.latest_state(tmp_path, "live", "captions", now_ms=WALL + 60_000) is not None
-    assert restore.latest_state(tmp_path, "live", "captions", now_ms=WALL + 31 * 60_000) is None
-    assert restore.latest_state(tmp_path, "live", "chapters", now_ms=WALL) is None
 
 
 # --- bucket copy and room filter --------------------------------------------------------------------------------
@@ -339,15 +251,16 @@ async def test_finished_files_go_to_the_bucket_and_indexes_are_coalesced(tmp_pat
     archive = Archive(tmp_path, on_file=uploader.notify)
     task = asyncio.create_task(uploader.run())
     feed_audio(archive, "live", 0, 400)
-    for seq in range(1, 4):
-        archive.room("live").snapshot(envelope(seq, seq), WALL + seq)
+    png = base64.b64encode(b"\x89PNG fake").decode()
+    for n in range(3):
+        archive.room("live").slide(SlideFrame(id=n, at_ms=n, mime="image/png", data_b64=png), WALL + n)
     archive.tick(WALL + 10)
     await asyncio.sleep(3)  # one failure, retried after 1 s
     task.cancel()
     run = run_dir(tmp_path, "live").name
     assert f"live/{run}/teacher/audio/000000.m4s" in bucket.objects
     assert f"live/{run}/teacher/audio/init-0.mp4" in bucket.objects
-    assert bucket.puts.count("live/latest/captions.json") == 1  # three changes, one upload
+    assert bucket.puts.count(f"live/{run}/slides/frames.jsonl") == 1  # three changes, one upload
     assert "rooms.json" in bucket.objects, bucket.puts
     await uploader.drain(2)
     assert bucket.objects[f"live/{run}/run.json"] == (tmp_path / "live" / run / "run.json").read_bytes()
@@ -407,81 +320,6 @@ def test_room_filter() -> None:
 
 def test_legacy_frame_helper_matches_the_audio_reader() -> None:
     assert legacy_frame(5, b"x") == write_varint(5) + b"x"
-
-
-# --- agents' spool --------------------------------------------------------------------------------------------
-
-
-class ListSink:
-    def __init__(self) -> None:
-        self.objects: list[bytes] = []
-        self.subscribed = True
-
-    async def write(self, data: bytes) -> None:
-        self.objects.append(data)
-
-
-async def test_agents_spool_what_they_publish_and_the_archiver_reads_each_change_once(tmp_path: Path) -> None:
-    from talk_tracks.archive.spool import SpoolReader, spool_sink
-    from talk_tracks.publisher import SnapshotPublisher
-
-    inner = ListSink()
-    sink = spool_sink(inner, "live", tmp_path)
-    assert cast(Any, sink).subscribed is True  # the publish path still sees its sink
-    pub = SnapshotPublisher(INFO, sink, Usage, instance="100")
-    await pub.publish(envelope(1, 1).state)
-    await pub.heartbeat()
-    await pub.publish(envelope(2, 2).state)
-    assert len(inner.objects) == 3
-    reader = SpoolReader(tmp_path)
-    assert [(room, e.seq) for room, e in reader.poll()] == [("live", 1), ("live", 2)]
-    assert reader.poll() == []
-    with (tmp_path / "live" / "captions" / "100.jsonl").open("ab") as f:
-        f.write(b'{"v": 1, "agent"')  # a line still being written
-    assert reader.poll() == []
-    reader.save()
-    await pub.publish(envelope(3, 3).state)
-    assert [e.seq for _, e in SpoolReader(tmp_path).poll()] == []  # a torn line (a killed writer) is skipped
-
-
-async def test_a_replacement_instance_wins_and_the_old_spool_file_goes(tmp_path: Path) -> None:
-    from talk_tracks.archive.spool import STALE_S, SpoolReader, spool_sink
-    from talk_tracks.publisher import SnapshotPublisher
-
-    old_sink = spool_sink(ListSink(), "live", tmp_path)
-    old = SnapshotPublisher(INFO, old_sink, Usage, instance="100")
-    await old.publish(envelope(1, 1).state)
-    reader = SpoolReader(tmp_path)
-    assert [e.instance for _, e in reader.poll()] == ["100"]
-    new = SnapshotPublisher(INFO, spool_sink(ListSink(), "live", tmp_path), Usage, instance="200")
-    await new.publish(envelope(1, 2).state)
-    await old.publish(envelope(2, 1).state)  # the old instance lingers: ignored
-    assert [(e.instance, e.seq) for _, e in reader.poll()] == [("200", 1)]
-    cast(Any, old_sink).close()  # the old process exits
-    reader.poll(now_s=time.time() + STALE_S + 1)
-    assert not (tmp_path / "live" / "captions" / "100.jsonl").exists()
-    assert (tmp_path / "live" / "captions" / "200.jsonl").exists()
-
-
-async def test_a_restarted_archiver_continues_from_its_spool_offsets(tmp_path: Path) -> None:
-    from talk_tracks.archive.spool import SpoolReader, spool_sink
-    from talk_tracks.publisher import SnapshotPublisher
-
-    pub = SnapshotPublisher(INFO, spool_sink(ListSink(), "live", tmp_path), Usage, instance="100")
-    await pub.publish(envelope(1, 1).state)
-    reader = SpoolReader(tmp_path)
-    assert len(reader.poll()) == 1
-    reader.save()
-    await pub.publish(envelope(2, 2).state)
-    assert [e.seq for _, e in SpoolReader(tmp_path).poll()] == [2]
-
-
-async def test_the_spool_can_be_turned_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from talk_tracks.archive.spool import spool_sink
-
-    monkeypatch.setenv("TT_ARCHIVE_SPOOL", "off")
-    inner = ListSink()
-    assert spool_sink(inner, "live", tmp_path) is inner
 
 
 # --- the slice store (decision 0012) ---------------------------------------------------------------------------------
@@ -570,3 +408,29 @@ def test_slice_watcher_and_track_info(tmp_path: Path) -> None:
     info = json.loads((tmp_path / "room1/agents/translate-tr/items/track.json").read_text())
     assert info["lang"] == "tr" and info["sliceMs"] == 4000 and info["status"] == "idle"
     assert w.poll() == []
+
+
+def test_room_catalog_lists_tracks_without_subscribing(tmp_path: Path) -> None:
+    from talk_tracks.archive.catalog import RoomCatalog
+    from talk_tracks.archive.slices import TrackArchive, TrackInfo
+
+    t = TrackArchive(
+        "room1",
+        "translate-tr",
+        "items",
+        root=tmp_path,
+        info=TrackInfo("translation", lang="tr", depends=["captions/items"]),
+    )
+    cat = RoomCatalog("room1", tmp_path)
+    cat.teacher = {"audio": TrackConfig(kind="audio", codec="opus")}
+    cat.agents = {"translate-tr", "chapters"}  # chapters announced, but no track.json yet: not listed
+    doc = json.loads(cat.changed() or b"")
+    names = [(e["namespace"], e["name"]) for e in doc["tracks"]]
+    assert names == [("talk/room1/teacher", "audio"), ("talk/room1/agents/translate-tr", "items")]
+    tr = doc["tracks"][1]
+    assert tr["lang"] == "tr" and tr["packaging"] == "slices" and tr["sliceMs"] == 4000 and tr["status"] == "idle"
+    assert tr["depends"] == ["talk/room1/agents/captions/items"] and tr["cost"] == "paid"
+    assert doc["archive"] == "/archive/room1/room.json"
+    assert cat.changed() is None
+    t.set_status("capped")
+    assert json.loads(cat.changed() or b"")["tracks"][1]["status"] == "capped"

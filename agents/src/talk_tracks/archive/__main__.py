@@ -1,12 +1,12 @@
 """Command line: ``python -m talk_tracks.archive --relay URL [--out DIR] [--insecure]``.
 
-Follows every room under ``talk/**`` and writes the archive (``wiki/howto/archive.md``). Settings also come from the
-environment: TT_RELAY, TT_TOKEN (watching is open, so usually unset), TT_ARCHIVE_DIR (default data/archive),
-TT_ARCHIVE_ROOMS (glob patterns to keep, comma-separated, default all), TT_ARCHIVE_SKIP (patterns to skip, such as a
-looped demo room), TT_ARCHIVE_SPOOL (the agents' spool to read, default ``archive-spool`` beside the archive),
-TT_ARCHIVE_SUBSCRIBE_AGENTS (1: read agent tracks off the relay instead, which keeps lazy agents awake) and
-TT_ARCHIVE_BUCKET (the Cloud Storage bucket to copy to, ``gs://name[/folder]``, folder
-default ``archive``; unset: no copy).
+The room service: follows every room under ``talk/**``, records the speaker's media and slides, publishes each
+room's ``catalog`` and copies the archive to the bucket, the agents' slices included (``wiki/howto/archive.md``).
+Settings also come from the environment: TT_RELAY, TT_TOKEN (needs publish rights on ``talk/*/catalog``),
+TT_ARCHIVE_DIR (default data/archive), TT_ARCHIVE_ROOMS (glob patterns to keep, comma-separated, default all),
+TT_ARCHIVE_SKIP (patterns to skip, such as a looped demo room, whose looper publishes its own catalog) and
+TT_ARCHIVE_BUCKET (the Cloud Storage bucket to copy to, ``gs://name[/folder]``, folder default ``archive``; unset: no
+copy).
 """
 
 from __future__ import annotations
@@ -30,18 +30,9 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--rooms", default=os.environ.get("TT_ARCHIVE_ROOMS", "*"), help="room patterns to archive")
     p.add_argument("--skip", default=os.environ.get("TT_ARCHIVE_SKIP", ""), help="room patterns not to archive")
     p.add_argument("--bucket", default=os.environ.get("TT_ARCHIVE_BUCKET") or None, help="Cloud Storage bucket")
-    p.add_argument("--spool", type=Path, default=None, help="the agents' spool (default: archive-spool beside --out)")
-    p.add_argument(
-        "--subscribe-agents",
-        action="store_true",
-        default=os.environ.get("TT_ARCHIVE_SUBSCRIBE_AGENTS", "") == "1",
-        help="read agent tracks off the relay (demand: keeps lazy agents awake) instead of from the spool",
-    )
+    p.add_argument("--no-catalog", action="store_true", help="record only; do not publish the room catalogs")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
     args = p.parse_args(argv)
-    if args.spool is None:
-        configured = os.environ.get("TT_ARCHIVE_SPOOL")
-        args.spool = Path(configured) if configured else args.out.parent / "archive-spool"
     if not args.relay:
         p.error("--relay is required (or TT_RELAY)")
     return args
@@ -51,7 +42,7 @@ async def main_async(args: argparse.Namespace) -> None:
     from ..moq import connect, until_closed
     from .bucket import GcsBucket, Uploader
     from .relay import archive_rooms
-    from .spool import SpoolReader
+    from .slices import SliceWatcher
     from .store import Archive, RoomFilter
 
     bucket = GcsBucket(args.bucket) if args.bucket else None
@@ -65,11 +56,15 @@ async def main_async(args: argparse.Namespace) -> None:
     background = [asyncio.create_task(uploader.run()), asyncio.create_task(uploader.sync())]
     try:
         async with connect(args.relay, token=args.token, insecure=args.insecure) as relay:
-            spool = None if args.subscribe_agents else SpoolReader(args.spool)
+            slices = SliceWatcher(args.out)
+
+            def copy_slices() -> None:  # the agents write them; the archiver copies them
+                for path, mutable in slices.poll():
+                    uploader.notify(path, mutable)
+
             rooms = RoomFilter(args.rooms, args.skip)
-            await until_closed(
-                relay, archive_rooms(relay, archive, rooms, spool=spool, subscribe_agents=args.subscribe_agents)
-            )
+            work = archive_rooms(relay, archive, rooms, on_tick=copy_slices, publish_catalog=not args.no_catalog)
+            await until_closed(relay, work)
     finally:
         archive.close()
         for task in background:
@@ -85,7 +80,7 @@ def main(argv: list[str] | None = None) -> None:
 
     async def run() -> None:
         task = asyncio.ensure_future(main_async(args))
-        # SIGTERM (docker stop) closes the open segments and chunks before the process ends.
+        # SIGTERM (docker stop) closes the open segments before the process ends.
         with contextlib.suppress(NotImplementedError):
             asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
         with contextlib.suppress(asyncio.CancelledError):
