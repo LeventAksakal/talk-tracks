@@ -11,23 +11,33 @@ slice gets exactly what subscribers got. Transport-free: tests drive it without 
   the slice after its newest one, and live output that resumes inside a back-filled slice waits for the next one
   (what it made meanwhile shows in that slice's carry-in).
 * **Capped:** past the room's spend cap, each live slice is a carry-in marked ``capped`` and nothing else.
-* **Back-fill:** a FETCH of a slice that was never produced runs the agent's ``produce`` for it once, stores the
-  result and answers with it; at the cap it answers an empty capped group, which is not stored.
+* **Last leave:** ``finish`` lets the open slice run to its end on the clock (at most 4 s) and opens no new one, so
+  the archive holds it whole.
+* **FETCH:** a slice in the archive is served as it is; the open slice is served with the objects it has so far.
+  A slice that was never produced is back-filled once by the agent's ``produce`` (translation only), stored
+  write-once and served. Anything else is refused (``Refused``, a REQUEST_ERROR on the wire): never an empty or
+  placeholder group.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Literal, Protocol
 
 from .archive.slices import Slice, SliceExists, SliceObject, TrackArchive
-from .contracts import ENVELOPE, AgentInfo, Body, Carry, Envelope, Item, Usage, slice_of
+from .contracts import ENVELOPE, SLICE_MS, AgentInfo, Body, Carry, Envelope, Item, Usage, slice_of
 from .llm.ledger import BudgetExceededError
 
 log = logging.getLogger("talk_tracks")
+
+
+class Refused(Exception):
+    """A FETCH this track does not answer with objects: the reason goes into the REQUEST_ERROR."""
+
 
 HOLD_S = 8.0  # the clock runs on this long past the last media time an input gave, then stops (the speaker left)
 
@@ -94,6 +104,8 @@ class SlicedTrack:
         self.clock = clock or MediaClock()
         self.capped = False
         self.paused = True  # until the first input: an idle agent produces no slices
+        self.finishing = False  # the last viewer left: the open slice runs to its end, no new one opens
+        self._slice_ended = asyncio.Event()
         self._usage = usage
         self.carry = carry  # the core's carry-in, set once the core is seeded
         self._wall = wall_ms
@@ -145,7 +157,18 @@ class SlicedTrack:
         """Nobody subscribes: close the slice and produce none until the next input."""
         async with self._lock:
             self.paused = True
+            self.finishing = False
             await self._close()
+
+    async def finish(self) -> None:
+        """The last viewer left: open no new slice, and return once the open one has ended on the clock, so it is
+        whole in the archive. At most one slice of work (4 s), less if the inputs stop."""
+        self.finishing = True
+        if self._open is None:
+            return
+        self._slice_ended.clear()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._slice_ended.wait(), SLICE_MS / 1000 + 1)
 
     async def cap(self) -> None:
         """The room's spend cap is reached: from the next slice on, each slice is a capped carry-in only."""
@@ -175,6 +198,8 @@ class SlicedTrack:
         if self._open == k:
             return
         await self._close()
+        if self.finishing:
+            return
         if k <= self._floor or self.archive.read_local(k) is not None:
             return  # produced before (an earlier run, a back-fill): wait for the next slice
         self._floor = k
@@ -214,6 +239,7 @@ class SlicedTrack:
             return
         self._open = None
         self.archive.end_group(k)
+        self._slice_ended.set()
         await self.out.end_group(k)
 
     def _envelope(self, k: int, kind: Literal["carry", "item"], body: Body, *, capped: bool = False) -> bytes:
@@ -224,39 +250,52 @@ class SlicedTrack:
 
     # --- history -----------------------------------------------------------------------------------------------
 
-    async def slice(self, k: int, produce: Produce | None, empty: Callable[[], Carry]) -> Slice | None:
-        """Group k for a FETCH: from the archive (disk, then the bucket), else produced now and stored, once.
-        None when it cannot be: in the future, or no way to produce it. Capped: an empty group marked so."""
+    async def slice(self, k: int, produce: Produce | None) -> Slice:
+        """Group k for a FETCH: from the archive (disk, then the bucket), the open slice as far as it has got, else
+        back-filled now and stored once. Raises ``Refused`` when it cannot be served."""
         if k < 0:
-            return None
+            raise Refused("no such slice")
         found = await self.archive.read(k)
         if found is not None:
             return found
+        if self._open is not None and k >= self._open:
+            raise Refused("the open slice or later")
         now = self.clock.now()
-        if produce is None or (now is not None and k > slice_of(now)) or k == self._open:
-            return None
+        if now is not None and k >= slice_of(now):
+            raise Refused("not yet")
+        if produce is None:
+            raise Refused("never produced, and this track does not back-fill")
+        if self.capped:
+            raise Refused("the room reached its spend cap")
         running = self._filling.get(k)
         if running is None:
-            running = asyncio.ensure_future(self._backfill(k, produce, empty))
+            running = asyncio.ensure_future(self._backfill(k, produce))
             self._filling[k] = running
             running.add_done_callback(lambda _: self._filling.pop(k, None))
         return await asyncio.shield(running)
 
-    async def _backfill(self, k: int, produce: Produce, empty: Callable[[], Carry]) -> Slice:
+    async def _backfill(self, k: int, produce: Produce) -> Slice:
         try:
             carry, items = await produce(k)
         except BudgetExceededError as exc:
-            log.warning("%s: back-fill of slice %d stops at the cap: %s", self.info.name, k, exc)
-            data = self._envelope(k, "carry", empty(), capped=True)
-            return Slice(k, (SliceObject(object_id=0, payload=data),))
+            log.warning("%s: no back-fill of slice %d: %s", self.info.name, k, exc)
+            raise Refused("out of back-fill budget") from exc
+        except LookupError as exc:
+            raise Refused(f"no input: {exc}") from exc
+        objects = [self._envelope(k, "carry", carry)] + [self._envelope(k, "item", body) for body in items]
         async with self._lock:
-            again = self.archive.read_local(k)
-            if again is not None:  # live output reached it meanwhile
-                return again
-            objects = [self._envelope(k, "carry", carry)] + [self._envelope(k, "item", body) for body in items]
-            for o, data in enumerate(objects):
-                self.archive.write(k, SliceObject(object_id=o, payload=data))
-            stored = self.archive.end_group(k)
+            try:  # write-once: the archive creates a slice only when no process has it yet
+                for o, data in enumerate(objects):
+                    self.archive.write(k, SliceObject(object_id=o, payload=data))
+                stored = self.archive.end_group(k)
+            except SliceExists:
+                stored = None
+        if stored is None:
+            first = await self.archive.read(k)
+            if first is None:
+                raise Refused("written by another process, and gone again")
+            log.info("%s: slice %d was written meanwhile: serving that copy", self.info.name, k)
+            return first
         log.info("%s: back-filled slice %d with %d items", self.info.name, k, len(items))
         return stored
 
@@ -322,9 +361,12 @@ class SnapshotTrack:
         except Exception as exc:
             log.warning("%s: outline revision %d not sent: %s", self.info.name, k, exc)
 
-    async def slice(self, k: int) -> Slice | None:
+    async def slice(self, k: int) -> Slice:
         """A revision for a FETCH: only what was published (an outline is never back-filled)."""
-        return await self.archive.read(k) if k >= 0 else None
+        found = await self.archive.read(k) if k >= 0 else None
+        if found is None:
+            raise Refused("no revision in this group")
+        return found
 
 
 def items_of(objects: list[bytes]) -> list[Envelope]:

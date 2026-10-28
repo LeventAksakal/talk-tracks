@@ -1,13 +1,9 @@
 import asyncio
-from collections.abc import AsyncIterator
 from pathlib import Path
 
-import numpy as np
 import pytest
-from numpy.typing import NDArray
 
-from talk_tracks.archive.slices import END_OF_TRACK
-from talk_tracks.asr.scripted import ScriptedAsr, ScriptedLine
+from talk_tracks.archive.slices import END_OF_TRACK, SliceObject, TrackArchive
 from talk_tracks.contracts import (
     ENVELOPE,
     AgentInfo,
@@ -19,10 +15,11 @@ from talk_tracks.contracts import (
     TranslationCarry,
     Usage,
 )
-from talk_tracks.live_slices import MediaClock, envelopes_of
+from talk_tracks.live_slices import MediaClock, Refused, envelopes_of
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger
-from talk_tracks.runtime import backfill_captions, backfill_translate
+from talk_tracks.llm.queued import Priority
+from talk_tracks.runtime import backfill_translate
 
 from .slicekit import sliced, snapshot_track, still_clock
 
@@ -108,13 +105,15 @@ async def test_a_slice_never_produced_is_back_filled_once_and_stored(tmp_path: P
         await asyncio.sleep(0.02)
         return EMPTY, [item(k * 4000, k * 4000 + 900)]
 
-    first, second = await asyncio.gather(track.slice(3, produce, lambda: EMPTY), track.slice(3, produce, lambda: EMPTY))
+    first, second = await asyncio.gather(track.slice(3, produce), track.slice(3, produce))
     assert calls == [3] and first == second  # ten viewers rewinding to the same minute pay once
-    assert first is not None and [e.kind for e in envelopes_of(first)] == ["carry", "item"]
+    assert [e.kind for e in envelopes_of(first)] == ["carry", "item"]
     assert track.archive.read_local(3) == first
-    assert await track.slice(3, produce, lambda: EMPTY) == first and calls == [3]  # later: an archive read
-    assert await track.slice(9, produce, lambda: EMPTY) is None  # the future: nothing to back-fill yet
-    assert await track.slice(2, None, lambda: EMPTY) is None  # an agent that cannot produce past slices
+    assert await track.slice(3, produce) == first and calls == [3]  # later: an archive read
+    with pytest.raises(Refused, match="not yet"):
+        await track.slice(9, produce)  # the future
+    with pytest.raises(Refused, match="does not back-fill"):
+        await track.slice(2, None)  # an agent that does not back-fill
 
     track.clock = still_clock()  # the speaker is back, inside slice 3
     track.clock.observe(12_100)
@@ -126,54 +125,123 @@ async def test_a_slice_never_produced_is_back_filled_once_and_stored(tmp_path: P
     assert track.open_slice == 6
 
 
-async def test_back_fill_at_the_cap_answers_an_empty_capped_group_and_stores_nothing(tmp_path: Path) -> None:
+async def test_the_open_slice_is_served_as_far_as_it_has_got_and_never_back_filled(tmp_path: Path) -> None:
+    track, _ = sliced(tmp_path)
+    track.clock.observe(8_100)
+    await track.item(item(1, 8_100))
+
+    async def produce(k: int) -> tuple[CaptionsCarry, list[CaptionItem]]:
+        raise AssertionError("never back-filled")
+
+    found = await track.slice(2, produce)
+    assert not found.complete and [e.kind for e in envelopes_of(found)] == ["carry", "item"]
+    with pytest.raises(Refused, match="open slice"):
+        await track.slice(3, produce)
+
+
+async def test_no_back_fill_past_the_budget_or_the_cap_and_nothing_is_stored(tmp_path: Path) -> None:
     track, _ = sliced(tmp_path)
 
     async def produce(k: int) -> tuple[CaptionsCarry, list[CaptionItem]]:
-        raise BudgetExceededError("room cap reached", scope="room")
+        raise BudgetExceededError("back-fill budget reached", scope="backfill")
 
-    found = await track.slice(1, produce, lambda: EMPTY)
-    assert found is not None
-    (only,) = envelopes_of(found)
-    assert only.kind == "carry" and only.capped and only.body == EMPTY
-    assert track.archive.read_local(1) is None  # a later, larger cap can still produce it
+    async def no_input(k: int) -> tuple[CaptionsCarry, list[CaptionItem]]:
+        raise LookupError("captions slice 1 is not in the archive")
 
-
-async def silence(start_ms: int, end_ms: int) -> AsyncIterator[tuple[NDArray[np.int16], int]]:
-    for t in range(start_ms + 100, end_ms + 1, 100):
-        yield np.zeros(1600, dtype=np.int16), t
-
-
-SCRIPT = [ScriptedLine(500, 3_000, "one two"), ScriptedLine(3_500, 5_000, "three"), ScriptedLine(5_500, 7_000, "four")]
+    with pytest.raises(Refused, match="budget"):
+        await track.slice(1, produce)
+    with pytest.raises(Refused, match="no input"):
+        await track.slice(1, no_input)
+    assert track.archive.read_local(1) is None  # a later, larger budget can still produce it
+    await track.cap()
+    with pytest.raises(Refused, match="cap"):
+        await track.slice(1, produce)
 
 
-async def test_captions_back_fill_hears_the_slice_and_what_came_before() -> None:
-    carry, items = await backfill_captions(1, ScriptedAsr(SCRIPT), "en", silence)
-    assert [x.text for x in carry.lines] == ["one two"]
-    assert [i.line.text for i in items] == ["three", "four"] and all(i.final for i in items)
+async def test_a_slice_another_process_wrote_first_is_served_as_that_copy(tmp_path: Path) -> None:
+    track, _ = sliced(tmp_path)
+    a = track.archive
+    other = TrackArchive(a.room, a.agent, a.track, root=a.root)
+
+    async def produce(k: int) -> tuple[CaptionsCarry, list[CaptionItem]]:
+        theirs = Envelope(agent=track.info, slice=k, kind="carry", at_ms=1, usage=Usage(), body=EMPTY)
+        other.write(k, SliceObject(object_id=0, payload=ENVELOPE.dump_json(theirs)))
+        other.end_group(k)  # a replacement agent back-filled it meanwhile
+        return EMPTY, [item(k * 4000, k * 4000 + 900)]
+
+    found = await track.slice(1, produce)
+    assert [e.kind for e in envelopes_of(found)] == ["carry"] and found == track.archive.read_local(1)
 
 
-async def test_translation_back_fill_fetches_captions_and_is_charged_to_the_room(tmp_path: Path) -> None:
-    ledger = SpendLedger(tmp_path / "ledger.jsonl", 100).for_room("judge-a", RoomCap(0.05))
-    llm = FakeLlm(ledger, usd_per_call=0.01)
-    carry, items = await backfill_captions(1, ScriptedAsr(SCRIPT), "en", silence)
+async def test_the_last_leave_finishes_the_open_slice_and_opens_no_new_one(tmp_path: Path) -> None:
+    track, out = sliced(tmp_path)
+    track.clock.observe(1_000)
+    await track.item(item(1, 1_000))
+    done = asyncio.create_task(track.finish())
+    await asyncio.sleep(0.01)
+    await track.item(item(2, 2_000))  # still slice 0: it goes in
+    assert not done.done()
+    track.clock.observe(4_100)
+    await track.item(item(3, 4_100))  # slice 1 would open: it does not
+    await asyncio.wait_for(done, 1)
+    assert out.ended == [0] and track.open_slice is None and out.groups() == [0]
+    stored = track.archive.read_local(0)
+    assert stored is not None and stored.complete and len(envelopes_of(stored)) == 3
+    await track.pause()
+    track.clock.observe(8_100)
+    await track.item(item(4, 8_100))  # a new viewer later: slices open again
+    assert track.open_slice == 2
+
+
+async def test_translation_back_fill_is_held_to_its_share_of_the_room_cap(tmp_path: Path) -> None:
+    room = SpendLedger(tmp_path / "ledger.jsonl", 100).for_room("judge-a", RoomCap(0.08))
+    llm = FakeLlm(room.for_backfill(), usd_per_call=0.01)  # back-fill budget: 25 % of $0.08
     info = AgentInfo(name="captions", label="c", model="fake")
+    lines = [CaptionLine(id=4_000 + i, start_ms=4_000 + i, end_ms=4_500 + i, text=f"line {i}") for i in range(3)]
     captions = [
-        Envelope(agent=info, slice=1, kind="carry", at_ms=0, usage=Usage(), body=carry),
-        *(Envelope(agent=info, slice=1, kind="item", at_ms=0, usage=Usage(), body=i) for i in items),
+        Envelope(agent=info, slice=1, kind="carry", at_ms=0, usage=Usage(), body=EMPTY),
+        *(
+            Envelope(
+                agent=info,
+                slice=1,
+                kind="item",
+                at_ms=0,
+                usage=Usage(),
+                body=CaptionItem(lang="en", line=x, final=True),
+            )
+            for x in lines[:2]
+        ),
     ]
-    fetched: list[int] = []
+    t_carry, t_items = await backfill_translate(llm, "tr", captions, None)
+    assert t_carry == TranslationCarry(lang="tr", lines=[])
+    assert [i.line.id for i in t_items] == [4_000, 4_001] and t_items[0].line.text.startswith("[tr] line 0")
+    assert room.room_total() == pytest.approx(0.02)  # each call reserved, then settled to its cost
+    one_more = [*captions, captions[-1].model_copy(update={"body": CaptionItem(lang="en", line=lines[2], final=True)})]
+    with pytest.raises(BudgetExceededError, match="back-fill"):
+        await backfill_translate(llm, "tr", one_more, None)
+    room.check(0.05)  # live work still has the rest of the room's cap
 
-    async def fetch(k: int) -> list[Envelope] | None:
-        fetched.append(k)
-        return [ENVELOPE.validate_json(ENVELOPE.dump_json(e)) for e in captions] if k == 1 else None
 
-    t_carry, t_items = await backfill_translate(1, llm, "tr", fetch, None)
-    assert fetched == [1] and t_carry == TranslationCarry(lang="tr", lines=[])
-    assert [i.line.id for i in t_items] == [i.line.id for i in items] and t_items[0].line.text.startswith("[tr] three")
-    assert ledger.room_total() == pytest.approx(0.02)  # paid once per line, against the room's cap
-    with pytest.raises(LookupError):
-        await backfill_translate(4, llm, "tr", fetch, None)  # captions could not be had: not produced
+async def test_back_fill_calls_queue_behind_live_ones() -> None:
+    priority = Priority()
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def live_call() -> None:
+        async with priority.live():
+            order.append("live starts")
+            await release.wait()
+            order.append("live ends")
+
+    live = asyncio.create_task(live_call())
+    await asyncio.sleep(0)
+    backfill = asyncio.create_task(priority.wait_live_idle())
+    await asyncio.sleep(0.01)
+    assert not backfill.done()
+    release.set()
+    await asyncio.wait_for(backfill, 1)
+    await live
+    assert order == ["live starts", "live ends"]
 
 
 async def test_outline_revisions_are_snapshot_groups_repeated_for_late_joiners(tmp_path: Path) -> None:
@@ -191,4 +259,6 @@ async def test_outline_revisions_are_snapshot_groups_repeated_for_late_joiners(t
     latest = track.seed()
     assert latest is not None and isinstance(latest.body, OutlineSnapshot) and latest.body.recap == "more"
     found = await track.slice(2)
-    assert found is not None and envelopes_of(found)[0].body == latest.body
+    assert envelopes_of(found)[0].body == latest.body
+    with pytest.raises(Refused):
+        await track.slice(3)

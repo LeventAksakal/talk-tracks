@@ -8,7 +8,7 @@
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
 #   TT_LIVE_ROOMS    rooms the live agents serve: * (default) for any room a speaker opens, or a list a,b
 #   TT_ROOM_CAP_USD  spend cap of any room (default 2); judge rooms take theirs from $TT_DATA/caps/ (mint script)
-#   TT_WAKE_DEBOUNCE_S, TT_IDLE_GRACE_S  how long a track is subscribed before its agent wakes (default 1) and
+#   TT_WAKE_DEBOUNCE_S, TT_IDLE_GRACE_S  how long a track is subscribed, with no FETCH of it, before its agent wakes (default 1) and
 #                    unsubscribed before it pauses (default 10)
 #   TT_ARCHIVE_BUCKET the Cloud Storage bucket the track archive is copied to (optional); TT_ARCHIVE_SKIP rooms
 #                    not archived (default: the looped demo rooms)
@@ -46,6 +46,7 @@ x-live: &live
     <<: *agent-env
     TT_ROOMS: ${TT_LIVE_ROOMS:-*}
     TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # the looped demo rooms are the loopers'
+    TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # and never back-filled
     TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
     TT_CAPS_DIR: /data/caps
     TT_WAKE_DEBOUNCE_S: ${TT_WAKE_DEBOUNCE_S:-1}

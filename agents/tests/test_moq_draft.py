@@ -36,6 +36,8 @@ def moq(monkeypatch: pytest.MonkeyPatch) -> Any:
     data.FetchObject = object  # type: ignore[attr-defined]
     fetch = types.ModuleType("aiomoqt.messages.fetch")
     fetch._is_joining = lambda fetch_type: False  # type: ignore[attr-defined]
+    quic = types.ModuleType("aiopquic.quic.configuration")
+    quic.QuicConfiguration = types.SimpleNamespace  # type: ignore[attr-defined]
     for name, module in {
         "aiomoqt": types.ModuleType("aiomoqt"),
         "aiomoqt.agent": agent,
@@ -45,6 +47,9 @@ def moq(monkeypatch: pytest.MonkeyPatch) -> Any:
         "aiomoqt.messages.fetch": fetch,
         "aiomoqt.utils": types.ModuleType("aiomoqt.utils"),
         "aiomoqt.utils.logger": logger,
+        "aiopquic": types.ModuleType("aiopquic"),
+        "aiopquic.quic": types.ModuleType("aiopquic.quic"),
+        "aiopquic.quic.configuration": quic,
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.delitem(sys.modules, "talk_tracks.moq", raising=False)
@@ -58,6 +63,14 @@ def test_relay_client_offers_only_draft_18(moq: Any, url: str) -> None:
     moq.relay_client(url, token="t")
     assert moq.DRAFT == 18
     assert RecordingClient.made[-1]["supported_drafts"] == 18
+
+
+def test_agents_advertise_short_quic_timers(moq: Any) -> None:
+    """A killed agent's session times out in 3 s, so its replacement is not stalled for 12 s (design, spike S8)."""
+    moq.relay_client("moqt://relay:4443")
+    made = RecordingClient.made[-1]
+    assert made["configuration"].idle_timeout == 3.0 and made["configuration"].keep_alive_interval == 1.0
+    assert made["keep_alive_interval"] == 1.0
 
 
 def test_no_other_aiomoqt_client_is_built() -> None:

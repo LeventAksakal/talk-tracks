@@ -14,12 +14,12 @@ import base64
 import contextlib
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .asr.base import AsrEvent, AsrFinal, AsrProvider, AsrSession
+from .asr.base import AsrEvent, AsrProvider, AsrSession
 from .audio import SAMPLE_RATE
 from .contracts import (
     CARRY_LINES,
@@ -47,12 +47,9 @@ from .llm.ledger import BudgetExceededError
 log = logging.getLogger("talk_tracks")
 
 BACKLOG_LINES = 2  # a translation switched on mid-talk starts with the last lines, not the whole history
-LOOKBACK_MS = 8_000  # a back-filled captions slice hears this much before it, to finish lines that began earlier
 CONTEXT_LINES = 3
 
 Pcm = tuple[NDArray[np.int16], int]  # 16 kHz mono PCM and the media time its last sample ends at, in ms
-PastAudio = Callable[[int, int], AsyncIterator[Pcm]]  # the archived speaker audio of media time [start, end) ms
-FetchSlice = Callable[[int], Awaitable[list[Envelope] | None]]  # another agent's slice k, by FETCH
 
 
 def now_ms() -> int:
@@ -158,29 +155,6 @@ async def run_captions(
     await close(last_ms)
 
 
-async def backfill_captions(
-    k: int, asr: AsrProvider, lang: str, past: PastAudio
-) -> tuple[CaptionsCarry, list[CaptionItem]]:
-    """Captions slice k from the archived audio: the lines that end inside it, and the ones before as its carry-in.
-    Only final lines: nobody watched the interim versions of a slice that was never live."""
-    start, end = k * SLICE_MS, (k + 1) * SLICE_MS
-    core = CaptionsCore(lang)
-    session = await asr.open(lang, offset_ms=0)
-    lines: list[CaptionLine] = []
-    try:
-        async for pcm, end_ms in past(max(0, start - LOOKBACK_MS), end):
-            for event in await session.feed(pcm, end_ms):
-                item = core.on_event(event, end_ms) if isinstance(event, AsrFinal) else None
-                if item is not None:
-                    lines.append(item.line)
-    finally:
-        with contextlib.suppress(Exception):
-            await session.close()  # what it still holds ends after the slice
-    carry = CaptionsCarry(lang=lang, lines=[line for line in lines if line.end_ms < start][-CARRY_LINES:])
-    inside = [CaptionItem(lang=lang, line=line, final=True) for line in lines if start <= line.end_ms < end]
-    return carry, inside
-
-
 # --- translation ---------------------------------------------------------------------------------------------
 
 
@@ -218,13 +192,10 @@ async def run_translate(
 
 
 async def backfill_translate(
-    k: int, llm: Llm, lang: str, captions: FetchSlice, before: TranslationCarry | None
+    llm: Llm, lang: str, envelopes: Sequence[Envelope], before: TranslationCarry | None
 ) -> tuple[TranslationCarry, list[TranslationItem]]:
-    """Translation slice k: captions slice k by FETCH (which back-fills captions in turn), each final line translated.
-    The carry-in is the end of slice k-1 when this track has it, else empty (no paid call for it)."""
-    envelopes = await captions(k)
-    if envelopes is None:
-        raise LookupError(f"captions slice {k} is not available")
+    """A translation slice from its captions slice (from the archive): each final line translated. The carry-in is
+    the end of the slice before when this track has it, else empty (no paid call for it)."""
     lines: dict[int, CaptionLine] = {}
     context: list[str] = []
     for env in envelopes:
@@ -304,7 +275,6 @@ async def run_outline(
 
 
 __all__ = [
-    "backfill_captions",
     "backfill_translate",
     "caption_lines",
     "envelopes_of",

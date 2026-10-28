@@ -28,11 +28,12 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 import numpy as np
-from aiomoqt.agent import AgentSession, FetchSpec, PublishSpec, StartAt, SubscribeSpec, TrackRef
+from aiomoqt.agent import AgentSession, PublishSpec, StartAt, SubscribeSpec, TrackRef
 from aiomoqt.client import MOQTClient
 from aiomoqt.messages.data import FetchObject
 from aiomoqt.messages.fetch import _is_joining
 from aiomoqt.utils.logger import set_log_level
+from aiopquic.quic.configuration import QuicConfiguration
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
@@ -50,7 +51,8 @@ from .contracts import (
     slides_path,
     teacher_path,
 )
-from .live_slices import items_of
+from .demand import Fetches
+from .live_slices import Refused
 
 log = logging.getLogger("talk_tracks.moq")
 set_log_level(logging.WARNING)  # aiomoqt logs every control message at INFO
@@ -61,6 +63,10 @@ AUDIO_IDLE_S = 5.0  # the speaker's audio never pauses for this long while the p
 AUDIO_TRACK = "audio"
 CLOCK_WAIT_S = 10.0  # the console repeats its clock every 4 s: this long without one means the broadcast has none
 READ_DEADLINE_S = 0.05
+# QUIC timers we advertise (design, spike S8): a killed agent's track is free for its replacement after 1-3.5 s, not
+# the 12.4 s the relay's default idle timeout leaves it stalled; the keep-alive holds a quiet session open.
+QUIC_IDLE_S = 3.0
+QUIC_KEEP_ALIVE_S = 1.0
 WRITE_TIMEOUT_S = 5.0
 WRITER_QUEUE = 4  # snapshots are self-contained: an unsent old one is worth nothing
 SLICED_QUEUE = 256  # objects of a sliced track; each one counts, and a FETCH serves what the queue dropped
@@ -74,6 +80,10 @@ def relay_client(url: str, *, token: str | None = None, insecure: bool = False) 
     if u.scheme not in ("moqt", "https") or not u.hostname:
         raise ValueError(f"relay URL must be moqt://host:port or https://host:port/path, got {url!r}")
     path = (u.path or "/") + (f"?jwt={quote(token, safe='')}" if token else "")
+    # aiomoqt's own defaults, plus our timers; it fills in the ALPN, server name and TLS settings.
+    cfg = QuicConfiguration(is_client=True, max_data=2**24, max_stream_data=2**24, max_datagram_frame_size=64 * 1024)
+    cfg.idle_timeout = QUIC_IDLE_S
+    cfg.keep_alive_interval = QUIC_KEEP_ALIVE_S
     return MOQTClient(
         u.hostname,
         u.port or 443,
@@ -81,6 +91,8 @@ def relay_client(url: str, *, token: str | None = None, insecure: bool = False) 
         use_quic=u.scheme == "moqt",
         verify_tls=not insecure,
         supported_drafts=DRAFT,
+        configuration=cfg,
+        keep_alive_interval=QUIC_KEEP_ALIVE_S,
     )
 
 
@@ -104,7 +116,7 @@ class TrackWriter:
 
 _END_GROUP = object()  # queued after a group's last object: close its stream with End of Group now, not later
 
-SliceSource = Callable[[int], Awaitable[Slice | None]]  # group k for a FETCH, or None: never produced
+SliceSource = Callable[[int], Awaitable[Slice]]  # group k for a FETCH; raises live_slices.Refused
 
 
 class SlicedOut:
@@ -142,27 +154,40 @@ class SlicedOut:
         """The talk is over: open streams close and each subscription gets PUBLISH_DONE, Track Ended."""
         self._writer._track.end()
 
-    def serve(self, source: SliceSource) -> None:
+    def serve(self, source: SliceSource, fetches: Fetches | None = None) -> None:
         """Answer each standalone FETCH of this track from ``source``, with the true End Location (moq-relay asks
-        for a whole group and rejects aiomoqt's own reply, spike S4b). Joining FETCHes keep aiomoqt's handling."""
+        for a whole group and rejects aiomoqt's own reply, spike S4b): the open slice too, as far as it has got.
+        A refusal is a REQUEST_ERROR, never an empty group. Joining FETCHes keep aiomoqt's handling. ``fetches``
+        counts them for the demand rule: the relay's upstream subscription for a FETCH is not a viewer."""
         track = self._writer._track
         stock = track._on_fetch
+        counted = fetches or Fetches()
 
         async def on_fetch(session: Any, msg: Any) -> None:
+            counted.begin()
+            try:
+                await answer(session, msg)
+            finally:
+                counted.end()
+
+        async def answer(session: Any, msg: Any) -> None:
             if _is_joining(msg.fetch_type):
                 await stock(session, msg)
                 return
             rid, k = msg.request_id, msg.start_group or 0
             try:
                 found = await source(k)
+                objects = [o for o in found.objects if o.status == NORMAL]
+                if not objects:
+                    raise Refused("no objects")
+            except Refused as exc:
+                log.info("FETCH %s group %d refused: %s", track.trackname, k, exc)
+                session.fetch_error(request_id=rid, error_code=FETCH_NOT_FOUND, reason=str(exc)[:100])
+                return
             except Exception as exc:
                 log.warning("FETCH of %s group %d failed: %s", track.trackname, k, exc)
-                found = None
-            objects = [] if found is None else [o for o in found.objects if o.status == NORMAL]
-            if not objects:
-                session.fetch_error(request_id=rid, error_code=FETCH_NOT_FOUND, reason="slice not produced")
+                session.fetch_error(request_id=rid, error_code=FETCH_NOT_FOUND, reason="failed")
                 return
-            assert found is not None
             last = objects[-1].object_id
             session.fetch_ok(
                 request_id=rid,
@@ -218,26 +243,6 @@ class Relay:
         await writer.start()
         log.info("publishing %s/%s", namespace, track)
         return out
-
-    async def fetch_group(
-        self, namespace: str, track: str, group: int, *, timeout_s: float = FETCH_TIMEOUT_S
-    ) -> list[bytes] | None:
-        """One group of a track by FETCH: the payloads in order, or None when the publisher has not got it."""
-        ref = TrackRef(namespace=namespace, name=track)
-        t0 = time.monotonic()
-        try:
-            reader = await self.agent.fetch(
-                FetchSpec(track=ref, start_at=StartAt.range(group, group), timeout_s=timeout_s)
-            )
-        except Exception as exc:  # refused: never produced, or nobody publishes it
-            log.info("FETCH %s/%s group %d refused: %s", namespace, track, group, exc)
-            return None
-        objects: list[Any] = []
-        while not reader.done and time.monotonic() - t0 < timeout_s:
-            objects += await reader.read(1, timeout=READ_DEADLINE_S)
-            objects += reader.drain()
-        objects += reader.drain()
-        return [o.payload for o in objects if o.payload]
 
     async def objects(self, namespace: str, track: str, *, idle_s: float | None = None) -> AsyncIterator[bytes]:
         """Every non-empty payload of a track, from the latest group on, resubscribing for as long as it is read.
@@ -416,18 +421,3 @@ async def follow_agent(relay: Relay, room: str, agent: str, track: str = ITEMS_T
             yield ENVELOPE.validate_json(payload)
         except ValidationError:
             log.warning("skipping an object from %s that does not match the contract", agent)
-
-
-def fetch_agent_slice(
-    relay: Relay, room: str, agent: str, track: str = ITEMS_TRACK
-) -> Callable[[int], Awaitable[list[Envelope] | None]]:
-    """Slice k of another agent's track by FETCH, through the relay's cache, else from that agent's archive, else
-    back-filled by it. None when it cannot be had."""
-
-    async def get(k: int) -> list[Envelope] | None:
-        payloads = await relay.fetch_group(agent_path(room, agent), track, k)
-        if payloads is None:
-            return None
-        return items_of(payloads)
-
-    return get

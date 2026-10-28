@@ -50,6 +50,32 @@ async def test_a_momentary_subscription_does_not_wake_the_agent() -> None:
     assert asyncio.get_running_loop().time() - started >= 0.29
 
 
+async def test_a_subscription_that_forwards_a_slow_fetch_does_not_wake_the_agent() -> None:
+    """Design §5.3: moq-relay subscribes upstream for as long as a FETCH takes, which may be seconds. Demand is a
+    subscription open for 1 s with no FETCH in flight or ended within that second."""
+    switch = Switch()
+    gate = fast_gate(switch, wake_s=0.2)
+    wanted = asyncio.ensure_future(gate.wait_wanted())
+    switch.on = True  # the relay's subscription for a FETCH of 0.5 s
+    gate.fetches.begin()
+    await asyncio.sleep(0.5)
+    assert not wanted.done()  # open longer than wake_s, but a FETCH is in flight
+    gate.fetches.end()
+    await asyncio.sleep(0.1)
+    assert not wanted.done()  # the FETCH ended just now
+    switch.on = False  # its subscription goes with it
+    await asyncio.sleep(0.3)
+    assert not wanted.done()
+
+    switch.on = True  # a viewer joined during another FETCH: the subscription outlives it
+    gate.fetches.begin()
+    await asyncio.sleep(0.1)
+    gate.fetches.end()
+    ended = asyncio.get_running_loop().time()
+    await asyncio.wait_for(wanted, 1)
+    assert asyncio.get_running_loop().time() - ended >= 0.19  # counted a second (here wake_s) after the FETCH
+
+
 async def test_gate_waits_out_the_grace_period() -> None:
     switch = Switch()
     gate = fast_gate(switch, grace_s=0.1)
