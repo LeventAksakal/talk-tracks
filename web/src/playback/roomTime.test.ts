@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { archivedWallRanges, firstVariant, hlsUrl, playlistWallRanges } from "./hlsArchive";
+import { archivedWallRanges, archiveState, firstVariant, hlsUrl, playlistWallRanges, readPlaylist } from "./hlsArchive";
 import { MOQ_EPOCH_UNIX_MS } from "../contracts/types";
 import { DEFAULT_LATENESS_MS, latenessOf, type RoomCatalog, statusOf } from "./roomCatalog";
 import { hangClockOf, hangClockOfPayload, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
@@ -95,6 +95,23 @@ describe("archive playlist", () => {
       { start: t0, end: t0 + 4_000 },
       { start: t0 + 60_000, end: t0 + 62_000 },
     ]);
+  });
+
+  it("reads EXT-X-ENDLIST as the speaker having left", () => {
+    expect(readPlaylist(media).ended).toBe(false);
+    expect(readPlaylist(`${media}\n#EXT-X-ENDLIST\n`).ended).toBe(true);
+  });
+
+  it("follows an audio-only multivariant playlist the same way", async () => {
+    const top = ["#EXTM3U", '#EXT-X-STREAM-INF:BANDWIDTH=64000,CODECS="opus"', "audio.m3u8"].join("\n");
+    const files: Record<string, string> = {
+      "/archive/a/index.m3u8": top,
+      [new URL("/archive/a/audio.m3u8", location.href).href]: `${media}\n#EXT-X-ENDLIST\n`,
+    };
+    const fetchFn = (async (u: string) =>
+      files[u] === undefined ? new Response("", { status: 404 }) : new Response(files[u])) as unknown as typeof fetch;
+    expect(await archiveState("/archive/a/index.m3u8", fetchFn)).toMatchObject({ ended: true });
+    expect(await archiveState("/archive/none/index.m3u8", fetchFn)).toBeUndefined();
   });
 
   it("follows a multivariant playlist to its first variant", async () => {

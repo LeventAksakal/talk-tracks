@@ -6,10 +6,10 @@ import { teacherPath } from "../contracts/names";
 import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
-import { type ArchivePlayback, archivedWallRanges, hlsUrl, openArchive } from "./hlsArchive";
+import { type ArchivePlayback, type ArchiveState, archiveState, hlsUrl, openArchive } from "./hlsArchive";
 import { type RoomCatalog, watchRoomCatalog } from "./roomCatalog";
 import { type HangClock, hangClockOf, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
-import type { Range } from "./slices";
+import { type Range, sliceOf } from "./slices";
 
 export type MediaStatus =
   | "idle" // nothing started (a browser plays sound only after a tap)
@@ -29,6 +29,11 @@ export interface SpeakerMedia {
   /** Room time the element holds. */
   buffered(): Range[];
   error(): string | undefined;
+  /**
+   * Whether the speaker is on air; undefined when unknown. Never from announcements: the relay does not
+   * report a broadcast going away.
+   */
+  onAir?(): boolean | undefined;
   seek(ms: number): void;
   goLive(): void;
   onChange(listener: () => void): () => void;
@@ -159,15 +164,14 @@ export class RoomMedia implements SpeakerMedia {
   #error: string | undefined;
   #listeners = new Listeners();
   #catalog: RoomCatalog | undefined;
-  #teacherLive = false;
   /** The last live playhead seen (room ms), and when (this device's wall ms). */
   #lastLive: { room: number; wall: number } | undefined;
   #live: { close(): void } | undefined;
   #liveGeneration = 0;
   #archive: ArchivePlayback | undefined;
   #archiveGeneration = 0;
-  /** Wall-time ranges the archive holds. */
-  #archived: Range[] = [];
+  /** The archive's playlist as last read: wall-time ranges, and whether it has ended. */
+  #playlist: ArchiveState | undefined;
   /** A clock for rooms with no archived media. */
   #clock: ClockMedia | undefined;
   #subs: Closable[] = [];
@@ -184,9 +188,6 @@ export class RoomMedia implements SpeakerMedia {
       watchRoomCatalog(transport, room, (catalog) => {
         this.#catalog = catalog;
         this.#listeners.emit();
-      }),
-      transport.announced(teacherPath(room), ({ path, active }) => {
-        if (path === "") this.#teacherLive = active;
       }),
     );
     this.#timers.push(setInterval(() => this.#listeners.emit(), 250));
@@ -239,12 +240,22 @@ export class RoomMedia implements SpeakerMedia {
   liveEdge(): number | undefined {
     if (this.#lastLive) return this.#lastLive.room + (this.#live ? 0 : this.#now() - this.#lastLive.wall);
     // On air with no media playing here: room time now, as this device's clock has it.
-    if (this.#teacherLive) return this.#toRoom(this.#now());
+    if (this.onAir()) return this.#toRoom(this.#now());
     return this.available().at(-1)?.end;
   }
 
+  /**
+   * The speaker has left when the live media's newest slice is behind the slice of now (k < ⌊now/S⌋), or,
+   * with no live media here, when the archive's playlist has ended (30 s without media).
+   */
+  onAir(): boolean | undefined {
+    const now = this.#toRoom(this.#now());
+    if (this.#live && this.#lastLive && now !== undefined) return sliceOf(this.#lastLive.room) >= sliceOf(now);
+    return this.#playlist ? !this.#playlist.ended : undefined;
+  }
+
   available(): Range[] {
-    return this.#rangesToRoom(this.#archived);
+    return this.#rangesToRoom(this.#playlist?.ranges ?? []);
   }
 
   buffered(): Range[] {
@@ -296,7 +307,10 @@ export class RoomMedia implements SpeakerMedia {
 
   async #loadArchived(): Promise<void> {
     try {
-      this.#archived = await archivedWallRanges(this.#archiveUrl, this.#fetch);
+      const before = this.#playlist;
+      this.#playlist = await archiveState(this.#archiveUrl, this.#fetch);
+      // The speaker came back: hls.js stopped reloading the playlist at its ENDLIST.
+      if (before?.ended && this.#playlist && !this.#playlist.ended) this.#archive?.reload();
       this.#listeners.emit();
     } catch (e) {
       console.warn("archive playlist", e);
@@ -305,11 +319,11 @@ export class RoomMedia implements SpeakerMedia {
 
   async #seekArchive(ms: number, edge: number | undefined): Promise<void> {
     const generation = ++this.#archiveGeneration;
-    if (this.#archived.length === 0) await this.#loadArchived();
+    if (!this.#playlist?.ranges.length) await this.#loadArchived();
     if (this.#closed || this.#mode !== "rewound" || generation !== this.#archiveGeneration) return;
     const video = this.#elements?.video;
     const e = this.#catalog?.tt.E;
-    if (!video || e === undefined || this.#archived.length === 0) {
+    if (!video || e === undefined || !this.#playlist?.ranges.length) {
       this.#useClock(ms, edge);
       return;
     }

@@ -54,7 +54,7 @@ export function Viewer({
           </Link>
           <h1>{title ?? `Room ${room}`}</h1>
         </div>
-        <LiveIndicator view={view} agents={agents} />
+        <LiveIndicator view={view} agents={agents} onAir={playback.media.onAir?.()} />
       </header>
 
       <div className="viewer-grid">
@@ -102,11 +102,20 @@ export function Viewer({
   );
 }
 
-function LiveIndicator({ view, agents }: { view: RoomStatus; agents: readonly AgentView[] }) {
+function LiveIndicator({
+  view,
+  agents,
+  onAir,
+}: {
+  view: RoomStatus;
+  agents: readonly AgentView[];
+  /** From the speaker media itself: the relay announces a broadcast arriving, never one leaving. */
+  onAir: boolean | undefined;
+}) {
   const anyLive = agents.some((a: AgentView) => a.health === "live");
   if (view.status === "failed") return <Badge variant="error" label="Offline" />;
   if (view.status !== "connected") return <Badge variant="warning" label="Connecting" />;
-  return anyLive || view.teacherLive ? (
+  return anyLive || (onAir ?? view.teacherLive) ? (
     <span className="live-badge" role="status">
       <Badge variant="error" label="● Live" />
     </span>

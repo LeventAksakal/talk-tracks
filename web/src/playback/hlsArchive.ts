@@ -9,12 +9,28 @@ import { mergeRanges, type Range } from "./slices";
 /** The room's playlist. Assumed until the archive lane fixes the layout. */
 export const hlsUrl = (room: string, base = "/archive") => `${base.replace(/\/$/, "")}/${room}/index.m3u8`;
 
+/** What a media playlist says: the wall time it covers, and whether it has ended. */
+export interface ArchiveState {
+  /** Wall-time ranges (Unix ms) with media. */
+  ranges: Range[];
+  /**
+   * EXT-X-ENDLIST: no teacher media for 30 s, so the speaker has left. The archive removes it again when
+   * media resumes (the playlists are EVENT playlists).
+   */
+  ended: boolean;
+}
+
 /**
  * Wall-time ranges (Unix ms) a media playlist covers: each segment from its PROGRAM-DATE-TIME (carried
  * forward over EXTINF when a segment has none) for its duration, minus EXT-X-GAP segments.
  */
 export function playlistWallRanges(text: string): Range[] {
+  return readPlaylist(text).ranges;
+}
+
+export function readPlaylist(text: string): ArchiveState {
   const out: Range[] = [];
+  let ended = false;
   let pdt: number | undefined;
   let duration: number | undefined;
   let gap = false;
@@ -27,6 +43,8 @@ export function playlistWallRanges(text: string): Range[] {
       duration = parseFloat(line.slice("#EXTINF:".length)) * 1000;
     } else if (line === "#EXT-X-GAP") {
       gap = true;
+    } else if (line === "#EXT-X-ENDLIST") {
+      ended = true;
     } else if (line && !line.startsWith("#")) {
       if (pdt !== undefined && duration !== undefined) {
         if (!gap) out.push({ start: pdt, end: pdt + duration });
@@ -36,7 +54,7 @@ export function playlistWallRanges(text: string): Range[] {
       gap = false;
     }
   }
-  return mergeRanges(out);
+  return { ranges: mergeRanges(out), ended };
 }
 
 /** The first variant's URI of a multivariant playlist, or undefined for a media playlist. */
@@ -49,16 +67,21 @@ export function firstVariant(text: string): string | undefined {
 
 /** What the archive holds, as wall-time ranges, from the room's playlist. Empty when there is none. */
 export async function archivedWallRanges(url: string, fetchFn: typeof fetch = fetch): Promise<Range[]> {
+  return (await archiveState(url, fetchFn))?.ranges ?? [];
+}
+
+/** The room's playlist read through its first variant (video, or audio alone); undefined when there is none. */
+export async function archiveState(url: string, fetchFn: typeof fetch = fetch): Promise<ArchiveState | undefined> {
   const get = async (u: string) => {
-    const r = await fetchFn(u);
+    const r = await fetchFn(u, { cache: "no-store" });
     return r.ok ? r.text() : undefined;
   };
   const top = await get(url);
-  if (top === undefined) return [];
+  if (top === undefined) return undefined;
   const variant = firstVariant(top);
-  if (variant === undefined) return playlistWallRanges(top);
+  if (variant === undefined) return readPlaylist(top);
   const media = await get(new URL(variant, new URL(url, location.href)).href);
-  return media === undefined ? [] : playlistWallRanges(media);
+  return media === undefined ? undefined : readPlaylist(media);
 }
 
 /** One archive playback on a video element, addressed in wall time (Unix ms). */
@@ -66,6 +89,11 @@ export interface ArchivePlayback {
   /** Start at wall time `wallMs` (into the next segment when it falls in a hole). */
   open(wallMs: number): Promise<void>;
   seek(wallMs: number): void;
+  /**
+   * Read the playlist again from scratch, keeping the playhead: after an ENDLIST is removed (the speaker
+   * came back), hls.js has stopped reloading what it took for a finished playlist.
+   */
+  reload(): void;
   /** The playhead, wall ms, from PROGRAM-DATE-TIME. */
   position(): number | undefined;
   /** What the element holds, wall ms. */
@@ -85,12 +113,16 @@ export async function openArchive(video: HTMLVideoElement, url: string): Promise
 
 class HlsJsPlayback implements ArchivePlayback {
   readonly element: HTMLVideoElement;
+  #Hls: typeof HlsType;
   #hls: HlsType;
+  #url: string;
   #ready: Promise<void>;
   #error: string | undefined;
 
   constructor(Hls: typeof HlsType, video: HTMLVideoElement, url: string) {
     this.element = video;
+    this.#Hls = Hls;
+    this.#url = url;
     this.#hls = new Hls({ enableWorker: true, lowLatencyMode: false });
     this.#ready = new Promise((resolve, reject) => {
       this.#hls.once(Hls.Events.LEVEL_LOADED, () => resolve());
@@ -116,6 +148,16 @@ class HlsJsPlayback implements ArchivePlayback {
   seek(wallMs: number): void {
     const t = this.#timeOf(wallMs);
     if (t !== undefined) this.element.currentTime = t;
+  }
+
+  reload(): void {
+    const at = this.position();
+    const playing = !this.element.paused;
+    this.#hls.once(this.#Hls.Events.LEVEL_LOADED, () => {
+      if (at !== undefined) this.seek(at);
+      if (playing) void this.element.play().catch(() => {});
+    });
+    this.#hls.loadSource(this.#url);
   }
 
   position(): number | undefined {
@@ -151,8 +193,11 @@ class NativePlayback implements ArchivePlayback {
   readonly element: HTMLVideoElement;
   #error: string | undefined;
 
+  #url: string;
+
   constructor(video: HTMLVideoElement, url: string) {
     this.element = video;
+    this.#url = url;
     video.src = url;
     video.addEventListener("error", () => (this.#error = video.error?.message ?? "media error"), { once: true });
   }
@@ -176,6 +221,20 @@ class NativePlayback implements ArchivePlayback {
   seek(wallMs: number): void {
     const start = this.#start();
     if (start !== undefined) this.element.currentTime = Math.max(0, (wallMs - start) / 1000);
+  }
+
+  reload(): void {
+    const at = this.position();
+    const playing = !this.element.paused;
+    this.element.addEventListener(
+      "loadedmetadata",
+      () => {
+        if (at !== undefined) this.seek(at);
+        if (playing) void this.element.play().catch(() => {});
+      },
+      { once: true },
+    );
+    this.element.src = this.#url;
   }
 
   position(): number | undefined {
