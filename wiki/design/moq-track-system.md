@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted (decision 0012)
 date: 2026-10-28
 replaces: the coordinator's draft of the same name (2026-10-28)
 ---
@@ -384,14 +384,12 @@ from other stacks), so latencies are upper bounds.
 Still to run, once the machine is free: S4c (origin FETCH with a corrected End Location; the design depends on it),
 S3 rerun with relay logs, and a stable-name restart where the first publisher is killed rather than closed.
 
-## 10. Decisions for the owner
+## 10. Decisions
 
-Asked in the session; recorded in decision 0012 once answered.
+The owner chose the recommended option for each of the four questions on 2026-10-28, recorded in
+[decision 0012](../decisions/0012-ai-track-history-by-fetch-from-the-agent.md):
 
-1. **Origin of AI-track history:** each agent serves its own track's past by FETCH (recommended), a separate store
-   publisher, or HTTP files only.
-2. **Media rewind:** over HTTP from the archive (recommended), or a MoQ media origin with our own player.
-3. **Group model:** time slices on the media clock with a carry-in object (recommended), or snapshot groups plus a
-   time index track.
-4. **Back-fill:** on FETCH, per slice, within the cap (recommended); eager, from the moment a track is switched on;
-   or none.
+1. **Origin of AI-track history:** each agent serves its own track's past by FETCH.
+2. **Media rewind:** over HTTP from the archive's fMP4 segments, with MSE.
+3. **Group model:** 4 s time slices on the media clock, with a carry-in object.
+4. **Back-fill:** on FETCH, per slice, within the room cap.
