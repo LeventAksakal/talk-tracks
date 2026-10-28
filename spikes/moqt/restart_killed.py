@@ -11,7 +11,9 @@ before the second connects (container start-up alone took ~10 s on the loaded ho
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
 import sys
 import time
 
@@ -19,13 +21,39 @@ from common import RELAY, log, subscribe, unsubscribe, writer_spec
 
 from talk_tracks.moq import connect
 
+IDLE_S = float(os.environ.get("SPIKE_IDLE_S", "0"))  # S5b: the publisher advertises a short QUIC idle timeout
+
+
+@contextlib.asynccontextmanager
+async def connect_pub():
+    """Like talk_tracks.moq.connect, with an optional QUIC idle timeout and keep-alive for the publisher."""
+    if not IDLE_S:
+        async with connect(RELAY, insecure=True) as s:
+            yield s
+        return
+    from aiomoqt.client import MOQTClient
+    from aiopquic.quic.configuration import QuicConfiguration
+
+    from talk_tracks.moq import DRAFT, Relay
+
+    cfg = QuicConfiguration(is_client=True, alpn_protocols=None)
+    cfg.idle_timeout = IDLE_S
+    cfg.keep_alive_interval = IDLE_S / 3
+    host, port = RELAY.removeprefix("moqt://").split(":")
+    client = MOQTClient(host, int(port), use_quic=True, verify_tls=False, supported_drafts=DRAFT,
+                        configuration=cfg, keep_alive_interval=IDLE_S / 3)
+    async with client.connect() as session:
+        await session.client_session_init()
+        yield Relay(session)
+
 NS, NAME = "spike/restart", "t"
 
 
 async def pub(label: str, first: int, delay: float) -> None:
     await asyncio.sleep(delay)
     log(label, "connecting")
-    async with connect(RELAY, insecure=True) as s:
+    async with connect_pub() as s:
+        log(label, "idle timeout", IDLE_S or "default")
         w = s.agent.writer(writer_spec(NS, NAME))
         await w.start()
         w._group = first - 1
