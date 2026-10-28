@@ -27,8 +27,10 @@ from pydantic import ValidationError
 from ..contracts import ROOT, SlideFrame, slides_path, teacher_path
 from ..lecture import AUDIO_TRACK, CATALOG_TRACK
 from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
+from ..room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
+from ..room_catalog import catalog_path
 from ..runtime import now_ms
-from .catalog import REFRESH_S, TRACK, RoomCatalog, catalog_path
+from .catalog import REFRESH_S, CatalogFeed
 from .store import Archive, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
@@ -38,7 +40,7 @@ TICK_S = 1.0
 
 @dataclass
 class _Room:
-    catalog: RoomCatalog
+    catalog: CatalogFeed
     agents: dict[str, set[str]] = field(default_factory=dict[str, set[str]])  # agent -> its announced paths
     teacher: dict[str, asyncio.Task[None]] = field(default_factory=dict[str, asyncio.Task[None]])
     slides: asyncio.Task[None] | None = None
@@ -107,7 +109,7 @@ class Archiver:
     def _room(self, room: str) -> _Room:
         state = self.rooms.get(room)
         if state is None:
-            state = self.rooms[room] = _Room(RoomCatalog(room, self.archive.root, capped=self.capped))
+            state = self.rooms[room] = _Room(CatalogFeed(room, self.archive.root, capped=self.capped))
         return state
 
     async def _publish(self, name: str, room: _Room) -> None:
@@ -122,7 +124,7 @@ class Archiver:
         if data is None:
             return
         if room.writer is None:
-            room.writer = await self.relay.publish(catalog_path(name), TRACK)
+            room.writer = await self.relay.publish(catalog_path(name), ROOM_CATALOG_TRACK)
         await room.writer.write(data)
         room.sent_s = now
 

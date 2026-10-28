@@ -28,7 +28,7 @@ in ms:
   wall time in Unix ms is `1577836800000 + 1000 × wall / timescale + pts_ms`, where `pts` is the µs varint every
   legacy-container object starts with.
 * **`E`**, the room's epoch, is the wall time of the first teacher media the room service ever saw in the room,
-  rounded down to a multiple of 4 s. It is set once, kept in `room.json` and published in the catalog (`tt.E`).
+  rounded down to a multiple of 4 s. It is set once, kept in `room.json` and published in the catalog (`tt.epoch`).
 * **The shift** is decided once per teacher broadcast (one `clock.wall`), when its first media arrives: 0, unless that
   media maps onto room time already used, by the speaker's media or by any agent's slice (a device with a slow
   clock). Then it is the whole slices that put it after the last used slice; a slice partly used counts as used. It
@@ -239,7 +239,7 @@ The library, `talk_tracks.archive.slices` (no transport code; the agents' publis
 | `await .last_object(k)` | the slice's last published object, end marker left out (a snapshot track's state at the slice's end); `None` when it has none |
 | `.latest_group()` | on restart: seed from that slice, continue at the next one |
 | `.discard(k)` | before back-filling a slice a killed process left open |
-| `.set_status("idle" \| "live" \| "capped")` | for the catalog; a live track calls it at least every 10 s (a `track.json` older than 30 s reads as idle) |
+| `.report(status, producing=, fetches_served=, backfills=, spend_usd=)` | for the catalog's `tt.status`: on every change and as a heartbeat at least every 5 s (a `track.json` older than 15 s counts as idle); `status` is `idle`, `live` or `capped`, the counts are this track's totals in the room |
 
 `SliceObject` uses aiomoqt's field names (`FetchObject(group_id=k, **obj.fields())`); `Slice.last_object_id` is the
 End Location's object for FETCH_OK. **Each slice is written once:** the first writer wins, atomically (a hard link
@@ -274,24 +274,27 @@ again). A slide shown before the broadcast's first media waits for it (only the 
 
 The room service publishes `talk/<room>/catalog`, track `catalog`: an MSF catalog (draft-ietf-moq-msf-01 §5), one
 whole catalog per group (object 0), a new group on every change and every 4 s (under moq-relay's 5 s max age, so a
-late joiner always gets the latest). A new broadcast's shift is published at once, not at the next tick.
+late joiner always gets the latest). A new broadcast's shift is published at once, not at the next tick. Nothing is
+published before the room has an epoch. The document is built by `talk_tracks.room_catalog`, which the looper uses
+for the demo rooms too, with the field names locked in [the lane briefs](../design/lane-briefs.md) ("Catalog field
+names"). Read it as raw JSON: `@moq/msf` 0.3.1 drops the fields it does not declare.
 
 ```json
 {"version": "draft-01",
- "tt": {"E": 1761650000000, "shift": {"183813200000000": 0},
-        "status": {"talk/live/agents/captions": {"state": "live"}, "talk/live/agents/translate-tr": {"state": "idle"}},
-        "media": "/archive/live/index.m3u8"},
+ "tt": {"epoch": 1761650000000, "shift": {"183813200000000": 0, "183813203600000": 4000},
+        "status": {"captions": {"status": "live", "producing": true, "capped": false, "fetches_served": 12,
+                                "backfills": 0, "spend_usd": 0.0421, "updated_ms": 1761650030000}}},
  "tracks": [
   {"name": "items", "namespace": "talk/live/agents/captions", "packaging": "eventtimeline",
    "mimeType": "application/json", "eventType": "urn:msf:captions:webvtt", "role": "caption", "lang": "en",
-   "isLive": true, "template": [0, 4000, [0, 0], [1, 0], 1761650000000, 4000],
+   "label": "", "isLive": true, "template": [0, 4000, [0, 0], [1, 0], 1761650000000, 4000],
    "tt": {"dependsOn": [], "latenessMs": 8000, "cost": "paid"}},
   {"name": "items", "namespace": "talk/live/agents/translate-tr", "packaging": "eventtimeline",
-   "mimeType": "application/json", "eventType": "urn:msf:captions:webvtt", "role": "subtitle", "label": "Türkçe",
-   "lang": "tr", "isLive": true, "template": [0, 4000, [0, 0], [1, 0], 1761650000000, 4000],
+   "mimeType": "application/json", "eventType": "urn:msf:captions:webvtt", "role": "subtitle", "lang": "tr",
+   "label": "Türkçe", "isLive": true, "template": [0, 4000, [0, 0], [1, 0], 1761650000000, 4000],
    "tt": {"dependsOn": ["talk/live/agents/captions/items"], "latenessMs": 12000, "cost": "paid"}},
   {"name": "outline", "namespace": "talk/live/agents/chapters", "packaging": "eventtimeline",
-   "mimeType": "application/json", "eventType": "com.talktracks.outline", "isLive": true,
+   "mimeType": "application/json", "eventType": "com.talktracks.outline", "lang": "", "label": "", "isLive": true,
    "tt": {"dependsOn": ["talk/live/agents/captions/items"], "latenessMs": 0, "cost": "paid"}}]}
 ```
 
@@ -299,16 +302,18 @@ late joiner always gets the latest). A new broadcast's shift is published at onc
   `track.json` (written by `TrackArchive(..., info=...)`). Nothing here subscribes to an agent track.
 * `eventType` is `urn:msf:captions:webvtt` for captions and translations (`role` `caption` and `subtitle`),
   `com.talktracks.slides` for slide descriptions and `com.talktracks.outline` for the outline. `template` (MSF §7.4)
-  says group `k` starts at `E + 4000 k` ms; the outline, one group per revision, has none, and no track has one
-  before `E` is known.
-* **`tt`** at the root: `E`, `shift` (per broadcast, keyed by `clock.wall`), `status` and `media`, the HLS playlist to
-  rewind the speaker with. In a track: `dependsOn` (full track paths), `latenessMs` and `cost`.
-* **Status** is per agent: `live` when one of its tracks says so in a `track.json` written in the last 30 s, `idle`
-  otherwise, `capped` for a paid agent when the spend ledger shows the room at its cap or the build at its ceiling.
-  It is in the root because MSF forbids changing a declared track.
+  says group `k` starts at `E + 4000 k` ms; the outline, one group per revision, has none.
+* **`tt`** at the root: `epoch` (E), `shift` (ms per broadcast, keyed by `clock.wall`) and `status`. In a track:
+  `dependsOn` (full track paths: `<agent>/<track>` in `TrackInfo.depends` becomes `talk/<room>/agents/<agent>/<track>`;
+  a full path such as `talk/<room>/slides/frames` is kept), `latenessMs` and `cost`.
+* **`tt.status.<agent>`** sums what each of its tracks last wrote with `TrackArchive.report`: `status` (the highest of
+  `idle`, `live`, `capped`), `producing`, `capped`, `fetches_served`, `backfills`, `spend_usd` and `updated_ms` (the
+  newest). A `track.json` older than 15 s counts as idle and not producing. When the spend ledger shows the room at
+  its cap, or the build at its ceiling, every paid agent is `capped`. Status is in the root because MSF forbids
+  changing a declared track.
+* The speaker's media is at `/archive/<room>/index.m3u8` ([HLS playlists](#hls-playlists)).
 * The room service publishes the catalog of every archived room, on air or not. Demo rooms it skips
-  (`TT_ARCHIVE_SKIP`) get no catalog from it; their looper publishes one, with `msf_catalog` from
-  `talk_tracks.archive.catalog`.
+  (`TT_ARCHIVE_SKIP`) get no catalog from it; their looper publishes one.
 
 ## Serving
 

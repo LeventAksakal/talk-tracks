@@ -9,7 +9,7 @@ Layout under the archive (``TT_ARCHIVE_DIR``, by default ``archive/`` beside ``T
 
     <room>/agents/<agent>/<track>/<k:08d>.part    the open slice, appended object by object
     <room>/agents/<agent>/<track>/<k:08d>.slice   a finished slice (linked from .part at End of Group); immutable
-    <room>/agents/<agent>/<track>/track.json      what the room catalog lists: kind, lang, depends, status
+    <room>/agents/<agent>/<track>/track.json      what the room catalog lists: kind, lang, depends, and the last report
 
 A slice file holds one JSON line per object, in object order, byte-identical payloads::
 
@@ -118,7 +118,7 @@ class TrackInfo:
     kind: str  # captions, translation, slides or outline: the MSF eventType and role follow from it
     label: str = ""
     lang: str | None = None
-    depends: list[str] = field(default_factory=list[str])  # tracks this one reads, as "<agent>/<track>"
+    depends: list[str] = field(default_factory=list[str])  # tracks it reads: "<agent>/<track>", or a full track path
     cost: Literal["paid", "free"] = "paid"
     lateness_ms: int = 0  # L: how much later than its slice an item may be published (design §4.1)
 
@@ -163,8 +163,8 @@ class TrackArchive:
         self._open: dict[int, tuple[TextIO, int]] = {}  # group -> (file, last object id)
         self._info: dict[str, Any] | None = None
         if info is not None:
-            self._info = {"name": track, "agent": agent, **info.__dict__, "status": "idle"}
-            self._save_info()
+            self._info = {"name": track, "agent": agent, **info.__dict__}
+            self.report("idle")
 
     def path(self, group: int, suffix: str = FINISHED) -> Path:
         return self.dir / f"{group:08d}{suffix}"
@@ -244,14 +244,28 @@ class TrackArchive:
         except FileNotFoundError:
             return False
 
-    def set_status(self, status: Status) -> None:
-        """Tell the room catalog whether the track is idle, live or capped (needs ``info``). A live track calls this
-        at least every 10 s: a ``track.json`` older than 30 s reads as idle (its agent stopped without saying so)."""
+    def report(
+        self,
+        status: Status,
+        *,
+        producing: bool = False,
+        fetches_served: int = 0,
+        backfills: int = 0,
+        spend_usd: float = 0.0,
+    ) -> None:
+        """Tell the room catalog how the track is doing (needs ``info``): rewrites ``track.json`` with these fields and
+        ``updated_ms``. Call it on every change and as a heartbeat at least every 5 s: an entry older than 15 s
+        counts as idle (its agent stopped without saying so). The counts are totals for this track in this room."""
         if self._info is None:
             return
-        if self._info.get("status") != status or time.time() * 1000 - self._info["updated_ms"] > 10_000:
-            self._info["status"] = status
-            self._save_info()
+        self._info |= {
+            "status": status,
+            "producing": producing,
+            "fetches_served": fetches_served,
+            "backfills": backfills,
+            "spend_usd": round(spend_usd, 6),
+        }
+        self._save_info()
 
     def close(self) -> None:
         """Close open files. Their slices stay ``.part``: a replacement publisher starts at the next slice."""

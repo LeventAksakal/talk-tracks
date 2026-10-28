@@ -566,7 +566,7 @@ def test_slice_watcher_and_track_info(tmp_path: Path) -> None:
 
 
 def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path) -> None:
-    from talk_tracks.archive.catalog import RoomCatalog
+    from talk_tracks.archive.catalog import CatalogFeed
     from talk_tracks.archive.slices import TrackArchive, TrackInfo
 
     TrackArchive("room1", "captions", "items", root=tmp_path, info=TrackInfo("captions", lang="en", lateness_ms=8000))
@@ -575,24 +575,27 @@ def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path
         "translate-tr",
         "items",
         root=tmp_path,
-        info=TrackInfo("translation", lang="tr", depends=["captions/items"], lateness_ms=12000),
+        info=TrackInfo("translation", label="Türkçe", lang="tr", depends=["captions/items"], lateness_ms=12000),
     )
-    TrackArchive("room1", "chapters", "outline", root=tmp_path, info=TrackInfo("outline", cost="paid"))
-    cat = RoomCatalog("room1", tmp_path)
-    cat.agents = {"captions", "translate-tr", "chapters", "describe"}  # describe has no track.json yet: not listed
+    TrackArchive("room1", "chapters", "outline", root=tmp_path, info=TrackInfo("outline", depends=["captions/items"]))
+    TrackArchive(
+        "room1", "describe", "items", root=tmp_path, info=TrackInfo("slides", depends=["talk/room1/slides/frames"])
+    )
+    cat = CatalogFeed("room1", tmp_path)
+    cat.agents = {"captions", "translate-tr", "chapters", "describe", "echo"}  # echo has no track.json: not listed
+    assert cat.changed() is None  # no epoch yet: nothing to publish
+    cat.epoch_ms, cat.shift = WALL, {"183813200000000": 0, "183813203600000": 4000}
     doc = json.loads(cat.changed() or b"")
-    assert doc["version"] == "draft-01" and "E" not in doc["tt"]  # no teacher media yet: no epoch, no template
-    assert doc["tt"]["media"] == "/archive/room1/index.m3u8"
-    cat.epoch_ms, cat.shift = WALL, {"123": 0}
-    doc = json.loads(cat.changed() or b"")
-    assert doc["tt"]["E"] == WALL and doc["tt"]["shift"] == {"123": 0}
+    assert doc["version"] == "draft-01"
+    assert doc["tt"]["epoch"] == WALL and doc["tt"]["shift"] == {"183813200000000": 0, "183813203600000": 4000}
     names = [(e["namespace"], e["name"]) for e in doc["tracks"]]
     assert names == [
         ("talk/room1/agents/captions", "items"),
         ("talk/room1/agents/chapters", "outline"),
+        ("talk/room1/agents/describe", "items"),
         ("talk/room1/agents/translate-tr", "items"),
     ]
-    captions, outline, translation = doc["tracks"]
+    captions, outline, describe, translation = doc["tracks"]
     assert captions == {
         "name": "items",
         "namespace": "talk/room1/agents/captions",
@@ -601,40 +604,64 @@ def test_room_catalog_is_msf_and_lists_tracks_without_subscribing(tmp_path: Path
         "eventType": "urn:msf:captions:webvtt",
         "role": "caption",
         "lang": "en",
+        "label": "",
         "isLive": True,
         "template": [0, 4000, [0, 0], [1, 0], WALL, 4000],
         "tt": {"dependsOn": [], "latenessMs": 8000, "cost": "paid"},
     }
-    assert translation["role"] == "subtitle" and translation["lang"] == "tr"
+    assert translation["role"] == "subtitle" and translation["label"] == "Türkçe"
     assert translation["tt"]["dependsOn"] == ["talk/room1/agents/captions/items"]
+    assert describe["eventType"] == "com.talktracks.slides"
+    assert describe["tt"]["dependsOn"] == ["talk/room1/slides/frames"]
     assert outline["eventType"] == "com.talktracks.outline" and "template" not in outline and "role" not in outline
-    assert doc["tt"]["status"]["talk/room1/agents/translate-tr"] == {"state": "idle"}
+    status = doc["tt"]["status"]
+    assert set(status) == {"captions", "chapters", "describe", "translate-tr"}
+    assert status["translate-tr"] | {"updated_ms": 0} == {
+        "status": "idle",
+        "producing": False,
+        "capped": False,
+        "fetches_served": 0,
+        "backfills": 0,
+        "spend_usd": 0.0,
+        "updated_ms": 0,
+    }
     assert cat.changed() is None
-    tr.set_status("live")
-    status = json.loads(cat.changed() or b"")["tt"]["status"]
-    assert status["talk/room1/agents/translate-tr"] == {"state": "live"}
-    later = int((tmp_path / "room1/agents/translate-tr/items/track.json").stat().st_mtime * 1000) + 60_000
-    stale = json.loads(json.dumps(cat.document(later)))["tt"]["status"]
-    assert stale["talk/room1/agents/translate-tr"] == {"state": "idle"}  # its agent stopped without saying so
+    tr.report("live", producing=True, fetches_served=3, backfills=1, spend_usd=0.0125)
+    status = json.loads(cat.changed() or b"")["tt"]["status"]["translate-tr"]
+    written = json.loads((tmp_path / "room1/agents/translate-tr/items/track.json").read_text())["updated_ms"]
+    assert status == {
+        "status": "live",
+        "producing": True,
+        "capped": False,
+        "fetches_served": 3,
+        "backfills": 1,
+        "spend_usd": 0.0125,
+        "updated_ms": written,
+    }
+    stale = cat.document(written + 15_000)
+    assert stale is not None
+    assert stale["tt"]["status"]["translate-tr"]["status"] == "idle"  # no heartbeat for 15 s: its agent stopped
+    assert not stale["tt"]["status"]["translate-tr"]["producing"]
 
 
 def test_room_catalog_marks_paid_agents_capped_from_the_ledger(tmp_path: Path) -> None:
-    from talk_tracks.archive.catalog import Budget, RoomCatalog
+    from talk_tracks.archive.catalog import Budget, CatalogFeed
     from talk_tracks.archive.slices import TrackArchive, TrackInfo
 
-    TrackArchive("room1", "captions", "items", root=tmp_path, info=TrackInfo("captions"))
+    TrackArchive("room1", "captions", "items", root=tmp_path, info=TrackInfo("captions")).report("live", producing=True)
     TrackArchive("room1", "echo", "items", root=tmp_path, info=TrackInfo("captions", cost="free"))
     ledger = tmp_path / "ledger.jsonl"
     ledger.write_text('{"t": 1, "usd": 1.5, "what": "asr", "room": "room1"}\n{"t": 2, "usd": 9, "room": "other"}\n')
     budget = Budget(ledger, tmp_path / "caps", ceiling_usd=100, room_cap_usd=2)
-    cat = RoomCatalog("room1", tmp_path, capped=budget.capped)
-    cat.agents = {"captions", "echo"}
-    assert json.loads(cat.changed() or b"")["tt"]["status"]["talk/room1/agents/captions"] == {"state": "idle"}
+    cat = CatalogFeed("room1", tmp_path, capped=budget.capped)
+    cat.agents, cat.epoch_ms = {"captions", "echo"}, WALL
+    assert json.loads(cat.changed() or b"")["tt"]["status"]["captions"]["status"] == "live"
     with ledger.open("a") as f:
         f.write('{"t": 3, "usd": 0.5, "what": "llm", "room": "room1"}\n{"t": 4, "usd"')  # the last line half-written
     status = json.loads(cat.changed() or b"")["tt"]["status"]
-    assert status["talk/room1/agents/captions"] == {"state": "capped"}
-    assert status["talk/room1/agents/echo"] == {"state": "idle"}  # free tracks are never capped
+    assert status["captions"]["status"] == "capped" and status["captions"]["capped"]
+    assert not status["captions"]["producing"]
+    assert status["echo"]["status"] == "idle" and not status["echo"]["capped"]  # free tracks are never capped
 
 
 def test_a_slice_is_created_once_and_the_loser_serves_the_winners_copy(tmp_path: Path) -> None:
