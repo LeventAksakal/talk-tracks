@@ -72,6 +72,9 @@ direction; each later prompt is one screen. Change the direction in prompt 1 if 
 
 ## 8. Speaker console
 
+> First settle brief §8 question 8 (camera, screen share, both, or audio and slides only); design the console and
+> the viewer's stage for that choice.
+>
 > Design the teacher's console at 1440 × 900: mic and camera preview with levels, a big On air / Off air control,
 > slide upload and next/previous, the share link and a QR code for phones, and a track meter: each track, whether
 > its agent is producing, how many viewers have it on, and the room's spend against its cap. States: before going

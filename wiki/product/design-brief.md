@@ -139,6 +139,10 @@ chips (fastest, no twist).
 6. First visit with every track off: an onboarding prompt suggesting captions (recommended), a preset picker
    ("Follow along", "Accessible", "Turkish"), or nothing.
 7. The name, logo and any illustration style.
+8. What the speaker sends besides the microphone: camera, screen share, both, or none (today: mic and slide images
+   only). The stack supports H.264 video from the browser and the archive handles audio-only and audio+video rooms;
+   video adds about 1–2 Mbit/s per viewer and a transcoding risk on the VM. The demo lectures already carry video.
+   This decides the stage on the viewer and the console's preview.
 
 ## 9. What to hand back to the lane
 
