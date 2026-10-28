@@ -10,7 +10,9 @@ bucket (decisions [0007](../decisions/0007-rewind-from-a-static-track-archive.md
 * a **replacement VM** copies the bucket back and carries on.
 
 The archiver (`python -m talk_tracks.archive`) follows every room under `talk/**` on the relay, as rooms appear, and
-writes what it receives. It never publishes.
+writes what it receives. It never publishes. It reads the teacher broadcast and the slides off the relay (no API
+cost), but never subscribes to agent tracks: a subscription is demand, and would keep a lazy agent (decision 0010)
+awake. Agents record their own output instead, in the [spool](#the-agents-spool), which the archiver reads.
 
 ## One clock: media time
 
@@ -136,6 +138,21 @@ one `SourceBuffer` per track, append the init segment, then the media segments.
 
 A broadcast without `catalog.json` (the dev `teacher` stand-in) is archived as one Opus track `audio`, mono, 48 kHz.
 
+## The agents' spool
+
+Each agent writes every envelope it publishes to its own file, `<spool>/<room>/<agent>/<instance>.jsonl` (one
+envelope per line, `contracts/envelope.schema.json`), on the disk it shares with the archiver. The archiver reads
+new lines four times a second, keeps each agent's newest instance and drops heartbeats (a repeated `seq`), and stamps
+each snapshot with the teacher media time when it reads it. A replaced instance's file is removed once read and
+quiet for 2 minutes; read offsets survive an archiver restart (`<spool>/offsets.json`).
+
+* The spool is `TT_ARCHIVE_SPOOL`, by default `archive-spool/` beside the agents' state folder: `$TT_DATA/archive-spool`
+  on the VM, `data/archive-spool/` locally. It is not served.
+* Agent side: `talk_tracks.archive.spool.spool_sink(sink, room)` wraps the sink a `SnapshotPublisher` writes to.
+  Publishing never fails because of the spool. `TT_ARCHIVE_SPOOL=off` turns it off.
+* `--subscribe-agents` (`TT_ARCHIVE_SUBSCRIBE_AGENTS=1`) reads agent tracks off the relay instead, for agents that
+  do not spool yet. It keeps them awake.
+
 ## Agent snapshot chunks
 
 Each line is a `RecordedSnapshot`, the same model as a demo recording's `agents/<agent>.jsonl`
@@ -192,6 +209,8 @@ Caddy serves the root under `/archive/` with range requests and the site's cross
 | `TT_RELAY` / `--relay` | | The relay to follow; watching is open, so no token is needed |
 | `TT_ARCHIVE_DIR` / `--out` | `data/archive` | The archive root (`/data/archive` in the containers) |
 | `TT_ARCHIVE_ROOMS` / `--rooms` | `*` | Room patterns to archive, comma-separated |
+| `TT_ARCHIVE_SPOOL` / `--spool` | `archive-spool` beside the archive | The agents' spool to read |
+| `TT_ARCHIVE_SUBSCRIBE_AGENTS` / `--subscribe-agents` | off | Read agent tracks off the relay instead of the spool (keeps lazy agents awake) |
 | `TT_ARCHIVE_SKIP` / `--skip` | (compose: the demo room) | Room patterns not to archive: a looped demo room's recording already is its archive, and its video would grow the archive by about 1 GB an hour |
 | `TT_ARCHIVE_BUCKET` / `--bucket` | unset | `gs://<bucket>[/<folder>]` to copy to (folder default `archive`); unset, nothing is copied |
 

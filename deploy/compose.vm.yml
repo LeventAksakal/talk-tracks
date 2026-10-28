@@ -96,7 +96,9 @@ services:
     command: ["loop", "--insecure", "--recording", "/data/demo/${TT_LECTURE:-test}"]
 
   # The track archive (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
-  # serves under /archive/ and restarting agents read (/data/archive). Finished files are copied to the Cloud
+  # serves under /archive/ and restarting agents read (/data/archive). It records the teacher broadcast off the relay
+  # and agent output from the agents' own spool ($TT_DATA/archive-spool, never a subscription: that would keep lazy
+  # agents awake). Finished files are copied to the Cloud
   # Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing leaves the VM. Looped demo rooms
   # are skipped: their recording already is their archive.
   archive:
@@ -105,10 +107,11 @@ services:
     init: true  # SIGTERM closes the open segments and chunks
     restart: unless-stopped
     depends_on: [relay]
-    volumes: ["${TT_DATA:?}/archive:/data/archive"]
+    volumes: ["${TT_DATA:?}/archive:/data/archive", "${TT_DATA:?}/archive-spool:/data/archive-spool"]
     environment:
       TT_RELAY: moqt://relay:443
       TT_ARCHIVE_DIR: /data/archive
+      TT_ARCHIVE_SPOOL: /data/archive-spool
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]

@@ -10,6 +10,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any, cast
 
 import av
 import numpy as np
@@ -405,3 +406,78 @@ def test_room_filter() -> None:
 
 def test_legacy_frame_helper_matches_the_audio_reader() -> None:
     assert legacy_frame(5, b"x") == write_varint(5) + b"x"
+
+
+# --- agents' spool --------------------------------------------------------------------------------------------
+
+
+class ListSink:
+    def __init__(self) -> None:
+        self.objects: list[bytes] = []
+        self.subscribed = True
+
+    async def write(self, data: bytes) -> None:
+        self.objects.append(data)
+
+
+async def test_agents_spool_what_they_publish_and_the_archiver_reads_each_change_once(tmp_path: Path) -> None:
+    from talk_tracks.archive.spool import SpoolReader, spool_sink
+    from talk_tracks.publisher import SnapshotPublisher
+
+    inner = ListSink()
+    sink = spool_sink(inner, "live", tmp_path)
+    assert cast(Any, sink).subscribed is True  # the publish path still sees its sink
+    pub = SnapshotPublisher(INFO, sink, Usage, instance="100")
+    await pub.publish(envelope(1, 1).state)
+    await pub.heartbeat()
+    await pub.publish(envelope(2, 2).state)
+    assert len(inner.objects) == 3
+    reader = SpoolReader(tmp_path)
+    assert [(room, e.seq) for room, e in reader.poll()] == [("live", 1), ("live", 2)]
+    assert reader.poll() == []
+    with (tmp_path / "live" / "captions" / "100.jsonl").open("ab") as f:
+        f.write(b'{"v": 1, "agent"')  # a line still being written
+    assert reader.poll() == []
+    reader.save()
+    await pub.publish(envelope(3, 3).state)
+    assert [e.seq for _, e in SpoolReader(tmp_path).poll()] == []  # a torn line (a killed writer) is skipped
+
+
+async def test_a_replacement_instance_wins_and_the_old_spool_file_goes(tmp_path: Path) -> None:
+    from talk_tracks.archive.spool import STALE_S, SpoolReader, spool_sink
+    from talk_tracks.publisher import SnapshotPublisher
+
+    old_sink = spool_sink(ListSink(), "live", tmp_path)
+    old = SnapshotPublisher(INFO, old_sink, Usage, instance="100")
+    await old.publish(envelope(1, 1).state)
+    reader = SpoolReader(tmp_path)
+    assert [e.instance for _, e in reader.poll()] == ["100"]
+    new = SnapshotPublisher(INFO, spool_sink(ListSink(), "live", tmp_path), Usage, instance="200")
+    await new.publish(envelope(1, 2).state)
+    await old.publish(envelope(2, 1).state)  # the old instance lingers: ignored
+    assert [(e.instance, e.seq) for _, e in reader.poll()] == [("200", 1)]
+    cast(Any, old_sink).close()  # the old process exits
+    reader.poll(now_s=time.time() + STALE_S + 1)
+    assert not (tmp_path / "live" / "captions" / "100.jsonl").exists()
+    assert (tmp_path / "live" / "captions" / "200.jsonl").exists()
+
+
+async def test_a_restarted_archiver_continues_from_its_spool_offsets(tmp_path: Path) -> None:
+    from talk_tracks.archive.spool import SpoolReader, spool_sink
+    from talk_tracks.publisher import SnapshotPublisher
+
+    pub = SnapshotPublisher(INFO, spool_sink(ListSink(), "live", tmp_path), Usage, instance="100")
+    await pub.publish(envelope(1, 1).state)
+    reader = SpoolReader(tmp_path)
+    assert len(reader.poll()) == 1
+    reader.save()
+    await pub.publish(envelope(2, 2).state)
+    assert [e.seq for _, e in SpoolReader(tmp_path).poll()] == [2]
+
+
+async def test_the_spool_can_be_turned_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from talk_tracks.archive.spool import spool_sink
+
+    monkeypatch.setenv("TT_ARCHIVE_SPOOL", "off")
+    inner = ListSink()
+    assert spool_sink(inner, "live", tmp_path) is inner

@@ -7,8 +7,9 @@ broadcast gets its readers:
 * ``<room>/teacher``: ``catalog.json``, then every legacy-container track it names (``audio`` straight away, so a
   broadcast without a catalog is archived too);
 * ``<room>/slides``: ``frames``;
-* ``<room>/agents/<agent>/<instance>``: ``state`` of each agent's newest instance (``RoomFollower``), heartbeats
-  dropped.
+* ``<room>/agents/<agent>/<instance>``: only with ``subscribe_agents``. A subscription is demand and keeps a lazy
+  agent awake, so by default agent output comes from the agents' own spool (``archive.spool``) instead, read here
+  every ``SPOOL_S``.
 """
 
 from __future__ import annotations
@@ -27,11 +28,13 @@ from ..follow import RoomFollower
 from ..lecture import AUDIO_TRACK, CATALOG_TRACK
 from ..moq import AUDIO_IDLE_S, Relay
 from ..runtime import now_ms
+from .spool import SpoolReader
 from .store import Archive, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
 
 TICK_S = 1.0
+SPOOL_S = 0.25
 
 
 @dataclass
@@ -43,8 +46,17 @@ class _Room:
 
 
 class Archiver:
-    def __init__(self, relay: Relay, archive: Archive, rooms: RoomFilter) -> None:
+    def __init__(
+        self,
+        relay: Relay,
+        archive: Archive,
+        rooms: RoomFilter,
+        *,
+        spool: SpoolReader | None = None,
+        subscribe_agents: bool = False,
+    ) -> None:
         self.relay, self.archive, self.wanted = relay, archive, rooms
+        self.spool, self.subscribe_agents = spool, subscribe_agents
         self.rooms: dict[str, _Room] = {}
 
     def _spawn(self, work: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
@@ -59,11 +71,14 @@ class Archiver:
 
     async def run(self) -> None:
         ticker = asyncio.create_task(self._tick())
+        spool = asyncio.create_task(self._spool()) if self.spool is not None else None
         try:
             async for path, active in self.relay.announced(ROOT):
                 self.announced(path, active)
         finally:
             ticker.cancel()
+            if spool is not None:
+                spool.cancel()
             for room in self.rooms.values():
                 for task in [*room.agents.values(), *room.teacher.values(), room.slides]:
                     if task is not None:
@@ -74,8 +89,23 @@ class Archiver:
             await asyncio.sleep(TICK_S)
             try:
                 self.archive.tick(now_ms())
+                if self.spool is not None:
+                    self.spool.save()
             except Exception:
                 log.exception("archive tick failed")
+
+    async def _spool(self) -> None:
+        assert self.spool is not None
+        while True:
+            await asyncio.sleep(SPOOL_S)
+            try:
+                for room, envelope in self.spool.poll():
+                    if self.wanted(room):
+                        self._safely(
+                            f"{room}/{envelope.agent.name}", self.archive.room(room).snapshot, envelope, now_ms()
+                        )
+            except Exception:
+                log.exception("reading the spool failed")
 
     def announced(self, path: str, active: bool) -> None:
         parts = path.split("/")
@@ -99,7 +129,7 @@ class Archiver:
             elif not active and state.slides is not None:
                 state.slides.cancel()
                 state.slides = None
-        elif kind == "agents" and len(parts) == 4 and active:
+        elif kind == "agents" and len(parts) == 4 and active and self.subscribe_agents:
             found = state.follower.offer(f"{parts[2]}/{parts[3]}")
             if found is not None:
                 agent, instance = found
@@ -149,8 +179,10 @@ class Archiver:
             log.exception("archiving %s failed", what)
 
 
-async def archive_rooms(relay: Relay, archive: Archive, rooms: RoomFilter) -> None:
-    archiver = Archiver(relay, archive, rooms)
+async def archive_rooms(
+    relay: Relay, archive: Archive, rooms: RoomFilter, *, spool: SpoolReader | None, subscribe_agents: bool
+) -> None:
+    archiver = Archiver(relay, archive, rooms, spool=spool, subscribe_agents=subscribe_agents)
     try:
         await archiver.run()
     finally:
