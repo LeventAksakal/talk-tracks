@@ -32,7 +32,12 @@ STORAGE = "https://storage.googleapis.com"
 DEFAULT_FOLDER = "archive"
 MUTABLE_EVERY_S = 2.0
 RETRY_S = (1.0, 2.0, 5.0, 10.0, 30.0)
-CONTENT_TYPES = {".m4s": "video/iso.segment", ".mp4": "video/mp4", ".jsonl": "application/x-ndjson"}
+CONTENT_TYPES = {
+    ".m4s": "video/iso.segment",
+    ".mp4": "video/mp4",
+    ".jsonl": "application/x-ndjson",
+    ".m3u8": "application/vnd.apple.mpegurl",
+}
 
 
 IMMUTABLE = (".slice", ".m4s", ".mp4", ".jpg", ".png")  # never rewritten: uploaded create-only

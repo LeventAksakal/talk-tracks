@@ -108,3 +108,39 @@ Room service token: publish `talk/R/catalog`, subscribe `talk/R/**`. The looper 
 - Does Safari play Opus from fMP4? Does native Safari honour EXT-X-GAP?
 - Can @moq/publish be set to H.264 with keyframes every ≤4 s? If not, the archiver transcodes; measure its CPU on the VM.
 - Rehearse `docker restart` of the relay; time until every track is live again.
+
+## Catalog field names (locked by the coordinator, 2026-10-28)
+
+Revised the same day to match the record contract (`06e22ce`): `epoch` became `E`, and the `capped` flag folded into
+`status`.
+
+The design leaves these names open. Every lane uses exactly these:
+
+- **Parsing:** the viewer and the room service parse the room catalog as raw JSON. `@moq/msf` 0.3.1's `CatalogSchema`
+  drops undeclared fields (namespace, mimeType, eventType, lang, label, template and every `tt`), so it is not used to
+  read ours.
+- **Root `tt`:**
+  - `E`: the room epoch, Unix ms, a multiple of 4000;
+  - `shift`: `{<clock.wall as a decimal string>: shift_ms}`, one entry per teacher broadcast. Values are ms, a
+    multiple of 4000, not a slice count;
+  - `status`: keyed by the bare agent name (`captions`, `translate-tr`), not its namespace.
+
+  No `media` field: the speaker's HLS playlist is at `/archive/<room>/index.m3u8` by convention. The room service
+  publishes no catalog before E exists, so `E` is always present.
+- **Each `tt.status.<agent>`:**
+
+  | Field | Meaning |
+  |---|---|
+  | `status` | `idle`, `live` or `capped` (the room's cap stopped it) |
+  | `producing` | whether the agent is producing |
+  | `fetches_served` | FETCHes it answered as origin |
+  | `backfills` | slices it back-filled |
+  | `spend_usd` | what it has spent in this room |
+  | `updated_ms` | when this entry was last written |
+
+  The room service builds it from each track's `track.json` (`TrackArchive.report`). An entry whose `updated_ms`
+  is older than 15 s counts as idle, and the ledger's cap overrides the status.
+- **Each track's `tt`:**
+  - `dependsOn`: a list of `<namespace>/<track>`, for example `talk/R/agents/captions/items` and `talk/R/slides/frames`;
+  - `latenessMs`;
+  - `cost`: `paid` or `free`.

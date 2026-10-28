@@ -8,8 +8,8 @@ object it sends, ``end_group`` when a slice is over, and ``read`` in its FETCH h
 Layout under the archive (``TT_ARCHIVE_DIR``, by default ``archive/`` beside ``TT_STATE_DIR``)::
 
     <room>/agents/<agent>/<track>/<k:08d>.part    the open slice, appended object by object
-    <room>/agents/<agent>/<track>/<k:08d>.slice   a finished slice (renamed from .part at End of Group); immutable
-    <room>/agents/<agent>/<track>/track.json      what the room catalog lists: kind, lang, depends, status
+    <room>/agents/<agent>/<track>/<k:08d>.slice   a finished slice (linked from .part at End of Group); immutable
+    <room>/agents/<agent>/<track>/track.json      what the room catalog lists: kind, lang, depends, and the last report
 
 A slice file holds one JSON line per object, in object order, byte-identical payloads::
 
@@ -18,8 +18,9 @@ A slice file holds one JSON line per object, in object order, byte-identical pay
     {"o": 2, "st": 3}                                 status ("st") only when not the default; 3 = End of Group
 
 The last line of a finished slice is the End of Group object (status 3), or End of Track (status 4) for the last
-slice of a talk. One process writes a track at a time (stable names, decision 0012), so writers never contend; a
-reader of an open slice sees its complete lines. The archiver copies finished slices to the bucket (decision 0011).
+slice of a talk. Every slice is written once: whoever creates the final name first wins (a hard link, which fails on
+an existing name), and a second writer serves the winner's copy. A reader of an open slice sees its complete lines.
+The archiver copies finished slices to the bucket (decision 0011).
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from typing import Any, Literal, Protocol, TextIO
 
 from ..contracts import parse_room
 from .bucket import GcsBucket
-from .store import write_atomic
+from .files import write_atomic
 
 SLICE_MS = 4000
 NORMAL, DOES_NOT_EXIST, END_OF_GROUP, END_OF_TRACK = 0, 1, 3, 4  # MoQT object status (aiomoqt ObjectStatus)
@@ -114,12 +115,12 @@ class Slice:
 class TrackInfo:
     """What the room catalog says about a track (decision 0012, design §5.10). Written to ``track.json``."""
 
-    kind: str  # captions, translation, slides, outline, ...
+    kind: str  # captions, translation, slides or outline: the MSF eventType and role follow from it
     label: str = ""
     lang: str | None = None
-    packaging: Literal["slices", "snapshot"] = "slices"
-    depends: list[str] = field(default_factory=list[str])  # tracks this one reads, as "<agent>/<track>"
+    depends: list[str] = field(default_factory=list[str])  # tracks it reads: "<agent>/<track>", or a full track path
     cost: Literal["paid", "free"] = "paid"
+    lateness_ms: int = 0  # L: how much later than its slice an item may be published (design §4.1)
 
 
 class SliceExists(Exception):
@@ -162,10 +163,8 @@ class TrackArchive:
         self._open: dict[int, tuple[TextIO, int]] = {}  # group -> (file, last object id)
         self._info: dict[str, Any] | None = None
         if info is not None:
-            self._info = {"name": track, "agent": agent, **info.__dict__, "status": "idle"}
-            if info.packaging == "slices":
-                self._info["sliceMs"] = SLICE_MS
-            self._save_info()
+            self._info = {"name": track, "agent": agent, **info.__dict__}
+            self.report("idle")
 
     def path(self, group: int, suffix: str = FINISHED) -> Path:
         return self.dir / f"{group:08d}{suffix}"
@@ -245,11 +244,28 @@ class TrackArchive:
         except FileNotFoundError:
             return False
 
-    def set_status(self, status: Status) -> None:
-        """Tell the room catalog whether the track is idle, live or capped (needs ``info``)."""
-        if self._info is not None and self._info.get("status") != status:
-            self._info["status"] = status
-            self._save_info()
+    def report(
+        self,
+        status: Status,
+        *,
+        producing: bool = False,
+        fetches_served: int = 0,
+        backfills: int = 0,
+        spend_usd: float = 0.0,
+    ) -> None:
+        """Tell the room catalog how the track is doing (needs ``info``): rewrites ``track.json`` with these fields and
+        ``updated_ms``. Call it on every change and as a heartbeat at least every 5 s: an entry older than 15 s
+        counts as idle (its agent stopped without saying so). The counts are totals for this track in this room."""
+        if self._info is None:
+            return
+        self._info |= {
+            "status": status,
+            "producing": producing,
+            "fetches_served": fetches_served,
+            "backfills": backfills,
+            "spend_usd": round(spend_usd, 6),
+        }
+        self._save_info()
 
     def close(self) -> None:
         """Close open files. Their slices stay ``.part``: a replacement publisher starts at the next slice."""
@@ -380,6 +396,19 @@ def _claim(src: Path, final: Path) -> bool:
         return True
     finally:
         src.unlink(missing_ok=True)
+
+
+def slices_end_ms(root: Path, room: str) -> int | None:
+    """The end of the newest slice any agent of ``room`` has on disk, finished or open, in room time."""
+    agents = root / room / "agents"
+    newest = -1
+    for agent in listdir(agents):
+        for track in listdir(agents / agent):
+            for name in listdir(agents / agent / track):
+                stem, dot, suffix = name.partition(".")
+                if dot and "." + suffix in (FINISHED, PART) and stem.isdigit():
+                    newest = max(newest, int(stem))
+    return None if newest < 0 else (newest + 1) * SLICE_MS
 
 
 def listdir(path: Path) -> list[str]:
