@@ -54,6 +54,7 @@ GRID_US = SLICE_MS * 1000  # a segment closes at the first sync sample in a late
 TRACK_IDLE_MS = 3_000  # ... or when its track has been silent this long
 MAX_FILL_US = 10_000_000  # an audio gap up to this long is filled with silence; a longer one starts a new segment
 REORDER = 5  # samples held back to put late groups in order
+LIVE_IDLE_MS = 30_000  # no teacher media this long: the playlists end, even if the relay never said the teacher left
 
 OnFile = Callable[[str, bool], None]  # (path relative to the root, mutable)
 
@@ -507,6 +508,7 @@ class RoomArchive:
         self.dir = archive.root / room
         self.teacher = _Teacher()
         self.live = False  # a teacher broadcast is up
+        self._media_wall_ms = 0  # wall clock of the newest teacher media
         self.runs: list[RunEntry] = []
         self.run: RunArchive | None = None
         self.dirty = False
@@ -623,6 +625,9 @@ class RoomArchive:
         if room_us < 0:
             return  # before the room's epoch: a sample reordered across the first one
         run.media(track, config, room_us, data, wall_ms)
+        self._media_wall_ms = wall_ms
+        if not self.live:
+            self.live, self._playlists_due = True, True
         if self._slide is not None:
             frame, at = self._slide
             self._slide = None
@@ -670,6 +675,8 @@ class RoomArchive:
     def tick(self, wall_ms: int) -> None:
         if self.run is not None:
             self.run.tick(wall_ms)
+        if self.live and self._media_wall_ms and wall_ms - self._media_wall_ms >= LIVE_IDLE_MS:
+            self.live, self._playlists_due = False, True
 
     def save(self) -> None:
         if self.run is not None:

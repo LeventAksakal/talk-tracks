@@ -201,7 +201,8 @@ always sees the newest):
 * **`EXT-X-GAP`** covers each hole of 1 s to 10 minutes, in steps of at most 4 s (their URI is the segment before,
   which a player does not load). A longer hole (the talk resumed the next day) is only the jump in
   PROGRAM-DATE-TIME after the discontinuity, so a playlist stays small.
-* **EVENT playlists**: appended to while the teacher is live, `EXT-X-ENDLIST` when the teacher is gone. A player that
+* **EVENT playlists**: appended to while the teacher is live, `EXT-X-ENDLIST` when the teacher is gone or has sent
+  no media for 30 s (moq-relay does not always report a publisher that left); new media removes it again. A player that
   loaded an ended playlist does not see a later broadcast until it reloads it; the live talk itself is on MoQ.
 * **Checked with hls.js 1.5** (Chrome): two broadcasts, the second shifted, play as one timeline; a seek into a hole
   lands on the next broadcast, and `playingDate` − `E` is room time. **Not yet checked on Safari** (native HLS: Opus

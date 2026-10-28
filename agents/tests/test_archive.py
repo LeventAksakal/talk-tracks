@@ -233,6 +233,9 @@ def test_video_segments_open_with_a_keyframe_and_the_playlists_pair_them(tmp_pat
     assert f'#EXT-X-MAP:URI="{run.run}/teacher/video/init-0.mp4"' in playlist
     assert "#EXT-X-PROGRAM-DATE-TIME:2025-10-28T11:13:24.000Z" in playlist  # E + 4 s
     assert "#EXT-X-ENDLIST" not in playlist  # live: still being appended to
+    room.tick(WALL + 40_000)  # no media for 30 s, though the relay never said the teacher left
+    archive.save()
+    assert (tmp_path / "archive" / "demo" / "video.m3u8").read_text().endswith("#EXT-X-ENDLIST\n")
 
 
 def to_annexb(access_unit: bytes, avcc: bytes, keyframe: bool) -> bytes:
