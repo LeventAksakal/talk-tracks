@@ -38,8 +38,9 @@ timeout when the tab dies).
 
 ## How an agent idles and wakes
 
-Each agent publishes its track as soon as it serves a room, with its empty or resumed state and a heartbeat, so a
-viewer can find it and switch it on. That costs nothing. The agent opens its inputs only while its track is
+Each agent publishes its track under its stable name (`talk/<room>/agents/<agent>`, track `items`, or `outline` for
+chapters) as soon as it serves a room, so a viewer can find it and switch it on. That costs nothing: an idle agent
+produces no slices. The agent opens its inputs only while its track is
 subscribed (`demand.Gate` polls the writer's `producing` every 100 ms):
 
 | Agent | Input it opens while subscribed | On a pause |
@@ -73,7 +74,8 @@ The third FETCH blip fell between two 100 ms polls. A moq-lite `moq fetch` (abou
 
 Switched on mid-talk, a track starts from that moment (decision 0010): captions take the audio from now; a
 translation translates the newest two caption lines and then each new one; chapters summarise the transcript the
-captions track still holds (its last 40 lines). Caption line ids carry on over a pause.
+captions track still holds (its last 40 lines). Caption line ids are the line's start time in ms, so they carry on
+over a pause, a restart and a back-fill.
 
 Viewers must cancel the subscription when a track is switched off (above). The demo recorder (`record`,
 `generate`) and the `watch` stand-in subscribe to every agent track, so they keep every agent working, as a demo
@@ -98,15 +100,56 @@ worst case would pass the overall ceiling (`TT_SPEND_CEILING_USD`), the room's c
 - a judge room: the cap its batch was minted with, from `$TT_CAPS_DIR/<batch>.json` (default `data/caps`, on the VM
   `/data/caps`), plus the batch's total over all its rooms ([tokens](tokens.md#judge-tokens)).
 
-At a cap the agent stops paying: captions close the ASR session, and the others stop calling the model. It says so
-in its track label, which viewers show in the track list, for example "Turkish translation (paused: this room
-reached its spend cap)". Its track stays up with what it had made.
+At a cap the agent stops paying: captions close the ASR session, and the others stop calling the model. While
+subscribed, each slice it publishes is a carry-in marked `capped` and nothing else, so a viewer sees why the track is
+silent. A FETCH that would need a back-fill past the cap gets the same capped group, which is not stored.
 
 Try it locally with fake agents: `TT_FAKE_USD_PER_CALL=0.25` makes the fake model spend pretend money into
 `TT_FAKE_LEDGER` (default `data/fake-ledger.jsonl`, never the real ledger), so a $2 room stops after eight calls.
+
+## Slices, FETCH and back-fill (decision 0012)
+
+A sliced track cuts its groups on the room clock: group k covers room time [k·4 s, (k+1)·4 s). Object 0 is the
+carry-in (the last two lines, or the slide on screen), then one item per object, then End of Group; End of Track when
+the talk is over. Every object goes to the track archive (`TT_ARCHIVE_DIR`, wiki/howto/archive.md) byte for byte as
+it goes live. The code is `live_slices.py` (`SlicedTrack`, `SnapshotTrack`) and `moq.SlicedOut`.
+
+- **FETCH of a past slice.** The relay keeps about 30 s; for older slices it forwards the FETCH to the agent, which
+  answers from its archive (disk, then `TT_ARCHIVE_BUCKET`) with the true End Location.
+- **Back-fill.** A FETCH of a slice nobody watched is produced once, stored and answered; the spend goes on the
+  room's cap. Translate back-fills from the captions slice (fetched through the relay, so captions back-fill too).
+  Fake captions back-fill; real captions and describe do not yet (the archive has no reader for past audio or
+  slides), so their unwatched slices answer "not found".
+- **Restart and handover.** A restarted agent announces the same name, seeds its state from its newest archived
+  slice and continues at the next one; a group in the archive is never written live again. `docker stop` (SIGTERM)
+  stops the work first, closes the open slice and the MoQ session (`stop_grace_period: 15s`), so a replacement
+  started beside it takes over at once.
+
+## The room clock (design §4.5)
+
+Every slice number and `*_ms` field is room time: the speaker's media timestamp plus the `offset_ms` of the speaker
+console's `clock` track in `talk/<room>/slides`. Only captions read speaker timestamps (from the audio); the others
+read captions or slide frames, which already carry room time. Captions read the audio one subscription at a time,
+and a new teacher broadcast (a reload) comes on a new subscription. Before stamping its first chunk the agent reads
+that broadcast's clock afresh; the audio waits in the subscription's buffer meanwhile. A refused clock subscription,
+or no clock object within 10 s although the console repeats it every 4 s, means the broadcast has none (the demo
+looper, the dev `teacher`): offset 0. The room clock never goes back, so a `SliceExists` from the archive is a bug:
+it is logged as an error and nothing is sent.
 
 ## Check it locally
 
 `deploy/compose.local.yml` runs the agents for `TT_ROOM` as before; with `TT_ROOMS='*'` set on the agents, they
 follow every room instead. With the stack up and a `teacher` stand-in on air, the agents log `idle` until something
 subscribes; `watch` subscribes to everything, so it wakes them all.
+
+Checked on 2026-10-28 against moq-relay 0.17.8 with fake captions and translate-tr (`TT_FAKE_USD_PER_CALL=0.01`,
+`TT_IDLE_GRACE_S=5`) and the dev `teacher` on air:
+
+| Check | Result |
+|---|---|
+| 25 s on air, nobody subscribed | no slices archived, no spend |
+| Live SUBSCRIBE to translate-tr for 25 s | one group per slice, carry-in first, on 4 s boundaries; captions woke through translate |
+| FETCH of slice 7 after the relay evicted it | served by the agent from its archive: 2 objects in 18-33 ms |
+| FETCH of slice 2, never produced | captions back-filled, then translate: 210-390 ms, one fake-ledger line, room `dev` |
+| The same FETCH again | 7-12 ms, no new spend |
+| Replacement captions started, then `docker stop` on the first | stop took 3 s; the live subscriber resubscribed and missed one slice |
