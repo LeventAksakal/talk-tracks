@@ -19,7 +19,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, BinaryIO, Literal, cast
 
 from pydantic import Field, ValidationError
 
@@ -351,6 +351,7 @@ class AgentTimeline:
         self.run, self.entry = run, entry
         self.dir = run.dir / "agents" / entry.info.name
         self._open_bytes = 0
+        self._file: BinaryIO | None = None  # the open chunk, kept open: one write per line, not an open and a close
         if entry.chunks and entry.chunks[-1].open:
             self._set_last(entry.chunks[-1].model_copy(update={"open": False}))  # a restarted archiver starts anew
         self.last_media_ms = entry.chunks[-1].last_media_ms if entry.chunks else 0
@@ -392,9 +393,11 @@ class AgentTimeline:
             if info != self.entry.info:
                 self.entry = self.entry.model_copy(update={"info": info})
         path = self.path(chunk.n)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("ab") as f:
-            f.write(line)
+        if self._file is None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._file = path.open("ab")
+        self._file.write(line)
+        self._file.flush()
         self._open_bytes += len(line)
         self.last_media_ms = snapshot.media_ms
         self.run.dirty = True
@@ -409,6 +412,9 @@ class AgentTimeline:
 
     def close(self) -> None:
         chunks = self.entry.chunks
+        if self._file is not None:
+            self._file.close()
+            self._file = None
         if not chunks or not chunks[-1].open:
             return
         self._set_last(chunks[-1].model_copy(update={"open": False}))
@@ -574,6 +580,7 @@ class RoomArchive:
         self.teacher = _Teacher()
         self.runs: list[RunEntry] = []
         self.run: RunArchive | None = None
+        self._latest: dict[str, Latest] = {}
         self.dirty = False
         index_path = self.dir / "room.json"
         if index_path.exists():
@@ -651,10 +658,8 @@ class RoomArchive:
     def snapshot(self, envelope: Envelope, wall_ms: int) -> RecordedSnapshot:
         run = self.current(wall_ms)
         snapshot = run.snapshot(envelope, wall_ms)
-        latest = Latest(room=self.name, run=run.id, info=envelope.agent, snapshot=snapshot)
-        path = self.dir / "latest" / f"{envelope.agent.name}.json"
-        write_atomic(path, dump(latest))
-        self.archive.reported(path, mutable=True)
+        # Written with the next save (about a second): a rewrite per snapshot costs more than it buys.
+        self._latest[envelope.agent.name] = Latest(room=self.name, run=run.id, info=envelope.agent, snapshot=snapshot)
         return snapshot
 
     def slide(self, frame: SlideFrame, wall_ms: int) -> bool:
@@ -670,6 +675,11 @@ class RoomArchive:
             self.run.tick(wall_ms)
 
     def save(self) -> None:
+        for name, latest in self._latest.items():
+            path = self.dir / "latest" / f"{name}.json"
+            write_atomic(path, dump(latest))
+            self.archive.reported(path, mutable=True)
+        self._latest.clear()
         if self.run is not None:
             self.run.save()
             self._update_entry(self.run)

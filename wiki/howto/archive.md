@@ -162,7 +162,7 @@ again):
 
 ## Restore: `<room>/latest/<agent>.json`
 
-The newest snapshot of each agent in the room, across runs, rewritten on every state change:
+The newest snapshot of each agent in the room, across runs, rewritten within about a second of every state change:
 
 ```json
 {"format": "talk-tracks-archive", "v": 1, "room": "live", "run": "1761650000000",
