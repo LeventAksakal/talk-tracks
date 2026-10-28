@@ -53,13 +53,17 @@ subscribed (`demand.Gate` polls the writer's `producing` every 100 ms):
 A downstream agent is an ordinary subscriber: a viewer of the Turkish translation keeps translate running, translate
 keeps captions running, and nobody else needs to. When the last subscriber leaves, the agent waits
 `TT_IDLE_GRACE_S` (default 10 s) before it pauses, so a page reload does not reopen the ASR session or lose the
-translation context. The relay's own 10 s timeout for a vanished viewer adds to that.
+translation context. The relay's own 10 s timeout for a vanished viewer adds to that. When the grace is over the
+agent finishes the open slice (at most 4 s more work, no new slice opens) so the archive holds it whole, then
+idles.
 
-Waking is debounced too: an agent opens its paid inputs only once its track has been subscribed for
-`TT_WAKE_DEBOUNCE_S` (default 1 s) in a row. The MoQT design lane measured that any FETCH through moq-relay 0.17.8
-makes the relay subscribe upstream, even a FETCH the relay then refuses: a publisher with no viewers was subscribed
-21 ms after the FETCH and cancelled about 80 ms later. Without the debounce such a blip could open an ASR session.
-A real viewer waits that second for the first new output; the track's current state reaches it at once.
+Waking follows the demand rule of design §5.3. moq-relay forwards a FETCH by subscribing upstream for exactly as
+long as the FETCH takes: 8 ms for an instant answer, seconds for a slow one, even for a FETCH it then refuses. So a
+subscription counts as demand only when all three hold: `producing` has been true for `TT_WAKE_DEBOUNCE_S` (default
+1 s) in a row, no FETCH of the track is in flight, and the last FETCH ended at least that long ago. The FETCH
+handler counts the FETCHes (`demand.Fetches`). A viewer who subscribes while a FETCH is being answered shares the
+relay's upstream subscription, which then outlives the FETCH, and counts a second after it. A real viewer waits
+that second for the first new output; the track's current state reaches it at once.
 
 Checked on 2026-10-28 against moq-relay 0.17.8 with two fake captions agents, one at `TT_WAKE_DEBOUNCE_S=1` and a
 control at 0. Each got three aiomoqt FETCHes of group 0, all refused by the relay, then three subscriptions held for
@@ -102,7 +106,7 @@ worst case would pass the overall ceiling (`TT_SPEND_CEILING_USD`), the room's c
 
 At a cap the agent stops paying: captions close the ASR session, and the others stop calling the model. While
 subscribed, each slice it publishes is a carry-in marked `capped` and nothing else, so a viewer sees why the track is
-silent. A FETCH that would need a back-fill past the cap gets the same capped group, which is not stored.
+silent. A FETCH that would need a back-fill past the cap is refused (below).
 
 Try it locally with fake agents: `TT_FAKE_USD_PER_CALL=0.25` makes the fake model spend pretend money into
 `TT_FAKE_LEDGER` (default `data/fake-ledger.jsonl`, never the real ledger), so a $2 room stops after eight calls.
@@ -115,15 +119,23 @@ the talk is over. Every object goes to the track archive (`TT_ARCHIVE_DIR`, wiki
 it goes live. The code is `live_slices.py` (`SlicedTrack`, `SnapshotTrack`) and `moq.SlicedOut`.
 
 - **FETCH of a past slice.** The relay keeps about 30 s; for older slices it forwards the FETCH to the agent, which
-  answers from its archive (disk, then `TT_ARCHIVE_BUCKET`) with the true End Location.
-- **Back-fill.** A FETCH of a slice nobody watched is produced once, stored and answered; the spend goes on the
-  room's cap. Translate back-fills from the captions slice (fetched through the relay, so captions back-fill too).
-  Fake captions back-fill; real captions and describe do not yet (the archive has no reader for past audio or
-  slides), so their unwatched slices answer "not found".
+  answers from its archive (disk, then `TT_ARCHIVE_BUCKET`) with the true End Location (last object + 1). The open
+  slice is answered with the objects it has so far. A FETCH of the slice in which the relay's upstream subscription
+  began is answered from the relay's cache and never reaches the agent.
+- **Back-fill, translation only** (the owner's call). A FETCH of a translation slice nobody watched is produced in
+  the FETCH handler, never in the live loop: one at a time per agent, each model call queued behind live calls
+  (`llm/queued.py`). Only for a slice below the open one, and only from a finished captions slice in the archive.
+  It is charged to a back-fill budget of 25 % of the room's cap (`SpendLedger.for_backfill`), which reserves each
+  call's worst case before it runs and settles after, and it is stored write-once: a copy another process stored
+  first is served instead. Never in the looped demo rooms (`TT_DEMO_ROOMS`). Captions, slide descriptions and the
+  outline never back-fill.
+- **Refusals.** Anything else is a REQUEST_ERROR whose reason says why: capped, out of back-fill budget, no input,
+  the open slice or later, never produced. Never an empty or placeholder group.
 - **Restart and handover.** A restarted agent announces the same name, seeds its state from its newest archived
   slice and continues at the next one; a group in the archive is never written live again. `docker stop` (SIGTERM)
   stops the work first, closes the open slice and the MoQ session (`stop_grace_period: 15s`), so a replacement
-  started beside it takes over at once.
+  started beside it takes over at once. Agents advertise a 3 s QUIC idle timeout and a 1 s keep-alive, so a killed
+  agent frees its track in 1-3.5 s instead of 12.4 s (design lane, spike S8).
 
 ## The room clock (design §4.5)
 
@@ -134,7 +146,8 @@ and a new teacher broadcast (a reload) comes on a new subscription. Before stamp
 that broadcast's clock afresh; the audio waits in the subscription's buffer meanwhile. A refused clock subscription,
 or no clock object within 10 s although the console repeats it every 4 s, means the broadcast has none (the demo
 looper, the dev `teacher`): offset 0. The room clock never goes back, so a `SliceExists` from the archive is a bug:
-it is logged as an error and nothing is sent.
+it is logged as an error and nothing is sent. The source of the clock is about to change (the teacher's hang catalog `clock` instead of our own
+track, design lane): the agents read it in one place, `moq.room_clock`.
 
 ## Check it locally
 
