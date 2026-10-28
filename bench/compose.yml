@@ -1,8 +1,8 @@
 # The transport benchmark (wiki/benchmark.md): one live source fed at the same moment into Talk Tracks' MoQ relay and
 # into MediaMTX (LL-HLS and WebRTC/WHEP), and a headless Chrome viewer that measures each. Everything runs on one
 # host, so the source and the viewer read the same clock. See bench/README.md for the runs.
-#   docker compose -f bench/compose.yml up -d --build relay mediamtx source textpub
-#   docker compose -f bench/compose.yml run --rm viewer --proto moq --runs 10
+# Run a measurement with bench/run.sh, which starts the source and stops it again afterwards (it costs about two
+# CPU cores while it runs):   sh bench/run.sh loopback --runs 10
 name: talk-tracks-bench
 
 networks:
@@ -30,7 +30,7 @@ services:
     image: talk-tracks-moq-cli:0.14.8
     build: { context: ../deploy, dockerfile: Dockerfile.moq-cli }
     depends_on: [relay, mediamtx]
-    restart: unless-stopped
+    restart: on-failure  # never comes back on its own: bench/run.sh stops it after each measurement
     entrypoint: ["sh", "/bench/source.sh"]
     environment:
       BENCH_GOP_S: ${BENCH_GOP_S:-2}
@@ -44,7 +44,7 @@ services:
     build: ../agents
     init: true
     depends_on: [relay]
-    restart: unless-stopped
+    restart: on-failure  # never comes back on its own: bench/run.sh stops it after each measurement
     entrypoint: ["python", "/bench/textpub.py"]
     environment:
       BENCH_RELAY: moqt://relay:4443

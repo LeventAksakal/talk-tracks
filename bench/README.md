@@ -17,18 +17,19 @@ results: [wiki/benchmark.md](../wiki/benchmark.md). Needs Docker only; no API ke
 From the repo root. The first build takes about 15 minutes (two Rust builds and the Chrome image).
 
 ```bash
-docker compose -f bench/compose.yml build
-docker compose -f bench/compose.yml up -d relay mediamtx source textpub
+docker compose -f bench/compose.yml --profile run --profile netem build
 ```
 
-Wait about 10 s for the source to reach both servers, then measure. Each join is one fresh browser context; the
-runner goes round-robin over the protocols so drift over time hits every protocol alike.
+Then measure with [run.sh](run.sh). It starts the servers, the source and the text publisher, waits 10 s for the
+source to reach both servers, runs the viewer, and stops them all again on the way out, even after a failure. **Never
+leave the source running between measurements:** it encodes live and costs about two CPU cores.
 
 ```bash
-docker compose -f bench/compose.yml --profile run run --rm viewer --proto moq,moq-ws,webrtc,hls --runs 20 --seconds 30 --label loopback
+sh bench/run.sh loopback --proto moq,moq-ws,moq-text,webrtc,hls --runs 20 --seconds 30
 ```
 
-Results append to `bench/results/<label>.jsonl`, one line per join. Summarise them:
+Each join is one fresh browser context, and the runner goes round-robin over the protocols, so drift over time hits
+every protocol alike. Results append to `bench/results/<label>.jsonl`, one line per join. Summarise them:
 
 ```bash
 python bench/analyze.py bench/results/loopback.jsonl
@@ -36,21 +37,20 @@ python bench/analyze.py bench/results/loopback.jsonl
 
 ### Under emulated network conditions
 
-Delay and loss apply to what the relay and MediaMTX send to the viewer. Start the netem helpers with the
-condition, run with the same values (the runner records them in each line), then stop the helpers, which removes the
-rules:
+Set `BENCH_DELAY_MS` and `BENCH_LOSS_PCT`. `run.sh` then also starts the netem helpers, which add the delay and loss
+to what the relay and MediaMTX send to the viewer. The runner records the values in each line, and the helpers'
+rules go away when they stop.
 
 ```bash
-BENCH_DELAY_MS=40 BENCH_LOSS_PCT=0 docker compose -f bench/compose.yml --profile netem up -d --force-recreate netem-relay netem-mediamtx
-BENCH_DELAY_MS=40 BENCH_LOSS_PCT=0 docker compose -f bench/compose.yml --profile run run --rm viewer --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30 --label rtt40
-docker compose -f bench/compose.yml --profile netem stop netem-relay netem-mediamtx
+BENCH_DELAY_MS=40 sh bench/run.sh rtt40 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30
+BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh loss2 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30
 ```
 
 ### Settings
 
 | Setting | Default | Where |
 |---|---|---|
-| `--proto` | `moq,hls,webrtc` | runner: any of `moq`, `moq-ws`, `hls`, `webrtc` |
+| `--proto` | `moq,hls,webrtc` | runner: any of `moq`, `moq-ws` (WebTransport removed, as in Safari), `moq-text` (the text track alone), `hls`, `webrtc` |
 | `--runs`, `--seconds` | 10, 20 | runner: joins per protocol, seconds measured per join after its first frame |
 | `--delay` | 500 | runner: @moq/watch's delay in ms (the viewer's setting in `web/src/viewer/TeacherMedia.tsx`) |
 | `--no-isolation` | off | runner: serve the page without COOP/COEP (production sends them, see `deploy/Caddyfile`) |
