@@ -28,7 +28,7 @@ servers.
 | Text-track latency, published through the agents' MoQ code | yes | 2 |
 | Extra: bytes per viewer, captions only against everything (selective subscription) | yes | 1 |
 | Extra: behaviour under 2 % and 5 % loss (`tc netem`) | yes | 2 |
-| Added on 2026-10-28 for decision 0012: FETCH of one 4 s slice from the origin, uncached against cached, and bytes per slice | yes | 3 |
+| Added on 2026-10-28 for decision 0012: FETCH of one 4 s slice served by the relay's cache against the origin, and bytes per opted-in track per slice | yes | 3 |
 | Analysis, tables and chart, results on this page | yes | 3 |
 | Local validation, VM hand-over | yes | 2 |
 | Stretch: server CPU, memory and egress at 10 and 100 viewers, MoQ against WebRTC and LL-HLS | owner decides Sun Nov 1 | 5 |
@@ -116,8 +116,9 @@ against WebRTC to get there.
   slices (a carry-in object, 16 items, End of Group; about 2.4 KB) and serves the track's past from its own history,
   holding 300 "archive" slices the relay has never seen, with the spikes' `fix_end`. The page subscribes live, as
   a viewer with the track on, then times `fetchGroup` to the group's end, ten rounds per join: a random archive slice
-  (the relay forwards the FETCH to the origin; the origin logs each one it serves), the same slice again (the relay's
-  cache), and the newest slice received whole live. Then the join slice, the one open when the viewer joined: at
+  (a miss, which the relay forwards to the origin), the same slice again, and the newest slice received whole live.
+  The origin logs every FETCH it serves (`results/LABEL.origin.log`), and the analysis matches each fetch with that
+  log by group and time, so "served by the origin" or "by the relay's cache" is measured, not assumed. Then the join slice, the one open when the viewer joined: at
   once while still open, after the rounds, and from a second session that never subscribed.
 - **Join time**: from creating the player to the first decoded frame, in a fresh browser context each time.
 - **Bytes per viewer**: the viewer container's interface counter over each join (headers, playlists and
@@ -141,22 +142,41 @@ to validate the harness. The VM runs replace it.
 | WebRTC (WHEP) | 531–559 | 336 / 397 | 95 | not carried | 1153 |
 | LL-HLS (hls.js) | 341–351 | 907 / 923 | 868 | not carried | 2688 |
 
-History by FETCH, two joins of ten rounds each (relay, origin and viewer on the laptop):
+History by FETCH, `check-served`: four joins of ten rounds each, 120 fetches, none failed (relay, origin and viewer
+on the laptop). Who served each FETCH comes from the origin's own log, not from the kind of fetch:
 
-| FETCH of one 4 s slice | p50 / p95 ms, to the end of the group |
-|---|---|
-| uncached: an archive slice, forwarded by the relay to the origin | 12 / 16 (the first of each join 30–44) |
-| cached: the same slice again, from the relay | 7 / 10 |
-| recent: the newest slice received live, from the relay | 7 / 10 |
-| bytes per slice | 2,408, against about 623,000 for 4 s of the full media |
+| FETCH of one 4 s slice, served by | Fetches | p50 / p95 ms, to the end of the group |
+|---|---|---|
+| the origin (the agent), forwarded by the relay on a cache miss | 39: every first fetch of an archive slice | 19 / 28 |
+| the relay's cache | 81: every repeat of an archive slice, every recent slice received live, and one archive slice an earlier join had fetched | 8 / 14 |
 
-The design lane measured 34–42 ms from an aiomoqt origin and about 50 ms for a browser `fetchGroup` on a host at
-100 % CPU; this host was less loaded. One round of 12 in `check-joinslice` failed on an archive slice (`remote error:
-0` for both its uncached and cached fetch); not seen before, to watch on the VM.
+A cache miss costs about 11 ms more than a hit on one host: the relay's round trip to the origin and the origin's
+reply. The design lane measured 34–42 ms from an aiomoqt origin and about 50 ms for a browser `fetchGroup` on a host
+at 100 % CPU; this host was less loaded. The relay keeps what it fetched for a viewer: the same slice again, 20–120
+ms later, came from its cache every time.
+
+Bytes per opted-in track, per 4 s slice (one slice of the history track is one group; the other rows are the same
+time span):
+
+| Track a viewer switches on | Bytes per 4 s | Measured as |
+|---|---|---|
+| history `items`, a captions-sized AI track (carry-in, 16 items) | 2,408 | payload of whole slices received live |
+| text `state`, 4 objects a second | 7,590 | on the wire, the `moq-text` row |
+| everything: video (1 Mbit/s, 720p25), audio and text | 609,479 | on the wire, the `moq` row |
+
+A viewer with only the captions-sized track on receives about 0.4 % of the bytes of a full viewer.
+
+An earlier run failed 3 of 30 rounds on low archive slices (`Stream: remote error: 0`). That was the harness: aiomoqt
+keeps 1 MiB of FETCH history per track and drops the oldest objects past it, and 300 archive slices plus the live ones
+outgrew it. `historypub.py` now raises the limit. **For the agents (decision 0012):** with aiomoqt's default, a track
+answers FETCH for only its last 1 MiB, counting 64 bytes of overhead per object: 300 slices, 20 minutes, of this
+captions-sized track, as the failures showed. An agent that serves a whole talk must raise `fetch_history_bytes` or
+answer FETCH from its archive.
 
 **The slice open at join cannot be fetched.** One slice never comes back by FETCH: the one that was open when the
 relay's upstream subscription began, which in this bench is each viewer's join slice (one viewer at a time, so each
-join is the relay's first subscriber). Four joins of `check-joinslice`, after the two above, fetched it three ways:
+join is the relay's first subscriber). Four joins of `check-joinslice` fetched it three ways (and the four of
+`check-served` again, with the same result):
 
 | Fetch of the join slice | Came back |
 |---|---|

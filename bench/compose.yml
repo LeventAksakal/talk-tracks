@@ -63,7 +63,9 @@ services:
     environment:
       BENCH_RELAY: moqt://relay:4443
       BENCH_ARCHIVE_SLICES: ${BENCH_ARCHIVE_SLICES:-300}
-    volumes: ["./historypub.py:/bench/historypub.py:ro"]
+      # Each FETCH this origin serves, for bench/analyze.py; bench/run.sh sets the label.
+      BENCH_ORIGIN_LOG: /results/${BENCH_LABEL:-unlabelled}.origin.log
+    volumes: ["./historypub.py:/bench/historypub.py:ro", "./results:/results"]
     networks: { bench: { ipv4_address: 172.29.0.14 } }
 
   # Netem on the servers' side: delay and loss on what they send to the viewer only (bench/netem.sh).

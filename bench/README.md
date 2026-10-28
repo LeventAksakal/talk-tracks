@@ -30,7 +30,9 @@ sh bench/run.sh loopback --proto moq,moq-ws,moq-text,webrtc,hls --runs 20 --seco
 ```
 
 Each join is one fresh browser context, and the runner goes round-robin over the protocols, so drift over time hits
-every protocol alike. Results append to `bench/results/<label>.jsonl`, one line per join. Summarise them:
+every protocol alike. Results append to `bench/results/<label>.jsonl`, one line per join; the history publisher
+appends each FETCH it serves to `bench/results/<label>.origin.log`, which the analysis reads beside it to tell
+origin-served fetches from cached ones. Summarise them:
 
 ```bash
 python bench/analyze.py bench/results/loopback.jsonl

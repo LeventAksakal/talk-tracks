@@ -13,6 +13,7 @@ cd "$(dirname "$0")"
 [ $# -ge 1 ] || { echo "usage: sh bench/run.sh LABEL [runner options]" >&2; exit 2; }
 label=$1
 shift
+export BENCH_LABEL=$label  # the history publisher logs the FETCHes it serves to results/LABEL.origin.log
 compose="docker compose -f compose.yml"
 export BENCH_DELAY_MS=${BENCH_DELAY_MS:-0} BENCH_LOSS_PCT=${BENCH_LOSS_PCT:-0}
 

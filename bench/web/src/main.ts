@@ -19,6 +19,8 @@ type Proto = "moq" | "moq-ws" | "hls" | "webrtc" | "fetch";
 /** One timed `fetchGroup`: until the first object, until the group's end, and what it carried. */
 interface Fetched {
   group: number;
+  /** Wall-clock start (Date.now()), to match it with the origin's log of the FETCHes it served. */
+  atMs: number;
   firstMs: number;
   ms: number;
   objects: number;
@@ -362,6 +364,7 @@ async function startFetch() {
     ]);
   const fetchOne = async (seq: number, from: typeof track): Promise<Fetched> => {
     const t = performance.now();
+    const atMs = Date.now();
     const group = await from.fetchGroup(seq);
     let firstMs = NaN;
     let objects = 0;
@@ -374,7 +377,7 @@ async function startFetch() {
       bytes += frame.payload.byteLength;
     }
     group.close();
-    return { group: seq, firstMs: Math.round(firstMs * 10) / 10, ms: Math.round((performance.now() - t) * 10) / 10, objects, bytes };
+    return { group: seq, atMs, firstMs: Math.round(firstMs * 10) / 10, ms: Math.round((performance.now() - t) * 10) / 10, objects, bytes };
   };
 
   // Live, as a viewer with the track switched on: the current slice first, then each new one.

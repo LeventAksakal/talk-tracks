@@ -62,6 +62,10 @@ async def publish(relay_url: str, archive: int) -> None:
         )
         await w.start()
         track = w._track
+        # aiomoqt keeps 1 MiB of history and drops the oldest objects past it: with 300 archive slices (about 0.8 MB
+        # with its per-object overhead) plus the live ones, a long run lost the lowest archive slices, and their
+        # FETCHes failed. An agent keeps its whole talk (decision 0012); so does this one.
+        track._history.max_bytes = 64 << 20
         # The archive: slices 0 .. archive-1 in the FETCH history, never published live, so the relay has never
         # seen them and the first FETCH of each goes to this origin.
         for k in range(archive):
@@ -72,11 +76,21 @@ async def publish(relay_url: str, archive: int) -> None:
         fix_end(track)
         served = 0
         orig_handle = getattr(track, "_fetch_range")
+        # One JSON line per FETCH served here, so the analysis can tell a FETCH the origin answered from one the
+        # relay's cache answered (bench/analyze.py matches them by group and time).
+        served_log = os.environ.get("BENCH_ORIGIN_LOG")
 
         def counted(session: Any, msg: Any) -> tuple:
             nonlocal served
             served += 1
             log.info("FETCH from the origin (%d so far): %s", served, repr(msg)[:240])
+            if served_log:
+                line = {"t": time.time() * 1000, "fetchType": int(msg.fetch_type), "group": msg.start_group}
+                try:
+                    with open(served_log, "a") as f:
+                        f.write(json.dumps(line) + "\n")
+                except OSError as e:
+                    log.warning("cannot write %s: %s", served_log, e)
             return orig_handle(session, msg)
 
         track._fetch_range = counted
