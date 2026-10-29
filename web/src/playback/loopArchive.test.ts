@@ -165,3 +165,56 @@ describe("RoomMedia in a looped room", () => {
     media.close();
   });
 });
+
+describe("RoomMedia: the HLS archive probe waits for the teacher catalog", () => {
+  const flush = async () => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  };
+  const probe = () => vi.fn(async (_url: string) => new Response("", { status: 404 }));
+  const urls = (fetchFn: ReturnType<typeof probe>) => fetchFn.mock.calls.map((c) => String(c[0]));
+
+  it("never asks a looped room for index.m3u8", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const fetchFn = probe();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "virus", {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    await flush();
+    expect(fetchFn).not.toHaveBeenCalled();
+    transport.emitJson(teacherPath("virus"), HANG_CATALOG_TRACK, teacherCatalog);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(urls(fetchFn).filter((u) => u.endsWith("index.m3u8"))).toEqual([]);
+    media.close();
+  });
+
+  it("reads a live room's playlist once its catalog shows no loop", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const fetchFn = probe();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "lecture", {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    await flush();
+    expect(fetchFn).not.toHaveBeenCalled();
+    transport.emitJson(teacherPath("lecture"), HANG_CATALOG_TRACK, { clock: teacherCatalog.clock, audio: {} });
+    await flush();
+    expect(urls(fetchFn)).toEqual(["/archive/lecture/index.m3u8"]);
+    media.close();
+  });
+
+  it("reads the playlist after a short wait when no teacher catalog comes (the speaker left)", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const fetchFn = probe();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "lecture", {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      loopWaitMs: 3_000,
+    });
+    await vi.advanceTimersByTimeAsync(2_900);
+    expect(fetchFn).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(urls(fetchFn)).toEqual(["/archive/lecture/index.m3u8"]);
+    media.close();
+  });
+});

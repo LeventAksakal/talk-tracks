@@ -76,18 +76,44 @@ describe("Playback: Go live and what you missed", () => {
     expect(v.missed!.chapters.map((c) => c.start_ms)).toEqual([61_000, 121_000, 181_000, 241_000]);
   });
 
-  it("subscribes to the outline for the summary when it was off, and drops it on dismiss", async () => {
-    const { playback } = setup(250_000);
+  it("Go live leaves exactly the opted-in tracks subscribed (decision 0010)", async () => {
+    const { playback, source } = setup(250_000);
     await settle();
-    playback.seek(30_000);
+    playback.tracks.setEnabled("captions/items", true);
+    playback.tracks.setEnabled("translate-tr/items", true);
     await settle();
-    playback.goLive();
-    await settle();
-    const outline = () => playback.getSnapshot().tracks.tracks.find((t) => t.kind === "outline")!;
-    expect(outline().enabled).toBe(true);
-    expect(playback.getSnapshot().missed!.chapters.length).toBeGreaterThan(0);
+    const subscribed = () =>
+      playback
+        .getSnapshot()
+        .tracks.tracks.filter((t) => t.enabled)
+        .map((t) => t.id)
+        .sort();
+    const optedIn = subscribed();
+    expect(optedIn.length).toBe(2);
+    for (const back of [30_000, 120_000]) {
+      playback.seek(back);
+      await settle();
+      playback.goLive();
+      await settle();
+      expect(subscribed()).toEqual(optedIn);
+    }
+    // On the wire too: no subscription to the outline (or anything else) was opened.
+    expect(source.subscriptions.map((s) => s.track).length).toBe(2);
+    const missed = playback.getSnapshot().missed!;
+    expect(missed).toMatchObject({ outlineOn: false, outlineAnnounced: true, chapters: [] });
     playback.dismissMissed();
-    expect(outline().enabled).toBe(false);
+    expect(subscribed()).toEqual(optedIn);
+  });
+
+  it("time away does not subscribe the outline either", async () => {
+    const { playback, media, clock } = setup(100_000);
+    await settle();
+    playback.setAway(true);
+    clock.advance(90_000);
+    media.setLiveEdge(200_000);
+    playback.setAway(false);
+    expect(playback.getSnapshot().missed).toBeDefined();
+    expect(playback.getSnapshot().tracks.tracks.some((t) => t.enabled)).toBe(false);
   });
 
   it("loads the missed captions on request, one fetch per slice", async () => {

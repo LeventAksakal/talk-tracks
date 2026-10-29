@@ -29,8 +29,6 @@ export class Playback {
   #view: PlaybackView | undefined;
   #disposers: (() => void)[] = [];
   #onClose: (() => void) | undefined;
-  /** The outline track switched on only to list the chapters missed; switched off on dismiss. */
-  #outlineForMissed: string | undefined;
 
   constructor(source: HistorySource, media: SpeakerMedia, room: string, options: PlaybackOptions = {}) {
     this.media = media;
@@ -88,8 +86,6 @@ export class Playback {
 
   dismissMissed(): void {
     this.#missed = undefined;
-    if (this.#outlineForMissed) this.tracks.setEnabled(this.#outlineForMissed, false);
-    this.#outlineForMissed = undefined;
     this.#changed();
   }
 
@@ -148,18 +144,16 @@ export class Playback {
 
   #setMissed(from: number, to: number | undefined, reason: Missed["reason"]): void {
     if (to === undefined || to - from < MISSED_MIN_MS) return;
+    // The chapters come from the outline's latest snapshot, only if the viewer opted into it: a
+    // subscription wakes a paid agent, so nothing is subscribed here (decision 0010).
     const outlineTrack = this.tracks.getSnapshot().tracks.find((t) => t.kind === "outline");
-    // The chapters come from the outline's latest snapshot: subscribe for it while the summary shows.
-    if (outlineTrack?.announced && !outlineTrack.enabled) {
-      this.#outlineForMissed = outlineTrack.id;
-      this.tracks.setEnabled(outlineTrack.id, true);
-    }
     this.#missed = {
       fromMs: from,
       toMs: to,
       reason,
       chapters: chaptersIn(outlineTrack?.outline, from, to),
       outlineOn: outlineTrack?.enabled ?? false,
+      outlineAnnounced: outlineTrack?.announced ?? false,
       transcript: undefined,
       transcriptLoading: false,
     };
@@ -190,6 +184,7 @@ export class Playback {
         ...missed,
         chapters: chaptersIn(outline?.outline, missed.fromMs, missed.toMs),
         outlineOn: outline?.enabled ?? false,
+        outlineAnnounced: outline?.announced ?? false,
       };
     }
     return { timeline, tracks, missed };
