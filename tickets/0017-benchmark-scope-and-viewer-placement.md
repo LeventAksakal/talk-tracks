@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-28
 tags: [benchmark, submission]
 ---
@@ -47,4 +47,7 @@ B+ now, and decide the stretch on Sun Nov 1 morning by how the UI build stands. 
 left after the runs.
 
 ## Answer
+B+ **with** the 10- and 100-viewer fan-out stretch, and **A** (all measured viewers on the resized 4-vCPU VM with
+`tc netem` delay and loss) (2026-10-29). The owner took the UI lane directly, freeing capacity for the fan-out stretch.
+Recorded in [decision 0016](../wiki/decisions/0016-benchmark-includes-fanout-and-runs-on-the-vm.md).
 

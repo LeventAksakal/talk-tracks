@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [demo, translation]
 ---
@@ -22,4 +22,7 @@ code today: English, Turkish, Spanish, German, Arabic, French.
 B: the right-to-left case is a cheap, visible accessibility point.
 
 ## Answer
+B: Turkish, Spanish and Arabic (`tr`, `es`, `ar`), across both live rooms and an expanded set of looped demo lectures
+beyond `virus` and `dataviz` (2026-10-29). Recorded in
+[decision 0014](../wiki/decisions/0014-translations-in-turkish-spanish-and-arabic.md).
 

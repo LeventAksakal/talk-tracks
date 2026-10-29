@@ -34,10 +34,18 @@ The VM runs everything around the clock: Docker restarts every service on failur
 
 ## Open questions that shape this plan
 
-| Question | Ticket | Blocks |
-|---|---|---|
-| Which demo moments stay | [0004](../tickets/0004-demo-moments-in-looped-rooms.md) | the kill-and-restart work |
-| Benchmark scope | [0016](../tickets/0016-benchmark.md) | benchmark work |
+All 19 tickets in [`../tickets/`](../tickets/) are closed as of 2026-10-29:
+- **UI lane:** led directly by the owner (`web/`).
+- **Translations & demo rooms ([decision 0014](decisions/0014-translations-in-turkish-spanish-and-arabic.md)):** Turkish,
+  Spanish and Arabic (`tr`, `es`, `ar`) across live rooms and an expanded set of CC BY-SA 4.0 looped demo rooms.
+- **Loop sessions & demo moments ([decision 0015](decisions/0015-looped-rooms-model-repeated-live-sessions.md)):** all
+  four architecture moments stay; looped rooms frame each loop as a broadcast session on top of rising room time.
+- **Benchmark ([decision 0013](decisions/0013-benchmark-runs-on-the-resized-vm.md),
+  [0016](decisions/0016-benchmark-includes-fanout-and-runs-on-the-vm.md)):** B+ plus 10/100-viewer server fan-out on the
+  resized 4-vCPU VM.
+- **Archive & backups ([decision 0011](decisions/0011-track-history-in-a-vm-archive-copied-to-a-bucket.md)):** demo
+  recordings stay out of git on the VM and back up with the archive and spend ledger to the Cloud Storage bucket.
+- **Tooling ([ticket 0008](../tickets/0008-pre-commit-checks.md)):** fast `.githooks/pre-commit` secret + staged lint check.
 
 ## Risks
 

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [demo, viewer, loop]
 ---
@@ -25,4 +25,9 @@ A: a demo room should feel like one lecture, and rewind option B of ticket 0002 
 recording without the viewer building it up.
 
 ## Answer
+Model each loop as a broadcast session closing and starting anew (2026-10-29): room time and item ids keep rising on
+the wire so `FETCH` and rewind work across loop boundaries, while the viewer scopes the active timeline and transcript
+to the current `talk_tracks.loop` (`0 .. duration_ms`) and marks the brief silent tail (`duration_ms .. period_ms`) as
+the session ending before the next broadcast begins. Recorded in
+[decision 0015](../wiki/decisions/0015-looped-rooms-model-repeated-live-sessions.md).
 

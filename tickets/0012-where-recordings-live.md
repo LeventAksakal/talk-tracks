@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [demo, deploy, data]
 ---
@@ -25,4 +25,7 @@ agent tracks are the expensive part to regenerate; the lecture licences are stil
 A: recordings are build output, and until the licences are checked they may not belong in a public repo.
 
 ## Answer
+A: kept out of git in `~/tt-data/demo/<room>/` on the VM and backed up alongside the live track archive and spend
+ledger to the Cloud Storage bucket ([decision 0011](../wiki/decisions/0011-track-history-in-a-vm-archive-copied-to-a-bucket.md),
+[archive howto](../wiki/howto/archive.md)) (2026-10-29).
 

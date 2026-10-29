@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [docs, decisions]
 ---
@@ -22,4 +22,5 @@ rewrite. Restated records would carry no private detail (no addresses, accounts,
 A, kept to a few lines each.
 
 ## Answer
+B: forward only (2026-10-29). ADRs cover decisions taken from 2026-10-27 on.
 

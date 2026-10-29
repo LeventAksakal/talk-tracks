@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [spend]
 ---
@@ -23,4 +23,5 @@ spend per use (ticket 0003). The agent CLI (not written yet) will read the key f
 A: ample at measured costs, and the ledger stops hard either way.
 
 ## Answer
+A: keep at $100 ($50 buffer of the $150 credit) via `TT_SPEND_CEILING_USD=100` (2026-10-29).
 

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [scope, demo]
 ---
@@ -25,4 +25,10 @@ in a live room or in the submission video. Rewind (ticket 0002) replaces much of
 A: the agent moments are the architecture argument, and a live room for the video is cheap.
 
 ## Answer
+A: keep all four (2026-10-29). Looped rooms show track discovery, multi-language opt-in and rewind; live rooms and the
+submission video show mid-talk agent join, caption kill-and-restart handover (1-3.5 s QUIC recovery seeded from the
+slice archive, [decision 0009](../wiki/decisions/0009-agents-restart-from-durable-track-history.md) and
+[0012](../wiki/decisions/0012-ai-track-history-by-fetch-from-the-agent.md)), and the live Inspector (`producing`,
+`fetches_served`, `backfills`, `spend_usd` from `catalog.tt.status`). Recorded in
+[decision 0015](../wiki/decisions/0015-looped-rooms-model-repeated-live-sessions.md).
 

@@ -28,3 +28,7 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | Agent tracks are opt-in; agents spend only while subscribed | [0010](decisions/0010-agent-tracks-are-opt-in-and-lazy.md) |
 | Track history archived on the VM and copied to a bucket | [0011](decisions/0011-track-history-in-a-vm-archive-copied-to-a-bucket.md) |
 | AI-track history served by FETCH from the agent, in 4 s slices | [0012](decisions/0012-ai-track-history-by-fetch-from-the-agent.md) |
+| Benchmark runs on the resized 4-vCPU production VM | [0013](decisions/0013-benchmark-runs-on-the-resized-vm.md) |
+| Turkish, Spanish and Arabic translations across expanded demo rooms | [0014](decisions/0014-translations-in-turkish-spanish-and-arabic.md) |
+| Looped rooms keep rising wire time and present each loop as a session | [0015](decisions/0015-looped-rooms-model-repeated-live-sessions.md) |
+| Benchmark includes 10/100-viewer fan-out on the VM | [0016](decisions/0016-benchmark-includes-fanout-and-runs-on-the-vm.md) |

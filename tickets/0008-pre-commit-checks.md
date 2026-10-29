@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [tooling]
 ---
@@ -21,4 +21,6 @@ checks run by hand before merging or pushing. Today the Python checks (ruff, pyr
 A, matching your standing rule.
 
 ## Answer
+A: a fast, idiomatic `.githooks/pre-commit` hook scanning staged files for secrets/keys/private identifiers plus staged
+`ruff` (Python) and `eslint`/`prettier` (web) checks (2026-10-29).
 

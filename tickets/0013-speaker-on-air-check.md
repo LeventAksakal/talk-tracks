@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-27
 tags: [web, speaker, relay]
 ---
@@ -29,4 +29,7 @@ publish at all.
 A for the hackathon: no contract change before the deadline. B is the clean long-term answer.
 
 ## Answer
+A: keep the own-audio loopback check with no wire-contract change (2026-10-29). Signed room tokens
+([decision 0008](../wiki/decisions/0008-judges-get-capped-room-tokens.md)) give each judge/speaker a dedicated room,
+and the teacher hang catalog's `clock.wall` disambiguates broadcast sessions.
 

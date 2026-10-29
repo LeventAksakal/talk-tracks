@@ -1,5 +1,5 @@
 ---
-status: answered
+status: closed
 created: 2026-10-27
 tags: [web, viewer, deploy, contracts]
 ---
@@ -33,4 +33,14 @@ Keep all five as built: 3000-entry cap, all tracks but other translations, SPA f
 served from one origin), no `.hang` rename, slides on the media clock (and the contract text updated to say it).
 
 ## Answer
-Item 2 (default subscriptions): no. Agent tracks are opt-in, like subtitles on a video: the viewer turns each on or off, and API use is lazy, not eager. Recorded in [decision 0010](../wiki/decisions/0010-agent-tracks-are-opt-in-and-lazy.md). Items 1, 3, 4 and 5 are not answered yet.
+Closed 2026-10-29:
+- **Item 1 (history):** superseded by [decision 0012](../wiki/decisions/0012-ai-track-history-by-fetch-from-the-agent.md)
+  (4 s MSF event-timeline slices served by `FETCH`).
+- **Item 2 (default subscriptions):** no — agent tracks are opt-in and lazy, recorded in
+  [decision 0010](../wiki/decisions/0010-agent-tracks-are-opt-in-and-lazy.md).
+- **Item 3 (web server):** confirmed — SPA fallback plus COOP/COEP isolation headers on the single origin
+  (`deploy/Caddyfile`).
+- **Item 4 (speaker path):** confirmed — stays `talk/<room>/teacher` without `.hang`.
+- **Item 5 (`SlideFrame.at_ms`):** superseded by [decision 0012](../wiki/decisions/0012-ai-track-history-by-fetch-from-the-agent.md)
+  (`wiki/design/lane-briefs.md`): speaker console stamps slide frames with Unix wall ms
+  (`performance.timeOrigin + performance.now()`), mapped onto room time.
