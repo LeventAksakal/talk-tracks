@@ -6,9 +6,9 @@ slide images like the speaker's browser, ``catalog`` publishes the room epoch li
 what the agents publish. Demo rooms (see
 wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``record`` records a room's agent tracks,
 ``generate`` does both at once, ``loop`` replays a recording as a live room, forever. Fixes to a finished recording
-(``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its lines again cut to
-its subtitle cues, ``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``),
-``resplit`` cuts retranslate's over-long subtitle cues again, free (no model call, no spend).
+(``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its caption lines (into
+``--lang`` / ``--agent``) cut to subtitle cues, ``redescribe`` describes the slides it has no note for (``--slides`` as
+for ``generate``), ``resplit`` cuts retranslate's over-long subtitle cues again, free (no model call, no spend).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
@@ -434,23 +434,32 @@ async def _revise(args: argparse.Namespace) -> None:
 
     recording = need(args.recording, "--recording")
     if args.agent == "resplit":
-        result, changed = revise.resplit(recording)
+        result, changed = revise.resplit(recording, agent=args.target_agent, lang=args.lang)
         longest = max((len(s) for line in result.lines.values() for s in line.segments), default=0)
         logging.getLogger("talk_tracks.revise").info(
-            "resplit: %d of %d lines cut again, longest cue now %d characters", len(changed), len(result.lines), longest
+            "resplit (%s): %d of %d lines cut again, longest cue now %d characters",
+            result.lang,
+            len(changed),
+            len(result.lines),
+            longest,
         )
         return
-    ledger = room_ledger(args.room, spend_ledger())
     if args.agent == "retranslate":
-        translator = revise.FakeCueTranslator() if args.fake else revise.MetaCueTranslator(api_key(), ledger)
-        result = await revise.retranslate(recording, translator)
+        translator: revise.CueTranslator = (
+            revise.FakeCueTranslator(usd_per_call=env_float("TT_FAKE_USD_PER_CALL", 0))
+            if args.fake
+            else revise.MetaCueTranslator(api_key(), room_ledger(args.room, spend_ledger()))
+        )
+        result = await revise.retranslate(recording, translator, agent=args.target_agent, lang=args.lang)
         logging.getLogger("talk_tracks.revise").info(
-            "retranslate: %d lines cut to their cues, %s", len(result.lines), result.usage
+            "retranslate (%s): %d lines cut to their cues, %s", result.lang, len(result.lines), result.usage
         )
     else:
         describer = make_llm(args.fake, args.room)
         media = args.media or recording / "lecture.mp4"
-        patch = await revise.redescribe(recording, media, Crop.parse(args.slides or "full"), describer)
+        patch = await revise.redescribe(
+            recording, media, Crop.parse(args.slides or "full"), describer, agent=args.target_agent or "describe"
+        )
         logging.getLogger("talk_tracks.revise").info(
             "redescribe: %d slides described, %s", len(patch.notes), patch.usage
         )
@@ -468,7 +477,16 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--relay", default=os.environ.get("TT_RELAY"), help="moqt://host:port or https://host:port/path")
     p.add_argument("--room", default=os.environ.get("TT_ROOM"))
     p.add_argument("--rooms", default=os.environ.get("TT_ROOMS") or None, help="agents: '*' for any room, or a,b")
-    p.add_argument("--lang", default="en", help="language of the output (translate: the target language)")
+    p.add_argument(
+        "--lang", default=None, help="language of the output (translate, retranslate, resplit: target language)"
+    )
+    p.add_argument(
+        "--agent",
+        dest="target_agent",
+        default=None,
+        metavar="NAME",
+        help="retranslate, resplit, redescribe: the recording's agent track (default: from --lang, or translate-tr)",
+    )
     p.add_argument("--token", default=os.environ.get("TT_TOKEN"), help="signed relay token for publishing")
     p.add_argument("--fake", action="store_true", help="scripted speech recognition and a fake model: no API calls")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
@@ -477,7 +495,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--watch", default="captions,translate-tr,describe,chapters", help="watch: the agents to print")
     p.add_argument("--media", type=Path, default=None, help="play, generate, loop: the lecture (MP4, H.264 + Opus)")
     p.add_argument("--out", type=Path, default=None, help="record, generate: the recording directory to write")
-    p.add_argument("--recording", type=Path, default=None, help="loop: the recording directory to replay")
+    p.add_argument("--recording", type=Path, default=None, help="loop, retranslate, resplit, redescribe: recording dir")
     p.add_argument("--loops", type=int, default=None, help="play: how many times (default: forever)")
     p.add_argument("--lead-in-s", type=float, default=5.0, help="generate: wait before the lecture starts")
     p.add_argument("--tail-s", type=float, default=15.0, help="generate: keep recording after the lecture ends")
@@ -491,11 +509,15 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     args = p.parse_args(argv)
     if args.agent not in AGENTS:
         args.rooms = None
-    if not (args.relay or args.agent in REVISE) or not (args.room or args.rooms):
+    if args.agent not in REVISE and args.lang is None:
+        args.lang = "en"
+    need_relay = args.agent not in REVISE
+    need_room = args.agent != "resplit"
+    if (need_relay and not args.relay) or (need_room and not (args.room or args.rooms)):
         p.error("--relay and --room (agents: or --rooms) are required (or TT_RELAY and TT_ROOM)")
     if args.agent == "slides" and not args.image:
         p.error("slides needs at least one --image")
-    if args.rooms is None:
+    if args.rooms is None and args.room is not None:
         args.room = parse_room(args.room)
     for room in (args.rooms or "").split(","):
         if room.strip() not in ("", "*"):
