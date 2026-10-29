@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-28
 tags: [benchmark, vm, cost]
 ---
@@ -44,3 +44,6 @@ more than the benchmark. If the cost matters, A.
 
 ## Answer
 
+Resize the VM to 4 vCPUs (option B). Answered 2026-10-29.
+
+Decision: [0013](../wiki/decisions/0013-benchmark-runs-on-the-resized-vm.md).
