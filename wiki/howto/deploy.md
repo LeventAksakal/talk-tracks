@@ -41,8 +41,15 @@ git push
 ssh $VM 'cd ~/talk-tracks && git pull'
 tar -C web/dist -cz . | ssh $VM 'rm -rf ~/talk-tracks/web/dist/* && tar -C ~/talk-tracks/web/dist -xz'
 ssh $VM 'cd ~/talk-tracks/agents && docker build -q -t talk-tracks-agents:dev .'
-ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml up -d'
+ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml --profile live up -d'
 ```
+
+`--profile live` matters: without it compose leaves the live agents (`captions`, `translate-tr`, `describe`,
+`chapters`) on the old image.
+
+If the release changes the demo rooms, also re-sign `TT_LOOPER_TOKEN` (it must cover rooms `virus` and `dataviz`) and
+remove the old `talk-tracks-looper-1` container, as in [demo rooms](demo-rooms.md#switch-the-public-rooms-on). Do this
+before the `up -d` above, or run `up -d looper-virus looper-dataviz` afterwards.
 
 The relay and auth images are built locally (`docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml
 build relay auth`; Rust builds are slow on the VM) and copied over:
