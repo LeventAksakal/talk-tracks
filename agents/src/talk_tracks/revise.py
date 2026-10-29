@@ -7,24 +7,32 @@
 * ``redescribe``: the slides the recording has no description for, found again in the lecture (the same slide ids
   ``generate`` sent, with the same crop) and described once each. Saved as ``agents/<agent>.patch.json`` and merged
   by ``with_slide_notes`` as if the agent had answered ``NOTE_DELAY_MS`` after the slide appeared.
+* ``resplit``: offline and free, no model call. Each saved line with a segment over ``MAX_CUE_CHARS`` has its
+  segments joined and cut again over the same cues at word boundaries, every segment within ``MAX_CUE_CHARS`` when
+  the line's words allow it, otherwise as little over as they allow. The cuts stay as near as they can to the
+  model's own (or, with ``anchor="share"``, to the source cues' length shares), a sentence or clause end near a cut
+  preferred. The cues, and so their timing, stay as they are; a few words move into a neighbouring cue. Rewrites
+  ``agents/<agent>.cues.json`` in place, the first time keeping the model's cut beside it.
 
-Both spend through the ledger of a room, so a cap batch scopes them. The slide frames stay in memory.
+``retranslate`` and ``redescribe`` spend through the ledger of a room, so a cap batch scopes them. The slide frames
+stay in memory.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from pydantic import Field
 
 from .contracts import AgentInfo, SlideNote, SlidesState, TranslationState, Usage, Wire
 from .llm.meta import MetaLlm, language_name
 from .recording import RecordedSnapshot, load_manifest, read_snapshots
-from .resegment import Aligned, Recorded, cue_texts
+from .resegment import MAX_CUE_CHARS, Aligned, Recorded, cue_texts
 from .slideshow import Crop, find_slides
 
 log = logging.getLogger("talk_tracks.revise")
@@ -149,6 +157,94 @@ def load_cue_translations(recording: Path, agent: str = "translate-tr") -> Align
         return None
     saved = CueTranslations.model_validate_json(path.read_text(encoding="utf-8"))
     return {i: (tuple(t.cues), tuple(t.segments)) for i, t in saved.lines.items()}
+
+
+_CLOSERS = "\"')]" + "".join(map(chr, (0x2019, 0x201D)))  # straight and curly closing quotes, brackets
+_SENTENCE_END = re.compile(f"[.?!{chr(0x2026)}][{re.escape(_CLOSERS)}]*$")
+_CLAUSE_END = re.compile(f"[,;:{chr(0x2013)}{chr(0x2014)}][{re.escape(_CLOSERS)}]*$")
+OVER_COST = 1000  # per character a segment runs over MAX_CUE_CHARS: fitting comes before the target points
+SENTENCE_BONUS, CLAUSE_BONUS = 6, 3  # characters of drift from a target a break after such an end is worth
+
+Anchor = Literal["model", "share"]
+
+
+def overflow(segments: Sequence[str]) -> int:
+    """Characters over ``MAX_CUE_CHARS``, summed over the segments."""
+    return sum(max(0, len(s) - MAX_CUE_CHARS) for s in segments)
+
+
+def resplit_line(cues: Sequence[str], segments: Sequence[str], *, anchor: Anchor = "model") -> list[str]:
+    """``segments`` joined and cut again into one segment per cue at word boundaries: the cut with the fewest
+    characters over ``MAX_CUE_CHARS``, then the least drift from the target points, less a bonus for breaking after a
+    sentence or clause end. The targets are the model's own cut (``model``: only the words needed move) or the
+    cues' length shares (``share``). Too few words to give every cue one: unchanged."""
+    words = " ".join(segments).split()
+    n = len(cues)
+    if len(words) < n or n == 0:
+        return list(segments)
+    pos = [0]  # pos[j]: characters up to word boundary j, a space between words
+    for w in words:
+        pos.append(pos[-1] + len(w) + (1 if len(pos) > 1 else 0))
+    if anchor == "model" and len(segments) == n:
+        counts = [len(s.split()) for s in segments]
+        target = [float(pos[sum(counts[:k])]) for k in range(n + 1)]
+    else:
+        weights = [max(1, len(c)) for c in cues]
+        target = [pos[-1] * sum(weights[:k]) / sum(weights) for k in range(n + 1)]
+
+    def cost(i: int, j: int, k: int) -> float:
+        """Segment k (from 1) being words i..j."""
+        over = OVER_COST * max(0, pos[j] - pos[i] - (1 if i else 0) - MAX_CUE_CHARS)
+        if k == n:
+            return over
+        bonus = SENTENCE_BONUS if _SENTENCE_END.search(words[j - 1]) else 0
+        bonus = bonus or (CLAUSE_BONUS if _CLAUSE_END.search(words[j - 1]) else 0)
+        return over + abs(pos[j] - target[k]) - bonus
+
+    inf = float("inf")
+    best = [[inf] * (len(words) + 1) for _ in range(n + 1)]
+    back = [[0] * (len(words) + 1) for _ in range(n + 1)]
+    best[0][0] = 0.0
+    for k in range(1, n + 1):
+        for j in range(k, len(words) - (n - k) + 1):
+            for i in range(k - 1, j):
+                if best[k - 1][i] < inf and (c := best[k - 1][i] + cost(i, j, k)) < best[k][j]:
+                    best[k][j], back[k][j] = c, i
+    cuts = [len(words)]
+    for k in range(n, 0, -1):
+        cuts.append(back[k][cuts[-1]])
+    cuts.reverse()
+    return [" ".join(words[cuts[k] : cuts[k + 1]]) for k in range(n)]
+
+
+def resplit(
+    recording: Path, *, agent: str = "translate-tr", anchor: Anchor = "model"
+) -> tuple[CueTranslations, list[int]]:
+    """Cut each saved line of ``agent`` with a segment over ``MAX_CUE_CHARS`` again (``resplit_line``) where that
+    lowers its overflow, and save the result in place; the first run that changes a line keeps the saved file as
+    ``<agent>.cues.orig.json``. A second run changes nothing. Returns the result and the ids of the lines cut again."""
+    path = cues_path(recording, agent)
+    if not path.exists():
+        raise SystemExit(f"no {path}: run retranslate first")
+    raw = path.read_text(encoding="utf-8")
+    saved = CueTranslations.model_validate_json(raw)
+    lines: dict[int, CueTranslation] = {}
+    changed: list[int] = []
+    for line_id, line in saved.lines.items():
+        if len(line.segments) == len(line.cues) and overflow(line.segments):
+            segments = resplit_line(line.cues, line.segments, anchor=anchor)
+            if overflow(segments) < overflow(line.segments):
+                changed.append(line_id)
+                line = line.model_copy(update={"segments": segments})
+        lines[line_id] = line
+    if changed:
+        backup = path.with_name(f"{agent}.cues.orig.json")
+        if not backup.exists():
+            backup.write_text(raw, encoding="utf-8")
+        result = saved.model_copy(update={"lines": lines})
+        path.write_text(result.model_dump_json(indent=1), encoding="utf-8")
+        return result, changed
+    return saved, changed
 
 
 def described(snapshots: Sequence[RecordedSnapshot]) -> set[int]:

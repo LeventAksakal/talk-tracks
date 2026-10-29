@@ -7,7 +7,8 @@ what the agents publish. Demo rooms (see
 wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``record`` records a room's agent tracks,
 ``generate`` does both at once, ``loop`` replays a recording as a live room, forever. Fixes to a finished recording
 (``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its lines again cut to
-its subtitle cues, ``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``).
+its subtitle cues, ``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``),
+``resplit`` cuts retranslate's over-long subtitle cues again, free (no model call, no spend).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
@@ -51,7 +52,7 @@ from .llm.queued import Priority, QueuedLlm, add_usage
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "catalog", "watch")
 DEMO = ("play", "record", "generate", "loop")
-REVISE = ("retranslate", "redescribe")  # offline: a finished recording, no relay
+REVISE = ("retranslate", "redescribe", "resplit")  # offline: a finished recording, no relay
 
 FAKE_SENTENCES = [
     "Media over QUIC lets one relay fan out many named tracks.",
@@ -432,6 +433,13 @@ async def _revise(args: argparse.Namespace) -> None:
     from .slideshow import Crop
 
     recording = need(args.recording, "--recording")
+    if args.agent == "resplit":
+        result, changed = revise.resplit(recording)
+        longest = max((len(s) for line in result.lines.values() for s in line.segments), default=0)
+        logging.getLogger("talk_tracks.revise").info(
+            "resplit: %d of %d lines cut again, longest cue now %d characters", len(changed), len(result.lines), longest
+        )
+        return
     ledger = room_ledger(args.room, spend_ledger())
     if args.agent == "retranslate":
         translator = revise.FakeCueTranslator() if args.fake else revise.MetaCueTranslator(api_key(), ledger)

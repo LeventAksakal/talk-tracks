@@ -158,14 +158,16 @@ before, and the new rooms would show video with empty AI panels.
 
 ## Fixing a finished recording
 
-Two offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
-snapshots, which `loop` merges (`agents/src/talk_tracks/revise.py`). Both spend through the ledger of the room given
-with `--room`, so a cap batch scopes them; with `--fake` they spend nothing.
+Three offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
+snapshots, which `loop` merges (`agents/src/talk_tracks/revise.py`). `retranslate` and `redescribe` spend through
+the ledger of the room given with `--room`, so a cap batch scopes them; with `--fake` they spend nothing. `resplit`
+makes no model call and spends nothing.
 
 | Command | What it does | Saves |
 |---|---|---|
 | `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-tr.cues.json`; a line whose cues have changed since falls back to the split translation |
 | `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out 4 s after its slide |
+| `resplit --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-tr.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-tr.cues.orig.json` |
 
 On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
 
@@ -186,6 +188,24 @@ Expected cost: about $0.20 for both rooms. Reasoning tokens roughly double the f
 a lecture on 12k tokens in and 6k out at $1.25 / $4.25 per M; redescribe about $0.004 a slide, 2 virus and 8 dataviz
 slides). The real run cost $0.1829: virus retranslate $0.0717 and redescribe $0.0082, dataviz retranslate $0.0671 and
 redescribe $0.0359. The batch stops both at $0.40.
+
+### Fitting the Turkish cues to 84 characters (resplit)
+
+`retranslate` keeps the cue count but its model splits the Turkish unevenly: about one cue in seven ran over 84
+characters (up to 117). `resplit` fixes that for free; run it after `retranslate`, once the image has the command.
+It needs no key, so it runs in each room's looper container (which mounts the data and sets `TT_ROOM`):
+
+```bash
+cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
+$D run --rm --no-deps looper-virus resplit --recording /data/demo/virus
+$D run --rm --no-deps looper-dataviz resplit --recording /data/demo/dataviz
+$D restart looper-virus looper-dataviz   # a looper reads translate-tr.cues.json when it starts
+```
+
+Each run logs how many lines it cut again and the longest cue left. On the recordings of 2026-10-29 it left one line
+per room a few characters over (its words cannot fit its cues at any word boundary): virus 86, dataviz 87, against
+117 and 116 before. To undo, copy `translate-tr.cues.orig.json` back over `translate-tr.cues.json` and restart the
+looper.
 
 ## All at once
 
