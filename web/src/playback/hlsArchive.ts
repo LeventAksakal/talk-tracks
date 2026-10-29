@@ -98,6 +98,8 @@ export interface ArchivePlayback {
   position(): number | undefined;
   /** What the element holds, wall ms. */
   buffered(): Range[];
+  /** Stop playing until the next play(). */
+  pause(): void;
   readonly element: HTMLVideoElement;
   readonly error: string | undefined;
   close(): void;
@@ -166,6 +168,10 @@ class HlsJsPlayback implements ArchivePlayback {
 
   buffered(): Range[] {
     return mapBuffered(this.element, this.position());
+  }
+
+  pause(): void {
+    this.element.pause();
   }
 
   close(): void {
@@ -246,6 +252,10 @@ class NativePlayback implements ArchivePlayback {
     return mapBuffered(this.element, this.position());
   }
 
+  pause(): void {
+    this.element.pause();
+  }
+
   close(): void {
     this.element.removeAttribute("src");
     this.element.load();
@@ -253,7 +263,7 @@ class NativePlayback implements ArchivePlayback {
 }
 
 /** The element's buffered ranges in wall time, mapped through the playhead's own PROGRAM-DATE-TIME. */
-function mapBuffered(element: HTMLMediaElement, positionWall: number | undefined): Range[] {
+export function mapBuffered(element: HTMLMediaElement, positionWall: number | undefined): Range[] {
   if (positionWall === undefined) return [];
   const shift = positionWall - element.currentTime * 1000;
   const b = element.buffered;
