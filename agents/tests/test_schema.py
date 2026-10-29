@@ -19,7 +19,6 @@ from talk_tracks.contracts import (
     Cue,
     CueObject,
     CueRecord,
-    Envelope,
     OutlineObject,
     OutlineRecord,
     RecapData,
@@ -131,16 +130,12 @@ def test_room_time_from_the_hang_clock() -> None:
 
 def test_recording_files_validate_against_their_schemas(tmp_path: Path) -> None:
     rec = RecordingWriter(tmp_path, "loop-gen", wall_ms=1, media="lecture.mp4")
+    rec.room_origin(4000)
     snapshot = rec.add(
-        Envelope(
-            agent=AgentInfo(name="captions", label="Captions", model="fake"),
-            instance="1",
-            seq=1,
-            at_ms=10,
-            usage=Usage(),
-            state=CaptionsState(lang="en", lines=[]),
-        ),
-        media_ms=0,
+        AgentInfo(name="captions", label="Captions", model="fake"),
+        CaptionsState(lang="en", lines=[]),
+        Usage(),
+        media_ms=4000,
         wall_ms=2,
     )
     rec.close(wall_ms=3)

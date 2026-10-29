@@ -1,51 +1,70 @@
-from talk_tracks.contracts import ENVELOPE, AgentInfo, Envelope, Usage
-from talk_tracks.cores.captions import CaptionsCore
-from talk_tracks.follow import NewestInstance, RoomFollower, SnapshotFilter
+from talk_tracks.contracts import (
+    CaptionsState,
+    Cue,
+    CueObject,
+    CueRecord,
+    OutlineState,
+    RoomCatalog,
+    SlidesState,
+    State,
+    TranslationState,
+)
+from talk_tracks.follow import TrackFollower, catalog_tracks, line_id
+from talk_tracks.slicing import Room, room_catalog
+
+from .test_slicing import EPOCH, template
 
 
-def envelope(instance: str, seq: int) -> bytes:
-    return ENVELOPE.dump_json(
-        Envelope(
-            agent=AgentInfo(name="captions", label="Captions", model="fake"),
-            instance=instance,
-            seq=seq,
-            at_ms=1,
-            usage=Usage(),
-            state=CaptionsCore("en").state(),
-        )
-    )
+def cue(i: str, rev: int, final: bool, text: str = "") -> bytes:
+    data = Cue(start=1000, end=2000, id=i, text=text or f"cue {i} rev {rev}", rev=rev, final=final)
+    return CueObject([CueRecord(m=1000, data=data)]).model_dump_json(by_alias=True).encode()
 
 
-def test_follows_the_newest_numeric_instance_only() -> None:
-    newest = NewestInstance()
-    assert newest.offer("1000")
-    assert not newest.offer("900")  # a lingering older broadcast
-    assert not newest.offer("not-a-number")
-    assert newest.offer("2000")  # the replacement
-    assert newest.current == "2000"
+def test_the_catalog_lists_each_agent_track_with_what_a_follower_needs() -> None:
+    doc = room_catalog(template(), "r", EPOCH, 7, 0).to_json()
+    tracks = {t.agent: t for t in catalog_tracks(RoomCatalog.model_validate(doc))}
+    assert {a: t.kind for a, t in tracks.items()} == {
+        "captions": "captions",
+        "translate-tr": "translation",
+        "describe": "slides",
+        "chapters": "outline",
+    }
+    assert tracks["translate-tr"].lang == "tr" and tracks["captions"].namespace == "talk/r/agents/captions"
 
 
-def test_snapshots_pass_once_in_order_and_only_from_the_followed_instance() -> None:
-    f = SnapshotFilter()
-    seen = [
-        f.accept(envelope("1000", 1), "1000"),
-        f.accept(envelope("1000", 1), "1000"),  # heartbeat
-        f.accept(envelope("1000", 2), "1000"),
-        f.accept(envelope("900", 7), "1000"),  # not followed
-        f.accept(envelope("2000", 1), "2000"),  # replacement starts its own sequence
-    ]
-    assert [(e.instance, e.seq) if e else None for e in seen] == [("1000", 1), None, ("1000", 2), None, ("2000", 1)]
+def test_a_cue_ids_highest_rev_wins_and_the_newest_open_cue_is_the_interim() -> None:
+    f = TrackFollower("captions", "en")
+    first = f.accept(cue("4", 0, False, "hel"))
+    assert isinstance(first, CaptionsState) and first.lines == [] and first.interim == "hel"
+    assert f.accept(cue("4", 0, False, "hel")) is None  # a repeated object changes nothing
+    done = f.accept(cue("4", 1, True, "hello"))
+    assert isinstance(done, CaptionsState) and [(x.id, x.text) for x in done.lines] == [(4, "hello")]
+    assert done.interim == ""
+    assert f.accept(cue("4", 0, False, "hel")) is None  # an older revision arriving late
 
 
-def test_room_follower_tracks_the_newest_instance_per_agent() -> None:
-    room = RoomFollower()
-    assert room.offer("captions/1000") == ("captions", "1000")
-    assert room.offer("translate-tr/500") == ("translate-tr", "500")  # agents are independent
-    assert room.offer("captions/900") is None
-    assert room.offer("captions") is None and room.offer("captions/1000/state") is None
-    assert room.accept("captions", envelope("1000", 1)) is not None
-    assert room.accept("captions", envelope("1000", 1)) is None  # heartbeat
-    assert room.offer("captions/2000") == ("captions", "2000")  # the next loop, or a replacement
-    assert room.accept("captions", envelope("1000", 5)) is None  # the old instance, still draining
-    assert room.accept("captions", envelope("2000", 1)) is not None
-    assert room.accept("chapters", envelope("2000", 1)) is None  # a captions envelope on another agent's path
+def test_a_whole_loop_of_room_objects_rebuilds_each_agents_last_state() -> None:
+    room = Room(template(), EPOCH)
+    doc = room_catalog(room.template, "r", EPOCH, 7, 0).to_json()
+    states: dict[str, State | None] = {}
+    for track in catalog_tracks(RoomCatalog.model_validate(doc)):
+        f = TrackFollower(track.kind, track.lang)
+        agent = next(a for a in room.template.agents if a.info.name == track.agent)
+        for g in range(room.per_loop(agent.info.name)):
+            for placed in room.group(agent.info.name, g):
+                states[track.agent] = f.accept(placed.payload) or states.get(track.agent)
+    captions = states["captions"]
+    assert isinstance(captions, CaptionsState)
+    assert [x.text for x in captions.lines] == [f"line {i}" for i in range(5)]
+    translation = states["translate-tr"]
+    assert isinstance(translation, TranslationState) and [x.text for x in translation.lines] == ["satir 0"]
+    slides = states["describe"]
+    assert isinstance(slides, SlidesState) and [s.description for s in slides.slides] == ["title"]
+    outline = states["chapters"]
+    assert isinstance(outline, OutlineState) and [c.title for c in outline.chapters] == ["A"]
+
+
+def test_a_cue_id_that_is_not_a_number_gets_the_next_free_line_id() -> None:
+    known: dict[str, int] = {}
+    assert line_id("12", known) == 12
+    assert line_id("a", known) == 0 and line_id("b", known) == 1 and line_id("a", known) == 0

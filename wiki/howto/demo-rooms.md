@@ -108,8 +108,8 @@ grep gen-demo ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1
   3. after a 5 s lead-in, plays the lecture in real time with its slide frames;
   4. records 15 s more.
 
-  The recording lands in `~/tt-data/demo/<room>/` (`recording.json`, `agents/*.jsonl`). Run it before the agents
-  move to the sliced contract: `record` reads the instance tracks until it is ported.
+  The recording lands in `~/tt-data/demo/<room>/` (`recording.json`, `agents/*.jsonl`). `record` follows every
+  agent track the room catalog lists and needs the token to read `talk/<room>/catalog`.
 - **Spend.** A batch cap file scopes the cap to the generation rooms. An env override (`TT_ROOM_CAP_USD`) would apply
   to every room, judges' included, and would have to be put back. `TT_SPEND_CEILING_USD` needs no change.
 
@@ -155,6 +155,37 @@ before, and the new rooms would show video with empty AI panels.
    - a FETCH of a past slice of `talk/<room>/agents/captions` track `items` comes back in tens of ms.
 
    The live agents keep excluding `virus`, `dataviz` and `demo` (`TT_DEMO_ROOMS`).
+
+## Fixing a finished recording
+
+Two offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
+snapshots, which `loop` merges (`agents/src/talk_tracks/revise.py`). Both spend through the ledger of the room given
+with `--room`, so a cap batch scopes them; with `--fake` they spend nothing.
+
+| Command | What it does | Saves |
+|---|---|---|
+| `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-tr.cues.json`; a line whose cues have changed since falls back to the split translation |
+| `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out 4 s after its slide |
+
+On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
+
+```bash
+cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
+cat > ~/tt-data/caps/revise-demo.json <<'JSON'
+{"group": "revise-demo", "room_usd": 0.3, "total_usd": 0.4, "rooms": ["revise-virus", "revise-dataviz"]}
+JSON
+for L in virus dataviz; do
+  $D --profile live run --rm --no-deps translate-tr retranslate --room revise-$L --recording /data/demo/$L
+  $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L     --slides 0,0,0.77,0.77
+done
+grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f
+", s}'
+$D restart looper-virus looper-dataviz   # a looper reads the fixes when it starts
+```
+
+Expected cost: retranslate about $0.04 a lecture (57 lines in all, about 12k tokens in and 6k out, $1.25 / $4.25
+per M; up to about $0.15 with reasoning tokens and retries), redescribe about $0.004 a slide (2 virus, 8 dataviz:
+about $0.04). The batch stops both at $0.40.
 
 ## All at once
 
@@ -225,28 +256,42 @@ room name or recreated containers each time: the captions agent resumes its line
 `talk/<room>/agents/<agent>`: track `items` for captions, translation and slide descriptions, track `outline` for
 chapters. The looper turns the recording's full-state snapshots into that wire format:
 
-* **Slices.** Group k of an `items` track is media time [4k, 4k + 4) s. Object 0 is the carry-in (the last two final
-  caption or translated lines, or the slide on screen), then one item per object: each new interim caption text (an
-  interim version of the next line id), each new or changed final line, translated line or slide description.
-  Translated lines carry their source line's media times. A slice with nothing new is a carry-in alone.
+* **Slices.** Group k of an `items` track is room time [4k, 4k + 4) s; an item goes in the slice open when the
+  recording published it (§4.2), so a cue finalised after its slice closed lands in a later one, at most `latenessMs`
+  later. Object 0 is the carry-in (the last two final cues, or the slide on screen), then one item per object: each
+  new interim caption text (`final: false` under the next cue's id, `rev` rising), each new or changed final cue,
+  translated cue or slide description. Translated cues carry their source cue's id and times. A slice with nothing new
+  is a carry-in alone.
+* **Payload.** Every object is an MSF event-timeline array of `{m, data}` records (`contracts/`, `CueObject`,
+  `SlideObject`, `OutlineObject`): a cue's `data` is `{start, end, id, text, rev, final}` with `m == start` and `id`
+  the caption line id as a decimal string, a slide's `{id, at, text}` with `m == at`, the outline's chapters
+  `{kind: "chapter", id, start, title, summary}` with `m == start`, then its glossary terms and recap at the
+  revision's time.
+* **Cues.** The real ASR's lines are long segments (half a minute is common), so the looper first cuts each into
+  subtitle cues of at most 7 s and 84 characters (`agents/src/talk_tracks/resegment.py`): after a sentence end, else
+  a clause mark or before a conjunction. Word times follow the recorded interims; a cue goes out final once all its
+  words were heard. Each translated line is split over its source line's cues, sentence by sentence, by character
+  share.
 * **Outline.** One group per revision of the whole outline (chapters, glossary, recap); an unchanged revision is
   not a new group.
 * **FETCH.** The looper is the origin of its tracks' history: any group up to the one in progress is rebuilt from the
   recording on demand, so a FETCH of any past slice is answered (about 35 ms through the relay, locally), and its copy
   is byte for byte what went out live. A future group is refused (code 17).
-* `agent` and `usage` are the recorded ones, so the load panel shows what generating the track cost once. The wire
-  types mirror the Lazy agents lane's contract (`v: 2`, `slice`, `kind`, `body`) until it is merged into `contracts/`.
+* What generating a track cost once is its `spend_usd` in the room catalog's status, below.
 
 **The room catalog** `talk/<room>/catalog` track `catalog` is the MSF catalog of the room's AI tracks
 (wiki/design/moq-track-system.md §5.10, built by `agents/src/talk_tracks/room_catalog.py`), plain JSON, one group per
 write, repeated every 2 s:
 
-* root `version: "draft-01"` and the extension `tt`: `epoch` (room time 0, Unix ms: 2026-10-01 00:00 UTC for a looped
-  room), `shift` (the teacher broadcast's `clock.wall` with no shift), `status` (each agent `producing`, not
-  `capped`);
+* root `version: "draft-01"` and the extension `tt`: `E` (room time 0, Unix ms: 2026-10-01 00:00 UTC for a looped
+  room), `shift` (ms, a whole number of slices, keyed by the teacher broadcast's `clock.wall` as a decimal string:
+  0 here), `status` keyed by bare agent name (`status: "live"`, `producing: true`, zero `fetches_served` and
+  `backfills`, `spend_usd` what generating the track cost, `updated_ms` refreshed with every write; a capped track
+  says `status: "capped"`); the names are locked in wiki/design/lane-briefs.md, "Catalog field names", and
+  validated by the contracts' `RoomCatalog`;
 * one entry per track: `name`, `namespace`, `packaging: "eventtimeline"`, `mimeType`, `eventType`
   (`urn:msf:captions:webvtt` for captions and translation, `com.talktracks.slides`, `com.talktracks.outline`), `role`
-  (`caption`, `subtitle`), `lang`, `label`, `isLive`, the slice `template` (none for the outline), and `tt` with
+  (`caption`, `subtitle`), `lang` and `label` (left out when unset), `isLive`, the slice `template` (none for the outline), and `tt` with
   `dependsOn` (full track paths), `latenessMs` (how late the recording published an item after its own time, at
   most) and `cost: "free"`.
 
@@ -269,7 +314,8 @@ lecture rounded up to whole 4 s slices (up to 4 s of pause between loops), and l
 `data/demo/<lecture>/` holds everything a looping room needs:
 
 ```
-recording.json          manifest: room, lecture file, media range, agents (contracts/recording.schema.json)
+recording.json          manifest: room, lecture file, media range, room_origin_ms, agents
+                        (contracts/recording.schema.json)
 agents/<agent>.jsonl    one snapshot per line: media_ms, wall_ms, instance, seq, usage, state
                         (contracts/recorded-snapshot.schema.json)
 lecture.mp4             the prepared lecture
@@ -282,11 +328,20 @@ agents' processing delay). Stamped on arrival, a replay shows each track exactly
 from before the first audio are stamped 0; those after the lecture ends play at its end. `generate` publishes the
 lecture from media time 0, so recording time is lecture time.
 
+**`record` reads the agents' records back into full states** (`agents/src/talk_tracks/follow.py`): it subscribes the
+room catalog for its tracks, `E` and shifts, and the teacher's hang catalog for `clock`, then follows each agent
+track. Each cue id's highest `rev` wins, final cues become the lines and the newest open cue the interim; slides
+collect by id; each outline object is the whole outline. The records are on room time, so the recorder stamps on
+room time too: the manifest's `room_origin_ms` is the room time of the lecture's media time 0 (clock.wall as Unix ms
+− `E` + the teacher's shift), the loop subtracts it, and every snapshot's `media_ms` is teacher media time plus it.
+`instance` is empty under a stable name and `seq` counts each agent's snapshots. Recordings without
+`room_origin_ms` (the first two, made from full-state envelopes) are on the media clock.
+
 ## Checking a looped room
 
 * A subscriber to `talk/<room>/agents/captions` track `items` sees one group per 4 s, each opened by its carry-in, and
-  a FETCH of a group k slices back (`StartAt.range(k, k)`) returns the same objects. (`watch` reads the old instance
-  tracks until it moves to the sliced contract.)
+  a FETCH of a group k slices back (`StartAt.range(k, k)`) returns the same objects. `watch` prints each agent's
+  state rebuilt from the records as they arrive.
 * The moq project's own CLI reads the teacher broadcast as hang and writes it to a file that ffprobe can check:
   `docker build -t talk-tracks-moq-cli:0.14.8 -f deploy/Dockerfile.moq-cli deploy`, then
   `docker run --rm --network <compose network> --entrypoint timeout talk-tracks-moq-cli:0.14.8 15 moq --connect moql://relay:4443 --connect-tls-insecure export --broadcast talk/demo/teacher mkv > out.mkv`.
@@ -301,10 +356,8 @@ lecture from media time 0, so recording time is lecture time.
   a first subscription that starts mid-group gets that group's tail relabelled as the next group, after which the
   real next group is dropped. The looper starts every new subscription at the next group (a first viewer waits up
   to 4 s; the slice in progress is reachable by a Joining FETCH).
-* The items are still sliced by when the recording published them, and their payload is the interim v2 wire shape;
-  they move to MSF event-timeline records (sliced by their own time, within `latenessMs`) with the agents' contract.
-* `watch` and `record` still read the old instance tracks (`.../<agent>/<instance>`, track `state`); they move to the
-  sliced contract with the agents.
+* `record` writes a new snapshot per object (an interim or a cue revision is a whole caption state), so a recording
+  of the records is larger than one of the old full-state envelopes; the loop diffs it back into the same items.
 * The looper builds one loop's slices in memory at start (a few MB for a 20-minute lecture) and reads the lecture
   from disk on every loop.
 * Rewind (ticket 0002) and the demo moments in looped rooms (ticket 0004) are open; the recording directory is meant

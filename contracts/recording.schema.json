@@ -141,6 +141,19 @@
       "title": "Room",
       "type": "string"
     },
+    "room_origin_ms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Room time of the lecture's media time 0, when every time in the recording is room time",
+      "title": "Room Origin Ms"
+    },
     "started_wall_ms": {
       "minimum": 0,
       "title": "Started Wall Ms",

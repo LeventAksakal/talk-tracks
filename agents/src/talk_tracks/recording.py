@@ -6,11 +6,15 @@ A recording is a directory::
     agents/<agent>.jsonl    one ``RecordedSnapshot`` per line, in media-time order
     lecture.mp4             the lecture media, when the recording was made from a file (``Recording.media``)
 
-Media time is the speaker's clock, read from the teacher broadcast's audio track (the timestamp every audio object
-carries), not wall time. Each snapshot is stamped with the newest teacher media time the recorder had seen when the
-snapshot arrived, so the agents' processing delay is part of the recording and a replay shows each track exactly as
-late as it was live. Snapshots that arrive before any teacher audio are stamped 0. Media times inside the states
-(caption ``start_ms``/``end_ms``, slide ``at_ms``, chapter ``start_ms``) are on the same clock.
+Each snapshot is stamped with the newest teacher media time the recorder had seen when the snapshot arrived (from
+the timestamp every teacher audio object carries), so the agents' processing delay is part of the recording and a
+replay shows each track exactly as late as it was live. Snapshots that arrive before any teacher audio are stamped
+0. Times inside the states (caption ``start_ms``/``end_ms``, slide ``at_ms``, chapter ``start_ms``) are on the same
+clock.
+
+That clock is room time (design §4.4) when the manifest has ``room_origin_ms``, the room time of the lecture's media
+time 0, as ``record`` writes it since the agents moved to MSF records. A recording without it (the first ones, made
+from the agents' full-state envelopes) is on the speaker's media clock itself: room origin 0.
 
 The JSON Schemas of both files are committed in ``contracts/`` (``recording.schema.json``,
 ``recorded-snapshot.schema.json``).
@@ -24,7 +28,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from .contracts import AgentInfo, Envelope, State, Usage, Wire
+from .contracts import AgentInfo, State, Usage, Wire
 
 FORMAT = "talk-tracks-recording"
 MANIFEST = "recording.json"
@@ -34,10 +38,12 @@ AGENTS_DIR = "agents"
 class RecordedSnapshot(Wire):
     """One state change of one agent, as a line of ``agents/<agent>.jsonl``."""
 
-    media_ms: int = Field(ge=0, description="Speaker media time when the snapshot arrived at the recorder")
+    media_ms: int = Field(
+        ge=0, description="Teacher media time when the snapshot arrived at the recorder (room ms with room_origin_ms)"
+    )
     wall_ms: int = Field(ge=0, description="Wall-clock time when the snapshot arrived at the recorder")
-    instance: str = Field(description="The agent instance that published it")
-    seq: int = Field(ge=0, description="Its sequence number within that instance")
+    instance: str = Field(description="The agent instance that published it; empty under a stable name")
+    seq: int = Field(ge=0, description="Its sequence number within that instance, or within the recording")
     usage: Usage = Field(description="The instance's cumulative model usage at that moment")
     state: State
 
@@ -63,6 +69,10 @@ class Recording(Wire):
     )
     media_first_ms: int | None = Field(default=None, ge=0, description="First teacher media time seen")
     media_last_ms: int | None = Field(default=None, ge=0, description="Last teacher media time seen")
+    room_origin_ms: int | None = Field(
+        default=None,
+        description="Room time of the lecture's media time 0, when every time in the recording is room time",
+    )
     agents: list[RecordedAgent] = Field(default_factory=list[RecordedAgent])
 
 
@@ -102,30 +112,38 @@ class RecordingWriter:
             }
         )
 
-    def add(self, envelope: Envelope, *, media_ms: int, wall_ms: int) -> RecordedSnapshot:
-        name = envelope.agent.name
+    def room_origin(self, origin_ms: int) -> None:
+        """Every time from now on is room time, the lecture's media time 0 at room time ``origin_ms``."""
+        if self._manifest.room_origin_ms is None:
+            self._manifest = self._manifest.model_copy(update={"room_origin_ms": origin_ms})
+            self._write_manifest()
+
+    def add(
+        self, info: AgentInfo, state: State, usage: Usage, *, media_ms: int, wall_ms: int, instance: str = ""
+    ) -> RecordedSnapshot:
+        name = info.name
         known = self._agents.get(name)
         if known is not None:
             media_ms = max(media_ms, known.last_media_ms)
         snapshot = RecordedSnapshot(
             media_ms=media_ms,
             wall_ms=wall_ms,
-            instance=envelope.instance,
-            seq=envelope.seq,
-            usage=envelope.usage,
-            state=envelope.state,
+            instance=instance,
+            seq=(known.snapshots if known else 0) + 1,
+            usage=usage,
+            state=state,
         )
         file = agent_file(name)
         with (self.directory / file).open("a", encoding="utf-8", newline="\n") as f:
             f.write(snapshot.model_dump_json() + "\n")
         self._agents[name] = RecordedAgent(
-            info=envelope.agent,  # the newest label and model win
+            info=info,  # the newest label and model win
             file=file,
             snapshots=(known.snapshots if known else 0) + 1,
             first_media_ms=known.first_media_ms if known else media_ms,
             last_media_ms=media_ms,
         )
-        if known is None or known.info != envelope.agent:
+        if known is None or known.info != info:
             self._write_manifest()
         return snapshot
 

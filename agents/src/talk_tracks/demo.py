@@ -5,11 +5,13 @@ transport-free modules ``replay``, ``recording`` and ``lecture``.
 
 * ``play``: the lecture on ``talk/<room>/teacher`` (catalog, video, audio), once or looping; with ``slides``, also
   its slide frames on ``talk/<room>/slides`` for the describe agent (found in the video, see ``slideshow``).
-* ``record``: every agent's newest instance under ``talk/<room>/agents/``, stamped with the teacher's media time.
+* ``record``: every agent track the room catalog lists (MSF records under stable names), rebuilt into full states and
+  stamped with room time.
 * ``generate``: ``record`` and ``play`` once together, for agents already running in a private room.
 * ``loop``: the lecture and the recorded agent tracks together, forever, as if live: on the room clock of
   ``replay`` (anchored to the wall clock, so a restarted looper rejoins the loop in progress) and as sliced tracks
-  under stable names (``slicing``, decision 0012), each answering a FETCH of any of its groups (``origin``).
+  under stable names (``slicing``, decision 0012), each answering a FETCH of any of its groups (``origin``), with
+  long caption lines cut into subtitle cues first (``resegment``).
 """
 
 from __future__ import annotations
@@ -21,14 +23,26 @@ import json
 import logging
 import shutil
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
+from typing import cast
 
-from .contracts import Envelope, SlideFrame, agents_prefix, slides_path, teacher_path
-from .follow import RoomFollower
+from .contracts import (
+    AgentInfo,
+    SlideFrame,
+    Usage,
+    agents_prefix,
+    catalog_path,
+    slides_path,
+    teacher_path,
+    wall_unix_ms,
+)
+from .contracts import RoomCatalog as MsfRoomCatalog
+from .follow import FollowedTrack, TrackFollower, catalog_tracks
 from .lecture import (
     AUDIO_TRACK,
     CATALOG_TRACK,
+    CLOCK_TIMESCALE,
     VIDEO_TRACK,
     LectureInfo,
     MediaPacket,
@@ -40,15 +54,18 @@ from .lecture import (
 from .lecture import clock as hang_clock
 from .moq import AUDIO_IDLE_S, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
-from .recording import RecordingWriter, load_manifest, read_snapshots
+from .recording import RecordingWriter, load_manifest
 from .replay import EPOCH_MS, Cue, LoopPlan, MediaClock, event_us, loop_events, position
+from .resegment import resegment
+from .revise import read_recording, translations_by_agent, with_patches
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
-from .room_catalog import RoomCatalog, catalog_path
-from .runtime import HEARTBEAT_S, now_ms
+from .room_catalog import RoomCatalog
+from .runtime import now_ms
 from .slicing import Room, Template, cues, room_catalog
 from .slideshow import Crop, Slide, find_slides
 
 log = logging.getLogger("talk_tracks.demo")
+HEARTBEAT_S = 2.0  # how often the catalogs go out again, for late subscribers
 
 LECTURE_FILE = "lecture.mp4"
 VIDEO_QUEUE = 64  # about one GOP: what a first subscriber gets first is at most ~2.5 s old
@@ -184,7 +201,8 @@ class _Source:
 
 class RoomCatalogTrack:
     """A demo room's MSF catalog on ``talk/<room>/catalog`` (``room_catalog``). It never changes while the looper
-    runs, and is written again as a heartbeat, like the teacher's: a new subscription starts at the next group."""
+    runs, and is written again as a heartbeat, like the teacher's (a new subscription starts at the next group), with
+    each status entry's ``updated_ms`` refreshed: an entry older than 15 s counts as idle."""
 
     def __init__(self, relay: Relay, room: str, catalog: RoomCatalog) -> None:
         self._relay, self._room, self.catalog = relay, room, catalog
@@ -196,7 +214,8 @@ class RoomCatalogTrack:
 
     async def publish(self) -> None:
         assert self._sink is not None
-        await self._sink.write(json.dumps(self.catalog.to_json(), separators=(",", ":")).encode())
+        root = self.catalog.updated(now_ms()).to_json()
+        await self._sink.write(json.dumps(root, separators=(",", ":")).encode())
 
 
 def room_ms() -> int:
@@ -274,48 +293,20 @@ async def run_lecture(
 # --- recording --------------------------------------------------------------------------------------------------
 
 
-async def follow_room(relay: Relay, room: str) -> AsyncIterator[Envelope]:
-    """Each new snapshot of every agent in the room, from each agent's newest instance."""
-    prefix = agents_prefix(room)
-    follower = RoomFollower()
-    inbox: asyncio.Queue[tuple[str, bytes]] = asyncio.Queue(maxsize=256)
-    readers: dict[str, asyncio.Task[None]] = {}
+class RecorderClock:
+    """The room clock as a recorder sees it: ``E`` and the shifts from the room catalog, the wall time of the
+    teacher's media time 0 from its hang catalog ``clock``. ``origin`` is the room time of media time 0 once all are
+    known (design §4.5)."""
 
-    async def read(agent: str, instance: str) -> None:
-        async for payload in relay.objects(f"{prefix}/{agent}/{instance}", "state"):
-            await inbox.put((agent, payload))
+    def __init__(self) -> None:
+        self.epoch: int | None = None
+        self.shift: dict[str, int] = {}
+        self.wall: tuple[str, float] | None = None  # (clock.wall as the catalog keys it, Unix ms of media time 0)
 
-    async def watch() -> None:
-        async for path, active in relay.announced(prefix):
-            found = follower.offer(path) if active else None
-            if found is not None:
-                agent, instance = found
-                log.info("recording %s instance %s", agent, instance)
-                if agent in readers:
-                    readers[agent].cancel()
-                readers[agent] = asyncio.create_task(read(agent, instance))
-
-    watcher = asyncio.create_task(watch())
-    try:
-        while True:
-            get = asyncio.ensure_future(inbox.get())
-            await asyncio.wait({get, watcher}, return_when=asyncio.FIRST_COMPLETED)
-            if not get.done():
-                get.cancel()
-                watcher.result()
-                raise ConnectionError(f"stopped watching {prefix}")
-            agent, payload = get.result()
-            try:
-                envelope = follower.accept(agent, payload)
-            except ValueError:
-                log.warning("skipping an object from %s that does not match the contract", agent)
-                continue
-            if envelope is not None:
-                yield envelope
-    finally:
-        watcher.cancel()
-        for task in readers.values():
-            task.cancel()
+    def origin(self) -> int | None:
+        if self.epoch is None or self.wall is None or self.wall[0] not in self.shift:
+            return None
+        return round(self.wall[1] - self.epoch + self.shift[self.wall[0]])
 
 
 async def teacher_clock(relay: Relay, room: str, clock: MediaClock, seen: Callable[[int], None]) -> None:
@@ -324,16 +315,74 @@ async def teacher_clock(relay: Relay, room: str, clock: MediaClock, seen: Callab
             seen(clock.ms)
 
 
+async def teacher_wall(relay: Relay, room: str, room_clock: RecorderClock) -> None:
+    async for payload in relay.objects(teacher_path(room), CATALOG_TRACK):
+        hang: object = json.loads(payload)
+        c = cast(dict[str, object], hang).get("clock") if isinstance(hang, dict) else None
+        if isinstance(c, dict) and "wall" in c:
+            c = cast(dict[str, object], c)
+            wall, timescale = int(str(c["wall"])), int(str(c.get("timescale") or CLOCK_TIMESCALE))
+            room_clock.wall = (str(wall), wall_unix_ms(wall, timescale, 0))
+
+
 async def record_room(relay: Relay, room: str, rec: RecordingWriter) -> None:
-    """Record until cancelled. Media time comes from the teacher's audio, see ``recording``."""
+    """Record until cancelled: every agent track the room catalog lists, rebuilt into full states (``follow``),
+    stamped with the room time of the newest teacher audio, see ``recording``."""
     clock = MediaClock()
-    audio = asyncio.create_task(teacher_clock(relay, room, clock, rec.media_seen))
+    room_clock = RecorderClock()
+    spend: dict[str, float] = {}
+    inbox: asyncio.Queue[tuple[FollowedTrack, bytes]] = asyncio.Queue(maxsize=256)
+    readers: dict[tuple[str, str], asyncio.Task[None]] = {}
+
+    def room_now(media_ms: int) -> int:
+        origin = room_clock.origin()
+        if origin is not None:
+            rec.room_origin(origin)
+        return max(0, media_ms + (origin or 0))
+
+    async def read(track: FollowedTrack) -> None:
+        async for payload in relay.objects(track.namespace, track.name):
+            await inbox.put((track, payload))
+
+    async def catalogs() -> None:
+        async for payload in relay.objects(catalog_path(room), ROOM_CATALOG_TRACK):
+            try:
+                cat = MsfRoomCatalog.model_validate_json(payload)
+            except ValueError:
+                log.warning("skipping a room catalog that does not match the contract")
+                continue
+            room_clock.epoch, room_clock.shift = cat.tt.E, dict(cat.tt.shift)
+            spend.update({name: s.spend_usd for name, s in cat.tt.status.items()})
+            for track in catalog_tracks(cat):
+                if (track.namespace, track.name) not in readers:
+                    log.info("recording %s/%s (%s)", track.agent, track.name, track.kind)
+                    readers[(track.namespace, track.name)] = asyncio.create_task(read(track))
+
+    tasks = [
+        asyncio.create_task(teacher_clock(relay, room, clock, lambda ms: rec.media_seen(room_now(ms)))),
+        asyncio.create_task(teacher_wall(relay, room, room_clock)),
+        asyncio.create_task(catalogs()),
+    ]
+    followers: dict[tuple[str, str], TrackFollower] = {}
     try:
-        async for envelope in follow_room(relay, room):
-            snapshot = rec.add(envelope, media_ms=clock.ms, wall_ms=now_ms())
-            log.info("%s seq %d at media %.1f s", envelope.agent.name, envelope.seq, snapshot.media_ms / 1000)
+        while True:
+            track, payload = await inbox.get()
+            key = (track.namespace, track.name)
+            follower = followers.setdefault(key, TrackFollower(track.kind, track.lang))
+            try:
+                state = follower.accept(payload)
+            except ValueError:
+                log.warning("skipping an object from %s that does not match the contract", track.agent)
+                continue
+            if state is None:
+                continue
+            info = AgentInfo(name=track.agent, label=track.label, model="unknown")
+            usage = Usage(cost_usd=spend.get(track.agent, 0.0))
+            snapshot = rec.add(info, state, usage, media_ms=room_now(clock.ms), wall_ms=now_ms())
+            log.info("%s at room %.1f s", track.agent, snapshot.media_ms / 1000)
     finally:
-        audio.cancel()
+        for task in [*tasks, *readers.values()]:
+            task.cancel()
 
 
 # --- commands ---------------------------------------------------------------------------------------------------
@@ -380,8 +429,10 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
     manifest = load_manifest(recording)
     lecture = media or (recording / (manifest.media or LECTURE_FILE))
     info = probe(lecture)
-    recorded = [(agent.info, list(read_snapshots(recording, agent))) for agent in manifest.agents]
-    sliced = Room(Template.build(recorded, info.duration_ms), EPOCH_MS)
+    origin = manifest.room_origin_ms or 0  # recordings from the agents' records are on the room clock
+    recorded = with_patches(recording, read_recording(recording))
+    recorded = resegment(recorded, translations_by_agent(recording, recorded))
+    sliced = Room(Template.build(recorded, info.duration_ms, origin_ms=origin), EPOCH_MS)
     log.info(
         "looping %s (%.1f s, a loop every %.0f s) with %s in room %s",
         lecture.name,
@@ -395,7 +446,8 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
         teacher = Teacher(relay, room, info, wall_ms=EPOCH_MS)
         await teacher.start()
         wall = hang_clock(EPOCH_MS)["wall"]
-        room_catalog_track = RoomCatalogTrack(relay, room, room_catalog(sliced.template, room, EPOCH_MS, wall))
+        built = room_catalog(sliced.template, room, EPOCH_MS, wall, now_ms())
+        room_catalog_track = RoomCatalogTrack(relay, room, built)
         await room_catalog_track.start()
         start = room_ms()
         tracks = SlicedTracks(relay, room, sliced)

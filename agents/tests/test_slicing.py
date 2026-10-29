@@ -1,13 +1,21 @@
 import json
+from dataclasses import replace
 from typing import Any, cast
+
+import pytest
 
 from talk_tracks.contracts import (
     AgentInfo,
     CaptionLine,
     CaptionsState,
     Chapter,
+    CueObject,
+    CueRecord,
+    OutlineObject,
     OutlineState,
     SlideNote,
+    SlideObject,
+    SlideRecord,
     SlidesState,
     State,
     TranslatedLine,
@@ -18,10 +26,8 @@ from talk_tracks.lecture import MediaPacket
 from talk_tracks.recording import RecordedSnapshot
 from talk_tracks.replay import event_us, loop_events
 from talk_tracks.slicing import (
-    SLICED,
     CaptionItem,
     CaptionsCarry,
-    OutlineSnapshot,
     Room,
     SlideItem,
     SlidesCarry,
@@ -131,8 +137,11 @@ def test_captions_slice_into_a_carry_in_and_items() -> None:
         (1, True, "line 1"),
         (2, True, "line 2"),
     ]
+    assert [i.rev for i in items] == [0, 1, 0, 0]  # the final is the interim's next revision
     second = bodies(t, "captions", 1)
-    assert second[0] == CaptionsCarry(lang="en", lines=[line(1), line(2)])  # the last two final lines
+    carried = second[0]
+    assert isinstance(carried, CaptionsCarry)
+    assert [i.line for i in carried.lines] == [line(1), line(2)]  # the last two final lines
     interim = second[1]
     assert isinstance(interim, CaptionItem) and (interim.line.id, interim.final) == (3, False)
     assert (interim.line.start_ms, interim.line.end_ms) == (line(2).end_ms, 4500)
@@ -148,11 +157,15 @@ def test_translation_carries_its_source_lines_times_and_slides_their_screen() ->
     assert isinstance(item, TranslationItem)
     assert (item.line.id, item.line.start_ms, item.line.end_ms) == (0, 0, 1000)
     carry = bodies(t, "translate-tr", 1)[0]
-    assert isinstance(carry, TranslationCarry) and [x.text for x in carry.lines] == ["satir 0"]
+    assert isinstance(carry, TranslationCarry) and [x.line.text for x in carry.lines] == ["satir 0"]
     assert isinstance(bodies(t, "describe", 0)[1], SlideItem)
     assert len(bodies(t, "describe", 1)) == 1  # an unchanged description is not a new item
     carry = bodies(t, "describe", 2)[0]
     assert isinstance(carry, SlidesCarry) and carry.slide is not None and carry.slide.description == "title"
+
+
+def cue_records(payload: bytes) -> list[CueRecord]:
+    return [r for r in CueObject.model_validate_json(payload).root if isinstance(r, CueRecord)]
 
 
 def test_room_groups_move_by_whole_loops_and_are_byte_identical() -> None:
@@ -161,15 +174,18 @@ def test_room_groups_move_by_whole_loops_and_are_byte_identical() -> None:
     objects = room.group("captions", g)
     again = room.group("captions", g)
     assert [o.payload for o in objects] == [o.payload for o in again]
-    envelopes = [SLICED.validate_json(o.payload) for o in objects]
-    assert [e.kind for e in envelopes] == ["carry", "item", "item"]
-    assert {e.slice for e in envelopes} == {g}  # on an items track the group is the slice of its media time
-    assert objects[0].media_ms == 2 * 12_000 + 4000 and envelopes[0].at_ms == EPOCH + 28_000
-    carry = envelopes[0].body
-    assert isinstance(carry, CaptionsCarry) and [x.id for x in carry.lines] == [11, 12]  # ids move by 2 x stride
-    assert carry.lines[0].start_ms == 24_000 + line(1).start_ms
+    assert objects[0].media_ms == 2 * 12_000 + 4000  # room ms: on an items track the group is its slice
+    carry = cue_records(objects[0].payload)
+    assert [r.data.id for r in carry] == ["11", "12"]  # ids move by 2 x stride
+    first = carry[0]
+    assert first.m == first.data.start == 24_000 + line(1).start_ms and first.data.final
+    interim = cue_records(objects[1].payload)[0]
+    assert (interim.data.id, interim.data.final, interim.data.rev) == ("13", False, 0)
     wire = json.loads(objects[1].payload)
-    assert wire["v"] == 2 and "seq" not in wire and "instance" not in wire and wire["body"]["type"] == "caption"
+    assert wire == [{"m": interim.m, "data": interim.data.model_dump()}]  # a bare MSF event-timeline object
+    slides = SlideObject.model_validate_json(room.group("describe", 2)[0].payload).root
+    slides = [r for r in slides if isinstance(r, SlideRecord)]
+    assert [(r.m, r.data.id, r.data.text) for r in slides] == [(200, 0, "title")]  # the slide on screen
 
 
 def test_a_group_fills_as_the_room_clock_passes() -> None:
@@ -183,9 +199,10 @@ def test_a_group_fills_as_the_room_clock_passes() -> None:
     assert room.current("chapters", 2000) == 0 and room.current("chapters", 3000) == 1
     assert room.current("chapters", 12_050) == 1  # loop 1 has no revision out yet: loop 0's last still holds
     assert room.current("chapters", 12_100) == 2
-    outline = SLICED.validate_json(room.group("chapters", 3)[0].payload)
-    assert outline.kind == "snapshot" and isinstance(outline.body, OutlineSnapshot)
-    assert outline.slice == (12_000 + 3000) // 4000 and outline.body.chapters[0].id == 5
+    outline = room.group("chapters", 3)
+    assert len(outline) == 1 and outline[0].media_ms == 12_000 + 3000
+    chapters = [r for r in OutlineObject.model_validate_json(outline[0].payload).root if r.data.kind == "chapter"]
+    assert chapters[0].data.id == 5 and chapters[0].m == chapters[0].data.start  # type: ignore[union-attr]
 
 
 def test_cues_open_each_group_before_its_items_on_the_lecture_clock() -> None:
@@ -207,15 +224,19 @@ def test_cues_open_each_group_before_its_items_on_the_lecture_clock() -> None:
 
 
 def test_the_room_catalog_lists_every_track_on_the_room_clock() -> None:
-    root = room_catalog(template(), "virus", 1_790_812_800_000, 212_976_000_000_000).to_json()
+    root = room_catalog(template(), "virus", 1_790_812_800_000, 212_976_000_000_000, now_ms=5).to_json()
     assert root["version"] == "draft-01"
-    assert root["tt"] == {
-        "epoch": 1_790_812_800_000,
-        "shift": {"212976000000000": 0},
-        "status": {
-            name: {"producing": True, "capped": False} for name in ("captions", "translate-tr", "describe", "chapters")
-        },
+    tt = cast(dict[str, Any], root["tt"])
+    assert (tt["E"], tt["shift"]) == (1_790_812_800_000, {"212976000000000": 0})
+    assert tt["status"]["captions"] == {
+        "status": "live",
+        "producing": True,
+        "fetches_served": 0,
+        "backfills": 0,
+        "spend_usd": 0.25,  # what generating it cost
+        "updated_ms": 5,
     }
+    assert set(tt["status"]) == {"captions", "translate-tr", "describe", "chapters"}
     entries = cast(list[dict[str, Any]], root["tracks"])
     tracks = {t["namespace"]: t for t in entries}
     captions = tracks["talk/virus/agents/captions"]
@@ -246,3 +267,11 @@ def test_the_room_catalog_lists_every_track_on_the_room_clock() -> None:
         False,
     )
     json.dumps(root)  # plain JSON throughout
+
+
+def test_a_heartbeat_rewrites_every_status_entry_and_shifts_are_whole_slices() -> None:
+    built = room_catalog(template(), "virus", 1_790_812_800_000, 1, now_ms=5)
+    status = cast(dict[str, Any], built.updated(99).to_json()["tt"])["status"]
+    assert {s["updated_ms"] for s in status.values()} == {99}
+    with pytest.raises(ValueError):
+        replace(built, shift={1: 1000}).to_json()
