@@ -56,4 +56,9 @@ runs the same stack: see [deploy](deploy.md).
 
 From `agents/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, `uv run pytest -q`.
 
+Enable the pre-commit hook once per clone (secret scan plus fast `ruff`, `eslint` and `prettier` on staged files):
+```bash
+git config core.hooksPath .githooks
+```
+
 The speaker console and viewer against this relay: [web.md](web.md).
