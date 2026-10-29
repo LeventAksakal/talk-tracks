@@ -31,6 +31,27 @@ the VM, or add a carry-over line for laptop spend.
 
 Caddy's certificate lives in the Docker volume `moq_caddy_data`, kept from the pre-event setup.
 
+## Before an update
+
+Save what runs now, so a bad release can be undone in a minute. On the VM, with `<change>` a short name for this
+release (for example `loop-archive`):
+
+```bash
+ssh $VM 'cd ~/talk-tracks &&
+  git rev-parse --short HEAD &&
+  docker tag talk-tracks-agents:dev talk-tracks-agents:before-<change> &&
+  cp -a web/dist ~/web-dist-$(git rev-parse --short HEAD) &&
+  cp -a deploy/.env ~/env-before-<change>'
+```
+
+- The first line prints the old commit; write it down, since the roll-back needs it.
+- The image tag keeps the old agents image after the rebuild moves `:dev` (compose runs `talk-tracks-agents:dev`,
+  or `$TT_AGENTS_TAG`; use that tag if it is set).
+- The bundle copy is `~/web-dist-<old commit>`, next to the clone.
+- The `.env` copy holds the tokens, so keep it mode 600 (`chmod 600 ~/env-before-<change>`) and out of git.
+
+The relay and auth images change rarely and keep their versioned tags, so they need no copy.
+
 ## Update
 
 From a local checkout, with `VM` set to `user@host` for SSH:
@@ -57,6 +78,43 @@ build relay auth`; Rust builds are slow on the VM) and copied over:
 
 A new demo lecture is a folder copied to `~/tt-data/demo/<lecture>/`, then `TT_LECTURE=<lecture>` in `.env` and
 `docker compose -f deploy/compose.vm.yml up -d looper`.
+
+## Roll back
+
+Undo an update using what [Before an update](#before-an-update) saved. `<old commit>` and `<change>` are the values
+from that step.
+
+```bash
+ssh $VM 'rm -rf ~/talk-tracks/web/dist/* && cp -a ~/web-dist-<old commit>/. ~/talk-tracks/web/dist/'
+ssh $VM 'docker tag talk-tracks-agents:before-<change> talk-tracks-agents:dev'
+ssh $VM 'cd ~/talk-tracks && git checkout <old commit>'
+ssh $VM 'cd ~/talk-tracks && diff deploy/.env ~/env-before-<change> || cp ~/env-before-<change> deploy/.env'
+ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml --profile live up -d'
+```
+
+- `git checkout` leaves the clone on a detached head. Run `git checkout main` before the next update's `git pull`.
+- The `diff` copies the saved `.env` back only if it changed (a re-signed token, a new `TT_LECTURE`).
+- `--profile live` matters here too: without it the live agents stay on the new image.
+- If the release re-signed `TT_LOOPER_TOKEN` or changed the demo rooms, remove the old looper container as in
+  [demo rooms](demo-rooms.md#switch-the-public-rooms-on).
+
+Then run the usual checks from [Checked on 2026-10-27](#checked-on-2026-10-27): `/watch/demo` over HTTPS with the
+isolation headers, `/healthz`, the looped lecture with captions, and the agents logging `serving rooms *`.
+
+Data changes are not code and are undone on their own:
+- the archive layout: [roll back](archive.md#deploy-the-room-service-to-the-vm) in the archive howto;
+- re-cut demo captions: [undo](demo-rooms.md#fitting-the-turkish-cues-to-84-characters-resplit) in demo rooms, which restores
+  `translate-tr.cues.orig.json`.
+
+## Clean up
+
+Once the deploy is accepted, remove the saved copies:
+
+```bash
+ssh $VM 'docker rmi talk-tracks-agents:before-<change>; rm -rf ~/web-dist-<old commit> ~/env-before-<change>'
+```
+
+Keep them until then; the older images they point at take disk space on a small VM.
 
 ## Sign a token on the VM
 
