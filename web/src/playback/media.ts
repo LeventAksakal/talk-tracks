@@ -144,6 +144,11 @@ export interface RoomMediaOptions {
   fetchFn?: typeof fetch;
   /** How often the archive's playlist is read again for what it holds, ms. */
   refreshMs?: number;
+  /**
+   * How long the first playlist read waits for the teacher's hang catalog, which says whether the room
+   * loops (a looped room has no playlist), ms. A room whose speaker has left never sends one.
+   */
+  loopWaitMs?: number;
 }
 
 /**
@@ -182,6 +187,9 @@ export class RoomMedia implements SpeakerMedia {
   #subs: Closable[] = [];
   #timers: ReturnType<typeof setInterval>[] = [];
   #closed = false;
+  /** Settles once the room is known to loop or not: the first hang catalog, or `loopWaitMs` without one. */
+  #loopKnown: Promise<void>;
+  #setLoopKnown!: () => void;
 
   constructor(transport: MoqTransport, room: string, options: RoomMediaOptions = {}) {
     this.room = room;
@@ -190,7 +198,10 @@ export class RoomMedia implements SpeakerMedia {
     this.#archiveUrl = hlsUrl(room, options.archiveBase);
     this.#loopUrl = loopUrl(room, options.archiveBase);
     this.#fetch = options.fetchFn ?? ((...args) => fetch(...args));
+    this.#loopKnown = new Promise((resolve) => (this.#setLoopKnown = resolve));
+    const loopWait = setTimeout(() => this.#setLoopKnown(), options.loopWaitMs ?? 3_000);
     this.#subs.push(
+      { close: () => clearTimeout(loopWait) },
       watchRoomCatalog(transport, room, (catalog) => {
         this.#catalog = catalog;
         this.#listeners.emit();
@@ -205,6 +216,7 @@ export class RoomMedia implements SpeakerMedia {
         }
         const first = !this.#loop;
         this.#loop = loop ? { loop, seen: this.#now() } : undefined;
+        this.#setLoopKnown();
         if (first && loop) this.#listeners.emit();
       }),
     );
@@ -343,7 +355,9 @@ export class RoomMedia implements SpeakerMedia {
   }
 
   async #loadArchived(): Promise<void> {
-    if (this.#loop) return; // a looped room has no playlist: the archiver skips it
+    // Not before the room is known to loop or not: a looped room has no playlist (the archiver skips it).
+    await this.#loopKnown;
+    if (this.#loop || this.#closed) return;
     try {
       const before = this.#playlist;
       this.#playlist = await archiveState(this.#archiveUrl, this.#fetch);

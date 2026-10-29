@@ -143,7 +143,11 @@ function MissedView({ missed, playback }: { missed: Missed; playback: Playback }
         What you missed ({formatClock(missed.fromMs)}–{formatClock(missed.toMs)})
       </h3>
       {!missed.outlineOn ? (
-        <p className="muted">This room has no chapters track to show what was covered.</p>
+        <p className="muted">
+          {missed.outlineAnnounced
+            ? "Turn on chapters to see what was covered."
+            : "This room has no chapters track to show what was covered."}
+        </p>
       ) : missed.chapters.length === 0 ? (
         <p className="muted">No new chapter started.</p>
       ) : (

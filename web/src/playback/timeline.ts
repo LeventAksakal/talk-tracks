@@ -34,6 +34,8 @@ export interface Missed {
   chapters: Chapter[];
   /** Whether the outline track is on; without it the chapters are unknown. */
   outlineOn: boolean;
+  /** Whether the room has an outline track the viewer could turn on. */
+  outlineAnnounced: boolean;
   /** Caption lines over the range, once loaded on request (one FETCH per slice). */
   transcript: LineItem[] | undefined;
   transcriptLoading: boolean;
