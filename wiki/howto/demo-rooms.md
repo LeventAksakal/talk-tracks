@@ -13,11 +13,12 @@ Three steps, all in Docker (see [run-locally](run-locally.md) for the relay and 
    step that would cost API credit with real agents.
 3. **loop**: serve the recording in the public room, forever.
 
-## The two public rooms
+## The four public rooms
 
-The VM loops two CC BY-SA 4.0 talks from EMF 2026 (ticket 0001, credited in the README), one room per lecture,
-named after it: `virus` and `dataviz` (`looper-virus` and `looper-dataviz` in `deploy/compose.vm.yml`). Each reads
-`$TT_DATA/demo/<room>/`. One looper token is signed for both rooms.
+The VM loops four CC BY-SA 4.0 talks from EMF 2026 (ticket 0001, decision 0014, credited in the README), one room per
+lecture, named after it: `virus`, `dataviz`, `rsa`, and `qrcode` (`looper-virus`, `looper-dataviz`, `looper-rsa`, and
+`looper-qrcode` in `deploy/compose.vm.yml`). Each reads `$TT_DATA/demo/<room>/`. One looper token is signed for all
+four rooms.
 
 `deploy/media/demo-lectures.sh` downloads each talk once from media.ccc.de and checks its SHA-256, so the cut
 timestamps always mean the same frames. It then trims and prepares it as `data/demo/<room>/lecture.mp4`:
@@ -26,6 +27,8 @@ timestamps always mean the same frames. It then trims and prepares it as `data/d
 |---|---|---|---|
 | `virus` | 12.60–1032.8 (17:00) | the title, sponsor and speaker cards end with a hard cut; speech starts at 13.0 | in a 3.6 s pause that closes a part; the "Taking Over" section slide follows at 1033.9 |
 | `dataviz` | 12.60–1151.4 (18:59) | the same cards; speech starts at 12.7 | the speaker's thanks end at 1150.4; then room sound and the EMF licence card at 1157.6 |
+| `rsa` | 12.60–1204.8 (19:52) | the same cards; speech starts at 13.0 | in a 3.4 s pause (1203.1–1206.5) closing the section on lattice-based cryptography and post-quantum migration |
+| `qrcode` | 12.60–982.4 (16:10) | the same cards; speech starts at 12.7 | the speaker's talk ends at 981.8; then applause and the EMF licence card at 984.9 |
 
 The cuts were found with ffmpeg `silencedetect`, a 100 ms loudness envelope, scene detection and sampled frames.
 `prepare-lecture IN OUT [START END]` cuts in the same encode as the format change.
@@ -66,12 +69,16 @@ fake-agent recording.
 |---|---|---|
 | `virus` | 198,131,908 B | `289ba3285df3e5ef45e6660032c2ed46a40e1e6f9061517da4019185af9a3810` |
 | `dataviz` | 223,180,421 B | `e26f170e17ccab899f637bc72515bf4f9c5655956cb7ec82e5efdcc66c1aa37f` |
+| `rsa` | 234,639,158 B | `4a50d67d96ebd8fec73e6137a2e0acbd000f5a0bde51335a799106843766dd34` |
+| `qrcode` | 143,801,612 B | `06dff0d6af17d944021a6934a8101b2ed851c14057c32f3a248ca7468d388423` |
 
 ```bash
-ssh $VM 'mkdir -p ~/tt-data/demo/virus ~/tt-data/demo/dataviz'
+ssh $VM 'mkdir -p ~/tt-data/demo/virus ~/tt-data/demo/dataviz ~/tt-data/demo/rsa ~/tt-data/demo/qrcode'
 scp data/demo/virus/lecture.mp4   $VM:tt-data/demo/virus/lecture.mp4
 scp data/demo/dataviz/lecture.mp4 $VM:tt-data/demo/dataviz/lecture.mp4
-ssh $VM 'cd ~/tt-data/demo && sha256sum virus/lecture.mp4 dataviz/lecture.mp4'   # must match the table
+scp data/demo/rsa/lecture.mp4     $VM:tt-data/demo/rsa/lecture.mp4
+scp data/demo/qrcode/lecture.mp4  $VM:tt-data/demo/qrcode/lecture.mp4
+ssh $VM 'cd ~/tt-data/demo && sha256sum virus/lecture.mp4 dataviz/lecture.mp4 rsa/lecture.mp4 qrcode/lecture.mp4'   # must match the table
 ```
 
 **2. Generate**, on the VM in `tmux` (each run lasts its lecture plus about 1.5 min):
@@ -80,17 +87,17 @@ ssh $VM 'cd ~/tt-data/demo && sha256sum virus/lecture.mp4 dataviz/lecture.mp4'  
 cd ~/talk-tracks && git pull
 (cd agents && docker build -q -t talk-tracks-agents:dev .)
 D="docker compose -f deploy/compose.vm.yml"
-$D --profile live up -d captions translate-tr describe chapters   # the new image and exclude list
+$D --profile live up -d captions translate-tr translate-es translate-ar describe chapters   # the new image and exclude list
 
-# A cap batch for the generation rooms, read when a room opens: $3 a room, $4 for both
+# A cap batch for the generation rooms, read when a room opens: $3 a room, $8 for all four
 cat > ~/tt-data/caps/gen-demo.json <<'EOF'
-{"group": "gen-demo", "room_usd": 3, "total_usd": 4, "rooms": ["gen-virus", "gen-dataviz"]}
+{"group": "gen-demo", "room_usd": 3, "total_usd": 8, "rooms": ["gen-virus", "gen-dataviz", "gen-rsa", "gen-qrcode"]}
 EOF
 ls ~/tt-data/state/ | grep gen- && echo "move these aside first: captions resumes line ids per room"
 
 sign() { docker run --rm -u $(id -u):$(id -g) -v ~/tt-keys:/keys talk-tracks-auth:0.14.8 auth sign \
   --key /keys/private.jwk --expires $(date -d "+6 hours" +%s) "$@"; }
-for L in virus dataviz; do   # one after the other
+for L in virus dataviz rsa qrcode; do   # one after the other
   GEN=$(sign --publish talk/gen-$L/teacher --publish talk/gen-$L/slides --subscribe "talk/gen-$L/**")
   $D run --rm -e TT_ROOM=gen-$L -e TT_TOKEN="$GEN" looper-$L \
     generate --insecure --media /data/demo/$L/lecture.mp4 --out /data/demo/$L --slides 0,0,0.77,0.77
@@ -132,29 +139,31 @@ A live test on 2026-10-27 cost about $0.02 a minute of speech, which agrees.
   and 50 chapter revisions.
 - `describe.jsonl` holds real descriptions.
 - The `gen-demo` spend is near the estimate.
-- `$D logs --since 1h captions translate-tr describe chapters | grep -i cap` finds nothing.
+- `$D logs --since 1h captions translate-tr translate-es translate-ar describe chapters | grep -i cap` finds nothing.
 
 **3. Switch the public rooms on.** Do this once the web viewer reads the sliced tracks; until then `demo` loops as
 before, and the new rooms would show video with empty AI panels.
 
-1. In `deploy/.env`, re-sign `TT_LOOPER_TOKEN` for both rooms (`--publish talk/virus/teacher --publish
+1. In `deploy/.env`, re-sign `TT_LOOPER_TOKEN` for all four rooms (`--publish talk/virus/teacher --publish
    'talk/virus/agents/**' --publish talk/virus/catalog --publish talk/dataviz/teacher --publish
-   'talk/dataviz/agents/**' --publish talk/dataviz/catalog --subscribe 'talk/virus/**' --subscribe
-   'talk/dataviz/**'`, with the same expiry as the current one).
+   'talk/dataviz/agents/**' --publish talk/dataviz/catalog --publish talk/rsa/teacher --publish
+   'talk/rsa/agents/**' --publish talk/rsa/catalog --publish talk/qrcode/teacher --publish
+   'talk/qrcode/agents/**' --publish talk/qrcode/catalog --subscribe 'talk/virus/**' --subscribe
+   'talk/dataviz/**' --subscribe 'talk/rsa/**' --subscribe 'talk/qrcode/**'`, with the same expiry as the current one).
 2. `TT_DEMO_ROOM` and `TT_LECTURE` are no longer read.
 3. Start the loopers and remove the old one:
 
    ```bash
-   $D up -d looper-virus looper-dataviz
+   $D up -d looper-virus looper-dataviz looper-rsa looper-qrcode
    docker rm -f talk-tracks-looper-1   # the old looper (room demo): /watch/demo goes dark
    ```
 
 4. Check:
-   - each looper's log says "a loop every 1024 s" (virus) or "1140 s" (dataviz);
-   - `/watch/virus` and `/watch/dataviz` play with every track;
+   - each looper's log says "a loop every 1024 s" (virus), "1140 s" (dataviz), "1192 s" (rsa) or "972 s" (qrcode);
+   - `/watch/virus`, `/watch/dataviz`, `/watch/rsa` and `/watch/qrcode` play with every track;
    - a FETCH of a past slice of `talk/<room>/agents/captions` track `items` comes back in tens of ms.
 
-   The live agents keep excluding `virus`, `dataviz` and `demo` (`TT_DEMO_ROOMS`).
+   The live agents keep excluding `virus`, `dataviz`, `rsa`, `qrcode` and `demo` (`TT_DEMO_ROOMS`).
 
 ## Fixing a finished recording
 
@@ -165,46 +174,51 @@ makes no model call and spends nothing.
 
 | Command | What it does | Saves |
 |---|---|---|
-| `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-tr.cues.json`; a line whose cues have changed since falls back to the split translation |
+| `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-<lang>.cues.json`; a line whose cues have changed since falls back to the split translation |
 | `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out 4 s after its slide |
-| `resplit --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-tr.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-tr.cues.orig.json` |
+| `resplit --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-<lang>.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-<lang>.cues.orig.json` |
 
 On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
 
 ```bash
 cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
 cat > ~/tt-data/caps/revise-demo.json <<'JSON'
-{"group": "revise-demo", "room_usd": 0.3, "total_usd": 0.4, "rooms": ["revise-virus", "revise-dataviz"]}
+{"group": "revise-demo", "room_usd": 0.8, "total_usd": 2.5, "rooms": ["revise-virus", "revise-dataviz", "revise-rsa", "revise-qrcode"]}
 JSON
-for L in virus dataviz; do
-  $D --profile live run --rm --no-deps translate-tr retranslate --room revise-$L --recording /data/demo/$L
+for L in virus dataviz rsa qrcode; do
+  for LANG in tr es ar; do
+    $D --profile live run --rm --no-deps translate-$LANG retranslate --room revise-$L --recording /data/demo/$L
+  done
   $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L --slides 0,0,0.77,0.77
 done
 grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f\n", s}'
-$D restart looper-virus looper-dataviz   # a looper reads the fixes when it starts
+$D restart looper-virus looper-dataviz looper-rsa looper-qrcode   # a looper reads the fixes when it starts
 ```
 
-Expected cost: about $0.20 for both rooms. Reasoning tokens roughly double the first estimate (retranslate about $0.04
-a lecture on 12k tokens in and 6k out at $1.25 / $4.25 per M; redescribe about $0.004 a slide, 2 virus and 8 dataviz
-slides). The real run cost $0.1829: virus retranslate $0.0717 and redescribe $0.0082, dataviz retranslate $0.0671 and
-redescribe $0.0359. The batch stops both at $0.40.
+Expected cost: about $0.20 for each room. Reasoning tokens roughly double the first estimate (retranslate about $0.04
+a lecture on 12k tokens in and 6k out at $1.25 / $4.25 per M; redescribe about $0.004 a slide). The batch stops all
+at $2.50.
 
-### Fitting the Turkish cues to 84 characters (resplit)
+### Fitting the subtitle cues to 84 characters (resplit)
 
-`retranslate` keeps the cue count but its model splits the Turkish unevenly: about one cue in seven ran over 84
-characters (up to 117). `resplit` fixes that for free; run it after `retranslate`, once the image has the command.
-It needs no key, so it runs in each room's looper container (which mounts the data and sets `TT_ROOM`):
+`retranslate` keeps the cue count but its model splits subtitle cues unevenly: about one cue in seven ran over 84
+characters (up to 117). `resplit` fixes that for free across all languages (`tr`, `es`, `ar`); run it after
+`retranslate`, once the image has the command. It needs no key, so it runs in each room's looper container (which mounts
+the data and sets `TT_ROOM`):
 
 ```bash
 cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
-$D run --rm --no-deps looper-virus resplit --recording /data/demo/virus
-$D run --rm --no-deps looper-dataviz resplit --recording /data/demo/dataviz
-$D restart looper-virus looper-dataviz   # a looper reads translate-tr.cues.json when it starts
+for L in virus dataviz rsa qrcode; do
+  for LANG in tr es ar; do
+    $D run --rm --no-deps looper-$L resplit --recording /data/demo/$L
+  done
+done
+$D restart looper-virus looper-dataviz looper-rsa looper-qrcode   # a looper reads translate-<lang>.cues.json when it starts
 ```
 
 Each run logs how many lines it cut again and the longest cue left. On the recordings of 2026-10-29 it left one line
 per room a few characters over (its words cannot fit its cues at any word boundary): virus 86, dataviz 87, against
-117 and 116 before. To undo, copy `translate-tr.cues.orig.json` back over `translate-tr.cues.json` and restart the
+117 and 116 before. To undo, copy `translate-<lang>.cues.orig.json` back over `translate-<lang>.cues.json` and restart the
 looper.
 
 ## All at once
@@ -231,9 +245,9 @@ $C --profile demo run --rm media "test-clip /data/$TT_LECTURE/lecture.mp4 60"
 $C --profile demo run --rm media "prepare-lecture /data/$TT_LECTURE/source.mkv /data/$TT_LECTURE/lecture.mp4"
 
 # 2. generate: fresh agents (a recreated container starts with no captions state), one play, then stop them
-$C up -d --force-recreate captions translate-tr describe chapters
+$C up -d --force-recreate captions translate-tr translate-es translate-ar describe chapters
 $C --profile demo run --rm generate
-$C stop captions translate-tr describe chapters
+$C stop captions translate-tr translate-es translate-ar describe chapters
 
 # 3. loop
 $C --profile demo up -d looper

@@ -3,7 +3,7 @@
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
 #   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state, the spend ledger and archive/
-#   TT_LOOPER_TOKEN  signed for the demo rooms virus and dataviz; TT_AGENT_TOKEN signed for the agents of every room
+#   TT_LOOPER_TOKEN  signed for the demo rooms virus, dataviz, rsa and qrcode; TT_AGENT_TOKEN signed for the agents of every room
 #                    they serve
 #   TT_SECRETS       folder with meta.env (META_API_KEY=..., mode 600), read by the live agents only
 #   TT_LIVE_ROOMS    rooms the live agents serve: * (default) for any room a speaker opens, or a list a,b
@@ -44,8 +44,8 @@ x-live: &live
   environment:
     <<: *agent-env
     TT_ROOMS: ${TT_LIVE_ROOMS:-*}
-    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # the looped demo rooms are the loopers'
-    TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,demo}  # and never back-filled
+    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # the looped demo rooms are the loopers'
+    TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # and never back-filled
     TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
     TT_CAPS_DIR: /data/caps
     TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
@@ -100,7 +100,7 @@ services:
     volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro", "auth_sock:/run/auth"]
 
   # One looping demo room per lecture (ticket 0001), named after it: the recording is $TT_DATA/demo/<room>/.
-  # TT_LOOPER_TOKEN is signed for both rooms (wiki/howto/tokens.md, one --publish pair per room).
+  # TT_LOOPER_TOKEN is signed for all four rooms (wiki/howto/tokens.md, one --publish pair per room).
   looper-virus:
     <<: *agent
     environment:
@@ -115,6 +115,20 @@ services:
       TT_ROOM: dataviz
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
     command: ["loop", "--insecure", "--recording", "/data/demo/dataviz"]
+  looper-rsa:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      TT_ROOM: rsa
+      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
+    command: ["loop", "--insecure", "--recording", "/data/demo/rsa"]
+  looper-qrcode:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      TT_ROOM: qrcode
+      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
+    command: ["loop", "--insecure", "--recording", "/data/demo/qrcode"]
 
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
   # serves under /archive/. It records the speaker's media and slides off the relay and publishes talk/<room>/catalog
@@ -137,7 +151,7 @@ services:
       TT_CAPS_DIR: /data/caps
       TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
       TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
-      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,demo}}
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]
     command: ["--insecure"]
@@ -148,6 +162,12 @@ services:
   translate-tr:
     <<: *live
     command: ["translate", "--lang", "tr", "--insecure"]
+  translate-es:
+    <<: *live
+    command: ["translate", "--lang", "es", "--insecure"]
+  translate-ar:
+    <<: *live
+    command: ["translate", "--lang", "ar", "--insecure"]
   describe:
     <<: *live
     command: ["describe", "--insecure"]

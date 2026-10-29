@@ -56,6 +56,12 @@ services:
   translate-tr:
     <<: *agent
     command: ["translate", "--lang", "tr", "--fake", "--insecure"]
+  translate-es:
+    <<: *agent
+    command: ["translate", "--lang", "es", "--fake", "--insecure"]
+  translate-ar:
+    <<: *agent
+    command: ["translate", "--lang", "ar", "--fake", "--insecure"]
   describe:
     <<: *agent
     command: ["describe", "--fake", "--insecure"]
