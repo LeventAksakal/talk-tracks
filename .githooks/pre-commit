@@ -1,0 +1,89 @@
+#!/bin/sh
+(set -o igncr) 2>/dev/null && set -o igncr || true # survive CRLF checkout on Windows (core.autocrlf=true)
+# Fast pre-commit guardrails (ticket 0008):
+# 1. Block staged secrets, keys, env/ledger files, concrete gs:// buckets, and private/public IPv4s.
+# 2. Run ruff format/check on staged Python files (agents/, scripts/, bench/).
+# 3. Run eslint and prettier on staged web files (web/) when web/node_modules is present.
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR | tr -d '\r')
+[ -z "$staged" ] && exit 0
+
+if [ -x agents/.venv/bin/python ]; then
+  PYTHON=agents/.venv/bin/python
+elif [ -x agents/.venv/Scripts/python.exe ]; then
+  PYTHON=agents/.venv/Scripts/python.exe
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=python
+else
+  echo "pre-commit: python3 is required to run scripts/pre_commit_check.py" >&2
+  exit 1
+fi
+
+"$PYTHON" scripts/pre_commit_check.py
+
+OLD_IFS=$IFS
+NEWLINE=$(printf '\nx')
+NEWLINE=${NEWLINE%x}
+
+set -f
+IFS=$NEWLINE
+set --
+for f in $staged; do
+  case "$f" in
+    agents/*.py) set -- "$@" "${f#agents/}" ;;
+    scripts/*.py|bench/*.py) set -- "$@" "../$f" ;;
+  esac
+done
+IFS=$OLD_IFS
+set +f
+if [ "$#" -gt 0 ]; then
+  if [ -x agents/.venv/bin/ruff ] || [ -x agents/.venv/Scripts/ruff.exe ]; then
+    export UV_NO_SYNC=1
+  fi
+  uv run --directory agents ruff format --check "$@"
+  uv run --directory agents ruff check "$@"
+fi
+
+if [ -d web/node_modules ]; then
+  set -f
+  IFS=$NEWLINE
+  set --
+  for f in $staged; do
+    case "$f" in
+      web/*.ts|web/*.tsx|web/*.js|web/*.mjs) set -- "$@" "${f#web/}" ;;
+    esac
+  done
+  IFS=$OLD_IFS
+  set +f
+  if [ "$#" -gt 0 ]; then
+    if [ -x web/node_modules/.bin/eslint ]; then
+      (cd web && ./node_modules/.bin/eslint "$@")
+    else
+      (cd web && npx --no-install eslint "$@")
+    fi
+  fi
+
+  set -f
+  IFS=$NEWLINE
+  set --
+  for f in $staged; do
+    case "$f" in
+      web/*.ts|web/*.tsx|web/*.js|web/*.mjs|web/*.css) set -- "$@" "${f#web/}" ;;
+    esac
+  done
+  IFS=$OLD_IFS
+  set +f
+  if [ "$#" -gt 0 ]; then
+    if [ -x web/node_modules/.bin/prettier ]; then
+      (cd web && ./node_modules/.bin/prettier --check "$@")
+    else
+      (cd web && npx --no-install prettier --check "$@")
+    fi
+  fi
+fi
