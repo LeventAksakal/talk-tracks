@@ -359,6 +359,9 @@ segment is written.
 
 ### The bucket copy
 
+Currently off: `TT_ARCHIVE_BUCKET` is unset on the VM and its storage scope is read-only, so nothing below happens
+and the archive lives on the VM disk only. The rest of this section is how it works once switched on.
+
 * Each finished file (a media segment, an init segment, a slide image, an agent's finished slice) is uploaded as soon
   as it is closed. The room service finds the agents' slices by their folders' modification times, once a second.
   Indexes, `frames.jsonl` and `track.json` are uploaded at most every 2 s while they change. Open slices (`.part`)
@@ -408,12 +411,16 @@ steps are in [deploy](deploy.md#update). Nothing below goes in git: the bucket n
    ssh $VM 'docker compose -f ~/talk-tracks/deploy/compose.vm.yml stop archive; mv ~/tt-data/archive ~/tt-data/archive-v1'
    ```
 
+   If there is no `archive` folder at all, run `ssh $VM 'mkdir ~/tt-data/archive'` before starting anything: otherwise
+   Docker creates it as root through Caddy's mount and the archiver cannot write to it.
+
    If the bucket copy is on, its `archive/` folder holds the same old files; a later restore would bring them back.
    Move them in the bucket too (`gcloud storage mv gs://$BUCKET/archive gs://$BUCKET/archive-v1`), or restore
    with care.
 3. Sign `TT_ARCHIVE_TOKEN` if `.env` lacks it ([sign a token](deploy.md#sign-a-token-on-the-vm), with
    `--publish "talk/*/catalog" --subscribe "talk/**"` and a long expiry), then pull, rebuild and start as in
-   [deploy](deploy.md#update), then `docker compose -f deploy/compose.vm.yml up -d --force-recreate caddy archive`:
+   [deploy](deploy.md#update) (which also covers re-signing `TT_LOOPER_TOKEN` and removing the old looper container
+   when the demo rooms change), then `docker compose -f deploy/compose.vm.yml up -d --force-recreate caddy archive`:
    the Caddyfile is a single-file mount, which `git pull` replaces, so only a new container is sure to read it.
 
 **Check after the deploy**
@@ -430,8 +437,13 @@ steps are in [deploy](deploy.md#update). Nothing below goes in git: the bucket n
     behind the archive.
 * The room catalog: a viewer of `talk/R/catalog` gets `version: "draft-01"` with `tt.E` (or `epoch` until
   `room_catalog.py` is renamed) and the shift, and, once agents call `TrackArchive.report`, their `tt.status`.
-* After an hour: `du -sh ~/tt-data/archive` grows about 15 MB an hour per audio-only room (more with video), and the
-  bucket copy logs no repeated failures.
+  No command in `agents/src/talk_tracks/cli.py` prints it: the `catalog` command publishes a catalog and `watch`
+  prints only the agents' tracks. Read it by subscribing to track `catalog` of `talk/R/catalog` with a small aiomoqt
+  script (the agents' `Relay.located(path, track)` in `moq.py` yields each object), or, without one, check that
+  `~/tt-data/archive/R/room.json` has the epoch and shifts the catalog is built from.
+* After an hour: `du -sh ~/tt-data/archive` grows about 15 MB an hour per audio-only room (more with video).
+  The bucket copy is currently off (`TT_ARCHIVE_BUCKET` is unset and the VM's storage scope is read-only), so
+  nothing is uploaded and nothing is logged about it; with it on, the log shows no repeated failures.
 
 **Roll back**
 

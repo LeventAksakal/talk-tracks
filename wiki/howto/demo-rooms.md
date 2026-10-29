@@ -176,16 +176,17 @@ cat > ~/tt-data/caps/revise-demo.json <<'JSON'
 JSON
 for L in virus dataviz; do
   $D --profile live run --rm --no-deps translate-tr retranslate --room revise-$L --recording /data/demo/$L
-  $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L     --slides 0,0,0.77,0.77
+  $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L --slides 0,0,0.77,0.77
 done
 grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f
 ", s}'
 $D restart looper-virus looper-dataviz   # a looper reads the fixes when it starts
 ```
 
-Expected cost: retranslate about $0.04 a lecture (57 lines in all, about 12k tokens in and 6k out, $1.25 / $4.25
-per M; up to about $0.15 with reasoning tokens and retries), redescribe about $0.004 a slide (2 virus, 8 dataviz:
-about $0.04). The batch stops both at $0.40.
+Expected cost: about $0.20 for both rooms. Reasoning tokens roughly double the first estimate (retranslate about $0.04
+a lecture on 12k tokens in and 6k out at $1.25 / $4.25 per M; redescribe about $0.004 a slide, 2 virus and 8 dataviz
+slides). The real run cost $0.1829: virus retranslate $0.0717 and redescribe $0.0082, dataviz retranslate $0.0671 and
+redescribe $0.0359. The batch stops both at $0.40.
 
 ## All at once
 
