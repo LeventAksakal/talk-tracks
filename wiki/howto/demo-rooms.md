@@ -178,8 +178,7 @@ for L in virus dataviz; do
   $D --profile live run --rm --no-deps translate-tr retranslate --room revise-$L --recording /data/demo/$L
   $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L --slides 0,0,0.77,0.77
 done
-grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f
-", s}'
+grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f\n", s}'
 $D restart looper-virus looper-dataviz   # a looper reads the fixes when it starts
 ```
 
