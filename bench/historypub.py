@@ -1,10 +1,10 @@
 """The benchmark's history track: an AI track as decision 0012 shapes it, live and past on one track.
 
 Broadcast `bench/history`, track `items`. Group k is a 4 s time slice: object 0 is a carry-in state, then one item
-every 250 ms, and End of Group: about 2.4 KB per slice, near the 1-2 KB of a captions slice (wiki/design/moq-track-system.md §4). The publisher is
-also the origin of the track's past: a FETCH that misses the relay's cache comes here and is answered from the
-track's history, which holds BENCH_ARCHIVE_SLICES slices "from before the benchmark" (an archive restored at start)
-followed by the live ones.
+every 250 ms, and End of Group: about 2.4 KB per slice, near the 1-2 KB of a captions slice
+(wiki/design/moq-track-system.md §4). The publisher is also the origin of the track's past: a FETCH that misses the
+relay's cache comes here and is answered from the track's history, which holds BENCH_ARCHIVE_SLICES slices "from before
+the benchmark" (an archive restored at start) followed by the live ones.
 
 Two pieces come from the MoQT spikes (spikes/moqt/): the publisher settings and `fix_end` (common.py), without which
 aiomoqt reports an End Location the relay cannot use, so every forwarded FETCH of a whole group fails as "not found"
@@ -75,7 +75,7 @@ async def publish(relay_url: str, archive: int) -> None:
         w._group = archive - 1  # live slices continue the numbering
         fix_end(track)
         served = 0
-        orig_handle = getattr(track, "_fetch_range")
+        orig_handle = track._fetch_range
         # One JSON line per FETCH served here, so the analysis can tell a FETCH the origin answered from one the
         # relay's cache answered (bench/analyze.py matches them by group and time).
         served_log = os.environ.get("BENCH_ORIGIN_LOG")
@@ -102,7 +102,8 @@ async def publish(relay_url: str, archive: int) -> None:
             while True:
                 await w.snapshot(carry_in(k, archive, archive))
                 for n in range(ITEMS_PER_SLICE):
-                    await asyncio.sleep(max(0.0, start + (k - archive) * SLICE_S + (n + 1) * SLICE_S / 17 - time.monotonic()))
+                    target_time = start + (k - archive) * SLICE_S + (n + 1) * SLICE_S / 17
+                    await asyncio.sleep(max(0.0, target_time - time.monotonic()))
                     await w.write(item(k, n))
                 # End of Group when the slice is over (design §4.1): a fetch of a just-closed slice then completes
                 # at once instead of waiting for objects that never come.
@@ -115,7 +116,9 @@ async def publish(relay_url: str, archive: int) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    asyncio.run(publish(os.environ.get("BENCH_RELAY", "moqt://relay:4443"), int(os.environ.get("BENCH_ARCHIVE_SLICES", "300"))))
+    relay_url = os.environ.get("BENCH_RELAY", "moqt://relay:4443")
+    archive_slices = int(os.environ.get("BENCH_ARCHIVE_SLICES", "300"))
+    asyncio.run(publish(relay_url, archive_slices))
 
 
 if __name__ == "__main__":

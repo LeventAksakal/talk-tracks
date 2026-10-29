@@ -1,5 +1,6 @@
 node_modules/
 dist/
+fanout/target/
 # Local runs stay local; runs from the VM (labels starting vm-) are kept as the published results.
 results/*
 !results/vm-*

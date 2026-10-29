@@ -37,7 +37,9 @@ async def publish(relay_url: str, hz: float) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    asyncio.run(publish(os.environ.get("BENCH_RELAY", "moqt://relay:4443"), float(os.environ.get("BENCH_TEXT_HZ", "4"))))
+    relay_url = os.environ.get("BENCH_RELAY", "moqt://relay:4443")
+    text_hz = float(os.environ.get("BENCH_TEXT_HZ", "4"))
+    asyncio.run(publish(relay_url, text_hz))
 
 
 if __name__ == "__main__":

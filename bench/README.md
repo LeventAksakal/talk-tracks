@@ -11,6 +11,7 @@ results: [wiki/benchmark.md](../wiki/benchmark.md). Needs Docker only; no API ke
 | `textpub` | [textpub.py](textpub.py): a JSON track `bench/text` / `state` with its publish time, 4 a second, through the agents' MoQ code (the agents image already built, never rebuilt here) |
 | `historypub` | [historypub.py](historypub.py): a history track as decision 0012 shapes AI tracks, `bench/history` / `items`, in 4 s slices (carry-in, 16 items, End of Group), and the origin of its own past by FETCH: 300 archive slices the relay has never seen, then the live ones. Uses `fix_end` from the MoQT spikes |
 | `viewer` | [Dockerfile.viewer](Dockerfile.viewer): the measuring page ([web/](web/)) and the Playwright runner ([runner/run.mjs](runner/run.mjs)) driving headless Google Chrome |
+| `fanout` | [fanout.py](fanout.py): lightweight subscriber load harness measuring server CPU (% of 1 core), RSS memory (MiB), and egress (total Mbit/s and per-viewer kbit/s) at N = 1, 10, 100 viewers across `moq-full`, `moq-captions`, `hls`, and `webrtc` (profile `fanout`) |
 | `netem-relay`, `netem-mediamtx` | [netem.sh](netem.sh) in each server's network namespace: delay and loss towards the viewer only (profile `netem`) |
 
 ## Run
@@ -49,6 +50,18 @@ BENCH_DELAY_MS=40 sh bench/run.sh rtt40 --proto moq,moq-ws,webrtc,hls --runs 10 
 BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh loss2 --proto moq,moq-ws,webrtc,hls --runs 10 --seconds 30
 ```
 
+### Server fan-out at scale (1, 10, 100 viewers)
+
+Measure server resource utilization under concurrent subscriber load with [fanout.sh](fanout.sh) (profile `fanout`):
+
+```bash
+sh bench/fanout.sh loopback --proto moq-full,moq-captions,webrtc,hls --concurrency 1,10,100 --duration 15
+```
+
+Protocol clients are lightweight (draining network packets without video decoding/rendering) so load generator CPU
+does not swamp server CPU on a single VM. Measures server CPU (% of 1 core), RSS memory (MiB), and TX egress (total
+Mbit/s and per-viewer kbit/s). Results append to `bench/results/<label>.fanout.jsonl`.
+
 ### Settings
 
 | Setting | Default | Where |
@@ -61,6 +74,7 @@ BENCH_DELAY_MS=40 BENCH_LOSS_PCT=2 sh bench/run.sh loss2 --proto moq,moq-ws,webr
 | `BENCH_GOP_S`, `BENCH_BITRATE`, `BENCH_SIZE` | 2, 1000k, 1280x720 | source: keyframe interval, video bitrate, frame size |
 | `BENCH_TEXT_HZ`, `BENCH_AGENTS_IMAGE` | 4, `talk-tracks-agents:dev` | textpub: text objects per second, the image it runs in |
 | `BENCH_DELAY_MS`, `BENCH_LOSS_PCT` | 0, 0 | netem helpers and runner label |
+| `--concurrency`, `--duration` | `1,10,100`, 15 | fanout: viewer counts, measurement window in seconds |
 
 ## What it costs
 
@@ -83,10 +97,11 @@ BENCH_DELAY_MS=40 BENCH_LOSS_PCT=5 sh bench/run.sh vm-loss5 --proto moq,moq-ws,w
 sh bench/run.sh vm-moq-delay100 --proto moq,moq-ws --runs 10 --seconds 30 --delay 100    # ~12 min
 sh bench/run.sh vm-fetch --proto fetch --runs 15 --query fetches=10    # ~6 min
 BENCH_DELAY_MS=40 sh bench/run.sh vm-fetch-rtt40 --proto fetch --runs 10 --query fetches=10    # ~4 min
+sh bench/fanout.sh vm-fanout --proto moq-full,moq-captions,webrtc,hls --concurrency 1,10,100 --duration 15    # ~4 min
 python3 bench/analyze.py bench/results/vm-*.jsonl --json bench/results/vm-summary.json
 ```
 
-About 2.7 hours in all. Then bring back `bench/results/vm-*` (the JSON lines and the summary). The last run shows
+About 2.8 hours in all. Then bring back `bench/results/vm-*` (the JSON lines and the summary). The last run shows
 what MoQ does with a tighter player setting than the viewer's 500 ms.
 
 Before starting, check these:
