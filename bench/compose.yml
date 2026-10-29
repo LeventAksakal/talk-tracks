@@ -102,3 +102,19 @@ services:
       BENCH_LOSS_PCT: ${BENCH_LOSS_PCT:-0}
     volumes: ["./results:/results"]
     networks: { bench: { ipv4_address: 172.29.0.50 } }
+
+  # Lightweight fan-out benchmark: measures server CPU, memory, and egress across N = 1, 10, 100 viewers.
+  fanout:
+    image: ${BENCH_AGENTS_IMAGE:-talk-tracks-agents:dev}
+    profiles: [fanout]
+    depends_on: [relay, mediamtx, source, textpub]
+    entrypoint: ["python", "/bench/fanout.py"]
+    environment:
+      BENCH_LABEL: ${BENCH_LABEL:-local}
+      BENCH_RELAY: moqt://relay:4443
+      BENCH_MEDIAMTX: http://mediamtx
+    volumes:
+      - "./fanout.py:/bench/fanout.py:ro"
+      - "./results:/results"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks: { bench: { ipv4_address: 172.29.0.60 } }

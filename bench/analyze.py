@@ -12,18 +12,21 @@ Per label (one network condition) and protocol:
   fetch     (proto fetch) `fetchGroup` of one 4 s slice of the history track: an archive slice the relay has not
             seen (served by the origin), the same again (the relay's cache), and the newest slice received whole live;
             ms to the group's end, pooled over all rounds; bytes per slice against a full media viewer's 4 s; and how
-            often the slice open at join came back, fetched at once (while open), after the rounds, and from a second session
+            often the slice open at join came back, fetched at once (while open), after the rounds, and from a second
+            session
   served    (proto fetch) every FETCH by who answered it: the origin, when its log (LABEL.origin.log next to
             LABEL.jsonl, written by historypub.py) has a FETCH of that group while it ran, else the relay's cache
   per track bytes per 4 s slice for each track a viewer can opt into: the history track's payload as received live,
             the text track and the full media from their rows' interface counters
   received  bytes per second into the viewer container over a whole join (its interface counter: headers,
             playlists and retransmissions included, the same count for every protocol)
+  fanout    (kind fanout) server CPU, RSS memory, and TX egress at N = 1, 10, 100 viewers
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 from collections import defaultdict
@@ -39,6 +42,14 @@ NAMES = {
     "hls": "LL-HLS (hls.js)",
 }
 
+FANOUT_ORDER = ["moq-full", "moq-captions", "webrtc", "hls"]
+FANOUT_NAMES = {
+    "moq-full": "MoQ (video + audio + text)",
+    "moq-captions": "MoQ (captions only)",
+    "webrtc": "WebRTC (WHEP)",
+    "hls": "LL-HLS",
+}
+
 
 def pct(xs: list[float], p: float) -> float:
     if not xs:
@@ -48,15 +59,16 @@ def pct(xs: list[float], p: float) -> float:
 
 
 def fmt(x: float) -> str:
-    return "–" if math.isnan(x) else f"{x:.0f}"
+    return "-" if math.isnan(x) else f"{x:.0f}"
 
 
 def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict]:
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for line in lines:
-        if line["proto"] == "fetch":
-            continue  # its own table: fetch_table()
-        groups[(line["label"], line["proto"])].append(line)
+        if line.get("proto") == "fetch" or line.get("kind") == "fanout":
+            continue  # their own tables: fetch_table(), fanout_table()
+        if "label" in line and "proto" in line:
+            groups[(line["label"], line["proto"])].append(line)
     out = {}
     for key, runs in groups.items():
         ok = [r for r in runs if r.get("frames") or r.get("text")]
@@ -70,7 +82,7 @@ def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict
             ts = [t for t, _ in r["frames"]]
             if not ts:
                 continue
-            stalls += sum(1 for a, b in zip(ts, ts[1:]) if b - a > STALL_MS)
+            stalls += sum(1 for a, b in itertools.pairwise(ts) if b - a > STALL_MS)
             played_ms += ts[-1] - ts[0] if len(ts) > 1 else 0
         frames = sum(len(r["frames"]) for r in ok)
         unreadable = sum(r.get("unreadable", 0) for r in ok)
@@ -92,12 +104,17 @@ def summarise(lines: list[dict], warmup_ms: float) -> dict[tuple[str, str], dict
 
 
 def table(summary: dict[tuple[str, str], dict]) -> str:
+    if not summary:
+        return ""
     rows = [
-        "| Condition | Protocol | Joins (failed) | Join p50 / p95 ms | Latency p50 / p95 / p99 ms | First-frame latency p50 ms "
-        "| Text p50 / p95 ms | Stalls per min | Received kbit/s |",
+        "| Condition | Protocol | Joins (failed) | Join p50 / p95 ms | Latency p50 / p95 / p99 ms | "
+        "First-frame latency p50 ms | Text p50 / p95 ms | Stalls per min | Received kbit/s |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
-    for (label, proto), s in sorted(summary.items(), key=lambda kv: (kv[0][0], ORDER.index(kv[0][1]))):
+    for (label, proto), s in sorted(
+        summary.items(),
+        key=lambda kv: (kv[0][0], ORDER.index(kv[0][1]) if kv[0][1] in ORDER else 99),
+    ):
         text = f"{fmt(pct(s['text'], 50))} / {fmt(pct(s['text'], 95))}" if s["text"] else "not carried"
         rows.append(
             f"| {label} | {NAMES.get(proto, proto)} | {s['runs']} ({s['failed']}) "
@@ -116,7 +133,7 @@ def fetch_table(lines: list[dict], summary: dict[tuple[str, str], dict]) -> str:
     ]
     by_label: dict[str, list[dict]] = defaultdict(list)
     for line in lines:
-        if line["proto"] == "fetch":
+        if line.get("proto") == "fetch":
             by_label[line["label"]].append(line)
     for label, runs in sorted(by_label.items()):
         rounds = [f for r in runs for f in r.get("fetches") or []]
@@ -124,11 +141,13 @@ def fetch_table(lines: list[dict], summary: dict[tuple[str, str], dict]) -> str:
         slice_bytes = [f["uncached"]["bytes"] for f in rounds if "uncached" in f]
         joined = [r.get("joinSlice") or {} for r in runs]
         media = summary.get((label, "moq"), {}).get("kbit_s", math.nan)
+        fresh_count = sum(1 for j in joined if j.get("fresh"))
         rows.append(
             f"| {label} | {len(runs)} | {len(rounds)} ({sum(1 for f in rounds if f.get('errors'))}) "
             + " ".join(f"| {fmt(pct(ms[k], 50))} / {fmt(pct(ms[k], 95))}" for k in ("uncached", "cached", "recent"))
             + f" | {fmt(pct(slice_bytes, 50))} | {fmt(media * 4000 / 8)} "
-            f"| {sum(1 for j in joined if j.get('open'))} / {sum(1 for j in joined if j.get('fetched'))} / {sum(1 for j in joined if j.get('fresh'))} of {len(joined)} |"
+            f"| {sum(1 for j in joined if j.get('open'))} / {sum(1 for j in joined if j.get('fetched'))} / "
+            f"{fresh_count} of {len(joined)} |"
         )
     return "\n".join(rows)
 
@@ -167,12 +186,13 @@ def origin_served(fetches: list[dict], served: list[dict]) -> set[int]:
 
 def served_table(lines: list[dict], logs: dict[str, list[dict]]) -> str:
     rows = [
-        "| Condition | Served by | Fetches | p50 / p95 ms, to the end of the group | Of which uncached / cached / recent |",
+        "| Condition | Served by | Fetches | p50 / p95 ms, to the end of the group | "
+        "Of which uncached / cached / recent |",
         "|---|---|---|---|---|",
     ]
     by: dict[tuple[str, str], list[tuple[str, dict]]] = defaultdict(list)
-    for label in sorted({r["label"] for r in lines if r["proto"] == "fetch"}):
-        fs = [kf for r in lines if r["label"] == label and r["proto"] == "fetch" for kf in all_fetches(r)]
+    for label in sorted({r["label"] for r in lines if r.get("proto") == "fetch"}):
+        fs = [kf for r in lines if r["label"] == label and r.get("proto") == "fetch" for kf in all_fetches(r)]
         timed = [f for _, f in fs if "atMs" in f]
         hits = origin_served(timed, logs[label]) if label in logs else set()
         for kind, f in fs:
@@ -187,20 +207,52 @@ def served_table(lines: list[dict], logs: dict[str, list[dict]]) -> str:
 
 def per_track_table(lines: list[dict], summary: dict[tuple[str, str], dict]) -> str:
     rows = ["| Condition | Track opted in | Bytes per 4 s slice | Measured as |", "|---|---|---|---|"]
-    for label in sorted({r["label"] for r in lines}):
+    labels = sorted({r["label"] for r in lines if "label" in r and r.get("kind") != "fanout"})
+    for label in labels:
         hist = [
             b
             for r in lines
-            if r["label"] == label and r["proto"] == "fetch"
+            if r.get("label") == label and r.get("proto") == "fetch"
             for g, _, b in (r.get("slices") or [])
             if g != (r.get("joinSlice") or {}).get("group")
         ]
         if hist:
-            rows.append(f"| {label} | history `items` (a captions-sized AI track) | {fmt(pct(hist, 50))} | payload, whole slices received live |")
-        for proto, what in (("moq-text", "text `state`, 4 objects a second"), ("moq", "everything: video, audio and text")):
+            rows.append(
+                f"| {label} | history `items` (a captions-sized AI track) | "
+                f"{fmt(pct(hist, 50))} | payload, whole slices received live |"
+            )
+        for proto, what in (
+            ("moq-text", "text `state`, 4 objects a second"),
+            ("moq", "everything: video, audio and text"),
+        ):
             k = summary.get((label, proto), {}).get("kbit_s", math.nan)
             if not math.isnan(k):
                 rows.append(f"| {label} | {what} | {fmt(k * 4000 / 8)} | on the wire, the {proto} row |")
+    return "\n".join(rows)
+
+
+def fanout_table(lines: list[dict]) -> str:
+    """Render the fan-out benchmark results table (N=1, 10, 100)."""
+    rows = [
+        "| Condition | Protocol | Viewers (N) | Server | Server CPU % (1 core) | Server RSS (MiB) | "
+        "Total TX (Mbit/s) | Per-viewer (kbit/s) |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    fanout_lines = [line for line in lines if line.get("kind") == "fanout"]
+    for row in sorted(
+        fanout_lines,
+        key=lambda x: (
+            x.get("label", ""),
+            FANOUT_ORDER.index(x["proto"]) if x.get("proto") in FANOUT_ORDER else 99,
+            x.get("n", 0),
+        ),
+    ):
+        proto_name = FANOUT_NAMES.get(row.get("proto", ""), row.get("proto", ""))
+        rows.append(
+            f"| {row.get('label', '')} | {proto_name} | {row.get('n', '')} | {row.get('server', '')} | "
+            f"{row.get('cpu_pct', 0.0):.1f} | {row.get('mem_mib', 0.0):.1f} | "
+            f"{row.get('tx_mbit_s', 0.0):.2f} | {row.get('per_viewer_kbit_s', 0.0):.1f} |"
+        )
     return "\n".join(rows)
 
 
@@ -211,25 +263,38 @@ def main() -> None:
     ap.add_argument("--json", type=Path, help="also write the summary statistics as JSON here")
     args = ap.parse_args()
     lines = [json.loads(x) for f in args.files for x in f.read_text().splitlines() if x.strip()]
+
     summary = summarise(lines, args.warmup_s * 1000)
-    print(table(summary))
-    print()
-    if any(x["proto"] == "fetch" for x in lines):
+    rendered_table = table(summary)
+    if rendered_table:
+        print(rendered_table)
+        print()
+
+    if any(x.get("proto") == "fetch" for x in lines):
         print(fetch_table(lines, summary))
         print()
         print(served_table(lines, origin_logs(args.files)))
         print()
-    print(per_track_table(lines, summary))
-    print()
+
+    rendered_track_table = per_track_table(lines, summary)
+    if len(rendered_track_table.splitlines()) > 2:
+        print(rendered_track_table)
+        print()
+
+    if any(x.get("kind") == "fanout" for x in lines):
+        print(fanout_table(lines))
+        print()
+
     for (label, proto), s in sorted(summary.items()):
         print(
             f"- {label} / {proto}: transports {', '.join(s['transports'])}; network {s['network']}; "
             f"unreadable frames {s['unreadable_pct']:.1f} %; Chrome {s['chrome']}"
         )
+
     if args.json:
         fetch_rounds = defaultdict(list)
         for x in lines:
-            if x["proto"] == "fetch":
+            if x.get("proto") == "fetch":
                 fetch_rounds[x["label"]] += x.get("fetches") or []
         stats = {
             f"{label}/fetch": {
@@ -254,6 +319,16 @@ def main() -> None:
             }
             for (label, proto), s in summary.items()
         }
+        for x in lines:
+            if x.get("kind") == "fanout":
+                k = f"{x['label']}/fanout/{x['proto']}/n{x['n']}"
+                stats[k] = {
+                    "server": x.get("server"),
+                    "cpu_pct": x.get("cpu_pct"),
+                    "mem_mib": x.get("mem_mib"),
+                    "tx_mbit_s": x.get("tx_mbit_s"),
+                    "per_viewer_kbit_s": x.get("per_viewer_kbit_s"),
+                }
         args.json.write_text(json.dumps(stats, indent=2) + "\n")
 
 
