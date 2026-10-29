@@ -9,7 +9,7 @@
           "type": "integer"
         },
         "id": {
-          "description": "Increases by one per line; stable across restarts",
+          "description": "Rises with time: the start time in media ms (or one more than the previous id); stable across restarts and back-fill",
           "minimum": 0,
           "title": "Id",
           "type": "integer"
@@ -216,10 +216,23 @@
     "TranslatedLine": {
       "additionalProperties": false,
       "properties": {
+        "end_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
         "id": {
           "description": "The source caption line's id",
           "minimum": 0,
           "title": "Id",
+          "type": "integer"
+        },
+        "start_ms": {
+          "default": 0,
+          "description": "The source line's media times",
+          "minimum": 0,
+          "title": "Start Ms",
           "type": "integer"
         },
         "text": {
@@ -264,7 +277,7 @@
     },
     "Usage": {
       "additionalProperties": false,
-      "description": "Cumulative model usage of this agent instance: the load panel shows cost per track, not per viewer.",
+      "description": "Cumulative model usage of this agent process: the load panel shows cost per track, not per viewer.",
       "properties": {
         "cost_usd": {
           "default": 0.0,

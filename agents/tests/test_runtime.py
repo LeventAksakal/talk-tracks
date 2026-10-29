@@ -1,5 +1,4 @@
 import base64
-import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -7,14 +6,18 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from talk_tracks import statefile
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
 from talk_tracks.asr.scripted import ScriptedAsr, ScriptedLine
-from talk_tracks.contracts import ENVELOPE, AgentInfo, CaptionsState, SlideFrame, Usage
+from talk_tracks.contracts import OutlineObject, RecapData, SlideFrame
 from talk_tracks.cores.captions import CaptionsCore
+from talk_tracks.cores.outline import OutlineCore
+from talk_tracks.cores.slides import SlidesCore
+from talk_tracks.cores.translate import TranslateCore
 from talk_tracks.llm.fake import FakeLlm
-from talk_tracks.publisher import SnapshotPublisher
-from talk_tracks.runtime import run_captions, run_describe, run_outline, run_translate
+from talk_tracks.records import cues_of, slides_of
+from talk_tracks.runtime import CaptionsObject, captions_object, run_captions, run_describe, run_outline, run_translate
+
+from .slicekit import ListOut, objects, sliced, snapshot_track
 
 SCRIPT = [
     ScriptedLine(0, 2_000, "Media over Quick lets a relay fan out named tracks."),
@@ -23,129 +26,140 @@ SCRIPT = [
 ]
 
 
-class ListSink:
-    def __init__(self) -> None:
-        self.objects: list[bytes] = []
-
-    async def write(self, data: bytes) -> None:
-        self.objects.append(data)
-
-    def envelopes(self) -> list[Any]:
-        return [ENVELOPE.validate_json(o) for o in self.objects]
+async def audio(seconds: float, start_ms: int = 0) -> AsyncIterator[tuple[NDArray[np.int16], int]]:
+    for i in range(int(seconds * 10)):
+        yield np.zeros(1600, dtype=np.int16), start_ms + (i + 1) * 100
 
 
-def publisher(name: str, sink: ListSink, llm: FakeLlm | None = None) -> SnapshotPublisher:
-    return SnapshotPublisher(
-        AgentInfo(name=name, label=name, model="fake"),
-        sink,
-        (lambda: llm.usage) if llm else (lambda: Usage()),
-        instance="1",
-        clock_ms=lambda: 1,
-    )
+async def replay(out: ListOut) -> AsyncIterator[CaptionsObject]:
+    """What a downstream agent reads from a captions track, in order."""
+    for group, object_id, payload in out.objects:
+        yield captions_object(group, object_id, payload)
 
 
-async def audio(seconds: int) -> AsyncIterator[tuple[NDArray[np.int16], int]]:
-    for i in range(seconds * 10):
-        yield np.zeros(1600, dtype=np.int16), (i + 1) * 100
+def finals(out: ListOut) -> list[str]:
+    """The final cues published, carry-ins left out."""
+    return [c.text for _, o, p in out.objects if o > 0 for c in cues_of(p)[1] if c.final]
 
 
-async def states(sink: ListSink) -> AsyncIterator[CaptionsState]:
-    for env in sink.envelopes():
-        assert isinstance(env.state, CaptionsState)
-        yield env.state
+async def captions_out(tmp_path: Path) -> ListOut:
+    track, out = sliced(tmp_path / "cap")
+    core = CaptionsCore("en")
+    track.carry = core.carry
+    await run_captions(audio(7), ScriptedAsr(SCRIPT), track, core)
+    await track.pause()
+    return out
 
 
-async def test_captions_end_to_end_with_scripted_asr() -> None:
-    sink = ListSink()
-    await run_captions(audio(7), ScriptedAsr(SCRIPT), publisher("captions", sink), "en")
-    envelopes = sink.envelopes()
-    assert [x.text for x in envelopes[-1].state.lines] == [s.text for s in SCRIPT]
-    assert [e.seq for e in envelopes] == list(range(1, len(envelopes) + 1))
-    assert any(e.state.interim for e in envelopes)  # viewers saw partial text on the way
+async def test_captions_in_slices_with_a_carry_in_then_cues(tmp_path: Path) -> None:
+    track, out = sliced(tmp_path)
+    core = CaptionsCore("en")
+    track.carry = core.carry
+    await run_captions(audio(7), ScriptedAsr(SCRIPT), track, core)
+    await track.pause()
+
+    assert out.groups() == [0, 1] and out.ended == [0, 1]  # room time 0-4 s, 4-7 s; each closed with End of Group
+    first, second = objects(out.payloads(0)), objects(out.payloads(1))
+    assert first[0] == (None, [])  # nothing before the talk
+    assert all(len(cues) == 1 for _, cues in first[1:])  # one record per later object
+    assert finals(out) == [line.text for line in SCRIPT]  # each final once
+    assert any(not c.final for _, cues in first for c in cues)  # interim revisions are records too
+    assert [c.text for c in second[0][1]] == [SCRIPT[0].text]  # slice 1 opens before line 2, final at 4 s, lands
+    assert [o for g, o, _ in out.objects if g == 1][:2] == [0, 1]  # object 0 is the carry-in, records follow
+
+    for k in (0, 1):  # the record is byte for byte what went live, ending with End of Group
+        stored = track.archive.read_local(k)
+        assert stored is not None and stored.complete
+        assert [o.payload for o in stored.objects if o.payload] == out.payloads(k)
 
 
-async def test_restarted_captions_keep_their_lines_and_ids(tmp_path: Path) -> None:
-    path = tmp_path / "captions-dev-en.json"
-    first = ListSink()
-    await run_captions(
-        audio(3), ScriptedAsr(SCRIPT[:1]), publisher("captions", first), "en", save=lambda s: statefile.save(path, s)
-    )
-    later = [ScriptedLine(s.start_ms, s.end_ms, s.text) for s in SCRIPT[1:]]
-    second = ListSink()
-    await run_captions(
-        audio(7), ScriptedAsr(later), publisher("captions", second), "en", resume=statefile.load_captions(path)
-    )
-    lines = second.envelopes()[-1].state.lines
-    assert [line.id for line in lines] == [0, 1, 2]
-    assert lines[0].text == SCRIPT[0].text
+async def test_a_restarted_agent_starts_at_the_next_slice_and_keeps_its_cues(tmp_path: Path) -> None:
+    track, _ = sliced(tmp_path)
+    core = CaptionsCore("en")
+    track.carry = core.carry
+    await run_captions(audio(5), ScriptedAsr(SCRIPT[:2]), track, core)  # killed 5 s in, inside slice 1
+    track.archive.close()
 
-    # A translator that already did line 0 under the old instance translates only the new lines.
-    tr, llm = ListSink(), FakeLlm()
-
-    async def both() -> AsyncIterator[CaptionsState]:
-        async for state in states(first):
-            yield state
-        async for state in states(second):
-            yield state
-
-    await run_translate(both(), llm, publisher("translate-tr", tr, llm), "tr")
-    assert [line.id for line in tr.envelopes()[-1].state.lines] == [0, 1, 2]
-    assert llm.usage.requests == 3
+    again, out = sliced(tmp_path, marks_from=True)  # same name, same archive
+    seeded = CaptionsCore("en", cues=[c for p in again.seed_objects() for c in cues_of(p)[1]])
+    assert [c.text for c in seeded.carry()] == [s.text for s in SCRIPT[:2]]
+    again.carry = seeded.carry
+    later = [ScriptedLine(500, 1_500, "After the restart.")]
+    await run_captions(audio(6, start_ms=5_000), ScriptedAsr(later), again, seeded)
+    await again.pause()
+    assert out.groups() == [2]  # slice 1 was partly published by the old process: never continued, never rewritten
+    note, carry = objects(out.payloads(2))[
+        0
+    ]  # the cue said inside slice 1 was not published; slice 2's carry-in has it
+    assert note is None  # it has heard everything since 5.1 s, so slice 2 is whole
+    assert [c.text for c in carry] == [SCRIPT[1].text, "After the restart."]
+    assert int(carry[1].id) > int(carry[0].id)
 
 
-def test_a_stale_or_broken_state_file_is_ignored(tmp_path: Path) -> None:
-    path = tmp_path / "s.json"
-    assert statefile.load_captions(path) is None
-    path.write_text("{", encoding="utf-8")
-    assert statefile.load_captions(path) is None
-    statefile.save(path, CaptionsCore("en").state())
-    assert statefile.load_captions(path) is not None
-    assert statefile.load_captions(path, max_age_s=-1) is None
+async def test_translate_outline_and_describe_follow_the_captions(tmp_path: Path) -> None:
+    cap = await captions_out(tmp_path)
 
+    llm = FakeLlm()
+    tr, tr_out = sliced(tmp_path / "tr", "translate-tr")
+    core = TranslateCore("tr")
+    tr.carry = core.carry
+    await run_translate(replay(cap), llm, tr, core)
+    await tr.pause()
+    made = [c for p in tr_out.payloads() for c in cues_of(p)[1]][: len(SCRIPT)]
+    source = {c.id: c for p in cap.payloads() for c in cues_of(p)[1] if c.final}
+    assert made[0].text.startswith("[tr] Media over Quick") and made[0].start == 0
+    assert all(c.id in source and (c.start, c.end) == (source[c.id].start, source[c.id].end) for c in made)
+    assert llm.usage.requests == 3 and tr_out.groups() == [0, 1]  # each cue in the slice open when it was made
 
-async def test_translate_outline_and_describe_follow_the_captions() -> None:
-    cap = ListSink()
-    await run_captions(audio(7), ScriptedAsr(SCRIPT), publisher("captions", cap), "en")
-
-    tr, llm = ListSink(), FakeLlm()
-    await run_translate(states(cap), llm, publisher("translate-tr", tr, llm), "tr")
-    assert tr.envelopes()[-1].state.lines[0].text.startswith("[tr] Media over Quick")
-    assert tr.envelopes()[-1].usage.requests == 3
-
-    ol, llm2 = ListSink(), FakeLlm()
+    llm2 = FakeLlm()
+    ol, ol_out = snapshot_track(tmp_path / "ol")
     ticks = iter(range(0, 10**9, 70_000))
-    await run_outline(states(cap), llm2, publisher("chapters", ol, llm2), "en", clock=lambda: next(ticks))
-    assert ol.envelopes()[-1].state.recap
+    await run_outline(replay(cap), llm2, ol, OutlineCore("en"), clock=lambda: next(ticks))
+    revisions = ol_out.payloads()
+    assert revisions and all(len(ol_out.payloads(g)) == 1 for g in ol_out.groups())
+    last = OutlineObject.model_validate_json(revisions[-1]).root
+    assert any(isinstance(r.data, RecapData) and r.data.text for r in last)
+    assert ol.seed_object() == revisions[-1]  # what a restarted chapters agent carries on from
 
-    sl, llm3 = ListSink(), FakeLlm()
+    llm3 = FakeLlm()
+    sl, sl_out = sliced(tmp_path / "sl", "describe")
+    slides = SlidesCore("en")
+    sl.carry = slides.carry
 
-    async def frames() -> AsyncIterator[SlideFrame]:
+    async def frames() -> AsyncIterator[tuple[SlideFrame, int]]:
         # Slide 3 shows slide 1's image again: it reuses the description instead of paying for it twice.
         for i, image in ((1, b"one"), (1, b"one"), (2, b"two"), (3, b"one")):
-            yield SlideFrame(id=i, at_ms=i, mime="image/png", data_b64=base64.b64encode(image).decode())
+            frame = SlideFrame(
+                id=i, at_ms=1_800_000_000_000 + i, mime="image/png", data_b64=base64.b64encode(image).decode()
+            )
+            yield frame, i * 3000
 
-    await run_describe(frames(), llm3, publisher("describe", sl, llm3), "en")
-    notes = sl.envelopes()[-1].state.slides
-    assert [n.id for n in notes] == [1, 2, 3]
-    assert notes[2].description == notes[0].description
+    await run_describe(frames(), llm3, sl, slides)
+    await sl.pause()
+    made_slides = [s for p in sl_out.payloads() for s in slides_of(p)[1]]
+    unique = list({s.id: s for s in made_slides}.values())
+    assert [s.id for s in unique] == [1, 2, 3] and unique[2].text == unique[0].text and unique[1].at == 6000
     assert llm3.usage.requests == 2
+    # Each slice opens with the slide on screen when it starts: slide 2 shows at 6 s, inside slice 1 (4-8 s).
+    assert [slides_of(sl_out.payloads(k)[0])[1] for k in (1, 2)] == [[unique[0]], [unique[1]]]
 
 
-async def test_failing_model_does_not_stop_the_track() -> None:
+async def test_failing_model_does_not_stop_the_track(tmp_path: Path) -> None:
     class Flaky(FakeLlm):
         async def translate(self, text: str, *, lang: str, context: Any) -> str:
             if "Agents" in text:
                 raise RuntimeError("model down")
             return await super().translate(text, lang=lang, context=context)
 
-    cap = ListSink()
-    await run_captions(audio(7), ScriptedAsr(SCRIPT), publisher("captions", cap), "en")
-    tr = ListSink()
-    await run_translate(states(cap), Flaky(), publisher("translate-tr", tr), "tr")
-    assert len(tr.envelopes()[-1].state.lines) == 2
+    cap = await captions_out(tmp_path)
+    tr, out = sliced(tmp_path / "tr", "translate-tr")
+    core = TranslateCore("tr")
+    tr.carry = core.carry
+    await run_translate(replay(cap), Flaky(), tr, core)
+    assert len([p for _, o, p in out.objects if o > 0]) == 2
 
 
-async def test_asr_opens_on_first_audio_and_reopens_after_a_failure() -> None:
+async def test_asr_opens_on_first_audio_and_reopens_after_a_failure(tmp_path: Path) -> None:
     class Session:
         def __init__(self, fail_at_ms: int | None) -> None:
             self.fail_at_ms = fail_at_ms
@@ -166,26 +180,21 @@ async def test_asr_opens_on_first_audio_and_reopens_after_a_failure() -> None:
             self.offsets.append(offset_ms)
             return Session(6_500 if len(self.offsets) == 1 else None)
 
-    async def late_audio() -> AsyncIterator[tuple[NDArray[np.int16], int]]:
-        for end_ms in range(5_100, 8_100, 100):  # the talk was already 5 s in when the agent started
-            yield np.zeros(1600, dtype=np.int16), end_ms
-
-    provider, sink = Provider(), ListSink()
-    await run_captions(late_audio(), provider, publisher("captions", sink), "en")
+    provider = Provider()
+    track, out = sliced(tmp_path)
+    core = CaptionsCore("en")
+    track.carry = core.carry
+    await run_captions(audio(3, start_ms=5_000), provider, track, core)  # the talk was 5 s in when it started
     assert provider.offsets == [5_000, 6_500]  # first chunk's start; then the chunk after the failure at 6.5 s
-    assert [x.text for x in sink.envelopes()[-1].state.lines] == ["to 6000", "to 7000", "to 8000"]
+    assert finals(out) == ["to 6000", "to 7000", "to 8000"]
+    assert out.groups() == [1, 2]
 
 
-async def test_heartbeat_repeats_state_with_same_seq() -> None:
-    sink = ListSink()
-    pub = publisher("captions", sink)
-    await pub.publish(CaptionsCore("en").state())
-    await pub.heartbeat()
-    a, b = (json.loads(o) for o in sink.objects)
-    assert a["seq"] == b["seq"] == 1
+async def test_a_paused_scripted_asr_finalises_only_the_line_it_was_hearing() -> None:
+    """Seen in the local run: closing the session on a pause made the whole two-hour demo script final at once."""
+    from talk_tracks.asr.scripted import demo_script
 
-
-async def test_heartbeat_before_first_state_is_silent() -> None:
-    sink = ListSink()
-    await publisher("captions", sink).heartbeat()
-    assert sink.objects == []
+    session = await ScriptedAsr(demo_script(["One two three four."])).open("en", offset_ms=10_000)
+    await session.feed(np.zeros(1600, dtype=np.int16), 11_000)  # a third of the way into the first line
+    closed = await session.close()
+    assert [(e.text, e.start_ms) for e in closed if isinstance(e, AsrFinal)] == [("One two", 10_000)]

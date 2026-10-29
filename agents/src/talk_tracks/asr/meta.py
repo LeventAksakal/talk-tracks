@@ -45,6 +45,7 @@ class MetaVoiceAsrSession:
         self._paid = 0
         self._events: asyncio.Queue[AsrEvent] = asyncio.Queue()
         self._turn_start: dict[int, int] = {}
+        self._current: int | None = None  # the open turn's start, media ms
         self._pending: NDArray[np.int16] = np.zeros(0, dtype=np.int16)
         self._reader = asyncio.create_task(self._read())
         self.error: str | None = None
@@ -62,11 +63,13 @@ class MetaVoiceAsrSession:
         kind = msg.get("type")
         if kind == "speechStart":
             self._turn_start[int(msg["turnId"])] = int(msg["audioProcessedMs"])
+            self._current = self._offset_ms + int(msg["audioProcessedMs"])
         elif kind == "transcript":
-            self._events.put_nowait(AsrPartial(str(msg["transcript"])))
+            self._events.put_nowait(AsrPartial(str(msg["transcript"]), self._current))
         elif kind == "speechComplete":
             end = int(msg["audioProcessedMs"])
             start = self._turn_start.pop(int(msg["turnId"]), end)
+            self._current = None
             self._events.put_nowait(
                 AsrFinal(str(msg.get("transcript", "")), self._offset_ms + start, self._offset_ms + max(start, end))
             )

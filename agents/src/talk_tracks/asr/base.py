@@ -11,7 +11,10 @@ from numpy.typing import NDArray
 
 @dataclass(frozen=True)
 class AsrPartial:
+    """The turn's transcript so far, and its start when the recogniser says."""
+
     text: str
+    start_ms: int | None = None
 
 
 @dataclass(frozen=True)

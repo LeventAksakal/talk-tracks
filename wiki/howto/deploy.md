@@ -22,7 +22,7 @@ Nothing here is in git; the hostname, keys and tokens stay on the VM.
 | `~/talk-tracks/deploy/.env` | `TT_HOST`, `TT_KEYS`, `TT_DATA`, `TT_DEMO_ROOM`, `TT_LECTURE`, `TT_LOOPER_TOKEN`, `TT_AGENT_TOKEN` (signed for `talk/*/agents/**`, [tokens](tokens.md)), optionally `TT_LIVE_ROOMS` (default `*`) and `TT_ROOM_CAP_USD` (default 2) (mode 600) |
 | `~/tt-data/caps/` | one JSON file per judge token batch: its rooms, room cap and total cap ([tokens](tokens.md#judge-tokens)) |
 | `~/tt-keys` | `private.jwk` (mode 600, made on the VM, never copied off) and `public.jwk` |
-| `~/tt-data` | `demo/<lecture>/` recordings, the agents' `state/` and the spend ledger `ledger.jsonl` |
+| `~/tt-data` | `demo/<lecture>/` recordings, the track `archive/` (each agent's slices: what it serves FETCH from and restarts from), the spend ledger `ledger.jsonl` |
 | `~/tt-secrets/meta.env` | `META_API_KEY=...` (folder 700, file 600); compose passes it to the live agents only, never to the looper |
 
 The VM's ledger started with one line that carries over the laptop ledger's total ($0.2333 on 2026-10-27), so its

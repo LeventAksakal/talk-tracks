@@ -1,0 +1,147 @@
+{
+  "$defs": {
+    "CarryData": {
+      "additionalProperties": false,
+      "properties": {
+        "tt": {
+          "$ref": "#/$defs/CarryNote"
+        }
+      },
+      "required": [
+        "tt"
+      ],
+      "title": "CarryData",
+      "type": "object"
+    },
+    "CarryNote": {
+      "additionalProperties": false,
+      "properties": {
+        "capped": {
+          "default": false,
+          "description": "The room reached its spend cap: no new records follow in this slice",
+          "title": "Capped",
+          "type": "boolean"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Room ms where this agent started inside the slice: it has nothing from before (captions)",
+          "title": "From"
+        }
+      },
+      "title": "CarryNote",
+      "type": "object"
+    },
+    "CarryRecord": {
+      "additionalProperties": false,
+      "description": "Talk Tracks' note on a carry-in, its first record and only when there is something to say.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/CarryData"
+        },
+        "m": {
+          "description": "Room ms of the slice start, k * 4000",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "CarryRecord",
+      "type": "object"
+    },
+    "Cue": {
+      "additionalProperties": false,
+      "description": "A WebVTT-MSF cue (WebVTT-MSF \u00a73) plus ``rev`` and ``final`` for interim results.",
+      "properties": {
+        "end": {
+          "description": "Room ms of the end of the last word",
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "final": {
+          "description": "False while the speaker is still saying it",
+          "title": "Final",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "Stable across revisions, restarts and back-fill; a translated cue keeps its caption's id",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "rev": {
+          "default": 0,
+          "description": "Revision of this id; a viewer keeps the highest",
+          "minimum": 0,
+          "title": "Rev",
+          "type": "integer"
+        },
+        "start": {
+          "description": "Room ms of the first word",
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "id",
+        "text",
+        "final"
+      ],
+      "title": "Cue",
+      "type": "object"
+    },
+    "CueRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Cue"
+        },
+        "m": {
+          "description": "Room ms: the cue's start",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "CueRecord",
+      "type": "object"
+    }
+  },
+  "description": "One object of a captions or translation ``items`` track (eventType ``urn:msf:captions:webvtt``).",
+  "items": {
+    "anyOf": [
+      {
+        "$ref": "#/$defs/CarryRecord"
+      },
+      {
+        "$ref": "#/$defs/CueRecord"
+      }
+    ]
+  },
+  "title": "CueObject",
+  "type": "array"
+}

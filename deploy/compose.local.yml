@@ -9,6 +9,7 @@ x-agent: &agent
   build: ../agents
   init: true  # Python as PID 1 ignores SIGTERM; a clean stop withdraws the agent's tracks at once
   restart: unless-stopped  # aiomoqt does not reconnect: the process exits and comes back as a fresh instance
+  stop_grace_period: 15s  # time to close the session cleanly, so a replacement takes the track over at once
   depends_on: [relay]
   # The track archive (archive/ beside data/state): agents write their slices there and answer FETCH from it.
   volumes: ["../data/archive:/app/data/archive"]

@@ -2,49 +2,130 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
+from typing import Any, Literal
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
-from talk_tracks.contracts import CaptionLine, CaptionsState
-from talk_tracks.demand import Gate, gated
+from talk_tracks.contracts import Cue
+from talk_tracks.cores.captions import CaptionsCore
+from talk_tracks.cores.translate import TranslateCore
+from talk_tracks.demand import Demand, Gate, gated
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger, room_cap
+from talk_tracks.records import cues_of
 from talk_tracks.rooms import RoomPolicy, serve_rooms
-from talk_tracks.runtime import run_captions, run_translate
+from talk_tracks.runtime import CaptionsObject, run_captions, run_translate
 
-from .test_runtime import ListSink, publisher
+from .slicekit import sliced
 
 
-class Switch:
+class Switch(Demand):
+    """Demand, or not, as the test says."""
+
     def __init__(self) -> None:
+        super().__init__()
         self.on = False
 
-    def __call__(self) -> bool:
+    def wanted(self) -> bool:
         return self.on
 
 
-def fast_gate(switch: Switch, grace_s: float = 0.05, wake_s: float = 0.0) -> Gate:
-    return Gate(switch, wake_s=wake_s, grace_s=grace_s, poll_s=0.005)
+def fast_gate(switch: Switch, grace_s: float = 0.05) -> Gate:
+    return Gate(switch, grace_s=grace_s, poll_s=0.005)
 
 
-async def test_a_momentary_subscription_does_not_wake_the_agent() -> None:
-    switch = Switch()
-    gate = fast_gate(switch, wake_s=0.3)
-    wanted = asyncio.ensure_future(gate.wait_wanted())
-    for _ in range(3):  # three FETCH blips: the relay subscribes upstream for ~80 ms each time
-        switch.on = True
-        await asyncio.sleep(0.08)
-        switch.on = False
-        await asyncio.sleep(0.1)
-    assert not wanted.done()
+class Clock:
+    def __init__(self) -> None:
+        self.t = 100.0
 
-    switch.on = True  # a viewer that stays
-    started = asyncio.get_running_loop().time()
-    await asyncio.wait_for(wanted, 1)
-    assert asyncio.get_running_loop().time() - started >= 0.29
+    def __call__(self) -> float:
+        return self.t
+
+
+def demand() -> tuple[Demand, Clock]:
+    clock = Clock()
+    return Demand(clock=clock), clock
+
+
+def test_a_subscription_is_demand_after_a_quiet_second_and_latches_until_cancelled() -> None:
+    d, clock = demand()
+    d.subscribed(1)
+    clock.t += 0.9
+    assert not d.wanted()
+    clock.t += 0.1
+    assert d.wanted()
+    d.fetch_begin()  # a later FETCH does not take latched demand away
+    clock.t += 5
+    assert d.wanted()
+    d.fetch_end()
+    d.cancelled(1)
+    assert not d.wanted()
+
+
+def test_a_subscription_the_relay_opens_for_a_fetch_is_not_demand() -> None:
+    """Design §5.3: moq-relay subscribes upstream for as long as a FETCH takes, which may be seconds."""
+    d, clock = demand()
+    d.subscribed(1)
+    clock.t += 0.01
+    d.fetch_begin()  # within 50 ms: fetch-induced
+    clock.t += 3  # a slow back-fill
+    assert not d.wanted()
+    d.fetch_end()
+    d.cancelled(1)  # its subscription goes with it
+    clock.t += 2
+    assert not d.wanted()
+
+
+def test_a_fetch_induced_subscription_that_stays_is_a_viewer() -> None:
+    d, clock = demand()
+    d.subscribed(1)
+    d.fetch_begin()
+    clock.t += 0.5
+    d.fetch_end()
+    clock.t += 0.9
+    assert not d.wanted()
+    clock.t += 0.1  # still open 1 s after the FETCH completed
+    assert d.wanted()
+
+    d2, clock2 = demand()
+    d2.fetch_begin()  # the FETCH arrives first, the SUBSCRIBE within 50 ms: also induced
+    clock2.t += 0.02
+    d2.subscribed(1)
+    for _ in range(10):  # FETCH after FETCH (a viewer scrolling back): never 1 s after the last one
+        clock2.t += 0.9
+        d2.fetch_end()
+        d2.fetch_begin()
+        assert not d2.wanted()
+    clock2.t += 1.0  # but 10 s after it opened, it counts
+    assert d2.wanted()
+
+
+def test_any_other_subscription_waits_for_a_second_with_no_fetch() -> None:
+    d, clock = demand()
+    d.subscribed(1)
+    clock.t += 0.5
+    d.fetch_begin()  # a FETCH 0.5 s later: not induced, but in flight
+    clock.t += 1
+    assert not d.wanted()
+    d.fetch_end()
+    clock.t += 0.9
+    assert not d.wanted()  # a FETCH ended within the last second
+    clock.t += 0.1
+    assert d.wanted()
+
+
+def test_a_subscription_gone_without_a_cancel_is_dropped() -> None:
+    live = {1}
+    clock = Clock()
+    d = Demand(lambda: live, clock=clock)
+    d.subscribed(1)
+    clock.t += 1
+    assert d.wanted()
+    live.clear()  # its relay session died
+    assert not d.wanted() and d.open() == 0
 
 
 async def test_gate_waits_out_the_grace_period() -> None:
@@ -110,7 +191,7 @@ async def test_gated_input_opens_on_a_subscriber_and_closes_without_one() -> Non
     assert all(isinstance(x, int) and x >= 1000 for x in out[paused_at:])
 
 
-async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after() -> None:
+async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after(tmp_path: Path) -> None:
     class Session:
         def __init__(self, log: list[str]) -> None:
             self.log = log
@@ -137,27 +218,45 @@ async def test_captions_close_the_asr_session_on_a_pause_and_reopen_after() -> N
         for end_ms in range(5100, 6100, 100):
             yield np.zeros(1600, dtype=np.int16), end_ms
 
-    provider, sink = Provider(), ListSink()
-    await run_captions(audio(), provider, publisher("captions", sink), "en")
+    provider = Provider()
+    track, out = sliced(tmp_path)
+    core = CaptionsCore("en")
+    track.carry = core.carry
+    await run_captions(audio(), provider, track, core)
     assert provider.log == ["open 0", "close", "open 5000", "close"]
-    assert [line.id for line in sink.envelopes()[-1].state.lines] == [0, 1, 2, 3]  # ids carry on over the pause
+    ids = [c.id for _, o, p in out.objects if o > 0 for c in cues_of(p)[1] if c.final]
+    assert ids == ["400", "900", "5400", "5900"]  # ids carry on over the pause
+    assert out.groups() == [0, 1] and out.ended == [0]  # the pause closed slice 0; nothing was produced while idle
 
 
-def captions_with(n: int) -> CaptionsState:
-    return CaptionsState(lang="en", lines=[CaptionLine(id=i, start_ms=i, end_ms=i, text=f"line {i}") for i in range(n)])
+def cue(i: int) -> Cue:
+    return Cue(start=i * 1000, end=i * 1000 + 900, id=str(i * 1000), text=f"line {i}", final=True)
 
 
-async def test_translation_switched_on_mid_talk_starts_from_now() -> None:
-    async def states() -> AsyncIterator[CaptionsState | None]:
-        yield captions_with(10)  # 10 lines already said when someone first wants the translation
-        yield captions_with(11)
+def captions(kind: Literal["carry", "item"], *ids: int) -> CaptionsObject:
+    """An object of the captions track: a carry-in with these cues, or the final cue ``ids[0]``."""
+    k = max(ids) * 1000 // 4000
+    return CaptionsObject(k, 0 if kind == "carry" else 1, [cue(i) for i in (ids if kind == "carry" else ids[:1])])
+
+
+def translated(out: Any) -> list[str]:
+    return [c.id for _, o, p in out.objects if o > 0 for c in cues_of(p)[1]]
+
+
+async def test_translation_switched_on_mid_talk_starts_from_now(tmp_path: Path) -> None:
+    async def objects() -> AsyncIterator[CaptionsObject | None]:
+        yield captions("carry", 8, 9)  # 10 lines already said when someone first wants the translation
+        yield captions("item", 10)
         yield None
-        yield captions_with(20)  # wanted again, 9 lines later
-        yield captions_with(21)
+        yield captions("carry", 18, 19)  # wanted again, 9 lines later
+        yield captions("item", 20)
 
-    sink, llm = ListSink(), FakeLlm()
-    await run_translate(states(), llm, publisher("translate-tr", sink, llm), "tr")
-    assert [line.id for line in sink.envelopes()[-1].state.lines] == [8, 9, 10, 18, 19, 20]
+    llm = FakeLlm()
+    track, out = sliced(tmp_path, "translate-tr")
+    core = TranslateCore("tr")
+    track.carry = core.carry
+    await run_translate(objects(), llm, track, core)
+    assert translated(out) == ["8000", "9000", "10000", "18000", "19000", "20000"]  # from each join's slice start
     assert llm.usage.requests == 6
 
 
@@ -201,17 +300,21 @@ async def test_at_its_cap_an_agent_stops_paying_and_says_so(tmp_path: Path) -> N
     ledger = SpendLedger(tmp_path / "ledger.jsonl", 100).for_room("judge-a", RoomCap(0.03))
     llm = FakeLlm(ledger, usd_per_call=0.01)
 
-    async def states() -> AsyncIterator[CaptionsState | None]:
-        yield captions_with(0)
-        for n in range(1, 6):
-            yield captions_with(n)
+    async def objects() -> AsyncIterator[CaptionsObject | None]:
+        for n in range(6):
+            yield captions("item", n)
 
-    sink = ListSink()
-    await run_translate(states(), llm, publisher("translate-tr", sink, llm), "tr")
-    last = sink.envelopes()[-1]
-    assert [line.id for line in last.state.lines] == [0, 1, 2]
-    assert llm.usage.requests == 3
-    assert last.agent.label == "translate-tr (paused: this room reached its spend cap)"
+    track, out = sliced(tmp_path, "translate-tr")
+    core = TranslateCore("tr")
+    track.carry = core.carry
+    await run_translate(objects(), llm, track, core)
+    assert translated(out) == ["0", "1000", "2000"]
+    assert llm.usage.requests == 3 and track.capped
+    track.clock.observe(8_000)
+    await track.tick()  # the next slice says why the track is silent
+    (carry,) = out.payloads(2)
+    note, _ = cues_of(carry)
+    assert note is not None and note.capped
     assert ledger.room_total() == pytest.approx(0.03)
 
 

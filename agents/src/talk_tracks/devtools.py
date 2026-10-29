@@ -1,12 +1,13 @@
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportAttributeAccessIssue=false
-"""Stand-ins for the browser, to run agents end to end without one: a speaker that publishes audio, a viewer that
-prints what the agents publish. They speak the same wire formats as the web app (contracts and the legacy audio
-container)."""
+"""Stand-ins for the browser and the room service, to run agents end to end without them: a speaker that publishes
+audio with its hang catalog clock, a room catalog with the room epoch, a viewer that prints what the agents publish.
+They speak the same wire formats as the web app (contracts, the hang catalog and the legacy audio container)."""
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import time
 import wave
@@ -18,15 +19,20 @@ from numpy.typing import NDArray
 
 from .audio import OpusEncoder, write_varint
 from .contracts import (
-    ENVELOPE,
-    CaptionsState,
+    CATALOG_TRACK,
+    MOQ_EPOCH_UNIX_MS,
+    SLICE_MS,
+    CatalogTrack,
+    RoomCatalog,
+    RoomTt,
     SlideFrame,
-    SlidesState,
-    TranslationState,
+    agents_prefix,
+    catalog_path,
     slides_path,
     teacher_path,
 )
-from .moq import Relay, connect, until_closed
+from .moq import HANG_CATALOG, Relay, connect, teacher_clock, until_closed
+from .records import cues_of, outline_of, slides_of
 
 log = logging.getLogger("talk_tracks.dev")
 
@@ -46,7 +52,26 @@ def load_audio_48k(path: Path | None, seconds: float = 10.0) -> NDArray[np.int16
 
 
 async def publish_teacher(relay: Relay, room: str, pcm48k: NDArray[np.int16]) -> None:
-    """Loop the audio at real time on ``talk/<room>/teacher`` track ``audio``, one Opus frame per group."""
+    """Loop the audio at real time on ``talk/<room>/teacher`` track ``audio``, one Opus frame per group, with a hang
+    ``catalog.json`` whose root ``clock`` says when PTS zero was, as @moq/publish writes it (repeated every 2 s)."""
+    wall_us = (time.time_ns() // 1000) - MOQ_EPOCH_UNIX_MS * 1000
+    hang = {"audio": {"renditions": {"audio": {"codec": "opus", "container": {"kind": "legacy"}}}}}
+    catalog = json.dumps({**hang, "clock": {"wall": wall_us, "timescale": 1_000_000}}).encode()
+    catalog_sink = await relay.publish(teacher_path(room), HANG_CATALOG)
+
+    async def repeat_catalog() -> None:
+        while True:
+            await catalog_sink.write(catalog)
+            await asyncio.sleep(2.0)
+
+    repeating = asyncio.create_task(repeat_catalog())
+    try:
+        await _loop_audio(relay, room, pcm48k)
+    finally:
+        repeating.cancel()
+
+
+async def _loop_audio(relay: Relay, room: str, pcm48k: NDArray[np.int16]) -> None:
     sink = await relay.publish(teacher_path(room), "audio")
     encoder = OpusEncoder()
     frame = OpusEncoder.FRAME
@@ -66,14 +91,13 @@ async def publish_slides(relay: Relay, room: str, images: list[Path], every_s: f
     The current slide is repeated every 2 s, as the speaker console does, so an agent that subscribes late gets it.
     """
     sink = await relay.publish(slides_path(room), "frames")
-    start = time.monotonic()
     slide_id = 0
     while True:
         for path in images:
             mime: Literal["image/png", "image/jpeg"] = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
             frame = SlideFrame(
                 id=slide_id,
-                at_ms=int((time.monotonic() - start) * 1000),
+                at_ms=time.time_ns() // 1_000_000,  # the browser stamps wall time
                 mime=mime,
                 data_b64=base64.b64encode(path.read_bytes()).decode(),
             )
@@ -84,74 +108,75 @@ async def publish_slides(relay: Relay, room: str, images: list[Path], every_s: f
             slide_id += 1
 
 
-def summary(payload: bytes) -> str:
-    env = ENVELOPE.validate_json(payload)
-    state = env.state
-    if isinstance(state, CaptionsState):
-        last = state.lines[-1] if state.lines else None
-        what = (
-            f"{len(state.lines)} lines, last #{last.id} ending {last.end_ms / 1000:.1f} s {last.text!r}"
-            if last
-            else "no lines"
-        )
-        what += f", interim {state.interim!r}" if state.interim else ""
-    elif isinstance(state, TranslationState):
-        what = (
-            f"{len(state.lines)} lines, last #{state.lines[-1].id} {state.lines[-1].text!r}"
-            if state.lines
-            else "no lines"
-        )
-    elif isinstance(state, SlidesState):
-        what = f"{len(state.slides)} slides, last {state.slides[-1].description!r}" if state.slides else "no slides"
+async def publish_room_catalog(relay: Relay, room: str) -> None:
+    """Stand in for the room service's room catalog (design §5.10): ``E`` from the first teacher broadcast, rounded
+    down to a slice, and a shift of 0 for every broadcast, published every 2 s. No skew guard and no track list."""
+    sink = await relay.publish(catalog_path(room), CATALOG_TRACK)
+    epoch: int | None = None
+    shift: dict[str, int] = {}
+    while True:
+        clock = await teacher_clock(relay, room, wait_s=2.0)
+        if clock is not None:
+            if epoch is None:
+                first = MOQ_EPOCH_UNIX_MS + clock.wall * 1000 // clock.timescale
+                epoch = first // SLICE_MS * SLICE_MS
+            shift.setdefault(clock.key, 0)
+        if epoch is not None:
+            catalog = RoomCatalog(tracks=list[CatalogTrack](), tt=RoomTt(E=epoch, shift=shift))
+            await sink.write(catalog.model_dump_json(exclude_none=True).encode())
+        await asyncio.sleep(2.0)
+
+
+def summary(agent: str, group: int, object_id: int, payload: bytes) -> str:
+    where = f"{agent} {group}/{object_id}"
+    if agent == "chapters":
+        records = outline_of(payload) or []
+        return f"{where}: outline of {len(records)} records"
+    if agent == "describe":
+        note, slides = slides_of(payload)
+        what = ", ".join(f"slide {s.id} at {s.at / 1000:.1f} s {s.text[:40]!r}" for s in slides)
     else:
-        what = f"{len(state.chapters)} chapters, {len(state.glossary)} terms"
-    return f"{env.agent.name}/{env.instance} seq {env.seq} ${env.usage.cost_usd:.4f}: {what}"
+        note, cues = cues_of(payload)
+        what = ", ".join(
+            f"{'final' if c.final else 'interim'} {c.id} r{c.rev} {c.start / 1000:.1f}-{c.end / 1000:.1f} s {c.text!r}"
+            for c in cues
+        )
+    flags = (
+        ""
+        if note is None
+        else f" [{'capped ' if note.capped else ''}{'from ' + str(note.from_) if note.from_ is not None else ''}]"
+    )
+    return f"{where}{flags}: {what or '(empty)'}"
 
 
-async def watch_room(relay: Relay, room: str) -> None:
-    """Print every agent snapshot published in the room, as a viewer would receive it, with the speaker's media time
-    when the snapshot arrived (from the teacher audio), so you can see the tracks keep step with the talk."""
-    from .contracts import agents_prefix
-    from .follow import RoomFollower
-    from .replay import MediaClock
+async def watch_room(relay: Relay, room: str, agents: list[str]) -> None:
+    """Print every object the room's agents publish, as a viewer subscribed to their tracks receives them."""
 
-    prefix = agents_prefix(room)
-    following: dict[str, asyncio.Task[None]] = {}  # agent -> the reader of its newest instance
-    newest = RoomFollower()
-    clock = MediaClock()
+    async def read(agent: str) -> None:
+        track = "outline" if agent == "chapters" else "items"
+        async for _, group, object_id, payload in relay.located(f"{agents_prefix(room)}/{agent}", track):
+            print(summary(agent, group, object_id, payload), flush=True)
 
-    async def media() -> None:
-        async for payload in relay.objects(teacher_path(room), "audio", idle_s=5.0):
-            clock.observe(payload)
-
-    async def read(path: str) -> None:
-        async for payload in relay.objects(f"{prefix}/{path}", "state"):
-            stamp = f"[media {clock.ms / 1000:8.1f} s] " if clock.us is not None else ""
-            print(stamp + summary(payload), flush=True)
-
-    teacher = asyncio.create_task(media())
-    try:
-        async for path, active in relay.announced(prefix):
-            print(f"{'announced' if active else 'withdrawn'}: {path}", flush=True)
-            found = newest.offer(path) if active else None
-            if found is not None:
-                agent, _ = found
-                if agent in following:
-                    following[agent].cancel()  # replaced (a restart, or the next loop of a demo room)
-                following[agent] = asyncio.create_task(read(path))
-    finally:
-        teacher.cancel()
-        for task in following.values():
-            task.cancel()
+    await asyncio.gather(*(read(a) for a in agents))
 
 
 async def run_dev(
-    command: str, url: str, room: str, *, token: str | None, insecure: bool, wav: Path | None, images: list[Path]
+    command: str,
+    url: str,
+    room: str,
+    *,
+    token: str | None,
+    insecure: bool,
+    wav: Path | None,
+    images: list[Path],
+    agents: list[str] | None = None,
 ) -> None:
     async with connect(url, token=token, insecure=insecure) as relay:
         if command == "teacher":
             await until_closed(relay, publish_teacher(relay, room, load_audio_48k(wav)))
         elif command == "slides":
             await until_closed(relay, publish_slides(relay, room, images))
+        elif command == "catalog":
+            await until_closed(relay, publish_room_catalog(relay, room))
         else:
-            await until_closed(relay, watch_room(relay, room))
+            await until_closed(relay, watch_room(relay, room, agents or ["captions"]))

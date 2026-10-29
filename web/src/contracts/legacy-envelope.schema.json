@@ -19,11 +19,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "name",
-        "label",
-        "model"
-      ],
+      "required": ["name", "label", "model"],
       "title": "AgentInfo",
       "type": "object"
     },
@@ -52,12 +48,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "start_ms",
-        "end_ms",
-        "text"
-      ],
+      "required": ["id", "start_ms", "end_ms", "text"],
       "title": "CaptionLine",
       "type": "object"
     },
@@ -87,10 +78,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "lang",
-        "lines"
-      ],
+      "required": ["lang", "lines"],
       "title": "CaptionsState",
       "type": "object"
     },
@@ -116,12 +104,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "start_ms",
-        "title",
-        "summary"
-      ],
+      "required": ["id", "start_ms", "title", "summary"],
       "title": "Chapter",
       "type": "object"
     },
@@ -137,10 +120,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "term",
-        "definition"
-      ],
+      "required": ["term", "definition"],
       "title": "GlossaryTerm",
       "type": "object"
     },
@@ -177,11 +157,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "lang",
-        "chapters",
-        "glossary"
-      ],
+      "required": ["lang", "chapters", "glossary"],
       "title": "OutlineState",
       "type": "object"
     },
@@ -204,11 +180,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "id",
-        "at_ms",
-        "description"
-      ],
+      "required": ["id", "at_ms", "description"],
       "title": "SlideNote",
       "type": "object"
     },
@@ -233,10 +205,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "lang",
-        "slides"
-      ],
+      "required": ["lang", "slides"],
       "title": "SlidesState",
       "type": "object"
     },
@@ -254,10 +223,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "text"
-      ],
+      "required": ["id", "text"],
       "title": "TranslatedLine",
       "type": "object"
     },
@@ -282,10 +248,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "lang",
-        "lines"
-      ],
+      "required": ["lang", "lines"],
       "title": "TranslationState",
       "type": "object"
     },
@@ -380,14 +343,7 @@
       "type": "integer"
     }
   },
-  "required": [
-    "agent",
-    "instance",
-    "seq",
-    "at_ms",
-    "usage",
-    "state"
-  ],
+  "required": ["agent", "instance", "seq", "at_ms", "usage", "state"],
   "title": "Envelope",
   "type": "object"
 }

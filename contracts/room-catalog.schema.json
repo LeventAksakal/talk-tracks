@@ -1,0 +1,273 @@
+{
+  "$defs": {
+    "CatalogTrack": {
+      "additionalProperties": true,
+      "description": "An MSF catalog track (MSF \u00a75.2). Other MSF fields pass through.",
+      "properties": {
+        "eventType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eventtype"
+        },
+        "isLive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Islive"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lang"
+        },
+        "mimeType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mimetype"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "namespace": {
+          "title": "Namespace",
+          "type": "string"
+        },
+        "packaging": {
+          "description": "eventtimeline for the agent tracks",
+          "title": "Packaging",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[0, 4000, [0, 0], [1, 0], E, 4000] when sliced",
+          "title": "Template"
+        },
+        "tt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrackTt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "namespace",
+        "packaging"
+      ],
+      "title": "CatalogTrack",
+      "type": "object"
+    },
+    "RoomTt": {
+      "additionalProperties": false,
+      "description": "Talk Tracks' extension of the catalog root.",
+      "properties": {
+        "E": {
+          "description": "The room epoch, Unix ms, a multiple of 4000: room time = wall time - E",
+          "minimum": 0,
+          "title": "E",
+          "type": "integer"
+        },
+        "shift": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Per teacher broadcast, keyed by its clock.wall as a decimal string: ms added to its room times, a multiple of 4000 (0 normally). Nobody stamps a broadcast that is not listed yet",
+          "title": "Shift",
+          "type": "object"
+        },
+        "status": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TrackStatus"
+          },
+          "description": "Per agent name",
+          "title": "Status",
+          "type": "object"
+        }
+      },
+      "required": [
+        "E",
+        "shift"
+      ],
+      "title": "RoomTt",
+      "type": "object"
+    },
+    "TrackStatus": {
+      "additionalProperties": false,
+      "description": "One agent's state, from its archive reports and the spend ledger. Older than 15 s means stale.",
+      "properties": {
+        "backfills": {
+          "description": "Slices produced for a FETCH",
+          "minimum": 0,
+          "title": "Backfills",
+          "type": "integer"
+        },
+        "fetches_served": {
+          "description": "FETCHes this agent answered as the origin (relay cache misses)",
+          "minimum": 0,
+          "title": "Fetches Served",
+          "type": "integer"
+        },
+        "producing": {
+          "description": "The agent is doing live work for subscribers",
+          "title": "Producing",
+          "type": "boolean"
+        },
+        "spend_usd": {
+          "minimum": 0,
+          "title": "Spend Usd",
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "idle",
+            "live",
+            "capped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "updated_ms": {
+          "description": "Unix ms of the agent's last report",
+          "minimum": 0,
+          "title": "Updated Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "producing",
+        "fetches_served",
+        "backfills",
+        "spend_usd",
+        "updated_ms"
+      ],
+      "title": "TrackStatus",
+      "type": "object"
+    },
+    "TrackTt": {
+      "additionalProperties": false,
+      "properties": {
+        "cost": {
+          "enum": [
+            "paid",
+            "free"
+          ],
+          "title": "Cost",
+          "type": "string"
+        },
+        "dependsOn": {
+          "description": "Full paths of the tracks this one is made from",
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependson",
+          "type": "array"
+        },
+        "latenessMs": {
+          "default": 0,
+          "description": "L: how much later than its slice a record may arrive",
+          "minimum": 0,
+          "title": "Latenessms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cost"
+      ],
+      "title": "TrackTt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Object 0 of each group of ``talk/<room>/catalog``: the whole catalog (MSF \u00a75).",
+  "properties": {
+    "tracks": {
+      "items": {
+        "$ref": "#/$defs/CatalogTrack"
+      },
+      "title": "Tracks",
+      "type": "array"
+    },
+    "tt": {
+      "$ref": "#/$defs/RoomTt"
+    },
+    "version": {
+      "const": "draft-01",
+      "default": "draft-01",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tracks",
+    "tt"
+  ],
+  "title": "RoomCatalog",
+  "type": "object"
+}
