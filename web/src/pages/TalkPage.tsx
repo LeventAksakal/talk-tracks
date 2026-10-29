@@ -1,8 +1,8 @@
 import { Badge, Banner, Button } from "@astryxdesign/core";
 import { useEffect, useRef, useState } from "react";
 import { AUDIO_TRACK, FRAMES_TRACK, isValidRoom, slidesPath, teacherPath } from "../contracts/names";
-import type { AgentView } from "../room/store";
-import { useRoom } from "../room/useRoom";
+import { HANG_CATALOG_TRACK, hangClockOfPayload } from "../playback/roomClock";
+import { useRoomStatus } from "../playback/roomStatus";
 import { Link, useLocation } from "../router";
 import { type MicHandle, startMic } from "../speaker/mic";
 import { FRESH_AUDIO_MS, isOwnAudio, type MicState, type OnAir, onAirState } from "../speaker/onair";
@@ -23,7 +23,7 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
   // what it sees is what the relay really accepted.
   const publisher = useMoqTransport(token);
   const watcher = useMoqTransport();
-  const [view] = useRoom(watcher, room);
+  const view = useRoomStatus(watcher, room);
 
   const [publisherStatus, setPublisherStatus] = useState(publisher?.status() ?? "connecting");
   const [publisherError, setPublisherError] = useState<string>();
@@ -75,6 +75,20 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
   }, [mic]);
 
   useEffect(() => () => micHandle.current?.close(), []);
+
+  // Room time comes from the root `clock` of the speaker's hang catalog (design §4.5): without it
+  // nothing the room records lines up, so say so while on air.
+  const [hasClock, setHasClock] = useState<boolean>();
+  useEffect(() => {
+    if (!watcher || mic === "off" || mic === "error") return;
+    const sub = watcher.subscribe(teacherPath(room), HANG_CATALOG_TRACK, ({ payload }) =>
+      setHasClock(hangClockOfPayload(payload) !== undefined),
+    );
+    return () => {
+      sub.close();
+      setHasClock(undefined);
+    };
+  }, [watcher, room, mic]);
 
   const startMicrophone = async () => {
     if (!publisher) return;
@@ -134,6 +148,14 @@ function Console({ room, token }: { room: string; token: string | undefined }) {
             Microphone
           </h2>
           <OnAirMessage onAir={onAir} />
+          {hasClock === false ? (
+            <Banner
+              status="error"
+              title="No room clock"
+              description="Your broadcast carries no clock, so captions and the recording will not line up. Reload the page and go on air again."
+              role="alert"
+            />
+          ) : null}
           {mic === "off" || mic === "error" ? (
             <Button label="Go on air" variant="primary" isDisabled={!publisher} clickAction={startMicrophone} />
           ) : (
@@ -258,8 +280,8 @@ function SlideShare({ publisher, room }: { publisher: ReturnType<typeof useMoqTr
   );
 }
 
-function Roster({ agents }: { agents: readonly AgentView[] }) {
-  const total = agents.reduce((sum, a) => sum + a.costUsd, 0);
+/** The agents announced in the room. Announcements only: the console subscribes to no agent, so it costs nothing. */
+function Roster({ agents }: { agents: readonly string[] }) {
   return (
     <section className="panel roster" aria-labelledby="roster-heading">
       <h2 id="roster-heading" className="panel-title">
@@ -271,46 +293,22 @@ function Roster({ agents }: { agents: readonly AgentView[] }) {
         <table className="roster-table">
           <thead>
             <tr>
-              <th scope="col">Track</th>
-              <th scope="col">Model</th>
+              <th scope="col">Agent</th>
               <th scope="col">Health</th>
-              <th scope="col" className="num">
-                Cost
-              </th>
             </tr>
           </thead>
           <tbody>
-            {agents.map((a) => (
-              <tr key={a.name}>
-                <th scope="row">
-                  {a.label}
-                  <div className="muted small">
-                    {a.name}
-                    {a.instance ? ` · instance ${a.instance}` : ""}
-                  </div>
-                </th>
-                <td>{a.model ?? "—"}</td>
+            {agents.map((name) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
                 <td>
-                  <HealthDot health={a.health} />
+                  <HealthDot health="live" />
                 </td>
-                <td className="num">{usd(a.costUsd)}</td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row" colSpan={3}>
-                Total
-              </th>
-              <td className="num">{usd(total)}</td>
-            </tr>
-          </tfoot>
         </table>
       )}
     </section>
   );
-}
-
-function usd(n: number): string {
-  return `$${n.toFixed(n < 1 ? 4 : 2)}`;
 }

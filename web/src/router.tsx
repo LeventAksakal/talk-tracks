@@ -29,12 +29,14 @@ export type Route =
   | { page: "watch"; room: string }
   | { page: "talk"; room: string }
   | { page: "demo" }
+  | { page: "rewind-demo" }
   | { page: "not-found" };
 
 export function matchRoute(pathname: string): Route {
   const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
   if (parts.length === 0) return { page: "landing" };
   if (parts[0] === "demo" && parts.length === 1) return { page: "demo" };
+  if (parts[0] === "demo" && parts[1] === "rewind" && parts.length === 2) return { page: "rewind-demo" };
   if (parts[0] === "watch" && parts.length === 2 && parts[1]) return { page: "watch", room: parts[1] };
   if (parts[0] === "talk" && parts.length === 2 && parts[1]) return { page: "talk", room: parts[1] };
   return { page: "not-found" };
