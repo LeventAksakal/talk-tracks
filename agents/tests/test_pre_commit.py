@@ -280,7 +280,7 @@ def test_pre_commit_hook_blocks_secrets_and_allows_clean_commits(tmp_path: Path)
     blocked = _git(repo, "commit", "-m", "accidental vm ip", check=False)
     assert blocked.returncode != 0
     assert "ipv4" in blocked.stderr
-    _git(repo, "checkout", "--", "README.md")
+    _git(repo, "reset", "--hard", "HEAD")
 
     # When web/node_modules/.bin exists, eslint & prettier run inside web/ with stripped relative paths.
     bin_dir = repo / "web" / "node_modules" / ".bin"
