@@ -7,8 +7,9 @@ import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
 import { type ArchivePlayback, type ArchiveState, archiveState, hlsUrl, openArchive } from "./hlsArchive";
-import { type RoomCatalog, watchRoomCatalog } from "./roomCatalog";
-import { type HangClock, hangClockOf, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
+import { type LoopInfo, loopInfo, loopOf, LoopPlayback, loopUrl } from "./loopArchive";
+import { type RoomCatalog, STATUS_FRESH_MS, watchRoomCatalog } from "./roomCatalog";
+import { HANG_CATALOG_TRACK, type HangClock, hangClockOf, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
 import { type Range, sliceOf } from "./slices";
 
 export type MediaStatus =
@@ -148,14 +149,18 @@ export interface RoomMediaOptions {
 /**
  * Live: the speaker broadcast through @moq/watch; its playhead is the wall time of the playing media
  * timestamp (the teacher catalog's root `clock`) − E. Rewound: the archive's HLS from the seek point,
- * mapped through PROGRAM-DATE-TIME. Go live closes the archive playback and starts the live one again.
- * It also holds the room catalog, which gives E and every track's L.
+ * mapped through PROGRAM-DATE-TIME, or, in a looped demo room (the teacher's hang catalog says so), the
+ * room's recording itself (loopArchive). Go live closes the archive playback and starts the live one
+ * again. It also holds the room catalog, which gives E and every track's L.
  */
 export class RoomMedia implements SpeakerMedia {
   readonly room: string;
   #transport: MoqTransport;
   #now: () => number;
   #archiveUrl: string;
+  #loopUrl: string;
+  /** A looped room's loop, from the teacher's hang catalog, and when it was last seen (this device's ms). */
+  #loop: { loop: NonNullable<ReturnType<typeof loopOf>>; seen: number } | undefined;
   #fetch: typeof fetch;
   #elements: RoomMediaElements | undefined;
   #mode: Mode = "live";
@@ -183,11 +188,24 @@ export class RoomMedia implements SpeakerMedia {
     this.#transport = transport;
     this.#now = options.now ?? Date.now;
     this.#archiveUrl = hlsUrl(room, options.archiveBase);
+    this.#loopUrl = loopUrl(room, options.archiveBase);
     this.#fetch = options.fetchFn ?? ((...args) => fetch(...args));
     this.#subs.push(
       watchRoomCatalog(transport, room, (catalog) => {
         this.#catalog = catalog;
         this.#listeners.emit();
+      }),
+      // A catalog track only (the looper repeats it every 2 s): no agent works for it.
+      transport.subscribe(teacherPath(room), HANG_CATALOG_TRACK, ({ payload }) => {
+        let loop: ReturnType<typeof loopOf>;
+        try {
+          loop = loopOf(JSON.parse(new TextDecoder().decode(payload)));
+        } catch {
+          return;
+        }
+        const first = !this.#loop;
+        this.#loop = loop ? { loop, seen: this.#now() } : undefined;
+        if (first && loop) this.#listeners.emit();
       }),
     );
     this.#timers.push(setInterval(() => this.#listeners.emit(), 250));
@@ -217,7 +235,7 @@ export class RoomMedia implements SpeakerMedia {
   stop(): void {
     this.#wantLive = false;
     this.#stopLive();
-    this.#archive?.element.pause();
+    this.#archive?.pause();
     this.#status = "idle";
     this.#listeners.emit();
   }
@@ -251,10 +269,22 @@ export class RoomMedia implements SpeakerMedia {
   onAir(): boolean | undefined {
     const now = this.#toRoom(this.#now());
     if (this.#live && this.#lastLive && now !== undefined) return sliceOf(this.#lastLive.room) >= sliceOf(now);
+    // A looper repeats the teacher catalog every 2 s while it plays.
+    if (this.#loop) return this.#now() - this.#loop.seen < STATUS_FRESH_MS;
     return this.#playlist ? !this.#playlist.ended : undefined;
   }
 
+  /**
+   * Room time the archive can play. A looped room's recording plays any room time; the scrubber gets one
+   * loop back from now, the whole lecture once.
+   */
   available(): Range[] {
+    const loop = this.#loopInfo();
+    if (loop) {
+      const now = this.#now();
+      const from = Math.max(loop.wallZeroMs, now - loop.periodMs);
+      return this.#rangesToRoom(now > from ? [{ start: from, end: now }] : []);
+    }
     return this.#rangesToRoom(this.#playlist?.ranges ?? []);
   }
 
@@ -277,6 +307,7 @@ export class RoomMedia implements SpeakerMedia {
     this.#clock?.close();
     this.#clock = undefined;
     this.#status = "idle";
+    this.#error = undefined; // an archive error belongs to the rewound playback
     if (this.#wantLive) this.#startLive();
     this.#listeners.emit();
   }
@@ -305,7 +336,14 @@ export class RoomMedia implements SpeakerMedia {
     return e === undefined ? [] : ranges.map((r) => ({ start: r.start - e, end: r.end - e }));
   }
 
+  /** The loop on the wall clock, the broadcast's shift included; undefined when the room does not loop. */
+  #loopInfo(): LoopInfo | undefined {
+    const loop = this.#loop?.loop;
+    return loop && loopInfo(loop, shiftOf(this.#catalog?.tt.shift, loop.clock));
+  }
+
   async #loadArchived(): Promise<void> {
+    if (this.#loop) return; // a looped room has no playlist: the archiver skips it
     try {
       const before = this.#playlist;
       this.#playlist = await archiveState(this.#archiveUrl, this.#fetch);
@@ -319,18 +357,21 @@ export class RoomMedia implements SpeakerMedia {
 
   async #seekArchive(ms: number, edge: number | undefined): Promise<void> {
     const generation = ++this.#archiveGeneration;
-    if (!this.#playlist?.ranges.length) await this.#loadArchived();
+    if (!this.#loop && !this.#playlist?.ranges.length) await this.#loadArchived();
     if (this.#closed || this.#mode !== "rewound" || generation !== this.#archiveGeneration) return;
     const video = this.#elements?.video;
     const e = this.#catalog?.tt.E;
-    if (!video || e === undefined || !this.#playlist?.ranges.length) {
+    const loop = this.#loopInfo();
+    if (!video || e === undefined || (!loop && !this.#playlist?.ranges.length)) {
       this.#useClock(ms, edge);
       return;
     }
     this.#clock?.close();
     this.#clock = undefined;
     try {
-      this.#archive ??= await openArchive(video, this.#archiveUrl);
+      this.#archive ??= loop
+        ? new LoopPlayback(video, this.#loopUrl, loop)
+        : await openArchive(video, this.#archiveUrl);
       if (generation !== this.#archiveGeneration) return;
       await this.#archive.open(ms + e);
     } catch (err) {
