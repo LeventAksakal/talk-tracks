@@ -266,10 +266,12 @@ def test_pre_commit_hook_blocks_secrets_and_allows_clean_commits(tmp_path: Path)
     os.chmod(repo / ".githooks" / "pre-commit", 0o755)
     _git(repo, "config", "core.hooksPath", ".githooks")
 
-    # Clean commit passes through .githooks/pre-commit.
+    # Clean commit (including a web/ file when web/node_modules is absent) passes through .githooks/pre-commit.
     (repo / "README.md").write_text("# Demo\nBucket placeholder: gs://$BUCKET/archive\n", encoding="utf-8")
-    _git(repo, "add", "README.md")
-    ok = _git(repo, "commit", "-m", "clean readme", check=False)
+    (repo / "web" / "src").mkdir(parents=True)
+    (repo / "web" / "src" / "App.tsx").write_text("export const App = () => null;\n", encoding="utf-8")
+    _git(repo, "add", "README.md", "web/src/App.tsx")
+    ok = _git(repo, "commit", "-m", "clean readme and web file", check=False)
     assert ok.returncode == 0, ok.stderr
 
     # Secret IPv4 addition is blocked by .githooks/pre-commit.
@@ -278,6 +280,25 @@ def test_pre_commit_hook_blocks_secrets_and_allows_clean_commits(tmp_path: Path)
     blocked = _git(repo, "commit", "-m", "accidental vm ip", check=False)
     assert blocked.returncode != 0
     assert "ipv4" in blocked.stderr
+    _git(repo, "checkout", "--", "README.md")
+
+    # When web/node_modules/.bin exists, eslint & prettier run inside web/ with stripped relative paths.
+    bin_dir = repo / "web" / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    eslint_shim = bin_dir / "eslint"
+    prettier_shim = bin_dir / "prettier"
+    eslint_shim.write_bytes(b'#!/bin/sh\nprintf "%s\\n" "$*" > eslint.args\n')
+    prettier_shim.write_bytes(b'#!/bin/sh\nprintf "%s\\n" "$*" > prettier.args\n')
+    os.chmod(eslint_shim, 0o755)
+    os.chmod(prettier_shim, 0o755)
+
+    (repo / "web" / "src" / "App.tsx").write_text("export const App = () => <div />;\n", encoding="utf-8")
+    (repo / "web" / "src" / "app.css").write_text("body { margin: 0; }\n", encoding="utf-8")
+    _git(repo, "add", "web/src/App.tsx", "web/src/app.css")
+    web_ok = _git(repo, "commit", "-m", "web changes", check=False)
+    assert web_ok.returncode == 0, web_ok.stderr
+    assert (repo / "web" / "eslint.args").read_text(encoding="utf-8").strip() == "src/App.tsx"
+    assert (repo / "web" / "prettier.args").read_text(encoding="utf-8").strip() == "--check src/App.tsx src/app.css"
 
 
 def test_all_tracked_files_in_repo_have_zero_false_positives() -> None:
