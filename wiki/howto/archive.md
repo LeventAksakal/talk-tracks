@@ -340,7 +340,7 @@ segments as `video/iso.segment`.
 | `TT_TOKEN` / `--token` | unset | A relay token that may publish `talk/*/catalog` (on the VM: `TT_ARCHIVE_TOKEN` in `.env`) |
 | `TT_ARCHIVE_DIR` / `--out` | `data/archive` | The archive root (`/data/archive` in the containers) |
 | `TT_ARCHIVE_ROOMS` / `--rooms` | `*` | Room patterns to archive, comma-separated |
-| `TT_ARCHIVE_SKIP` / `--skip` | (compose: the demo room) | Room patterns not to archive: a looped demo room's recording already is its archive, and its video would grow the archive by about 1 GB an hour |
+| `TT_ARCHIVE_SKIP` / `--skip` | (compose: the demo room) | Room patterns not to archive: a looped demo room's recording already is its archive, and its video would grow the archive by about 1 GB an hour. Its archive is one file instead: `archive/<room>/lecture.mp4`, a hard link to the looper's `demo/<room>/lecture.mp4`, which the viewer plays at room time modulo the loop length (`web/src/playback/loopArchive.ts`). Caddy caches `.mp4` forever, so a replaced lecture needs a new file name |
 | `TT_ARCHIVE_BUCKET` / `--bucket` | unset | `gs://<bucket>[/<folder>]` to copy to (folder default `archive`); unset, nothing is copied |
 | `--no-catalog` | off | Record only; publish no room catalogs |
 | `TT_LEDGER`, `TT_CAPS_DIR` | `data/ledger.jsonl`, `data/caps` | The agents' spend ledger and judge caps, read for `capped` (on the VM the archiver mounts `$TT_DATA` like the agents) |
