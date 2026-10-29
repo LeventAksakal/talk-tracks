@@ -69,7 +69,7 @@ ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml --profile l
 `chapters`) on the old image.
 
 If the release changes the demo rooms, also re-sign `TT_LOOPER_TOKEN` (it must cover rooms `virus` and `dataviz`) and
-remove the old `talk-tracks-looper-1` container, as in [demo rooms](demo-rooms.md#switch-the-public-rooms-on). Do this
+remove the old `talk-tracks-looper-1` container, as in [demo rooms](demo-rooms.md#the-two-public-rooms). Do this
 before the `up -d` above, or run `up -d looper-virus looper-dataviz` afterwards.
 
 The relay and auth images are built locally (`docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml
@@ -96,7 +96,7 @@ ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml --profile l
 - The `diff` copies the saved `.env` back only if it changed (a re-signed token, a new `TT_LECTURE`).
 - `--profile live` matters here too: without it the live agents stay on the new image.
 - If the release re-signed `TT_LOOPER_TOKEN` or changed the demo rooms, remove the old looper container as in
-  [demo rooms](demo-rooms.md#switch-the-public-rooms-on).
+  [demo rooms](demo-rooms.md#the-two-public-rooms).
 
 Then run the usual checks from [Checked on 2026-10-27](#checked-on-2026-10-27): `/watch/demo` over HTTPS with the
 isolation headers, `/healthz`, the looped lecture with captions, and the agents logging `serving rooms *`.
