@@ -44,6 +44,9 @@ ssh $VM 'cd ~/talk-tracks &&
   cp -a deploy/.env ~/env-before-<change>'
 ```
 
+A web-only release (only `web/` changed) needs just the `cp -a web/dist …` line. After uploading the bundle, check
+that the site serves the new `assets/index-*.js` name (`curl -s https://$SITE/ | grep -o 'assets/index-[^"]*'`).
+
 - The first line prints the old commit; write it down, since the roll-back needs it.
 - The image tag keeps the old agents image after the rebuild moves `:dev` (compose runs `talk-tracks-agents:dev`,
   or `$TT_AGENTS_TAG`; use that tag if it is set).
