@@ -19,3 +19,7 @@ it briefs, supervises, merges and deploys. The lanes, their files, dependencies 
 - Lanes never ask the owner. They return questions to the coordinator, which asks through the question prompt
   (blocking) or files a ticket (async).
 - API use is lazy and capped: real Meta calls run only on the VM, through its spend ledger (ceiling $100 overall).
+
+## Artifacts
+
+- Player Mockups: https://claude.ai/artifact/3nZmzbEh1AgsRF7UExrbNr   (clickable sketch of wiki/product/ui-design.md; source in scratch/player-mockups/)

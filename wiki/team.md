@@ -38,3 +38,18 @@ and definition of done, and a coordinator session runs them (project `CLAUDE.md`
 - Is the only one who deploys to the VM. Lanes hand over what to deploy.
 - Keeps [plan.md](plan.md), the tickets index and the sitrep (`/sitrep`, stored outside git) current, and reports
   stalls and spend to the owner.
+
+## Foundation lanes (from 2026-10-30)
+
+The player and "every interaction is a track" work (decisions 0017–0019). Full briefs:
+[lane-briefs.md §Foundation lanes](design/lane-briefs.md#foundation-lanes-2026-10-30). They replace the Product spec
+and UI lane above; the Rewind lane's engine in `web/src/playback/` stays and the Player lane builds on it.
+
+| Lane | Goal | Owns | Depends on | Starts |
+|---|---|---|---|---|
+| **Event track contracts** | Models and schemas for slide, ink, pointer, deck, comments and room tracks | `contracts/`, Python models, `web/src/contracts/` | — | first |
+| **Player** | The viewer as a media player, overlays on the room clock | `web/src/player/`, watch and demo pages | platform research first; contracts for step 3 | at once |
+| **Speaker console** | Mic, camera, PDF deck, presenter notes, ink and laser as tracks | `web/src/speaker/`, talk page | contracts | after contracts merge |
+| **Event track archive and replay** | Speaker event tracks archived and served by FETCH; demo rooms get slide tracks | archive, room service, `deploy/` | contracts | after contracts merge |
+| **Any-language translation** | A lazy translation track per requested language | translate agent, demand, caps | — | at once |
+| **Comments** | Comments anchored on slides, replayed at their time | room service endpoint, Discussion tab | player, console, archive | after the foundation, if time |

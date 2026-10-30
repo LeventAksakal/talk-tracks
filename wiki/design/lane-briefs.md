@@ -144,3 +144,101 @@ The design leaves these names open. Every lane uses exactly these:
   - `dependsOn`: a list of `<namespace>/<track>`, for example `talk/R/agents/captions/items` and `talk/R/slides/frames`;
   - `latenessMs`;
   - `cost`: `paid` or `free`.
+
+---
+
+## Foundation lanes (2026-10-30)
+
+The player and "every interaction is a track" foundation: decisions
+[0017](../decisions/0017-viewer-is-a-media-player-and-every-interaction-is-a-track.md),
+[0018](../decisions/0018-speaker-sends-slides-ink-laser-and-camera.md),
+[0019](../decisions/0019-subtitles-in-any-language-the-model-supports.md). The design is
+[ui-design.md](../product/ui-design.md) (§3.4 is the track table, §14 the lane table); the clickable mockup's link is
+in the project `CLAUDE.md` under Artifacts. Everything above this line still holds unless a section below changes it.
+
+**Rules for every foundation lane** (on top of [team.md](../team.md)):
+- Read ui-design.md §3.4 and your section below before writing code. Return questions to the coordinator; never ask
+  the owner.
+- Commit and push often on your branch. No long sleeps, no sub-agents unless the work needs them. Stop and report
+  when blocked.
+- Checks, once, on your final change set, logged to a file: web lanes `npm run typecheck`, `lint`, `test`, `build`
+  in `web/`; agent lanes `uv run pytest`, `ruff`, `pyright` in `agents/`. While iterating, run only the test file you
+  touched. The coordinator runs the full gate before merging.
+- Tests check what a user can do and what changes, never copy or CSS.
+
+**Order:** Contracts first. Player and Any-language translation start at once (the player's first step needs no
+contracts). Console and Event track archive start when Contracts is merged. Comments starts after Player, Console
+and Archive are merged, if the Nov 2 checks are not at risk.
+
+### Event track contracts (first, about half a day)
+- **Goal:** the new tracks of ui-design §3.4 exist as models and JSON Schemas, so every lane builds on the same shapes.
+- **Owns:** `contracts/`, the Python models in `agents/src/talk_tracks/` (`contracts.py`, `records.py`, `schema.py`,
+  `room_catalog.py` as needed), `web/src/contracts/`.
+- **Build:** MSF event-timeline records for `slide` (deck id, index), `ink` (stroke begin/points/end with tool, colour
+  and width; erase; clear; positions as fractions of the slide), `pointer` (laser positions about 20/s while held;
+  off), `deck` (slide images and their ids), `comments` (comment, reply, edit, hide; anchor = slide index plus a
+  region or text range; author display name), `room` (on air, paused, ended). Define each track's carry-in (object 0)
+  as in §3.4. Extend the room catalog to list the speaker's sources (camera, slides) and the event tracks. Propose
+  namespaces and track names (a starting point: speaker event tracks under `talk/R/slides`, comments under
+  `talk/R/comments` published by the room service) and write them into §"Namespaces" of this file.
+- **Done when:** schemas generated from the Python models, TypeScript types and validators updated, round-trip tests
+  pass, and the coordinator has the list of changed names to pass to the other lanes.
+
+### Player
+- **Goal:** the viewer becomes the media player of ui-design §3–§4.8 (comments UI comes later).
+- **Owns:** `web/src/player/` (new), `web/src/pages/WatchPage.tsx`, `DemoPage.tsx`, styles. Reuse `web/src/playback/`
+  (the Rewind lane's engine) through its public API; change it only through the coordinator.
+- **Step 1, before any canvas or overlay code (owner's rule):** read the official docs (MDN and the specs they link)
+  for every API in ui-design §11, and how `@moq/watch` renders live video and what clock it exposes. Write the
+  findings and the chosen overlay approach (DOM/CSS, a second canvas, or OffscreenCanvas in a worker; how overlays get
+  the room time of the frame on screen for both the live canvas and the archive media element) as a short decision
+  draft in `wiki/decisions/` (status: proposed). The coordinator reviews it before step 2.
+- **Step 2:** control bar; progress bar with YouTube-style chapter segments, hover preview (time, chapter, slide
+  thumbnail), Go live with the offset; CC menu with language search (`Intl.DisplayNames`), dual subtitles, style
+  presets and sliders with live preview; draggable subtitle overlay remembered per device; layouts (single, split,
+  picture-in-picture, swap); side panel tabs (Transcript, Chapters with So far, Glossary, Notes); Stats for nerds;
+  keyboard shortcuts of §4.10; the states of §5; the phone layout of §6.
+- **Step 3 (after Contracts):** draw slide, ink and pointer tracks on the overlay layer, live and in rewind.
+- **Done when:** a demo room plays in the new player on desktop and phone, rewinds with every track in sync, and
+  the web checks pass. Screenshot of each state for the coordinator.
+
+### Speaker console
+- **Goal:** the console of ui-design §7, publishing the tracks of decision 0018.
+- **Owns:** `web/src/speaker/`, `web/src/pages/TalkPage.tsx`.
+- **Build:** pre-flight (mic level, camera self-view, deck loaded, token check); camera via `@moq/publish` H.264;
+  PDF deck rendered to images in the browser (pick a PDF renderer and say why); presenter view with current and next
+  slide and private notes (notes never published); slide keys and presenter clickers; ink tools (pen, highlighter,
+  eraser, clear) and laser on the slide, published as the Contracts lane's tracks; invite with room name, QR, copy
+  link and full screen; audience counts and spend per feature; End talk with one confirmation.
+- **Done when:** a talk given from the console replays in the Player with slides, ink and laser in sync with the
+  audio and camera; web checks pass.
+
+### Event track archive and replay
+- **Goal:** the speaker's event tracks are archived and served by FETCH the way AI tracks are (decision 0012), so a
+  replay is the same tracks read from history.
+- **Owns:** `agents/src/talk_tracks/archive/`, the room service, `deploy/` archive config.
+- **Build:** archive `slide`, `ink`, `pointer`, `deck` and `room` tracks per 4 s slice with their carry-ins; serve
+  FETCH for them (decide who is the origin for speaker tracks, since the speaker's browser cannot serve history); give
+  the looped demo rooms slide tracks from their lecture slides (from the demo-content scripts) so judges see slides
+  in the player.
+- **Done when:** a recorded talk replays slides, ink and pointer from the archive in sync with its media; a demo
+  room shows its slides; pytest, ruff and pyright pass.
+
+### Any-language translation
+- **Goal:** decision 0019: a lazy translation track per requested BCP 47 tag.
+- **Owns:** `agents/src/talk_tracks/` translate agent, demand handling, catalog entries, caps.
+- **Build:** find how a subscribe for a language nobody announced reaches the translate agent through moq-relay
+  (one broadcast that accepts any track name, or another way; measure it), start translating on the first subscribe,
+  stop when the last leaves, back-fill on FETCH as today, spend against the room cap. Keep the demo rooms' pre-made
+  tr/es/ar tracks. Give the Player lane the list of supported languages and how to name a track.
+- **Done when:** subscribing to a new language in a live room yields subtitles within a few seconds, idles at zero
+  cost without subscribers, and is refused cleanly when the cap is reached; agent checks pass. Real API calls only on
+  the VM through its ledger; `--fake` locally.
+
+### Comments (after the foundation, if time)
+- **Goal:** ui-design §4.9.
+- **Owns:** a small room service endpoint for comments, `web/src/player/` Discussion tab and slide highlights, the
+  console's question list.
+- **Build:** listeners post through the room service (rate-limited, display name, no account); it publishes on the
+  comments track; threads, speaker replies shown first, speaker hide, replay at room time, filters and search.
+- **Done when:** comments made live appear in the replay at their time, anchored on the right slide region.

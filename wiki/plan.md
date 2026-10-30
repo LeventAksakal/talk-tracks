@@ -57,3 +57,19 @@ All 19 tickets in [`../tickets/`](../tickets/) are closed as of 2026-10-29:
   `@moq/net` 0.4.5 refuses WebTransport on every WebKit engine (WebKit bug 319818: long sessions stall), even
   though Safari 26.4 ships it. That makes the fallback the main path for iPhone students, not an edge case. It is
   deployed but untested in those browsers. The benchmark measures it as its own row (found 2026-10-28).
+
+## Revised order from 2026-10-30 (decisions 0017–0019)
+
+The owner set the foundation on Oct 30: the viewer is a media player and every interaction is a track
+([ui-design.md](product/ui-design.md), lanes in [team.md](team.md#foundation-lanes-from-2026-10-30)).
+
+| Day | Work |
+|---|---|
+| Fri Oct 30 | Coordinator commits the design and briefs, starts Contracts, Player (platform research first) and Any-language translation. |
+| Sat Oct 31 | Contracts merged by midday; Console and Event track archive start. Player builds the shell on the agreed overlay approach. Translation lane measures demand for unannounced languages. |
+| Sun Nov 1 | Player draws slide, ink and pointer tracks; Console publishes them; archive serves them. Comments starts only if all three are on track. |
+| Mon Nov 2 | Merge the foundation; deploy; end-to-end checks on the VM in Chrome, Firefox, Safari and a phone; judge tokens. |
+| Tue Nov 3 | Demo video and submission text; freeze `main`. |
+| Wed Nov 4 | Buffer; submit by 12:00 ET. |
+
+**Cut order if the Nov 2 checks are at risk:** comments, any-language translation (keep tr/es/ar), camera.
