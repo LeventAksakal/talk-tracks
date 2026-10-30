@@ -1,6 +1,6 @@
 """The room catalog on ``talk/<room>/catalog`` track ``catalog``: an MSF catalog (draft-01) of the room's event tracks
-(the agents', the speaker's deck/slide/ink/pointer and the room service's room/comments, ui-design §3.4) and, in
-``tt.sources``, the pictures and sound the speaker is sending.
+(the agents', the speaker's deck/slide/ink/marks/pointer and the room service's room, comments and annotations ink and
+marks, ui-design §3.4, decision 0021) and, in ``tt.sources``, the pictures and sound the speaker is sending.
 
 Layout from wiki/design/moq-track-system.md §5.10, field names as locked in wiki/design/lane-briefs.md ("Catalog field
 names"), validated by the contract's ``contracts.RoomCatalog`` before it goes out. Transport-free, so the room service
@@ -37,6 +37,8 @@ from .contracts import (
     HANG_CATALOG_TRACK,
     INK_EVENT,
     INK_TRACK,
+    MARKS_EVENT,
+    MARKS_TRACK,
     OUTLINE_EVENT,
     POINTER_EVENT,
     POINTER_TRACK,
@@ -49,6 +51,7 @@ from .contracts import (
     Source,
     TrackStatus,
     TrackTt,
+    annotations_path,
     comments_path,
     slice_template,
     slides_path,
@@ -70,7 +73,7 @@ __all__ = [
 ]
 
 AgentKind = Literal["captions", "translation", "slides", "outline"]
-EventKind = Literal["deck", "slide", "ink", "pointer", "comments", "room"]
+EventKind = Literal["deck", "slide", "ink", "marks", "pointer", "comments", "room"]
 Kind = AgentKind | EventKind
 Cost = Literal["paid", "free"]
 
@@ -82,6 +85,7 @@ EVENT_TYPES: dict[Kind, str] = {
     "deck": DECK_EVENT,
     "slide": CURRENT_SLIDE_EVENT,
     "ink": INK_EVENT,
+    "marks": MARKS_EVENT,
     "pointer": POINTER_EVENT,
     "comments": COMMENTS_EVENT,
     "room": ROOM_EVENT,
@@ -95,8 +99,10 @@ class CatalogTrack:
     """One event track of the room (an agent's, the speaker's or the room service's), as its catalog entry
     describes it."""
 
-    namespace: str  # talk/<room>/agents/<agent>, talk/<room>/slides, talk/<room>/comments or talk/<room>/catalog
-    name: str  # items or outline for an agent; deck, slide, ink, pointer, comments or room
+    # talk/<room>/agents/<agent>, talk/<room>/slides, talk/<room>/comments, talk/<room>/annotations or
+    # talk/<room>/catalog
+    namespace: str
+    name: str  # items or outline for an agent; deck, slide, ink, marks, pointer, comments or room
     kind: Kind
     lang: str
     label: str
@@ -169,22 +175,28 @@ def speaker_tracks(room: str) -> tuple[CatalogTrack, ...]:
         CatalogTrack(ns, DECK_TRACK, "deck", "", "Slide deck", 0, "free"),
         CatalogTrack(ns, SLIDE_TRACK, "slide", "", "Slide shown", 0, "free", (deck,)),
         CatalogTrack(ns, INK_TRACK, "ink", "", "Ink", 0, "free", (slide,)),
+        CatalogTrack(ns, MARKS_TRACK, "marks", "", "Text marks", 0, "free", (deck, slide)),
         CatalogTrack(ns, POINTER_TRACK, "pointer", "", "Laser pointer", 0, "free", (slide,)),
     )
 
 
 def room_service_tracks(room: str) -> tuple[CatalogTrack, ...]:
-    """The room service's event tracks: the room's state and the listeners' comments."""
+    """The room service's event tracks: the room's state, the comments, and everyone else's ink and text marks
+    (decision 0021: listeners never publish to the relay, so the room service publishes what they make)."""
+    deck = f"{slides_path(room)}/{DECK_TRACK}"
     slide = f"{slides_path(room)}/{SLIDE_TRACK}"
+    ns = annotations_path(room)
     return (
         CatalogTrack(catalog_path(room), ROOM_TRACK, "room", "", "Room", 0, "free"),
         CatalogTrack(comments_path(room), COMMENTS_TRACK, "comments", "", "Comments", 0, "free", (slide,)),
+        CatalogTrack(ns, INK_TRACK, "ink", "", "Audience ink", 0, "free", (slide,)),
+        CatalogTrack(ns, MARKS_TRACK, "marks", "", "Audience text marks", 0, "free", (deck, slide)),
     )
 
 
 def speaker_sources(room: str, *, audio: bool = True, camera: bool = False, slides: bool = False) -> tuple[Source, ...]:
     """The sources the speaker is sending, for ``RoomCatalog.sources``: audio and camera on the hang broadcast,
-    slides as the deck, slide, ink and pointer tracks."""
+    slides as the deck, slide, ink, marks and pointer tracks."""
     teacher = teacher_path(room)
     return (
         *([Source(kind="audio", namespace=teacher, tracks=[HANG_CATALOG_TRACK])] if audio else []),
@@ -194,7 +206,7 @@ def speaker_sources(room: str, *, audio: bool = True, camera: bool = False, slid
                 Source(
                     kind="slides",
                     namespace=slides_path(room),
-                    tracks=[DECK_TRACK, SLIDE_TRACK, INK_TRACK, POINTER_TRACK],
+                    tracks=[DECK_TRACK, SLIDE_TRACK, INK_TRACK, MARKS_TRACK, POINTER_TRACK],
                 )
             ]
             if slides

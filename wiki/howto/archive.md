@@ -79,6 +79,8 @@ rooms.json                                   every archived room
 <room>/agents/<agent>/<track>/<k>.part       an agent's open slice k, k as 8 digits (written by the agent)
 <room>/agents/<agent>/<track>/<k>.slice      a finished slice, immutable
 <room>/agents/<agent>/<track>/track.json     what the catalog says about the track
+<room>/slides/<track>/<k>.slice              the speaker's deck, slide, ink, marks, pointer, as the room service received them
+<room>/catalog/room/<k>.slice                the room track (on air, paused), written by the room service
 ```
 
 `<track>` is the teacher track name (`audio`, and `video` when the broadcast has video). `<agent>` is the agent name
@@ -277,6 +279,33 @@ again). A slide shown before the broadcast's first media waits for it (only the 
 
 `file` is relative to the `slides/` folder; `at_ms` is the frame's own field from the slides track.
 
+## Event tracks: the speaker's and the room service's
+
+The speaker's event tracks (`deck`, `slide`, `ink`, `marks`, `pointer` on `talk/<room>/slides`) and the room
+service's own (`room` on `talk/<room>/catalog`; `comments` and the audience `ink` and `marks` on
+`talk/<room>/annotations` when their lanes land) are kept in the slice store's
+format, in folders named after the track: `talk/<room>/<rest>` track `t` is `<room>/<rest>/<t>/<k>.slice`
+(`TrackArchive.of`). Which tracks are kept comes from `room_catalog.speaker_tracks` and `room_service_tracks`.
+`talk_tracks.archive.events` does it; [decision 0022](../decisions/0022-the-room-service-serves-the-speakers-track-history.md)
+says why.
+
+* **The speaker's tracks are mirrored.** While `talk/<room>/slides` is announced, the room service subscribes to each
+  track with a Joining FETCH (free: no agent works for it) and writes every object as received, under the speaker's
+  group and object numbers, byte for byte. A group it joined after object 0 is skipped, never stored in part. A
+  sliced group is finished when a later one starts, after 6 s without an object, or when the speaker leaves; a deck
+  group only when the speaker leaves.
+* **Their past is fetched from `talk/<room>/archive/slides`**, same track names and group numbers: the room service
+  publishes those tracks and answers every FETCH from the archive (disk, then the bucket). A group never archived is
+  a REQUEST_ERROR. Live stays on the speaker's `talk/<room>/slides`. After a restart the room service serves the
+  history of every room in the archive, whether or not its speaker comes back.
+* **The `room` track** is the room service's: `on_air` while a teacher broadcast is up, `paused` when it goes, at the
+  room time of the newest teacher media. It has a slice for every 4 s on air, each opening with its carry-in (the
+  last record), and the same bytes go live and to the archive, whose copy answers FETCH on the same name.
+* Finished slices are copied to the bucket like the agents'.
+
+A looped demo room has no room service: its looper computes the same `deck` and `slide` tracks from the lecture's
+slides and serves them on both names ([demo rooms](demo-rooms.md)).
+
 ## The room catalog
 
 The room service publishes `talk/<room>/catalog`, track `catalog`: an MSF catalog (draft-ietf-moq-msf-01 §5), one
@@ -306,7 +335,10 @@ names"). Read it as raw JSON: `@moq/msf` 0.3.1 drops the fields it does not decl
 ```
 
 * **Tracks** are the AI tracks: listed while `talk/<room>/agents/<agent>` is announced and the track has a
-  `track.json` (written by `TrackArchive(..., info=...)`). Nothing here subscribes to an agent track.
+  `track.json` (written by `TrackArchive(..., info=...)`). Nothing here subscribes to an agent track. Then the
+  [event tracks](#event-tracks-the-speakers-and-the-room-services): the speaker's once the room service has mirrored
+  them, and its own `room` track. `tt.sources` lists what the speaker sends now (audio and camera from the teacher's
+  hang catalog, slides while `talk/<room>/slides` is announced).
 * `eventType` is `urn:msf:captions:webvtt` for captions and translations (`role` `caption` and `subtitle`),
   `com.talktracks.slides` for slide descriptions and `com.talktracks.outline` for the outline. `template` (MSF §7.4)
   says group `k` starts at `E + 4000 k` ms; the outline, one group per revision, has none.

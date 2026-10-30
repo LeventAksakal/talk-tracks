@@ -5,11 +5,13 @@ Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk
 
 * ``<room>/teacher``: ``catalog.json``, then every legacy-container track it names, into fMP4 segments and HLS
   playlists in room time (design §4.5). A catalog without a root ``clock`` is refused: no track is read;
-* ``<room>/slides``: ``frames``;
+* ``<room>/slides``: ``frames``, and the speaker's event tracks (deck, slide, ink, marks, pointer), mirrored into the
+  archive and served by FETCH on ``<room>/archive/slides`` (``archive.events``, decision 0022);
 * ``<room>/agents/<agent>``: never subscribed. A subscription is demand and keeps a lazy agent awake; agents record
   their own slices (decision 0012). Their announcements only list them in the catalog;
 * ``<room>/catalog``: published here (``archive.catalog``), with the room's epoch and each broadcast's shift as soon
-  as they are decided, since consumers stamp nothing before.
+  as they are decided, since consumers stamp nothing before; beside it the ``room`` track (on air or paused), which
+  the room service archives and serves by FETCH like an agent's track.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import logging
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -28,9 +31,10 @@ from ..contracts import ROOT, SlideFrame, slides_path, teacher_path
 from ..lecture import AUDIO_TRACK, CATALOG_TRACK
 from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
 from ..room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
-from ..room_catalog import catalog_path
+from ..room_catalog import catalog_path, speaker_sources
 from ..runtime import now_ms
 from .catalog import REFRESH_S, CatalogFeed
+from .events import RoomEvents
 from .store import Archive, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
@@ -41,6 +45,7 @@ TICK_S = 1.0
 @dataclass
 class _Room:
     catalog: CatalogFeed
+    events: RoomEvents
     agents: dict[str, set[str]] = field(default_factory=dict[str, set[str]])  # agent -> its announced paths
     teacher: dict[str, asyncio.Task[None]] = field(default_factory=dict[str, asyncio.Task[None]])
     slides: asyncio.Task[None] | None = None
@@ -77,7 +82,7 @@ class Archiver:
     async def run(self) -> None:
         for name in self.archive.known_rooms():  # their catalog carries E and the shifts
             if self.wanted(name):
-                self._room(name)
+                self._spawn(self._room(name).events.restore(), f"{name}/history")  # their talks stay fetchable
         ticker = asyncio.create_task(self._tick())
         try:
             async for path, active in self.relay.announced(ROOT):
@@ -87,6 +92,7 @@ class Archiver:
             for room in self.rooms.values():
                 for task in [*room.teacher.values(), *([room.slides] if room.slides else [])]:
                     task.cancel()
+                await room.events.close()
 
     async def _tick(self) -> None:
         while True:
@@ -99,6 +105,11 @@ class Archiver:
                     self.on_tick()
             except Exception:
                 log.exception("archive tick failed")
+            for name, room in list(self.rooms.items()):
+                try:
+                    await self._events(name, room)
+                except Exception:
+                    log.exception("room %s: its event tracks failed", name)
             if self.publish_catalog:
                 for name, room in list(self.rooms.items()):
                     try:
@@ -109,12 +120,29 @@ class Archiver:
     def _room(self, room: str) -> _Room:
         state = self.rooms.get(room)
         if state is None:
-            state = self.rooms[room] = _Room(CatalogFeed(room, self.archive.root, capped=self.capped))
+            catalog = CatalogFeed(room, self.archive.root, capped=self.capped)
+            events = RoomEvents(room, self.relay, self.archive.root, on_file=self._finished)
+            state = self.rooms[room] = _Room(catalog, events)
         return state
+
+    def _finished(self, path: Path) -> None:
+        self.archive.reported(path, mutable=False)  # a finished event slice: copied to the bucket
+
+    async def _events(self, name: str, room: _Room) -> None:
+        """The room's event tracks follow its newest teacher media: the ``room`` track and the mirrored slices."""
+        archived = self.archive.room(name)
+        run = archived.run
+        room_ms = run.clock_ms if run is not None and archived.epoch_ms is not None else None
+        await room.events.tick(room_ms, live=archived.live)
 
     async def _publish(self, name: str, room: _Room) -> None:
         cat, archived = room.catalog, self.archive.room(name)
         cat.epoch_ms, cat.shift = archived.epoch_ms, archived.shift
+        cat.event_tracks = room.events.catalog_tracks()
+        kinds = {config.kind for config in archived.teacher.catalog.values()} if archived.live else set[str]()
+        cat.sources = speaker_sources(
+            name, audio="audio" in kinds, camera="video" in kinds, slides=room.events.slides_on_air()
+        )
         data = cat.changed()
         now = time.monotonic()
         if data is None:
@@ -134,6 +162,7 @@ class Archiver:
             return
         room, kind = parts[0], parts[1]
         state = self._room(room)
+        state.events.announced(f"{ROOT}/{path}", active)  # the speaker's event tracks, by their catalog namespaces
         if kind == "teacher" and len(parts) == 2:
             if active and not state.teacher:
                 log.info("room %s: archiving the teacher broadcast", room)

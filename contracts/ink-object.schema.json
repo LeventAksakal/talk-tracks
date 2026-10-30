@@ -1,8 +1,43 @@
 {
   "$defs": {
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable for one person in the room: given by the room service (listeners) or the console (speaker)",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name, no account",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "speaker": {
+          "default": false,
+          "description": "The speaker: may erase, unmark or hide anyone's annotations",
+          "title": "Speaker",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Author",
+      "type": "object"
+    },
     "InkBegin": {
       "additionalProperties": false,
       "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
         "color": {
           "description": "#rrggbb",
           "pattern": "^#[0-9a-fA-F]{6}$",
@@ -51,7 +86,7 @@
           "type": "array"
         },
         "stroke": {
-          "description": "Unique in the room, stable across re-sends",
+          "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
           "minLength": 1,
           "title": "Stroke",
           "type": "string"
@@ -79,7 +114,8 @@
         "tool",
         "color",
         "width",
-        "points"
+        "points",
+        "by"
       ],
       "title": "InkBegin",
       "type": "object"
@@ -87,6 +123,9 @@
     "InkClear": {
       "additionalProperties": false,
       "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
         "deck": {
           "description": "The deck track's group that holds the deck",
           "minimum": 0,
@@ -108,7 +147,8 @@
       },
       "required": [
         "deck",
-        "index"
+        "index",
+        "by"
       ],
       "title": "InkClear",
       "type": "object"
@@ -123,7 +163,7 @@
           "type": "string"
         },
         "stroke": {
-          "description": "Unique in the room, stable across re-sends",
+          "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
           "minLength": 1,
           "title": "Stroke",
           "type": "string"
@@ -138,6 +178,9 @@
     "InkErase": {
       "additionalProperties": false,
       "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
         "kind": {
           "const": "erase",
           "default": "erase",
@@ -146,7 +189,7 @@
         },
         "strokes": {
           "items": {
-            "description": "Unique in the room, stable across re-sends",
+            "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
             "minLength": 1,
             "type": "string"
           },
@@ -156,7 +199,8 @@
         }
       },
       "required": [
-        "strokes"
+        "strokes",
+        "by"
       ],
       "title": "InkErase",
       "type": "object"
@@ -194,7 +238,7 @@
           "type": "array"
         },
         "stroke": {
-          "description": "Unique in the room, stable across re-sends",
+          "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
           "minLength": 1,
           "title": "Stroke",
           "type": "string"
@@ -261,6 +305,9 @@
     "InkStroke": {
       "additionalProperties": false,
       "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
         "color": {
           "description": "#rrggbb",
           "pattern": "^#[0-9a-fA-F]{6}$",
@@ -274,7 +321,7 @@
           "type": "integer"
         },
         "done": {
-          "description": "False while the speaker is still drawing it: points and end follow",
+          "description": "False while its author is still drawing it: points and end follow",
           "title": "Done",
           "type": "boolean"
         },
@@ -314,7 +361,7 @@
           "type": "array"
         },
         "stroke": {
-          "description": "Unique in the room, stable across re-sends",
+          "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
           "minLength": 1,
           "title": "Stroke",
           "type": "string"
@@ -343,13 +390,14 @@
         "color",
         "width",
         "points",
+        "by",
         "done"
       ],
       "title": "InkStroke",
       "type": "object"
     }
   },
-  "description": "One object of the ``ink`` track (eventType ``com.talktracks.ink``).",
+  "description": "One object of an ``ink`` track (eventType ``com.talktracks.ink``): the speaker's or the room service's.",
   "items": {
     "$ref": "#/$defs/InkRecord"
   },

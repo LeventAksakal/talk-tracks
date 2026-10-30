@@ -29,8 +29,9 @@ services:
     ports: ["${TT_RELAY_PORT:-4443}:4443/udp", "${TT_RELAY_PORT:-4443}:4443/tcp"]
     restart: unless-stopped
 
-  # The room service (wiki/howto/archive.md): records every room's speaker media and slides into data/archive/ (not
-  # in git) and publishes talk/<room>/catalog. No bucket copy unless TT_ARCHIVE_BUCKET is set (it needs Google
+  # The room service (wiki/howto/archive.md): records every room's speaker media, slides and event tracks into
+  # data/archive/ (not in git), serves the event tracks' past by FETCH on talk/<room>/archive/slides and publishes
+  # talk/<room>/catalog with its room track. No bucket copy unless TT_ARCHIVE_BUCKET is set (it needs Google
   # credentials, so leave it unset on a laptop).
   archive:
     <<: *agent
@@ -103,4 +104,5 @@ services:
     environment:
       TT_RELAY: moqt://relay:4443
       TT_ROOM: ${TT_DEMO_ROOM:-demo}
-    command: ["loop", "--insecure", "--recording", "/data/${TT_LECTURE:-test}"]
+    # TT_SLIDES as for generate: the slides found in the video go out as the speaker's deck and slide tracks
+    command: ["loop", "--insecure", "--recording", "/data/${TT_LECTURE:-test}", "--slides", "${TT_SLIDES:-full}"]

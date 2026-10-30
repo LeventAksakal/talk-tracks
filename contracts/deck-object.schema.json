@@ -35,18 +35,13 @@
           "title": "Mime",
           "type": "string"
         },
-        "text": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The slide's text layer (from the PDF), which comment text spans index into",
-          "title": "Text"
+        "runs": {
+          "description": "The slide's text layer in reading order, which text marks and comment anchors address; empty for a slide without text",
+          "items": {
+            "$ref": "#/$defs/TextRun"
+          },
+          "title": "Runs",
+          "type": "array"
         },
         "width": {
           "description": "Pixels",
@@ -140,6 +135,73 @@
         "data"
       ],
       "title": "DeckRecord",
+      "type": "object"
+    },
+    "Region": {
+      "additionalProperties": false,
+      "description": "A box on the slide, in fractions of it: x, y the top-left corner.",
+      "properties": {
+        "h": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "H",
+          "type": "number"
+        },
+        "w": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "W",
+          "type": "number"
+        },
+        "x": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "Region",
+      "type": "object"
+    },
+    "TextRun": {
+      "additionalProperties": false,
+      "description": "A run of the slide's text layer (a word or a line of one style, from the PDF's text content), so text marks and\ncomment anchors can address it: 'underline slide 13, run t23'.",
+      "properties": {
+        "box": {
+          "$ref": "#/$defs/Region",
+          "description": "Where the run sits on the slide; a part of a run is placed by character count"
+        },
+        "id": {
+          "description": "Unique within its slide, e.g. t23",
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "box"
+      ],
+      "title": "TextRun",
       "type": "object"
     }
   },

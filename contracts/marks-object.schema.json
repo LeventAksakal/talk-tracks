@@ -1,0 +1,249 @@
+{
+  "$defs": {
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable for one person in the room: given by the room service (listeners) or the console (speaker)",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name, no account",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "speaker": {
+          "default": false,
+          "description": "The speaker: may erase, unmark or hide anyone's annotations",
+          "title": "Speaker",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Author",
+      "type": "object"
+    },
+    "MarkRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "clear": "#/$defs/MarksClear",
+              "mark": "#/$defs/TextMark",
+              "unmark": "#/$defs/Unmark"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TextMark"
+            },
+            {
+              "$ref": "#/$defs/Unmark"
+            },
+            {
+              "$ref": "#/$defs/MarksClear"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "description": "Room ms when it took effect on screen (a re-sent mark: when its slide was shown)",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "MarkRecord",
+      "type": "object"
+    },
+    "MarksClear": {
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "clear",
+          "default": "clear",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deck",
+        "index",
+        "by"
+      ],
+      "title": "MarksClear",
+      "type": "object"
+    },
+    "RunSpan": {
+      "additionalProperties": false,
+      "description": "Characters [start, end) of one text run; the whole run by default.",
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One past the last character; none for the run's end",
+          "title": "End"
+        },
+        "run": {
+          "description": "Unique within its slide, e.g. t23",
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Run",
+          "type": "string"
+        },
+        "start": {
+          "default": 0,
+          "description": "First character in the run",
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "title": "RunSpan",
+      "type": "object"
+    },
+    "TextMark": {
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
+        "color": {
+          "description": "#rrggbb",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Color",
+          "type": "string"
+        },
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "id": {
+          "description": "Unique in the room; the room service prefixes a listener's with their id",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "mark",
+          "default": "mark",
+          "title": "Kind",
+          "type": "string"
+        },
+        "span": {
+          "description": "Spans of the slide's text runs, in reading order",
+          "items": {
+            "$ref": "#/$defs/RunSpan"
+          },
+          "minItems": 1,
+          "title": "Span",
+          "type": "array"
+        },
+        "style": {
+          "enum": [
+            "underline",
+            "highlight"
+          ],
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "deck",
+        "index",
+        "style",
+        "color",
+        "span",
+        "by"
+      ],
+      "title": "TextMark",
+      "type": "object"
+    },
+    "Unmark": {
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
+        "kind": {
+          "const": "unmark",
+          "default": "unmark",
+          "title": "Kind",
+          "type": "string"
+        },
+        "marks": {
+          "items": {
+            "description": "Unique in the room; the room service prefixes a listener's with their id",
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Marks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "marks",
+        "by"
+      ],
+      "title": "Unmark",
+      "type": "object"
+    }
+  },
+  "description": "One object of a ``marks`` track (eventType ``com.talktracks.marks``): the speaker's or the room service's.",
+  "items": {
+    "$ref": "#/$defs/MarkRecord"
+  },
+  "title": "MarksObject",
+  "type": "array"
+}
