@@ -16,9 +16,11 @@ export const FRAMES_TRACK = "frames";
 export const DECK_TRACK = "deck";
 /** CurrentSlideObject, sliced. */
 export const SLIDE_TRACK = "slide";
-/** InkObject, sliced. */
+/** InkObject, sliced: the pencil. Also in annotationsPath(room). */
 export const INK_TRACK = "ink";
-/** PointerObject, sliced. */
+/** MarksObject, sliced: text underlines and highlights. Also in annotationsPath(room). */
+export const MARKS_TRACK = "marks";
+/** PointerObject, sliced: the laser, ephemeral. */
 export const POINTER_TRACK = "pointer";
 
 /** The room service's broadcast: the room catalog (MSF, design §5.10, a new group per change) and the room's state. */
@@ -31,6 +33,12 @@ export const ROOM_TRACK = "room";
 export const commentsPath = (room: string) => `${ROOT}/${room}/comments`;
 /** CommentsObject, sliced. */
 export const COMMENTS_TRACK = "comments";
+
+/**
+ * Everyone else's annotations of the deck, tracks INK_TRACK and MARKS_TRACK (the same objects as the
+ * speaker's), published by the room service (decision 0021).
+ */
+export const annotationsPath = (room: string) => `${ROOT}/${room}/annotations`;
 
 /**
  * Every agent publishes `talk/<room>/agents/<agent>` under a stable name: track `items` (an MSF

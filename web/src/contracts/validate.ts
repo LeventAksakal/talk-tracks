@@ -4,6 +4,7 @@ import cueObjectSchema from "../../../contracts/cue-object.schema.json";
 import currentSlideObjectSchema from "../../../contracts/current-slide-object.schema.json";
 import deckObjectSchema from "../../../contracts/deck-object.schema.json";
 import inkObjectSchema from "../../../contracts/ink-object.schema.json";
+import marksObjectSchema from "../../../contracts/marks-object.schema.json";
 import outlineObjectSchema from "../../../contracts/outline-object.schema.json";
 import pointerObjectSchema from "../../../contracts/pointer-object.schema.json";
 import roomCatalogSchema from "../../../contracts/room-catalog.schema.json";
@@ -19,9 +20,11 @@ import {
   type DeckObject,
   type InkObject,
   type LegacyEnvelope,
+  type MarksObject,
   type OutlineObject,
   type PointerObject,
   type RoomCatalog,
+  type RunSpan,
   type RoomStateObject,
   type SlideFrame,
   type SlideObject,
@@ -41,6 +44,7 @@ const deckObjectValidator: ValidateFunction<DeckObject> = ajv.compile<DeckObject
 const currentSlideObjectValidator: ValidateFunction<CurrentSlideObject> =
   ajv.compile<CurrentSlideObject>(currentSlideObjectSchema);
 const inkObjectValidator: ValidateFunction<InkObject> = ajv.compile<InkObject>(inkObjectSchema);
+const marksObjectValidator: ValidateFunction<MarksObject> = ajv.compile<MarksObject>(marksObjectSchema);
 const pointerObjectValidator: ValidateFunction<PointerObject> = ajv.compile<PointerObject>(pointerObjectSchema);
 const commentsObjectValidator: ValidateFunction<CommentsObject> = ajv.compile<CommentsObject>(commentsObjectSchema);
 const roomStateObjectValidator: ValidateFunction<RoomStateObject> = ajv.compile<RoomStateObject>(roomStateObjectSchema);
@@ -66,12 +70,29 @@ function outlineConsistent(records: OutlineObject): string | null {
   return null;
 }
 
+const backwards = (span: readonly RunSpan[] | null | undefined) =>
+  span?.some((s) => s.end != null && s.end < (s.start ?? 0)) ?? false;
+
 function commentsConsistent(records: CommentsObject): string | null {
   for (const { m, data } of records) {
     if (data.kind !== "comment" && data.kind !== "reply") continue;
     if (m < data.at) return "a comment record's m is not before its at";
-    const span = data.kind === "comment" ? data.anchor.span : null;
-    if (span && span.end < span.start) return "a text span ends before it starts";
+    if (data.kind === "comment" && backwards(data.anchor.span)) return "a run span ends before it starts";
+  }
+  return null;
+}
+
+function marksConsistent(records: MarksObject): string | null {
+  for (const { data } of records) {
+    if (data.kind === "mark" && backwards(data.span)) return "a run span ends before it starts";
+  }
+  return null;
+}
+
+function deckConsistent(records: DeckObject): string | null {
+  for (const { data } of records) {
+    if (data.kind !== "image" || !data.runs) continue;
+    if (new Set(data.runs.map((r) => r.id)).size !== data.runs.length) return "run ids repeat within a slide";
   }
   return null;
 }
@@ -119,7 +140,7 @@ export function parseOutlineObject(payload: Uint8Array | string): Parsed<Outline
 
 /** An object of talk/<room>/slides track `deck`. */
 export function parseDeckObject(payload: Uint8Array | string): Parsed<DeckObject> {
-  return parse(deckObjectValidator, payload);
+  return parse(deckObjectValidator, payload, deckConsistent);
 }
 
 /** An object of talk/<room>/slides track `slide`. */
@@ -127,9 +148,14 @@ export function parseCurrentSlideObject(payload: Uint8Array | string): Parsed<Cu
   return parse(currentSlideObjectValidator, payload);
 }
 
-/** An object of talk/<room>/slides track `ink`. */
+/** An object of an `ink` track: talk/<room>/slides (the speaker's) or talk/<room>/annotations. */
 export function parseInkObject(payload: Uint8Array | string): Parsed<InkObject> {
   return parse(inkObjectValidator, payload);
+}
+
+/** An object of a `marks` track: talk/<room>/slides (the speaker's) or talk/<room>/annotations. */
+export function parseMarksObject(payload: Uint8Array | string): Parsed<MarksObject> {
+  return parse(marksObjectValidator, payload, marksConsistent);
 }
 
 /** An object of talk/<room>/slides track `pointer`. */
