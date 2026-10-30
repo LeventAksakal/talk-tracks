@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, TextIO
 
-from ..contracts import parse_room
+from ..contracts import ROOT, parse_room
 from .bucket import GcsBucket
 from .files import write_atomic
 
@@ -139,7 +139,11 @@ class ReadBucket(Protocol):
 
 
 class TrackArchive:
-    """The record of one agent track in one room: ``talk/<room>/agents/<agent>``, track ``track``."""
+    """The record of one agent track in one room: ``talk/<room>/agents/<agent>``, track ``track``.
+
+    ``folder`` records another track instead, by its namespace below the room (``of``): the speaker's
+    ``talk/<room>/slides`` tracks the room service mirrors, or its own ``room`` and ``comments`` tracks
+    (``archive.events``). ``agent`` is then the folder's last part."""
 
     def __init__(
         self,
@@ -150,14 +154,15 @@ class TrackArchive:
         root: Path | None = None,
         bucket: ReadBucket | None = None,
         info: TrackInfo | None = None,
+        folder: str | None = None,
     ) -> None:
         parse_room(room)
-        for part in (agent, track):
+        for part in (agent, track, *(folder.split("/") if folder is not None else ())):
             if not part or not all(c.isalnum() or c in "-_" for c in part):
                 raise ValueError(f"not usable as an archive name: {part!r}")
         self.room, self.agent, self.track = room, agent, track
         self.root = root or default_root()
-        self.relpath = f"{room}/agents/{agent}/{track}"
+        self.relpath = f"{room}/{folder}/{track}" if folder is not None else f"{room}/agents/{agent}/{track}"
         self.dir = self.root / self.relpath
         self.bucket = bucket
         self._open: dict[int, tuple[TextIO, int]] = {}  # group -> (file, last object id)
@@ -165,6 +170,18 @@ class TrackArchive:
         if info is not None:
             self._info = {"name": track, "agent": agent, **info.__dict__}
             self.report("idle")
+
+    @classmethod
+    def of(
+        cls, namespace: str, track: str, *, root: Path | None = None, bucket: ReadBucket | None = None
+    ) -> TrackArchive:
+        """The record of any track by its MoQ name: ``talk/<room>/<rest>``, track ``track``, is kept in
+        ``<room>/<rest>/<track>/`` (an agent's lands where ``TrackArchive(room, agent, track)`` puts it)."""
+        root_part, _, below = namespace.partition("/")
+        room, _, rest = below.partition("/")
+        if root_part != ROOT or not rest:
+            raise ValueError(f"not a track namespace of a room: {namespace!r}")
+        return cls(room, rest.rsplit("/", 1)[-1], track, root=root, bucket=bucket, folder=rest)
 
     def path(self, group: int, suffix: str = FINISHED) -> Path:
         return self.dir / f"{group:08d}{suffix}"

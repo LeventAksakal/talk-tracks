@@ -11,7 +11,9 @@ transport-free modules ``replay``, ``recording`` and ``lecture``.
 * ``loop``: the lecture and the recorded agent tracks together, forever, as if live: on the room clock of
   ``replay`` (anchored to the wall clock, so a restarted looper rejoins the loop in progress) and as sliced tracks
   under stable names (``slicing``, decision 0012), each answering a FETCH of any of its groups (``origin``), with
-  long caption lines cut into subtitle cues first (``resegment``).
+  long caption lines cut into subtitle cues first (``resegment``); with ``slides``, also the lecture's slides as the
+  speaker's ``deck`` and ``slide`` tracks (``demo_slides``), live on ``talk/<room>/slides`` and for FETCH on
+  ``talk/<room>/archive/slides`` too, where a player fetches the past of every speaker track (decision 0022).
 """
 
 from __future__ import annotations
@@ -27,18 +29,24 @@ from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
 from typing import cast
 
+from .archive.events import history_path
 from .contracts import (
+    DECK_TRACK,
+    SLICE_MS,
+    SLIDE_TRACK,
     AgentInfo,
     SlideFrame,
     Usage,
     agents_prefix,
     catalog_path,
     slides_path,
+    slice_of,
     teacher_path,
     wall_unix_ms,
 )
 from .contracts import RoomCatalog as MsfRoomCatalog
 from .follow import FollowedTrack, TrackFollower, catalog_tracks
+from .demo_slides import DECK_GROUP, LectureSlides, with_slides
 from .lecture import (
     AUDIO_TRACK,
     CATALOG_TRACK,
@@ -61,7 +69,7 @@ from .revise import read_recording, translations_by_agent, with_patches
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog
 from .runtime import now_ms
-from .slicing import Room, Template, cues, room_catalog
+from .slicing import Placed, Room, Template, cues, room_catalog
 from .slideshow import Crop, Slide, find_slides
 
 log = logging.getLogger("talk_tracks.demo")
@@ -199,6 +207,59 @@ class _Source:
         return [p.payload for p in self._sliced.published(self._agent, group, room_ms())]
 
 
+class SpeakerSlides:
+    """A looped room's slides as the speaker's ``deck`` and ``slide`` tracks (``demo_slides``): published on
+    ``talk/<room>/slides`` and again on ``talk/<room>/archive/slides``, where a player fetches the past of a speaker
+    track (decision 0022). Every group is computed, so either name answers a FETCH of any group."""
+
+    def __init__(self, relay: Relay, room: str, source: LectureSlides) -> None:
+        self._relay, self._room, self.source = relay, room, source
+        self._deck: list[ComputedTrack] = []
+        self._slide: list[ComputedTrack] = []
+
+    async def start(self) -> None:
+        for ns in (slides_path(self._room), history_path(slides_path(self._room))):
+            deck = await self._relay.publish(ns, DECK_TRACK, queue=CATALOG_QUEUE)
+            self._deck.append(ComputedTrack(deck, _Computed(self.source.deck_group)))
+            slide = await self._relay.publish(ns, SLIDE_TRACK)
+            self._slide.append(ComputedTrack(slide, _Computed(self.source.slide_group, published=True)))
+        for i, placed in enumerate(self.source.deck):  # one group for the room's life: Largest Location covers it
+            for track in self._deck:
+                await (track.open(DECK_GROUP, placed.payload) if i == 0 else track.append(DECK_GROUP, i, placed.payload))
+
+    async def run(self) -> None:
+        """Write each slice of the slide track as it comes due on the room clock: its carry-in at the slice's start,
+        each ``show`` at its time. Runs until cancelled."""
+        group, sent = None, 0
+        while True:
+            now = room_ms()
+            k = slice_of(now)
+            if k != group:
+                group, sent = k, 0
+            placed = self.source.slide_group(k)
+            due = [p for p in placed if p.media_ms <= now]
+            for i in range(sent, len(due)):
+                for track in self._slide:
+                    try:
+                        await (track.open(k, due[i].payload) if i == 0 else track.append(k, i, due[i].payload))
+                    except TimeoutError:
+                        log.warning("slide group %d object %d write timed out", k, i)
+            sent = len(due)
+            upcoming = placed[sent].media_ms if sent < len(placed) else (k + 1) * SLICE_MS
+            await asyncio.sleep(max(0.0, (upcoming - room_ms()) / 1000))
+
+
+class _Computed:
+    """A ``GroupSource`` from a function of the group number; ``published`` keeps only what is out by now."""
+
+    def __init__(self, group: Callable[[int], tuple[Placed, ...]], *, published: bool = False) -> None:
+        self._group, self._published = group, published
+
+    def objects(self, group: int) -> list[bytes]:
+        now = room_ms()
+        return [p.payload for p in self._group(group) if not self._published or p.media_ms <= now]
+
+
 class RoomCatalogTrack:
     """A demo room's MSF catalog on ``talk/<room>/catalog`` (``room_catalog``). It never changes while the looper
     runs, and is written again as a heartbeat, like the teacher's (a new subscription starts at the next group), with
@@ -216,6 +277,18 @@ class RoomCatalogTrack:
         assert self._sink is not None
         root = self.catalog.updated(now_ms()).to_json()
         await self._sink.write(json.dumps(root, separators=(",", ":")).encode())
+
+
+async def _together(*work: Awaitable[None] | None) -> None:
+    """Run the given coroutines until the first ends or fails; cancel the rest."""
+    tasks = [asyncio.ensure_future(w) for w in work if w is not None]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
 
 
 def room_ms() -> int:
@@ -425,7 +498,16 @@ async def play(
         await until_closed(relay, run_lecture(teacher, loops=loops, lecture=media, slides=track))
 
 
-async def loop(url: str, room: str, recording: Path, *, media: Path | None, token: str | None, insecure: bool) -> None:
+async def loop(
+    url: str,
+    room: str,
+    recording: Path,
+    *,
+    media: Path | None,
+    token: str | None,
+    insecure: bool,
+    slides: Crop | None = None,
+) -> None:
     manifest = load_manifest(recording)
     lecture = media or (recording / (manifest.media or LECTURE_FILE))
     info = probe(lecture)
@@ -442,11 +524,19 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
         or "no agent tracks",
         room,
     )
+    found = await _find_slides(lecture, slides)
+    deck = LectureSlides.of(found, sliced.template.period_ms) if found else None
     async with connect(url, token=token, insecure=insecure) as relay:
         teacher = Teacher(relay, room, info, wall_ms=EPOCH_MS)
         await teacher.start()
         wall = hang_clock(EPOCH_MS)["wall"]
         built = room_catalog(sliced.template, room, EPOCH_MS, wall, now_ms())
+        speaker: SpeakerSlides | None = None
+        if deck is not None:
+            built = with_slides(built, room)
+            speaker = SpeakerSlides(relay, room, deck)
+            await speaker.start()
+            log.info("slides: a deck of %d, shown on the slide track", len(deck.slides))
         room_catalog_track = RoomCatalogTrack(relay, room, built)
         await room_catalog_track.start()
         start = room_ms()
@@ -455,7 +545,7 @@ async def loop(url: str, room: str, recording: Path, *, media: Path | None, toke
         run = run_lecture(
             teacher, loops=None, lecture=lecture, tracks=tracks, media_ms=start, beats=[room_catalog_track.publish]
         )
-        await until_closed(relay, run)
+        await until_closed(relay, _together(run, speaker.run() if speaker is not None else None))
 
 
 async def record(url: str, room: str, out: Path, *, media: str | None, token: str | None, insecure: bool) -> None:

@@ -4,7 +4,9 @@ The document's shape is ``talk_tracks.room_catalog`` (shared with the looper) an
 in ``wiki/design/lane-briefs.md`` ("Catalog field names"). This module fills it for a live room:
 
 * tracks: each announced agent's tracks that have a ``track.json`` (``TrackArchive(..., info=TrackInfo(...))``), never
-  a subscription to an agent track, which would be demand;
+  a subscription to an agent track, which would be demand; then the event tracks the room service keeps
+  (``event_tracks``, from ``archive.events``: the speaker's slides tracks once archived, the ``room`` track);
+* ``tt.sources``: what the speaker is sending now (``sources``, ``room_catalog.speaker_sources``);
 * ``tt.epoch`` and ``tt.shift`` (ms per teacher ``clock.wall``): the room clock, from the archive (``store``);
 * ``tt.status.<agent>``: ``status``, ``producing``, ``fetches_served``, ``backfills``, ``spend_usd`` and
   ``updated_ms``, summed over the agent's tracks from what each last wrote with ``TrackArchive.report``. A
@@ -23,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..contracts import ROOT
+from ..contracts import ROOT, Source
 from ..room_catalog import CatalogTrack, RoomCatalog
 from .slices import TRACK_INFO, listdir
 
@@ -123,6 +125,8 @@ class CatalogFeed:
         self.agents: set[str] = set()  # announced now
         self.epoch_ms: int | None = None
         self.shift: dict[str, int] = {}  # clock.wall -> ms
+        self.event_tracks: tuple[CatalogTrack, ...] = ()  # the speaker's and the room service's, listed after agents
+        self.sources: tuple[Source, ...] = ()
         self._last: bytes | None = None
 
     def document(self, now_ms: int | None = None) -> dict[str, Any] | None:
@@ -146,7 +150,8 @@ class CatalogFeed:
             if infos:
                 status[agent] = agent_status(infos, capped=capped, now_ms=now)
         shift = {int(float(wall)): ms for wall, ms in self.shift.items()}
-        return RoomCatalog(self.epoch_ms, tuple(tracks), shift, status).to_json()
+        tracks += self.event_tracks
+        return RoomCatalog(self.epoch_ms, tuple(tracks), shift, status, self.sources).to_json()
 
     def changed(self, now_ms: int | None = None) -> bytes | None:
         """The catalog as JSON when it differs from the last one returned, else None."""
