@@ -142,6 +142,15 @@ live from the `Watch.Player` it already holds, archive from the last rVFC `media
 | `prefs.ts` | per-device preferences (layout, subtitle style and position, language), `localStorage` in try/catch |
 | `languages.ts` | language list and names: `new Intl.DisplayNames([tag], { type: "language", fallback: "none" })` for the autonym ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DisplayNames/DisplayNames)), reusing `web/src/viewer/lang.ts` |
 
+### Scope: desktop browsers (owner, 2026-10-30)
+
+"Build for the desktop; phones are pretty limiting and this is a hackathon product so allow ourselves some slack",
+and "maybe dont bother support every bit of platform". So the player targets **desktop browsers only, Chrome
+first**; Firefox is best effort and Safari is not a target. Out of scope: the phone layout of
+[ui-design §6](../product/ui-design.md#6-phone), the iPhone fill-the-viewport fullscreen, Document Picture-in-Picture
+and the video Picture-in-Picture API. The in-page picture-in-picture *layout* (camera over slides) stays. The
+Safari and iPhone notes below are kept as research, not as work to do.
+
 ### Platform notes for step 2 (read, not yet decisions)
 
 * **Fullscreen:** `requestFullscreen()` on the player root takes overlays and side panel with it
