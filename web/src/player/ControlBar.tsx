@@ -10,16 +10,11 @@ import { chapterAt } from "./timeline";
  * layout, side panel, settings, fullscreen).
  */
 export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; onFullscreen: () => void }) {
-  const { media, view, ui, setUi, prefs, update, state, at, goLive, togglePlay, openTab, tracks, sources } =
-    usePlayer();
-  const t = view.timeline;
-  const live = t.mode === "live";
+  const { media, ui, setUi, prefs, update, state, at, goLive, togglePlay, openTab, tracks, sources } = usePlayer();
   const chapters = tracks.outline?.enabled ? (tracks.outline.outline?.chapters ?? []) : [];
   const chapter = chapterAt(chapters, at);
   const toggleMenu = (menu: NonNullable<typeof ui.menu>) =>
     setUi((u) => ({ menu: u.menu === menu || (menu === "cc" && u.menu === "style") ? undefined : menu }));
-  // Live audio's volume belongs to @moq/watch; the control drives the rewound recording.
-  const volumeLive = live && media !== undefined;
 
   return (
     <div className="tt-controls" data-menu-root>
@@ -41,8 +36,6 @@ export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; 
               className="tt-icon-button"
               aria-label={prefs.muted ? "Unmute" : "Mute"}
               aria-pressed={prefs.muted}
-              disabled={volumeLive}
-              title={volumeLive ? "Live volume follows your device for now" : undefined}
               onClick={() => update({ muted: !prefs.muted })}
             >
               <Icon name={prefs.muted || prefs.volume === 0 ? "muted" : "volume"} />
@@ -53,7 +46,6 @@ export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; 
               min={0}
               max={100}
               aria-label="Volume"
-              disabled={volumeLive}
               value={Math.round((prefs.muted ? 0 : prefs.volume) * 100)}
               onChange={(e) => update({ volume: Number(e.target.value) / 100, muted: false })}
             />

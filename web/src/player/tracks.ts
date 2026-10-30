@@ -4,6 +4,7 @@
 
 import type { TrackView } from "../playback/aiTracks";
 import type { Prefs } from "./prefs";
+import { AUDIENCE_TRACKS, SPEAKER_TRACKS, type TrackId } from "./slideTracks";
 
 export interface RoomTracks {
   captions: TrackView | undefined;
@@ -40,4 +41,15 @@ export function wantedTracks(prefs: Prefs, room: RoomTracks): Set<string> {
   if (room.outline && prefs.chapters) want.add(room.outline.id);
   if (room.describe && prefs.describe !== "off") want.add(room.describe.id);
   return want;
+}
+
+/**
+ * The slide, annotation and room tracks the player needs (decision 0010): the room's state always (it says
+ * paused, ended, not started; the room service publishes it, no agent works for it); the speaker's deck, slide,
+ * ink, marks and laser while the slides are on screen in the layout; everyone else's ink and marks with them
+ * unless the viewer shows the speaker's only.
+ */
+export function wantedSlideTracks(slidesShown: boolean, prefs: Pick<Prefs, "annotations">): TrackId[] {
+  if (!slidesShown) return ["room"];
+  return ["room", ...SPEAKER_TRACKS, ...(prefs.annotations === "speaker" ? [] : AUDIENCE_TRACKS)];
 }

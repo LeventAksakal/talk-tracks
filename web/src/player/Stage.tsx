@@ -3,7 +3,7 @@ import { formatClock } from "../playback/timeline";
 import { CameraSurface } from "./CameraSurface";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
-import { clamp, type Fraction, type LayoutKind, type SourceKind } from "./prefs";
+import { clamp, type Fraction, type LayoutKind, type Prefs, type SourceKind } from "./prefs";
 import { SlideSurface } from "./SlideSurface";
 import { StatsForNerds } from "./StatsForNerds";
 import { SubtitleOverlay } from "./SubtitleOverlay";
@@ -15,6 +15,17 @@ const PIP_WIDTH = 0.27;
 /** The layout actually shown: one source means single, whatever the preference. */
 export function effectiveLayout(layout: LayoutKind, sources: readonly SourceKind[]): LayoutKind {
   return sources.length < 2 ? "single" : layout;
+}
+
+/** Whether a source is on screen: present, and in the layout (single shows the one chosen). */
+export function sourceShown(
+  kind: SourceKind,
+  prefs: Pick<Prefs, "layout" | "single">,
+  sources: readonly SourceKind[],
+): boolean {
+  if (!sources.includes(kind)) return false;
+  if (effectiveLayout(prefs.layout, sources) !== "single" || sources.length < 2) return true;
+  return prefs.single === kind;
 }
 
 /**
@@ -31,8 +42,7 @@ export function Stage() {
   const hasSlides = sources.includes("slides");
   // Which source is "first": the left one in split, the small one in picture-in-picture.
   const first: SourceKind = prefs.swap ? "slides" : "camera";
-  const shown = (kind: SourceKind) =>
-    sources.includes(kind) && (layout !== "single" || (sources.length < 2 ? true : prefs.single === kind));
+  const shown = (kind: SourceKind) => sourceShown(kind, prefs, sources);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 

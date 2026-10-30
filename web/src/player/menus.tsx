@@ -286,6 +286,24 @@ export function SettingsMenu() {
           </button>
         ))}
       </div>
+      <span className="tt-menu-heading">Ink and marks on slides</span>
+      <div className="tt-segmented" role="group" aria-label="Ink and marks on slides">
+        {(
+          [
+            ["everyone", "Everyone's"],
+            ["speaker", "Speaker's only"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={prefs.annotations === value}
+            onClick={() => update({ annotations: value })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <Choice checked={ui.stats} onClick={() => setUi({ stats: !ui.stats, menu: undefined })}>
         Stats for nerds
       </Choice>

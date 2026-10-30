@@ -8,6 +8,7 @@ import type { Transport } from "../transport/types";
 import type { FrameClock } from "./frameClock";
 import type { NotesApi } from "./notes";
 import type { PanelTab, Prefs, SourceKind } from "./prefs";
+import type { SlideTracks } from "./slideTracks";
 import type { PlayerState } from "./state";
 import type { RoomTracks } from "./tracks";
 
@@ -63,6 +64,12 @@ export interface PlayerCtx {
   clock: FrameClock;
   notes: NotesApi;
   sources: SourceKind[];
+  /** The speaker's slide tracks, the audience's annotations and the room's state; undefined with no relay. */
+  slides: SlideTracks | undefined;
+  /** The slides are on screen in the current layout, so their tracks are subscribed (decision 0010). */
+  slidesShown: boolean;
+  /** The number of the slide on screen at the playhead (1-based), from the slide track or the descriptions. */
+  slideNumber: number | undefined;
   extraTabs: ExtraTab[];
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;

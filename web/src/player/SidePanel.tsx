@@ -291,16 +291,15 @@ function Glossary() {
 // --- notes -----------------------------------------------------------------------------------------
 
 function Notes() {
-  const { notes, at, ui, title, addBookmark, tracks } = usePlayer();
+  const { notes, at, ui, title, addBookmark, slideNumber } = usePlayer();
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (ui.focusNote) box.current?.focus();
   }, [ui.focusNote]);
-  const slide = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const save = () => {
     if (!text.trim() || at === undefined) return;
-    notes.add({ at, text: text.trim(), slide: slide ? slide.id + 1 : undefined });
+    notes.add({ at, text: text.trim(), slide: slideNumber });
     setText("");
   };
   const exportMarkdown = () => {
