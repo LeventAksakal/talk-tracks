@@ -16,14 +16,7 @@ import {
   SLIDE_TRACK,
   slidesPath,
 } from "../contracts/names";
-import {
-  currentSlide,
-  inkCarry,
-  marksCarry,
-  type StrokeRecord,
-  type TextMarkRecord,
-  upTo,
-} from "../contracts/tracks";
+import { currentSlide, inkCarry, marksCarry, type StrokeRecord, type TextMarkRecord, upTo } from "../contracts/tracks";
 import type {
   CurrentSlideRecord,
   DeckImage,
@@ -558,7 +551,9 @@ export class SlideTracks {
   #parse(e: Entry, payload: Uint8Array): readonly Rec[] {
     const parsed = e.spec.parse(payload);
     if (parsed.ok) return parsed.value;
-    console.warn(`dropping an object of ${e.spec.path}/${e.spec.track} that does not match the contract: ${parsed.error}`);
+    console.warn(
+      `dropping an object of ${e.spec.path}/${e.spec.track} that does not match the contract: ${parsed.error}`,
+    );
     return [];
   }
 
@@ -646,7 +641,10 @@ export class SlideTracks {
     try {
       const fetch = (path: string) =>
         Promise.race([
-          this.#source.fetchGroup(path, e.spec.track, group, { priority: FETCH_PRIORITY, signal: job.controller.signal }),
+          this.#source.fetchGroup(path, e.spec.track, group, {
+            priority: FETCH_PRIORITY,
+            signal: job.controller.signal,
+          }),
           abortion(job.controller.signal),
         ]);
       let objects: Uint8Array[];
@@ -675,7 +673,8 @@ export class SlideTracks {
       this.#trim(e);
     } catch (err) {
       if (job.controller.signal.aborted && !timedOut) return;
-      if (!(err instanceof NotFound)) console.warn(`fetch ${e.spec.history}/${e.spec.track} group ${group} failed`, err);
+      if (!(err instanceof NotFound))
+        console.warn(`fetch ${e.spec.history}/${e.spec.track} group ${group} failed`, err);
       e.missing.set(group, this.#now());
     } finally {
       clearTimeout(timer);

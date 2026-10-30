@@ -53,7 +53,12 @@ export function SlideSurface() {
   const runs = picture?.image.runs ?? [];
   const marks: Mark[] = on
     ? (at?.marks ?? []).flatMap(({ data }) =>
-        markBoxes(data.span, runs).map((box, i) => ({ id: `${data.id}:${i}`, style: data.style, color: data.color, box })),
+        markBoxes(data.span, runs).map((box, i) => ({
+          id: `${data.id}:${i}`,
+          style: data.style,
+          color: data.color,
+          box,
+        })),
       )
     : [];
   const label = on ? `Slide ${on.index + 1}` : "Slides";

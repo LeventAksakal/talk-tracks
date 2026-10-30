@@ -47,7 +47,10 @@ const SLIDES: { title: string; bullets: [string, string, string] }[] = [
     title: "How rivers shape the land",
     bullets: ["Water moves rock and soil", "Valleys are cut over time", "Deltas grow where rivers slow"],
   },
-  { title: "Erosion", bullets: ["Fast water picks up stones", "Stones grind the riverbed", "Canyons deepen every year"] },
+  {
+    title: "Erosion",
+    bullets: ["Fast water picks up stones", "Stones grind the riverbed", "Canyons deepen every year"],
+  },
   {
     title: "The Grand Canyon",
     bullets: ["Cut by the Colorado River", "Nearly two kilometres deep", "Layers record millions of years"],
@@ -113,8 +116,7 @@ function frac(r: Region): Region {
 }
 
 /** A transparent 1×1 PNG, for where no canvas can draw the slides (tests). */
-const BLANK_PNG =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
+const BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
 
 function canvas2d(): CanvasRenderingContext2D | null {
   try {
@@ -224,7 +226,9 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
     pointer: [],
     audienceInk: [],
     audienceMarks: [],
-    room: [{ m: 0, data: { kind: "state", state: "on_air", title: "How rivers shape the land", speaker: "Demo speaker" } }],
+    room: [
+      { m: 0, data: { kind: "state", state: "on_air", title: "How rivers shape the land", speaker: "Demo speaker" } },
+    ],
   };
 
   const draw = (
@@ -310,7 +314,13 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
     const third = box(b3);
     const tx = third.x + third.w + 0.03;
     const ty = third.y + third.h * 0.55;
-    const tick = [pt(tx, ty), pt(tx + 0.012, ty + 0.03), pt(tx + 0.024, ty + 0.045), pt(tx + 0.045, ty - 0.01), pt(tx + 0.07, ty - 0.06)];
+    const tick = [
+      pt(tx, ty),
+      pt(tx + 0.012, ty + 0.03),
+      pt(tx + 0.024, ty + 0.045),
+      pt(tx + 0.045, ty - 0.01),
+      pt(tx + 0.07, ty - 0.06),
+    ];
     draw(s.audienceInk, `u-ada-${n}k`, S + 17_000, 500, tick, {
       index,
       by: LISTENER,
@@ -344,7 +354,8 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
     s.audienceInk.push({ m: end, data: { kind: "clear", deck: 0, index, by: SPEAKER } });
     s.audienceMarks.push({ m: end, data: { kind: "clear", deck: 0, index, by: SPEAKER } });
   }
-  for (const list of [s.slide, s.ink, s.marks, s.pointer, s.audienceInk, s.audienceMarks]) list.sort((a, b) => a.m - b.m);
+  for (const list of [s.slide, s.ink, s.marks, s.pointer, s.audienceInk, s.audienceMarks])
+    list.sort((a, b) => a.m - b.m);
   return s;
 }
 
@@ -450,7 +461,13 @@ export class DemoSlides {
       track("marks", slides, archive, MARKS_TRACK, marks(this.script.marks)),
       track("pointer", slides, archive, POINTER_TRACK, last(this.script.pointer)),
       track("audienceInk", annotationsPath(room), annotationsPath(room), INK_TRACK, ink(this.script.audienceInk)),
-      track("audienceMarks", annotationsPath(room), annotationsPath(room), MARKS_TRACK, marks(this.script.audienceMarks)),
+      track(
+        "audienceMarks",
+        annotationsPath(room),
+        annotationsPath(room),
+        MARKS_TRACK,
+        marks(this.script.audienceMarks),
+      ),
       track("room", catalogPath(room), catalogPath(room), ROOM_TRACK, last(this.script.room)),
     ];
   }
@@ -465,7 +482,8 @@ export class DemoSlides {
   start(ms: number): void {
     const slides = slidesPath(this.room);
     const archive = historyPath(slides);
-    for (const path of [slides, archive, annotationsPath(this.room), catalogPath(this.room)]) this.source.announce(path);
+    for (const path of [slides, archive, annotationsPath(this.room), catalogPath(this.room)])
+      this.source.announce(path);
     const deck = this.script.deck.map((r) => encode([r]));
     deck.forEach((payload) => this.source.publish(slides, DECK_TRACK, 0, payload));
     this.source.store(archive, DECK_TRACK, 0, deck);

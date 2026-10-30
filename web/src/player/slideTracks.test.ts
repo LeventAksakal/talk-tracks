@@ -96,9 +96,7 @@ describe("slides, ink, marks and laser at a time t", () => {
     await vi.waitFor(() => expect(slides.inkAt(begun + 50)).toHaveLength(1));
     const first = slides.inkAt(begun + 50)![0]!.data.points.length;
     demo.advanceTo(begun + 600);
-    await vi.waitFor(() =>
-      expect(slides.inkAt(begun + 600)![0]!.data.points.length).toBeGreaterThan(first),
-    );
+    await vi.waitFor(() => expect(slides.inkAt(begun + 600)![0]!.data.points.length).toBeGreaterThan(first));
     expect(slides.slideAt(begun + 600)?.slide?.index).toBe(2);
     expect(source.fetches.filter((f) => f.track !== "deck")).toEqual([]);
   });
@@ -154,7 +152,14 @@ describe("the room's state", () => {
     expect(playerState({ ...base, onAir: false, room: "on_air" }).kind).toBe("live");
     expect(playerState({ ...base, onAir: true, room: "ended" }).kind).toBe("ended");
     expect(playerState({ ...base, onAir: true, room: "waiting" }).kind).toBe("not-started");
-    const back = playerState({ ...base, mode: "rewound", behindMs: 30_000, onAir: true, room: "on_air", roomAt: "paused" });
+    const back = playerState({
+      ...base,
+      mode: "rewound",
+      behindMs: 30_000,
+      onAir: true,
+      room: "on_air",
+      roomAt: "paused",
+    });
     expect([back.kind, back.canGoLive, back.card?.dim]).toEqual(["behind", true, true]);
   });
 });
@@ -191,12 +196,29 @@ describe("text marks and ink on the slide", () => {
           calls.push(`${name}(${args.join(",")})`),
       set: () => true,
     });
-    const style = { deck: 0, index: 0, tool: "pen", color: "#ff0000", width: 0.01, by: { id: "a", name: "A" } } as const;
+    const style = {
+      deck: 0,
+      index: 0,
+      tool: "pen",
+      color: "#ff0000",
+      width: 0.01,
+      by: { id: "a", name: "A" },
+    } as const;
     drawInk(
       ctx,
       [
         { ...style, kind: "stroke", stroke: "s1", done: true, points: [[0.5, 0.5]] },
-        { ...style, kind: "stroke", stroke: "s2", done: false, points: [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]] },
+        {
+          ...style,
+          kind: "stroke",
+          stroke: "s2",
+          done: false,
+          points: [
+            [0.1, 0.1],
+            [0.2, 0.2],
+            [0.3, 0.3],
+          ],
+        },
       ],
       1_000,
       500,

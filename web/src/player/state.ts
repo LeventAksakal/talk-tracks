@@ -96,7 +96,8 @@ export function playerState(input: PlayerStateInput): PlayerState {
   if (connection === undefined)
     return { kind: "connecting", pill: "Connecting…", canGoLive: false, card: { title: "Connecting…", body: "" } };
 
-  const ended = input.room !== undefined ? input.room === "ended" : input.onAir === false && input.liveEdge !== undefined;
+  const ended =
+    input.room !== undefined ? input.room === "ended" : input.onAir === false && input.liveEdge !== undefined;
   // Rewound into a stretch where the speaker had paused (or nobody published): say so over that moment.
   const pausedThen =
     mode === "rewound" && (input.roomAt === "paused" || input.roomAt === "waiting")

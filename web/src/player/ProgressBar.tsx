@@ -1,4 +1,11 @@
-import { type CSSProperties, type KeyboardEvent, type PointerEvent, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { formatClock } from "../playback/timeline";
 import { usePlayer } from "./context";
 import { clamp } from "./prefs";
