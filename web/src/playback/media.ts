@@ -189,6 +189,9 @@ export class RoomMedia implements SpeakerMedia {
   /** The frame clock of the live player, once it exists: PTS on screen (ms) to room ms. */
   #liveFrame: (() => number | undefined) | undefined;
   #liveGeneration = 0;
+  /** Live speaker volume, 0–1, and the live player's volume input once it exists. */
+  #volume = 1;
+  #liveVolume: { set(volume: number): void } | undefined;
   #archive: ArchivePlayback | undefined;
   #archiveGeneration = 0;
   /** The archive's last presented frame (requestVideoFrameCallback mediaTime, s) and the callback handle. */
@@ -257,6 +260,15 @@ export class RoomMedia implements SpeakerMedia {
     this.#wantLive = true;
     if (this.#mode === "live") this.#startLive();
     else void this.#archive?.element.play().catch(() => {});
+  }
+
+  /**
+   * The live sound's volume, 0–1 (0 to mute; the audio keeps downloading, so unmuting is instant). The archive
+   * element's volume is its owner's (CameraSurface).
+   */
+  setVolume(volume: number): void {
+    this.#volume = Math.min(1, Math.max(0, volume));
+    this.#liveVolume?.set(this.#volume);
   }
 
   /** Stop all sound, live or rewound; the mode stays. */
@@ -479,12 +491,16 @@ export class RoomMedia implements SpeakerMedia {
     import("@moq/watch")
       .then((Watch) => {
         if (generation !== this.#liveGeneration || !this.#live) return;
+        const volume = new Watch.Signals.Signal(this.#volume);
+        this.#liveVolume = volume;
+        cleanup.push(() => (this.#liveVolume = undefined));
         const player = new Watch.Player({
           origin: this.#transport.origin,
           name: Watch.Net.Path.from(teacherPath(this.room)),
           canvas,
           catalogFormat: "hang",
           muted: false,
+          volume,
           delay: Watch.Net.Time.Milli(500),
         });
         cleanup.push(() => player.close());

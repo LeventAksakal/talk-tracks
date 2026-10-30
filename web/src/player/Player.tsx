@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { RoomMedia } from "../playback/media";
 import type { Playback } from "../playback/playback";
 import { useRoomStatus } from "../playback/roomStatus";
@@ -15,9 +15,10 @@ import { type PanelTab, type SourceKind, usePrefs } from "./prefs";
 import { ProgressBar } from "./ProgressBar";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SidePanel } from "./SidePanel";
-import { Stage } from "./Stage";
+import type { SlideTracks } from "./slideTracks";
+import { sourceShown, Stage } from "./Stage";
 import { forcedInput, playerState, type PlayerStateKind } from "./state";
-import { roomTracks, wantedTracks } from "./tracks";
+import { roomTracks, wantedSlideTracks, wantedTracks } from "./tracks";
 
 export interface PlayerProps {
   playback: Playback;
@@ -35,7 +36,12 @@ export interface PlayerProps {
   extraTabs?: ExtraTab[];
   /** Preview a player state (the offline demo's `?state=`). */
   forceState?: PlayerStateKind;
+  /** The room's slide, annotation and room tracks (deck, slide, ink, marks, laser; the room's state). */
+  slides?: SlideTracks;
 }
+
+const noop = () => () => {};
+const zero = () => 0;
 
 /** Controls hide after this long without the pointer moving, in full screen while playing. */
 const IDLE_MS = 3_000;
@@ -47,7 +53,7 @@ const IDLE_MS = 3_000;
  * on, remembered on this device.
  */
 export function Player(props: PlayerProps) {
-  const { playback, room, transport, forceState } = props;
+  const { playback, room, transport, forceState, slides } = props;
   const view = usePlaybackView(playback);
   const status = useRoomStatus(transport, room);
   const [prefs, update] = usePrefs();
@@ -80,8 +86,35 @@ export function Player(props: PlayerProps) {
     // The catalog arrives with media changes, which re-render through the view.
   }, [props.sources, media, status?.slidesLive, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The tracks the viewer's features need are exactly the ones subscribed (decision 0010).
+  // The tracks the viewer's features need are exactly the ones subscribed (decision 0010). The slides count as
+  // on while the layout shows them; the room's state is always read.
   const wanted = useMemo(() => wantedTracks(prefs, tracks), [prefs, tracks]);
+  const slidesShown = sourceShown("slides", prefs, sources);
+  useEffect(() => {
+    slides?.setWanted(wantedSlideTracks(slidesShown, prefs));
+  }, [slides, slidesShown, prefs]);
+  useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
+  // The slide tracks follow the frame on screen (the playhead while rewound media opens).
+  useEffect(() => {
+    if (!slides) return;
+    const tick = (t: number | undefined) =>
+      slides.setTime(
+        t ?? (playback.media.mode() === "rewound" ? playback.position() : undefined),
+        playback.media.mode(),
+        playback.liveEdge(),
+      );
+    tick(clock.now());
+    return clock.subscribe(tick);
+  }, [slides, clock, playback]);
+  useEffect(() => {
+    const t = clock.now() ?? (playback.media.mode() === "rewound" ? playback.position() : undefined);
+    slides?.setTime(t, playback.media.mode(), playback.liveEdge());
+  });
+
+  // Volume and mute drive live sound too (@moq/watch's gain); the archive element follows them in CameraSurface.
+  useEffect(() => {
+    media?.setVolume(prefs.muted ? 0 : prefs.volume);
+  }, [media, prefs.volume, prefs.muted]);
   const trackIds = (view?.tracks.tracks ?? []).map((t) => `${t.id}:${t.enabled}`).join(",");
   useEffect(() => {
     for (const t of playback.tracks.getSnapshot().tracks) {
@@ -158,6 +191,8 @@ export function Player(props: PlayerProps) {
     behindMs: timeline?.behindMs ?? 0,
     slowerPath: false,
     speaker: props.speaker,
+    room: slides?.roomNow(),
+    roomAt: timeline?.mode === "rewound" ? slides?.roomAt(timeline.position) : undefined,
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
   const at = timeline
@@ -184,12 +219,14 @@ export function Player(props: PlayerProps) {
   };
 
   const openTab = useCallback((tab: PanelTab) => update({ panel: true, tab }), [update]);
+  const shownSlide = slidesShown && at !== undefined ? slides?.slideAt(at)?.slide : undefined;
+  const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
+  const slideNumber = shownSlide ? shownSlide.index + 1 : described ? described.id + 1 : undefined;
   const addBookmark = useCallback(() => {
     if (at === undefined) return;
-    const slide = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
-    notes.add({ at, text: "", slide: slide ? slide.id + 1 : undefined });
+    notes.add({ at, text: "", slide: slideNumber });
     announce(`Bookmark at ${formatClock(at)}`);
-  }, [at, tracks.describe, notes, announce]);
+  }, [at, slideNumber, notes, announce]);
 
   useReadAloud(prefs.describe === "speak", tracks.describe?.sliced?.slide, timeline?.mode === "live");
 
@@ -211,6 +248,9 @@ export function Player(props: PlayerProps) {
           clock,
           notes,
           sources,
+          slides,
+          slidesShown,
+          slideNumber,
           extraTabs: props.extraTabs ?? [],
           at,
           seek: (ms) => seekWith(() => playback.seek(ms)),

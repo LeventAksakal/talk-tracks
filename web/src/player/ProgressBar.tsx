@@ -1,9 +1,19 @@
-import { type CSSProperties, type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { formatClock } from "../playback/timeline";
 import { usePlayer } from "./context";
 import { clamp } from "./prefs";
 import { chapterAt, chapterSegments, formatBehind, holesIn } from "./timeline";
 import { fold } from "./languages";
+
+const noop = () => () => {};
+const zero = () => 0;
 
 /**
  * The progress bar (ui-design §4.3, §4.5): one segment per chapter with small gaps (YouTube's pattern), the
@@ -12,7 +22,10 @@ import { fold } from "./languages";
  * the room's history; the keyboard moves it too.
  */
 export function ProgressBar() {
-  const { view, tracks, notes, ui, at, seek, goLive, state } = usePlayer();
+  const { view, tracks, notes, ui, at, seek, goLive, state, slides: slideTracks, slidesShown } = usePlayer();
+  // Thumbnails come from the slide track and the deck while the slides are on (decision 0010).
+  const deck = slidesShown ? slideTracks : undefined;
+  useSyncExternalStore(deck?.subscribe ?? noop, deck?.getVersion ?? zero);
   const t = view.timeline;
   const end = t.liveEdge ?? t.position ?? 0;
   const start = Math.min(t.start, end);
@@ -72,6 +85,8 @@ export function ProgressBar() {
   const preview = scrub ?? hover;
   const previewChapter = chapterAt(chapters, preview);
   const previewSlide = preview === undefined ? undefined : slides.findLast((s) => s.atMs <= preview);
+  const previewShown = preview !== undefined && deck ? deck.previewAt(preview) : undefined;
+  const thumb = previewShown && deck ? deck.picture(previewShown.deck, previewShown.index) : undefined;
   const valueText =
     t.mode === "live"
       ? `${formatClock(end)}, live`
@@ -135,7 +150,15 @@ export function ProgressBar() {
         {preview !== undefined && ready ? (
           <div className="tt-preview" style={{ "--x": `${frac(preview) * 100}%` } as CSSProperties} aria-hidden="true">
             <div className="tt-preview-thumb">
-              {previewSlide ? <span>Slide {previewSlide.id + 1}</span> : <span className="tt-preview-blank" />}
+              {thumb ? (
+                <img src={thumb.url} alt="" data-slide={thumb.image.index + 1} />
+              ) : previewShown ? (
+                <span>Slide {previewShown.index + 1}</span>
+              ) : previewSlide ? (
+                <span>Slide {previewSlide.id + 1}</span>
+              ) : (
+                <span className="tt-preview-blank" />
+              )}
             </div>
             <span className="tt-preview-time">{formatClock(preview)}</span>
             {previewChapter ? <span className="tt-preview-chapter">{previewChapter.title}</span> : null}

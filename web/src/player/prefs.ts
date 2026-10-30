@@ -54,6 +54,8 @@ export interface Prefs {
   transcript: boolean;
   /** Slide descriptions: off, as text, or read aloud as well. */
   describe: "off" | "text" | "speak";
+  /** Ink and text marks on the slides: everyone's, or the speaker's only (decision 0021). */
+  annotations: "everyone" | "speaker";
   volume: number;
   muted: boolean;
 }
@@ -83,6 +85,7 @@ export const DEFAULT_PREFS: Prefs = {
   chapters: false,
   transcript: false,
   describe: "off",
+  annotations: "everyone",
   volume: 1,
   muted: false,
 };

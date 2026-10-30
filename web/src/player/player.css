@@ -256,6 +256,75 @@
   color: #6b7280;
 }
 
+/* --- the slide's picture and its overlays (decisions 0020, 0021) --- */
+.tt-slide-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  background: #fff;
+}
+.tt-slide-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: clamp(10px, 2.2cqw, 15px);
+  line-height: 1.35;
+  background: #000b;
+  color: var(--pl-fg);
+}
+.tt-marks,
+.tt-ink,
+.tt-laser {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.tt-textmark {
+  position: absolute;
+}
+.tt-textmark-highlight {
+  background: var(--mark);
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+  border-radius: 2px;
+}
+.tt-textmark-underline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4%;
+  height: max(2px, 9%);
+  border-radius: 1px;
+  background: var(--mark);
+}
+.tt-laser {
+  will-change: transform;
+}
+.tt-laser[data-on="false"] {
+  display: none;
+}
+.tt-laser > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 18%, #ff3b30 30% 55%, #ff3b3000 72%);
+  box-shadow: 0 0 12px 4px #ff3b3088;
+}
+
 /* --- subtitles: dragged anywhere, bottom centre anchored at (x, y) --- */
 .tt-subs {
   --sub-size: 20px;
@@ -551,6 +620,15 @@
   place-items: center;
   font-weight: 600;
   font-size: 12px;
+}
+.tt-preview-thumb {
+  overflow: hidden;
+}
+.tt-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .tt-preview-blank {
   width: 60%;
