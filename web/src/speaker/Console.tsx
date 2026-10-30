@@ -717,7 +717,11 @@ function Sources(props: {
 }) {
   const { media, snap, deck } = props;
   const [tokenState, tokenMessage] = tokenText(props.tokenCheck);
-  const micState = snap?.micError ? "bad" : snap?.micOn ? (props.level > 0.25 ? "ok" : "wait") : "off";
+  // Once this microphone has been heard it stays ready: speech has pauses.
+  const [heard, setHeard] = useState<MediaStreamTrack>();
+  const micTrack = snap?.micTrack;
+  if (micTrack && props.level > 0.25 && heard !== micTrack) setHeard(micTrack);
+  const micState = snap?.micError ? "bad" : snap?.micOn ? (micTrack && heard === micTrack ? "ok" : "wait") : "off";
   return (
     <section className="panel sources" aria-labelledby="sources-heading">
       <h2 id="sources-heading" className="panel-title">
@@ -749,7 +753,7 @@ function Sources(props: {
           <p className="muted small">
             {snap?.micError ??
               (snap?.micOn
-                ? props.level > 0.25
+                ? micState === "ok"
                   ? "We hear you."
                   : "Say something: the bar should move."
                 : "Turn it on to check your level. Going on air needs it.")}

@@ -44,6 +44,16 @@ describe("text runs from a PDF page", () => {
     // Away from any text: nothing.
     expect(rangeBetween(runs, [0.9, 0.9], [0.95, 0.95])).toBeNull();
   });
+
+  it("selects to the end of the line when a drag runs past it, but not on a click beside it", () => {
+    const runs = textRuns([item("Attach to the membrane", 72, 380, 28, 330)], viewport);
+    const { x, y, w, h } = runs[0]!.box;
+    const mid = y + h / 2;
+    expect(rangeBetween(runs, [x - 0.02, mid], [x + w + 0.1, mid])).toEqual([{ run: "t0" }]);
+    expect(rangeBetween(runs, [x + w + 0.1, mid], [x + w + 0.1, mid])).toBeNull();
+    // A drag below the line selects nothing.
+    expect(rangeBetween(runs, [x, mid + h * 2], [x + w, mid + h * 2])).toBeNull();
+  });
 });
 
 describe("slide keys and presenter clickers", () => {

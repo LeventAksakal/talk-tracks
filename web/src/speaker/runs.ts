@@ -73,8 +73,19 @@ export function spanBox(run: TextRun, start = 0, end?: number | null): Region {
   return { x: run.box.x + (run.box.w * s) / n, y: run.box.y, w: (run.box.w * (e - s)) / n, h: run.box.h };
 }
 
-/** Where a point falls in the text: the run and the character boundary nearest to it. */
-export function hitText(runs: readonly TextRun[], [x, y]: Point, slack = 0.01): { run: number; char: number } | null {
+/** How far past either end of a line a drag may start or finish and still select up to that end. */
+export const DRAG_REACH = 0.2;
+
+/**
+ * Where a point falls in the text: the run and the character boundary nearest to it. `slack` is how
+ * far off a line, above or below, still counts; `reach` how far before or after it.
+ */
+export function hitText(
+  runs: readonly TextRun[],
+  [x, y]: Point,
+  slack = 0.01,
+  reach = slack,
+): { run: number; char: number } | null {
   let best: { run: number; char: number } | null = null;
   let bestD = Infinity;
   for (const [i, r] of runs.entries()) {
@@ -82,7 +93,7 @@ export function hitText(runs: readonly TextRun[], [x, y]: Point, slack = 0.01): 
     const dx = x < rx ? rx - x : x > rx + w ? x - rx - w : 0;
     const dy = y < ry ? ry - y : y > ry + h ? y - ry - h : 0;
     const d = Math.hypot(dx, dy);
-    if (dx > slack || dy > slack || d >= bestD) continue;
+    if (dx > reach || dy > slack || d >= bestD) continue;
     const char = w > 0 ? Math.round(Math.min(1, Math.max(0, (x - rx) / w)) * r.text.length) : 0;
     best = { run: i, char };
     bestD = d;
@@ -92,12 +103,15 @@ export function hitText(runs: readonly TextRun[], [x, y]: Point, slack = 0.01): 
 
 /**
  * The text range a drag selects, from where it started to where it ended, in reading order: the
- * rest of the first run, the whole runs between, the start of the last run. Null when it selects
- * no character, or did not start or end on text.
+ * rest of the first run, the whole runs between, the start of the last run. A drag may run past
+ * either end of a line (people overshoot); a click must land on a word. Null when it selects no
+ * character, or did not start or end on a line of text.
  */
 export function rangeBetween(runs: readonly TextRun[], from: Point, to: Point): TextRange | null {
-  const a = hitText(runs, from);
-  const b = hitText(runs, to);
+  const click = from[0] === to[0] && from[1] === to[1];
+  const reach = click ? undefined : DRAG_REACH;
+  const a = hitText(runs, from, undefined, reach);
+  const b = hitText(runs, to, undefined, reach);
   if (!a || !b) return null;
   let [first, last] = a.run < b.run || (a.run === b.run && a.char <= b.char) ? [a, b] : [b, a];
   if (first.run === last.run && first.char === last.char) {
