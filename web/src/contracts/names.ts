@@ -2,17 +2,35 @@
 
 export const ROOT = "talk";
 
-/** The speaker's broadcast: microphone audio (track `audio`, legacy container) and, later, video. */
+/** The speaker's hang broadcast (@moq/publish): microphone and camera, described by its `catalog.json`. */
 export const teacherPath = (room: string) => `${ROOT}/${room}/teacher`;
 export const AUDIO_TRACK = "audio";
+/** The hang catalog track of teacherPath(room), which names its media tracks. */
+export const HANG_CATALOG_TRACK = "catalog.json";
 
-/** The speaker's slide frames: one SlideFrame JSON per group on track `frames`. */
+/** The speaker's slide broadcast (decision 0018). */
 export const slidesPath = (room: string) => `${ROOT}/${room}/slides`;
+/** One SlideFrame JSON per slide shown, for the describe agent. */
 export const FRAMES_TRACK = "frames";
+/** DeckObject: one group per deck, object 0 the DeckInfo, later objects the slide images. */
+export const DECK_TRACK = "deck";
+/** CurrentSlideObject, sliced. */
+export const SLIDE_TRACK = "slide";
+/** InkObject, sliced. */
+export const INK_TRACK = "ink";
+/** PointerObject, sliced. */
+export const POINTER_TRACK = "pointer";
 
-/** The room catalog (MSF, design §5.10), published by the room service: a new group per change. */
+/** The room service's broadcast: the room catalog (MSF, design §5.10, a new group per change) and the room's state. */
 export const catalogPath = (room: string) => `${ROOT}/${room}/catalog`;
 export const CATALOG_TRACK = "catalog";
+/** RoomStateObject, sliced, in catalogPath(room). */
+export const ROOM_TRACK = "room";
+
+/** Listener comments, published by the room service (listeners never publish to the relay). */
+export const commentsPath = (room: string) => `${ROOT}/${room}/comments`;
+/** CommentsObject, sliced. */
+export const COMMENTS_TRACK = "comments";
 
 /**
  * Every agent publishes `talk/<room>/agents/<agent>` under a stable name: track `items` (an MSF

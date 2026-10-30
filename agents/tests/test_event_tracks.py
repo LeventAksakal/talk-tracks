@@ -139,7 +139,7 @@ def test_the_room_catalog_lists_sources_and_event_tracks() -> None:
     room = "physics-101"
     tracks = (*speaker_tracks(room), *room_service_tracks(room))
     sources = speaker_sources(room, camera=True, slides=True)
-    doc = RoomCatalog(1_800_000_000_000, tracks, {300: 0}, {}, sources).to_json()
+    doc: Any = RoomCatalog(1_800_000_000_000, tracks, {300: 0}, {}, sources).to_json()
     jsonschema.validate(doc, schema_of("room-catalog.schema.json"))
 
     by_name = {(t["namespace"], t["name"]): t for t in doc["tracks"]}

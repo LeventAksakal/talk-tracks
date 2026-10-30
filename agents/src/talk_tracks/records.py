@@ -121,7 +121,9 @@ def line_of(cue: Cue) -> CaptionLine:
 # --- carry-ins of the speaker's and the room's tracks (ui-design §3.4) ----------------------------------------
 #
 # Each function takes every record of the track before slice k, in publication order (earlier slices' objects
-# 1 and up, or the previous carry-in followed by its slice's records), and returns object 0 of slice k.
+# 1 and up, or the previous carry-in followed by its slice's records), and returns object 0 of slice k. Given the
+# records up to a time t instead, it returns what is on screen at t. web/src/contracts/tracks.ts mirrors them; both
+# are checked against contracts/examples/carry-ins.json.
 
 
 def last_record[R: Wire](records: Sequence[R]) -> list[R]:

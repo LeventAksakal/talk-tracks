@@ -604,7 +604,9 @@ class RoomTt(Wire):
         " a multiple of 4000 (0 normally). Nobody stamps a broadcast that is not listed yet"
     )
     status: dict[str, TrackStatus] = Field(default_factory=dict, description="Per agent name")
-    sources: list[Source] = Field(default_factory=list, description="The speaker's sources, in the speaker's order")
+    sources: list[Source] = Field(
+        default_factory=list[Source], description="The speaker's sources, in the speaker's order"
+    )
 
     @model_validator(mode="after")
     def _whole_slices(self) -> RoomTt:
