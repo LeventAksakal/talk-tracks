@@ -33,9 +33,11 @@ from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
 from ..room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from ..room_catalog import catalog_path, speaker_sources
 from ..runtime import now_ms
+from .audience import Audience
 from .catalog import REFRESH_S, CatalogFeed
 from .events import RoomEvents
-from .store import Archive, RoomFilter
+from .listeners import EndpointConfig
+from .store import Archive, RoomArchive, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
 
@@ -121,9 +123,23 @@ class Archiver:
         state = self.rooms.get(room)
         if state is None:
             catalog = CatalogFeed(room, self.archive.root, capped=self.capped)
-            events = RoomEvents(room, self.relay, self.archive.root, on_file=self._finished)
+            events = RoomEvents(
+                room,
+                self.relay,
+                self.archive.root,
+                on_file=self._finished,
+                room_now=lambda: room_now(self.archive.room(room), now_ms()),
+            )
             state = self.rooms[room] = _Room(catalog, events)
         return state
+
+    async def audience(self, room: str) -> Audience | None:
+        """A room's listener writes (the endpoint's lookup): only for a room this service holds, one a speaker has
+        opened or the archive keeps; never a folder made for any name a stranger tries."""
+        state = self.rooms.get(room)
+        if state is None or not self.wanted(room):
+            return None
+        return await state.events.audience_tracks()
 
     def _finished(self, path: Path) -> None:
         self.archive.reported(path, mutable=False)  # a finished event slice: copied to the bucket
@@ -223,6 +239,15 @@ class Archiver:
             log.exception("archiving %s failed", what)
 
 
+def room_now(archived: RoomArchive, wall_ms: int) -> int | None:
+    """Room time now for what listeners write: the newest teacher media time plus the time since it arrived, so
+    their ink sits on the speaker's clock as the speaker's own does. None before the room's first media."""
+    run = archived.run
+    if archived.epoch_ms is None or run is None or run.index.media_last_ms is None:
+        return None
+    return max(0, run.clock_ms + max(0, wall_ms - run.index.last_wall_ms))
+
+
 async def archive_rooms(
     relay: Relay,
     archive: Archive,
@@ -231,10 +256,14 @@ async def archive_rooms(
     on_tick: Callable[[], None] | None = None,
     publish_catalog: bool = True,
     capped: Callable[[str], bool] | None = None,
+    listeners: EndpointConfig | None = None,
 ) -> None:
     archiver = Archiver(relay, archive, rooms, on_tick=on_tick, publish_catalog=publish_catalog, capped=capped)
+    endpoint = asyncio.create_task(listeners.run(archiver.audience)) if listeners is not None else None
     try:
         await archiver.run()
     finally:
+        if endpoint is not None:
+            endpoint.cancel()
         with contextlib.suppress(Exception):
             archive.close()

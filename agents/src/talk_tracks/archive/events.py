@@ -8,9 +8,11 @@ deck); see ``wiki/design/lane-briefs.md`` §"Namespaces". The room service keeps
   since no agent works for it (design §5.4), and writes every object as it arrives, under the speaker's own group and
   object numbers, byte for byte. It answers FETCH for them on ``history_path`` (``talk/<room>/archive/slides``: the
   same track names, group numbers and payloads). Live stays on the speaker's track.
-* **Owned:** the tracks the room service publishes itself (``room_catalog.room_service_tracks``: the room's state
-  now, comments and listener annotations when their lanes land). Like an agent's track, each object goes live and
-  into the archive byte for byte, and a FETCH on the same name is answered from the archive.
+* **Owned:** the tracks the room service publishes itself (``room_catalog.room_service_tracks``: the room's state,
+  the comments and everyone else's ink and text marks, written through the listeners' endpoint, ``archive.audience``
+  and decision 0024). Like an agent's track, each object goes live and into the archive byte for byte, and a FETCH on
+  the same name is answered from the archive. The audience tracks' carry-ins and their re-send when a slide is shown
+  need the slide on screen, which the mirrored ``slide`` track supplies.
 
 Which tracks are kept comes from ``room_catalog``'s lists, not from names here, so a track added there is mirrored
 or can be owned without a change in this module. Archive folders follow the MoQ names: ``talk/<room>/<rest>`` track
@@ -30,10 +32,45 @@ from typing import Any, Protocol, cast
 
 from pydantic import ValidationError
 
-from ..contracts import ROOM_TRACK, ROOT, RoomState, RoomStateObject, RoomStateRecord, Wire, slice_of
+from ..contracts import (
+    COMMENTS_TRACK,
+    INK_TRACK,
+    MARKS_TRACK,
+    ROOM_TRACK,
+    ROOT,
+    SLICE_MS,
+    SLIDE_TRACK,
+    CommentRecord,
+    CommentsObject,
+    CurrentSlideObject,
+    CurrentSlideRecord,
+    InkObject,
+    InkRecord,
+    MarkRecord,
+    MarksObject,
+    RoomState,
+    RoomStateObject,
+    RoomStateRecord,
+    ShowSlide,
+    Wire,
+    annotations_path,
+    comments_path,
+    slice_of,
+)
 from ..live_slices import LiveOut, Refused, Stats
-from ..records import encode, last_record
+from ..records import (
+    comment_threads,
+    comments_carry,
+    current_slide,
+    encode,
+    ink_carry,
+    ink_strokes,
+    last_record,
+    marks_carry,
+    text_marks,
+)
 from ..room_catalog import UNSLICED, CatalogTrack, room_service_tracks, speaker_tracks
+from .audience import Audience
 from .slices import FINISHED, NORMAL, Slice, SliceExists, SliceObject, TrackArchive
 
 log = logging.getLogger("talk_tracks.archive.events")
@@ -166,34 +203,48 @@ class MirroredTrack:
         return None if self._newest is None else self._newest + 1
 
 
+type Carry[R] = Callable[[Sequence[R], int], list[R]]  # (every record before slice k, k) -> object 0 of slice k
+
+
 class ServiceTrack[R: Wire]:
     """A sliced track the room service publishes itself. Each slice of room time is a group: object 0 is ``carry``
     of every record before it, then one object per record; End of Group closes it. Every object goes to the archive
     and live, byte for byte, and a FETCH is answered from the archive. A slice already on disk is never written
     again: a restarted room service continues at the next one, seeded from the newest slice it finds (its carry-in
-    and records), and a record in a slice it cannot write shows in the next slice's carry-in."""
+    and records), and a record in a slice it cannot write shows in the next slice's carry-in.
+
+    ``whole``: seed from every archived slice instead, for a track whose state is more than its carry-in shows (the
+    audience's strokes on every slide, not only the one on screen). ``compact`` keeps that state small: applied to
+    the records whenever a slice opens, it must leave every later reduction unchanged (``records.ink_strokes``)."""
 
     def __init__(
         self,
         archive: TrackArchive,
         out: LiveOut,
         *,
-        carry: Callable[[Sequence[R]], list[R]],
+        carry: Carry[R],
         parse: Callable[[bytes], list[R]],
         on_file: OnFile | None = None,
+        whole: bool = False,
+        compact: Callable[[list[R]], list[R]] | None = None,
     ) -> None:
-        self.archive, self.out, self._carry, self._on_file = archive, out, carry, on_file
+        self.archive, self.out, self._carry, self._on_file, self._compact = archive, out, carry, on_file, compact
         self.records: list[R] = []
         self._open: int | None = None
         self._next = 0
         self._newest = archive.latest_group()
-        if self._newest is not None and (seed := archive.read_local(self._newest)) is not None:
+        seeds = archive.groups() if whole else [] if self._newest is None else [self._newest]
+        for group in seeds:
+            if (seed := archive.read_local(group)) is None:
+                continue
             for obj in seed.objects:
                 if obj.status == NORMAL and obj.payload:
                     try:
                         self.records += parse(obj.payload)
                     except (ValidationError, ValueError):
                         log.warning("%s: an archived object does not match the contract", archive.relpath)
+        if compact is not None:
+            self.records = compact(self.records)
 
     @property
     def open_group(self) -> int | None:
@@ -210,7 +261,9 @@ class ServiceTrack[R: Wire]:
                 self._newest = k  # written by another process: continue at the next one
                 return
             self._open, self._next, self._newest = k, 0, k
-            await self._put(encode(self._carry(self.records)))
+            await self._put(encode(self._carry(self.records, k)))
+            if self._compact is not None:
+                self.records = self._compact(self.records)
 
     async def add(self, record: R) -> None:
         """A new record, in the slice of its ``m`` (records come in time order)."""
@@ -256,10 +309,27 @@ def room_states(payload: bytes) -> list[RoomStateRecord]:
     return list(RoomStateObject.model_validate_json(payload).root)
 
 
+def ink_records(payload: bytes) -> list[InkRecord]:
+    return list(InkObject.model_validate_json(payload).root)
+
+
+def mark_records(payload: bytes) -> list[MarkRecord]:
+    return list(MarksObject.model_validate_json(payload).root)
+
+
+def comment_records(payload: bytes) -> list[CommentRecord]:
+    return list(CommentsObject.model_validate_json(payload).root)
+
+
+SLIDES_KEPT = 64  # slide records kept for the audience tracks' carry-ins: the slide at a recent slice start
+
+
 class RoomEvents:
     """One room's event tracks at the room service: the speaker's mirrored while its namespace is announced, each
     with its history served on ``history_path``; the ``room`` track (on air or paused, from the teacher broadcast)
-    published and archived. ``tick`` about once a second with the room's newest media time drives both."""
+    published and archived; and the audience's tracks (``annotations`` ink and marks, ``comments``), published once the
+    speaker shows slides or a listener writes. ``tick`` about once a second with the room's newest media time drives
+    them. ``room_now`` is the room time now for what listeners write (None before the room has a clock)."""
 
     def __init__(
         self,
@@ -269,8 +339,10 @@ class RoomEvents:
         *,
         on_file: OnFile | None = None,
         clock: Callable[[], float] = time.monotonic,
+        room_now: Callable[[], int | None] = lambda: None,
     ) -> None:
         self.room, self.relay, self.root, self._on_file, self._clock = room, relay, root, on_file, clock
+        self.room_now = room_now
         self.speaker = {(t.namespace, t.name): t for t in speaker_tracks(room)}
         self.owned_tracks = {(t.namespace, t.name): t for t in room_service_tracks(room)}
         self.mirrors: dict[tuple[str, str], MirroredTrack] = {}
@@ -279,6 +351,10 @@ class RoomEvents:
         self.announced_now: set[str] = set()  # speaker namespaces announced now
         self.owned: dict[tuple[str, str], ServiceTrack[Any]] = {}  # the tracks published so far
         self.state: ServiceTrack[RoomStateRecord] | None = None
+        self.audience: Audience | None = None
+        self._audience_lock = asyncio.Lock()
+        self._audience_tracks: list[ServiceTrack[Any]] = []
+        self.slides: list[CurrentSlideRecord] = []  # the newest records of the speaker's slide track
         self._readers: dict[str, list[asyncio.Task[None]]] = {}
 
     # --- the catalog's view ----------------------------------------------------------------------------------------
@@ -298,11 +374,13 @@ class RoomEvents:
 
     async def restore(self) -> None:
         """At start: serve the history of every speaker track already in the archive (the speaker may never come
-        back, but its talk stays fetchable)."""
+        back, but its talk stays fetchable), and of the audience's tracks."""
         for key, track in self.speaker.items():
             archive = self._archive(track)
             if archive.latest_group() is not None:
                 await self._mirror(key, track)
+        if any(self._archive(t).latest_group() is not None for t in self._audience_specs()):
+            await self.audience_tracks()
 
     def announced(self, namespace: str, active: bool) -> None:
         """A namespace of the room was announced or withdrawn. The speaker's are mirrored while announced."""
@@ -315,6 +393,8 @@ class RoomEvents:
             self._readers[namespace] = [
                 asyncio.create_task(self._follow(key, self.speaker[key]), name=f"{namespace}/{key[1]}") for key in keys
             ]
+            # Slides on air: the audience may draw on them, so its tracks are published (and listed) from now on.
+            self._readers[namespace].append(asyncio.create_task(self._audience_soon(), name=f"{namespace}/audience"))
         elif not active and namespace in self._readers:
             self.announced_now.discard(namespace)
             for task in self._readers.pop(namespace):
@@ -330,6 +410,30 @@ class RoomEvents:
                 mirror.put(group, object_id, payload)
             except OSError:
                 log.exception("archiving %s/%s group %d failed", track.namespace, track.name, group)
+            if track.name == SLIDE_TRACK:
+                await self._slide_object(object_id, payload)
+
+    async def _slide_object(self, object_id: int, payload: bytes) -> None:
+        """An object of the speaker's slide track: the slide on screen for the audience's carry-ins; and a slide shown
+        re-sends its audience strokes, marks and threads (from a carry-in only when it names a slide not known)."""
+        try:
+            records = list(CurrentSlideObject.model_validate_json(payload).root)
+        except ValidationError:
+            log.warning("%s: a slide object does not match the contract", self.room)
+            return
+        for r in records:
+            before = current_slide(self.slides)
+            self.slides = [*self.slides[-(SLIDES_KEPT - 1) :], r]
+            if not isinstance(r.data, ShowSlide) or (object_id == 0 and r.data == before):
+                continue
+            try:
+                audience = await self.audience_tracks()
+                sent = await audience.shown(r.data, r.m)
+            except Exception:
+                log.exception("%s: re-sending slide %d's audience annotations failed", self.room, r.data.index)
+                continue
+            if sent:
+                log.info("%s: slide %d shown, %d audience records re-sent", self.room, r.data.index, sent)
 
     async def _mirror(self, key: tuple[str, str], track: CatalogTrack) -> MirroredTrack:
         mirror = self.mirrors.get(key)
@@ -362,15 +466,95 @@ class RoomEvents:
             key, track = next((k, t) for k, t in self.owned_tracks.items() if t.name == ROOM_TRACK)
             archive = TrackArchive.of(track.namespace, track.name, root=self.root)
             out = await self.relay.publish_sliced(track.namespace, track.name)
-            self.state = ServiceTrack(archive, out, carry=last_record, parse=room_states, on_file=self._on_file)
+            self.state = ServiceTrack(
+                archive, out, carry=lambda rs, _: last_record(rs), parse=room_states, on_file=self._on_file
+            )
             out.serve(self.state.slice, None, self.state.open_slice)
             self.owned[key] = self.state
         return self.state
 
+    def _audience_specs(self) -> tuple[CatalogTrack, CatalogTrack, CatalogTrack]:
+        """The comments track, then the audience's ink and marks, as ``room_catalog`` lists them."""
+        ns = annotations_path(self.room)
+        return (
+            self.owned_tracks[(comments_path(self.room), COMMENTS_TRACK)],
+            self.owned_tracks[(ns, INK_TRACK)],
+            self.owned_tracks[(ns, MARKS_TRACK)],
+        )
+
+    def slide_at(self, t: int) -> ShowSlide | None:
+        """The slide on screen just before room time ``t`` (a carry-in's slide), from the speaker's slide records."""
+        return current_slide(r for r in self.slides if r.m < t)
+
+    async def _audience_soon(self) -> None:
+        try:
+            await self.audience_tracks()
+        except Exception:
+            log.exception("%s: publishing the audience tracks failed", self.room)
+
+    async def _service_track[R: Wire](
+        self,
+        spec: CatalogTrack,
+        carry: Carry[R],
+        parse: Callable[[bytes], list[R]],
+        compact: Callable[[list[R]], list[R]],
+    ) -> ServiceTrack[R]:
+        out = await self.relay.publish_sliced(spec.namespace, spec.name)
+        track = ServiceTrack(
+            self._archive(spec), out, carry=carry, parse=parse, on_file=self._on_file, whole=True, compact=compact
+        )
+        out.serve(track.slice, None, track.open_slice)
+        self.owned[(spec.namespace, spec.name)] = track
+        self._audience_tracks.append(track)
+        return track
+
+    async def audience_tracks(self) -> Audience:
+        """The audience's annotations and comments, published (live, archived, FETCH from the archive) on first use.
+        Their carry-ins hold what is on the slide on screen at the slice start."""
+        async with self._audience_lock:
+            if self.audience is not None:
+                return self.audience
+            if not self.slides:
+                self.slides = self._archived_slides()
+            comments_spec, ink_spec, marks_spec = self._audience_specs()
+
+            def on(k: int) -> ShowSlide | None:
+                return self.slide_at(k * SLICE_MS)
+
+            ink = await self._service_track(
+                ink_spec, lambda rs, k: ink_carry(rs, on(k)), ink_records, lambda rs: list(ink_strokes(rs).values())
+            )
+            marks = await self._service_track(
+                marks_spec, lambda rs, k: marks_carry(rs, on(k)), mark_records, lambda rs: list(text_marks(rs).values())
+            )
+            comments = await self._service_track(
+                comments_spec, lambda rs, k: comments_carry(rs, on(k)), comment_records, comment_threads
+            )
+            self.audience = Audience(ink, marks, comments, now=self.room_now)
+            log.info("%s: publishing the audience's ink, marks and comments", self.room)
+            return self.audience
+
+    def _archived_slides(self) -> list[CurrentSlideRecord]:
+        """The newest archived slice of the speaker's slide track (its carry-in and records): what was on screen when
+        this service stopped, for the audience's first carry-in after a restart."""
+        spec = next(t for t in self.speaker.values() if t.name == SLIDE_TRACK)
+        archive = self._archive(spec)
+        newest = archive.latest_group()
+        found = archive.read_local(newest) if newest is not None else None
+        objects: Sequence[SliceObject] = found.objects if found is not None else ()
+        out: list[CurrentSlideRecord] = []
+        for obj in objects:
+            if obj.status == NORMAL and obj.payload:
+                try:
+                    out += CurrentSlideObject.model_validate_json(obj.payload).root
+                except ValidationError:
+                    continue
+        return out[-SLIDES_KEPT:]
+
     async def tick(self, room_ms: int | None, *, live: bool) -> None:
         """Once a second. ``room_ms``: the room's newest teacher media time (None before the room has an epoch);
         ``live``: a teacher broadcast is up. The room track says ``on_air`` while it is and ``paused`` once it is
-        not, and has a slice for every 4 s on air."""
+        not, and has a slice for every 4 s on air; so have the audience's tracks, whose slices close once over."""
         for mirror in self.mirrors.values():
             mirror.tick()
         if room_ms is None:
@@ -385,6 +569,9 @@ class RoomEvents:
         await state.at(at, active=live)
         if not live:
             await state.close()
+        now = max(at, self.room_now() or 0)
+        for track in self._audience_tracks:
+            await track.at(now, active=live)
 
     async def close(self) -> None:
         """Stop reading. Open mirrored slices stay open on disk: a restarted room service writes them afresh."""
@@ -396,4 +583,3 @@ class RoomEvents:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         self._readers.clear()
-
