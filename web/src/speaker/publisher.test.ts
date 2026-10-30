@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DECK_TRACK, FRAMES_TRACK, INK_TRACK, MARKS_TRACK, POINTER_TRACK, SLIDE_TRACK } from "../contracts/names";
 import { currentSlide, inkCarry, lastRecord, marksCarry } from "../contracts/tracks";
-import type {
-  CurrentSlideRecord,
-  DeckImage,
-  InkRecord,
-  MarkRecord,
-  PointerRecord,
-  TextRun,
-} from "../contracts/types";
+import type { CurrentSlideRecord, DeckImage, InkRecord, MarkRecord, PointerRecord, TextRun } from "../contracts/types";
 import {
   parseCurrentSlideObject,
   parseDeckObject,
@@ -141,7 +134,9 @@ describe("the speaker's slide broadcast", () => {
     expect(records<CurrentSlideRecord>(sink, SLIDE_TRACK, 5)).toEqual([
       { m: 10_000, data: { kind: "show", deck: 2, index: 1 } },
     ]);
-    expect(records<PointerRecord>(sink, POINTER_TRACK, 5)).toEqual([{ m: 10_000, data: { kind: "at", x: 0.5, y: 0.5 } }]);
+    expect(records<PointerRecord>(sink, POINTER_TRACK, 5)).toEqual([
+      { m: 10_000, data: { kind: "at", x: 0.5, y: 0.5 } },
+    ]);
     // Each slice is closed (End of Group) when the next opens.
     expect(sink.closedGroups.has(`${INK_TRACK}#4`)).toBe(true);
     expect(sink.closedGroups.has(`${INK_TRACK}#5`)).toBe(false);
@@ -229,7 +224,7 @@ describe("the speaker's slide broadcast", () => {
     pub.show(0);
     for (let i = 0; i < 40; i++) {
       step();
-      if (i % 9 === 3) pub.show((i / 9) % 3 | 0);
+      if (i % 9 === 3) pub.show(((i / 9) % 3) | 0);
       const s = pub.beginStroke(PEN, [0.1 + i / 100, 0.2])!;
       step();
       pub.addPoints(s, [[0.2 + i / 100, 0.3]]);

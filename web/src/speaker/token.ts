@@ -16,7 +16,10 @@ function claimsOf(token: string): Record<string, unknown> | undefined {
   const part = token.split(".")[1];
   if (!part) return undefined;
   try {
-    const b64 = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    const b64 = part
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(part.length / 4) * 4, "=");
     const json: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
     return json && typeof json === "object" ? (json as Record<string, unknown>) : undefined;
   } catch {

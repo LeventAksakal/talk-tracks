@@ -38,7 +38,9 @@ function isTextField(target: EventTarget | null | undefined): boolean {
 }
 
 function isButton(target: EventTarget | null | undefined): boolean {
-  return !!target && typeof (target as HTMLElement).closest === "function" && !!(target as HTMLElement).closest("button, a");
+  return (
+    !!target && typeof (target as HTMLElement).closest === "function" && !!(target as HTMLElement).closest("button, a")
+  );
 }
 
 export function keyAction(e: KeyLike): KeyAction | null {

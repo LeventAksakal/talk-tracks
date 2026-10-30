@@ -71,7 +71,8 @@ export function Stage({
         const style = g.kind === "underline" ? "underline" : "highlight";
         drawRange(ctx, text, g.selection, style, ink[style], w, h);
       }
-      const held = g?.kind === "laser" && g.at ? { m: 0, data: { kind: "at" as const, x: g.at[0], y: g.at[1] } } : undefined;
+      const held =
+        g?.kind === "laser" && g.at ? { m: 0, data: { kind: "at" as const, x: g.at[0], y: g.at[1] } } : undefined;
       drawLaser(ctx, held ?? state.pointer, w, h);
     });
   }, []);

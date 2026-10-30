@@ -15,7 +15,10 @@ const item = (str: string, x: number, y: number, size: number, width: number) =>
 
 describe("text runs from a PDF page", () => {
   it("places each text item as a run with its box in fractions of the slide", () => {
-    const runs = textRuns([item("What a virus is", 48, 478, 40, 300), item("   ", 0, 0, 10, 5), item("Shell", 72, 380, 28, 70)], viewport);
+    const runs = textRuns(
+      [item("What a virus is", 48, 478, 40, 300), item("   ", 0, 0, 10, 5), item("Shell", 72, 380, 28, 70)],
+      viewport,
+    );
     expect(runs.map((r) => [r.id, r.text])).toEqual([
       ["t0", "What a virus is"],
       ["t1", "Shell"],
@@ -29,7 +32,10 @@ describe("text runs from a PDF page", () => {
   });
 
   it("selects the text a drag crosses, and a whole word on a click", () => {
-    const runs = textRuns([item("Attach to the membrane", 72, 380, 28, 330), item("Inject the genome", 72, 324, 28, 250)], viewport);
+    const runs = textRuns(
+      [item("Attach to the membrane", 72, 380, 28, 330), item("Inject the genome", 72, 324, 28, 250)],
+      viewport,
+    );
     const [a, b] = runs.map((r) => r.box);
     const mid = (r: typeof a) => r!.y + r!.h / 2;
     // From the start of the first line to after "Inject th" on the second.
@@ -40,7 +46,9 @@ describe("text runs from a PDF page", () => {
     ]);
     // A click on "membrane" marks that word.
     const at = spanBox(runs[0]!, 15, 22);
-    expect(rangeBetween(runs, [at.x + at.w / 2, mid(a)], [at.x + at.w / 2, mid(a)])).toEqual([{ run: "t0", start: 14 }]);
+    expect(rangeBetween(runs, [at.x + at.w / 2, mid(a)], [at.x + at.w / 2, mid(a)])).toEqual([
+      { run: "t0", start: 14 },
+    ]);
     // Away from any text: nothing.
     expect(rangeBetween(runs, [0.9, 0.9], [0.95, 0.95])).toBeNull();
   });
@@ -79,16 +87,20 @@ describe("the speaker token", () => {
   const now = 1_793_000_000_000;
 
   it("accepts a token for this room's teacher and slides", () => {
-    const t = token({ publish: ["talk/dev/slides", "talk/dev/teacher"], subscribe: ["talk/dev/**"], exp: 1_793_200_000 });
+    const t = token({
+      publish: ["talk/dev/slides", "talk/dev/teacher"],
+      subscribe: ["talk/dev/**"],
+      exp: 1_793_200_000,
+    });
     expect(checkToken(t, "dev", now)).toEqual({ kind: "ok", expires: 1_793_200_000_000 });
   });
 
   it("says when it is missing, expired or for another room", () => {
     expect(checkToken(undefined, "dev", now).kind).toBe("none");
     expect(checkToken("garbage", "dev", now).kind).toBe("unreadable");
-    expect(checkToken(token({ publish: ["talk/dev/teacher", "talk/dev/slides"], exp: 1_700_000_000 }), "dev", now).kind).toBe(
-      "expired",
-    );
+    expect(
+      checkToken(token({ publish: ["talk/dev/teacher", "talk/dev/slides"], exp: 1_700_000_000 }), "dev", now).kind,
+    ).toBe("expired");
     expect(checkToken(token({ publish: ["talk/other/teacher", "talk/other/slides"] }), "dev", now)).toEqual({
       kind: "wrong-room",
       missing: ["talk/dev/teacher", "talk/dev/slides"],
@@ -107,9 +119,26 @@ describe("the eraser", () => {
     const by = { id: "speaker", name: "Ada", speaker: true };
     const stroke = (id: string, points: [number, number][]) => ({
       m: 0,
-      data: { kind: "stroke" as const, stroke: id, deck: 0, index: 0, tool: "pen" as const, color: "#000000", width: 0.004, points, by, done: true },
+      data: {
+        kind: "stroke" as const,
+        stroke: id,
+        deck: 0,
+        index: 0,
+        tool: "pen" as const,
+        color: "#000000",
+        width: 0.004,
+        points,
+        by,
+        done: true,
+      },
     });
-    const strokes = [stroke("a", [[0.1, 0.1], [0.5, 0.1]]), stroke("b", [[0.1, 0.8]])];
+    const strokes = [
+      stroke("a", [
+        [0.1, 0.1],
+        [0.5, 0.1],
+      ]),
+      stroke("b", [[0.1, 0.8]]),
+    ];
     expect(strokesAt(strokes, [0.3, 0.105], 16 / 9)).toEqual(["a"]);
     expect(strokesAt(strokes, [0.1, 0.805], 16 / 9)).toEqual(["b"]);
     expect(strokesAt(strokes, [0.9, 0.5], 16 / 9)).toEqual([]);

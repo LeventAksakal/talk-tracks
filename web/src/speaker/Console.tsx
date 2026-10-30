@@ -248,7 +248,8 @@ function ConsoleView({
 
   const sendFrame = useCallback(
     (s: RenderedSlide | undefined) => {
-      if (s && publisher.live) publisher.publishFrame({ at_ms: Math.round(wallNowMs(hangRef.current ?? undefined)), ...s.frame });
+      if (s && publisher.live)
+        publisher.publishFrame({ at_ms: Math.round(wallNowMs(hangRef.current ?? undefined)), ...s.frame });
     },
     [publisher],
   );
@@ -670,7 +671,15 @@ function WireStatus({
   return ok ? <>Sending slides; viewers receive them ({ok} checked).</> : <>Sending slides…</>;
 }
 
-function Check({ state, title, children }: { state: "ok" | "wait" | "bad" | "off"; title: string; children?: React.ReactNode }) {
+function Check({
+  state,
+  title,
+  children,
+}: {
+  state: "ok" | "wait" | "bad" | "off";
+  title: string;
+  children?: React.ReactNode;
+}) {
   const word = { ok: "Ready", wait: "Waiting", bad: "Needs you", off: "Off" }[state];
   return (
     <li className={`check check-${state}`}>
@@ -686,7 +695,10 @@ function Check({ state, title, children }: { state: "ok" | "wait" | "bad" | "off
 function tokenText(t: TokenCheck): [state: "ok" | "wait" | "bad", text: string] {
   switch (t.kind) {
     case "none":
-      return ["wait", "No speaker token in this link. A local relay works without one; on the public relay, ask for a speaker link."];
+      return [
+        "wait",
+        "No speaker token in this link. A local relay works without one; on the public relay, ask for a speaker link.",
+      ];
     case "unreadable":
       return ["bad", "The token in this link is damaged. Ask for a new speaker link."];
     case "expired":
@@ -759,7 +771,10 @@ function Sources(props: {
                 : "Turn it on to check your level. Going on air needs it.")}
           </p>
         </Check>
-        <Check state={snap?.cameraError ? "bad" : snap?.cameraOn ? (snap.cameraTrack ? "ok" : "wait") : "off"} title="Camera">
+        <Check
+          state={snap?.cameraError ? "bad" : snap?.cameraOn ? (snap.cameraTrack ? "ok" : "wait") : "off"}
+          title="Camera"
+        >
           <div className="row">
             <Switch
               label="Camera on"
@@ -779,7 +794,10 @@ function Sources(props: {
           />
           {snap?.cameraError ? <p className="alert small">{snap.cameraError}</p> : null}
         </Check>
-        <Check state={props.deckError ? "bad" : deck ? (props.rendered >= deck.count ? "ok" : "wait") : "off"} title="Slides">
+        <Check
+          state={props.deckError ? "bad" : deck ? (props.rendered >= deck.count ? "ok" : "wait") : "off"}
+          title="Slides"
+        >
           <p className="small">
             {props.deckError ??
               (deck
@@ -788,7 +806,12 @@ function Sources(props: {
                   ? "Opening the PDF…"
                   : "No slides. Optional: you can talk without them.")}
           </p>
-          <Button label={deck ? "Change slides" : "Load slides"} size="sm" variant="secondary" onClick={props.pickFile} />
+          <Button
+            label={deck ? "Change slides" : "Load slides"}
+            size="sm"
+            variant="secondary"
+            onClick={props.pickFile}
+          />
         </Check>
         <Check state={tokenState} title="Speaker token">
           <p className="small">{tokenMessage}</p>
@@ -806,7 +829,10 @@ function Sources(props: {
           </p>
         </Check>
         {props.phase === "on-air" || props.clock.kind === "ready" ? (
-          <Check state={props.clock.kind === "ready" ? "ok" : props.clock.kind === "no-clock" ? "bad" : "wait"} title="Room clock">
+          <Check
+            state={props.clock.kind === "ready" ? "ok" : props.clock.kind === "no-clock" ? "bad" : "wait"}
+            title="Room clock"
+          >
             <p className="small">
               {props.clock.kind === "ready"
                 ? props.clock.local
@@ -847,7 +873,12 @@ function DevicePicker({
   const named = devices.filter((d) => d.deviceId);
   if (named.length < 2) return null;
   return (
-    <select className="device" aria-label={`${label} device`} value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+    <select
+      className="device"
+      aria-label={`${label} device`}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+    >
       {named.map((d, i) => (
         <option key={d.deviceId} value={d.deviceId}>
           {d.label || `${label} ${i + 1}`}

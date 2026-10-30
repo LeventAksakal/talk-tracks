@@ -52,8 +52,8 @@ Chosen: **A, PDF.js 6.4.299 in the browser.**
   the most-used PDF engine on the web.
 * Good: the deck's PDF fingerprint keys the speaker's private notes in local storage, so notes come back when the
   same deck is loaded again.
-* Bad: PDF.js is large (the worker is about 1 MB minified). It is loaded only on `/talk`, after the speaker picks a
-  file.
+* Bad: PDF.js is large: in the build the library chunk is 430 kB (129 kB gzip) and the worker 1.26 MB. Both are
+  loaded only on `/talk`, after the speaker picks a file; `/watch` never loads them.
 * Bad: run boxes are approximate. A part of a run is placed by character count, and the ascent is a fixed fraction,
   so underlines can sit a little off on unusual fonts. The marks still name the text exactly.
 * Bad: fonts the PDF does not embed are substituted by PDF.js, so a slide can look slightly different from the

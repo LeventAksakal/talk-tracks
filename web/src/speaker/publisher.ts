@@ -436,7 +436,8 @@ export class SlidesPublisher {
     if (this.#slide?.data.kind === "show" && this.#slide.data.deck === from) {
       this.#slide = { ...this.#slide, data: { ...this.#slide.data, deck: to } };
     }
-    for (const [id, s] of this.#ink) if (s.data.deck === from) this.#ink.set(id, { ...s, data: { ...s.data, deck: to } });
+    for (const [id, s] of this.#ink)
+      if (s.data.deck === from) this.#ink.set(id, { ...s, data: { ...s.data, deck: to } });
     for (const [id, k] of this.#marks)
       if (k.data.deck === from) this.#marks.set(id, { ...k, data: { ...k.data, deck: to } });
   }

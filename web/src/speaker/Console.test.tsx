@@ -2,7 +2,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { describe, expect, it } from "vitest";
 import { DECK_TRACK, INK_TRACK, MARKS_TRACK, POINTER_TRACK, SLIDE_TRACK } from "../contracts/names";
 import type { CurrentSlideRecord, InkRecord, MarkRecord, PointerRecord } from "../contracts/types";
-import { parseCurrentSlideObject, parseDeckObject, parseInkObject, parseMarksObject, parsePointerObject } from "../contracts/validate";
+import {
+  parseCurrentSlideObject,
+  parseDeckObject,
+  parseInkObject,
+  parseMarksObject,
+  parsePointerObject,
+} from "../contracts/validate";
 import { FakeTransport } from "../transport/fake";
 import { localEpoch } from "./clock";
 import { Console, type ConsoleDeps } from "./Console";
@@ -102,7 +108,17 @@ async function loadDeck() {
 
 function stage() {
   const canvas = screen.getByTestId("stage");
-  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 900, right: 1600, bottom: 900, x: 0, y: 0, toJSON: () => ({}) });
+  canvas.getBoundingClientRect = () => ({
+    left: 0,
+    top: 0,
+    width: 1600,
+    height: 900,
+    right: 1600,
+    bottom: 900,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
   return canvas;
 }
 
