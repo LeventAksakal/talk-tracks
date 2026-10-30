@@ -3,7 +3,7 @@
 Every event track is cut in 4 s slices on the room clock with a carry-in at object 0, except the deck (one group per
 deck); see ``wiki/design/lane-briefs.md`` §"Namespaces". The room service keeps two kinds:
 
-* **Mirrored:** the speaker's tracks (``room_catalog.speaker_tracks``: deck, slide, ink and pointer on
+* **Mirrored:** the speaker's tracks (``room_catalog.speaker_tracks``: deck, slide, ink, marks and pointer on
   ``talk/<room>/slides``). A browser cannot serve history, so the room service subscribes to them, which is free
   since no agent works for it (design §5.4), and writes every object as it arrives, under the speaker's own group and
   object numbers, byte for byte. It answers FETCH for them on ``history_path`` (``talk/<room>/archive/slides``: the

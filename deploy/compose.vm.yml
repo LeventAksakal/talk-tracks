@@ -132,10 +132,11 @@ services:
     command: ["loop", "--insecure", "--recording", "/data/demo/qrcode", "--slides", "0,0,0.77,0.77"]
 
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
-  # serves under /archive/. It records the speaker's media, slide frames and event tracks (deck, slide, ink, pointer)
-  # off the relay, serves the event tracks' past by FETCH on talk/<room>/archive/slides (decision 0022), and publishes
-  # talk/<room>/catalog with its room track (its token, $TT_ARCHIVE_TOKEN, may publish talk/*/catalog,
-  # talk/*/comments and talk/*/archive/**; wiki/howto/tokens.md). Agents write their own slices into the same folder
+  # serves under /archive/. It records the speaker's media, slide frames and event tracks (deck, slide, ink, marks,
+  # pointer) off the relay, serves the event tracks' past by FETCH on talk/<room>/archive/slides (decision 0022),
+  # and publishes talk/<room>/catalog with its room track (its token, $TT_ARCHIVE_TOKEN, may publish
+  # talk/*/catalog, talk/*/comments, talk/*/annotations and talk/*/archive/**; wiki/howto/tokens.md).
+  # Agents write their own slices into the same folder
   # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
   # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
   # leaves the VM. Looped demo rooms are skipped: their recording already is their archive.

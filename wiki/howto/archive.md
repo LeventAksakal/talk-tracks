@@ -79,7 +79,7 @@ rooms.json                                   every archived room
 <room>/agents/<agent>/<track>/<k>.part       an agent's open slice k, k as 8 digits (written by the agent)
 <room>/agents/<agent>/<track>/<k>.slice      a finished slice, immutable
 <room>/agents/<agent>/<track>/track.json     what the catalog says about the track
-<room>/slides/<track>/<k>.slice              the speaker's deck, slide, ink and pointer, as the room service received them
+<room>/slides/<track>/<k>.slice              the speaker's deck, slide, ink, marks, pointer, as the room service received them
 <room>/catalog/room/<k>.slice                the room track (on air, paused), written by the room service
 ```
 
@@ -281,8 +281,9 @@ again). A slide shown before the broadcast's first media waits for it (only the 
 
 ## Event tracks: the speaker's and the room service's
 
-The speaker's event tracks (`deck`, `slide`, `ink`, `pointer` on `talk/<room>/slides`) and the room service's own
-(`room` on `talk/<room>/catalog`; `comments` and later ones when their lanes land) are kept in the slice store's
+The speaker's event tracks (`deck`, `slide`, `ink`, `marks`, `pointer` on `talk/<room>/slides`) and the room
+service's own (`room` on `talk/<room>/catalog`; `comments` and the audience `ink` and `marks` on
+`talk/<room>/annotations` when their lanes land) are kept in the slice store's
 format, in folders named after the track: `talk/<room>/<rest>` track `t` is `<room>/<rest>/<t>/<k>.slice`
 (`TrackArchive.of`). Which tracks are kept comes from `room_catalog.speaker_tracks` and `room_service_tracks`.
 `talk_tracks.archive.events` does it; [decision 0022](../decisions/0022-the-room-service-serves-the-speakers-track-history.md)

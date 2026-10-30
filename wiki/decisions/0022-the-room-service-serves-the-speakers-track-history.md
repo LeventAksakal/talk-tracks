@@ -15,7 +15,7 @@ Every interaction is an event track in 4 s slices with a carry-in, and a replay 
 past: moq-relay forwards a FETCH it cannot serve from its ~30 s cache to the publisher, and the agent answers from
 its slice store.
 
-The speaker's `deck`, `slide`, `ink` and `pointer` tracks are published by a browser on `talk/<room>/slides`. A
+The speaker's `deck`, `slide`, `ink`, `marks` and `pointer` tracks are published by a browser on `talk/<room>/slides`. A
 browser cannot be that origin: `@moq/publish` keeps no history to answer a FETCH from, and the browser is gone when
 the talk ends, after which moq-relay serves nothing of the track. Someone else must hold the past
 and answer FETCH for it, under a name a player can find.
@@ -41,15 +41,16 @@ Chosen: **A**.
 * It publishes the same track names on `talk/<room>/archive/slides` and answers each FETCH there from the archive
   (disk, then the bucket), with the true End Location, as an agent does. A group never archived is a REQUEST_ERROR.
   At start it serves the history of every room in the archive, so a talk stays fetchable after its speaker left.
-* Tracks the room service publishes itself (`room` now; `comments` and the listener annotations when their lanes
-  land) need no second name: like an agent, it writes each object live and to the archive, and answers FETCH on the
+* Tracks the room service publishes itself (`room` now; `comments` and the audience `ink` and `marks` on
+  `talk/<room>/annotations` when their lanes land, with the re-send at each slide change that container-formats.md
+  asks) need no second name: like an agent, it writes each object live and to the archive, and answers FETCH on the
   same name.
 * A looped demo room has no room service. Its looper computes `deck` and `slide` from the lecture's slides and
   publishes them on both names, so the player's rule holds there too.
 * **The player's rule:** subscribe live to the speaker's `talk/<room>/slides/<track>`; fetch a past group from
   `talk/<room>/archive/<rest>/<track>`. That is `history_path(namespace)` in `talk_tracks.archive.events`. Room service
   and agent tracks are fetched on their own names.
-* The room service's token adds publish on `talk/*/archive/**` and `talk/*/comments`; a looper's adds
+* The room service's token adds publish on `talk/*/archive/**`, `talk/*/comments` and `talk/*/annotations`; a looper's adds
   `talk/R/slides` and `talk/R/archive/**`.
 
 ### Consequences

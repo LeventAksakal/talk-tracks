@@ -24,6 +24,7 @@ from talk_tracks.archive.events import (
 from talk_tracks.archive.slices import NORMAL, Slice, SliceObject, TrackArchive
 from talk_tracks.contracts import (
     SLICE_MS,
+    Author,
     CurrentSlideObject,
     CurrentSlideRecord,
     DeckImage,
@@ -150,7 +151,10 @@ SLIDES = [
     CurrentSlideRecord(m=26_000, data=ShowSlide(deck=DECK, index=0)),
 ]
 STROKE = [(0.1, 0.1), (0.2, 0.2), (0.3, 0.25)]
-PEN = InkBegin(stroke="s1", deck=DECK, index=0, tool="pen", color="#ff0000", width=0.004, points=[(0.1, 0.1)])
+SPEAKER = Author(id="u1", name="Ada", speaker=True)
+PEN = InkBegin(
+    stroke="s1", deck=DECK, index=0, tool="pen", color="#ff0000", width=0.004, points=[(0.1, 0.1)], by=SPEAKER
+)
 INK = [
     InkRecord(m=13_000, data=PEN),
     InkRecord(m=13_200, data=InkPoints(stroke="s1", points=[(0.2, 0.2), (0.3, 0.25)])),
@@ -207,7 +211,7 @@ async def test_a_recorded_talks_slides_ink_and_pointer_replay_from_the_archive_b
     relay = FakeRelay(sent)
     events = RoomEvents(ROOM, relay, tmp_path)
     events.announced(NS, True)
-    await until(lambda: relay.drained == 4)
+    await until(lambda: relay.drained == 5)  # deck, slide, ink, marks, pointer: room_catalog's list
     events.announced(NS, False)  # the speaker leaves: every slice is final
     history = history_path(NS)
     assert history == f"talk/{ROOM}/archive/slides"
@@ -241,7 +245,7 @@ async def test_a_recorded_talks_slides_ink_and_pointer_replay_from_the_archive_b
     again = RoomEvents(ROOM, relay2, tmp_path)
     await again.restore()
     assert await relay2.published[(history, "ink")].fetch(6) == await outs["ink"].fetch(6)
-    assert {t.name for t in again.catalog_tracks()} == {"deck", "slide", "ink", "pointer"}
+    assert {t.name for t in again.catalog_tracks()} == {"deck", "slide", "ink", "pointer"}  # marks: nothing sent
 
 
 def test_a_mirrored_slice_is_kept_whole_or_not_at_all(tmp_path: Path) -> None:
@@ -303,7 +307,7 @@ async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_pat
     relay = FakeRelay({"slide": [(3, 0, b"[]")]})
     events = RoomEvents(ROOM, relay, tmp_path)
     events.announced(NS, True)
-    await until(lambda: relay.drained == 4)
+    await until(lambda: relay.drained == 5)
     await events.tick(12_000, live=True)
     cat = CatalogFeed(ROOM, tmp_path)
     cat.epoch_ms = E
@@ -316,6 +320,7 @@ async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_pat
         (NS, "deck"),
         (NS, "slide"),
         (NS, "ink"),
+        (NS, "marks"),
         (NS, "pointer"),
         (f"talk/{ROOM}/catalog", "room"),
     ]

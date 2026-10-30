@@ -5,8 +5,8 @@ Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk
 
 * ``<room>/teacher``: ``catalog.json``, then every legacy-container track it names, into fMP4 segments and HLS
   playlists in room time (design §4.5). A catalog without a root ``clock`` is refused: no track is read;
-* ``<room>/slides``: ``frames``, and the speaker's event tracks (deck, slide, ink, pointer), mirrored into the archive
-  and served by FETCH on ``<room>/archive/slides`` (``archive.events``, decision 0022);
+* ``<room>/slides``: ``frames``, and the speaker's event tracks (deck, slide, ink, marks, pointer), mirrored into the
+  archive and served by FETCH on ``<room>/archive/slides`` (``archive.events``, decision 0022);
 * ``<room>/agents/<agent>``: never subscribed. A subscription is demand and keeps a lazy agent awake; agents record
   their own slices (decision 0012). Their announcements only list them in the catalog;
 * ``<room>/catalog``: published here (``archive.catalog``), with the room's epoch and each broadcast's shift as soon
