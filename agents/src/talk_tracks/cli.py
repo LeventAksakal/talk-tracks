@@ -425,7 +425,8 @@ async def _demo(args: argparse.Namespace) -> None:
             args.relay, args.room, media, out, lead_in_s=args.lead_in_s, tail_s=args.tail_s, slides=slides, **common
         )
     else:
-        await demo.loop(args.relay, args.room, need(args.recording, "--recording"), media=args.media, **common)
+        recording = need(args.recording, "--recording")
+        await demo.loop(args.relay, args.room, recording, media=args.media, slides=slides, **common)
 
 
 async def _revise(args: argparse.Namespace) -> None:
@@ -504,7 +505,8 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="?",
         const="full",
         default=None,
-        help="play, generate: also send the slides found in the video, cropped to x,y,w,h (fractions; default full)",
+        help="play, generate: also send the slides found in the video, cropped to x,y,w,h (fractions; default full);"
+        " loop: also send them as the speaker's deck and slide tracks",
     )
     args = p.parse_args(argv)
     if args.agent not in AGENTS:

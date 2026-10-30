@@ -23,6 +23,12 @@ export interface SpeakerMedia {
   status(): MediaStatus;
   /** The playhead, room ms; undefined until something plays (live) or a seek (rewound). */
   position(): number | undefined;
+  /**
+   * Room ms of the frame on screen (decision 0020), cheap enough to call every animation frame: live, the
+   * frame @moq/watch painted (or its audio clock); rewound, the last frame the video element presented;
+   * with no media, `position()`.
+   */
+  frameTime(): number | undefined;
   /** Best estimate of the live edge, room ms. */
   liveEdge(): number | undefined;
   /** Room time the archive can play. */
@@ -98,6 +104,9 @@ export class ClockMedia implements SpeakerMedia {
     const pos = this.#anchor.media + (this.#now() - this.#anchor.wall);
     const edge = this.liveEdge();
     return edge === undefined ? pos : Math.min(pos, edge);
+  }
+  frameTime(): number | undefined {
+    return this.position();
   }
   liveEdge(): number | undefined {
     return this.#edge && this.#edge.media + (this.#now() - this.#edge.wall);
@@ -177,9 +186,16 @@ export class RoomMedia implements SpeakerMedia {
   /** The last live playhead seen (room ms), and when (this device's wall ms). */
   #lastLive: { room: number; wall: number } | undefined;
   #live: { close(): void } | undefined;
+  /** The frame clock of the live player, once it exists: PTS on screen (ms) to room ms. */
+  #liveFrame: (() => number | undefined) | undefined;
   #liveGeneration = 0;
   #archive: ArchivePlayback | undefined;
   #archiveGeneration = 0;
+  /** The archive's last presented frame (requestVideoFrameCallback mediaTime, s) and the callback handle. */
+  #presented: { mediaTime: number | undefined; handle: number | undefined } = {
+    mediaTime: undefined,
+    handle: undefined,
+  };
   /** The archive's playlist as last read: wall-time ranges, and whether it has ended. */
   #playlist: ArchiveState | undefined;
   /** A clock for rooms with no archived media. */
@@ -265,6 +281,22 @@ export class RoomMedia implements SpeakerMedia {
   position(): number | undefined {
     if (this.#mode === "rewound") return this.#clock ? this.#clock.position() : this.#toRoom(this.#archive?.position());
     return this.#lastLive && this.#live ? this.#lastLive.room : undefined;
+  }
+
+  frameTime(): number | undefined {
+    if (this.#mode === "live") return this.#liveFrame?.() ?? this.position();
+    if (this.#clock) return this.#clock.position();
+    const archive = this.#archive;
+    const wall = archive?.position();
+    const video = archive?.element;
+    const mediaTime = this.#presented.mediaTime;
+    // The presented frame through the playhead's own PROGRAM-DATE-TIME offset (decision 0020); paused,
+    // seeking or with no frame yet, the playhead itself.
+    if (wall !== undefined && video && mediaTime !== undefined && !video.paused && !video.seeking) {
+      const lag = (mediaTime - video.currentTime) * 1000;
+      if (Math.abs(lag) < 1_000) return this.#toRoom(wall + lag);
+    }
+    return this.#toRoom(wall);
   }
 
   liveEdge(): number | undefined {
@@ -395,6 +427,7 @@ export class RoomMedia implements SpeakerMedia {
       return;
     }
     if (generation !== this.#archiveGeneration) return;
+    this.#watchFrames(video, generation);
     this.#status = "playing";
     this.#error = undefined;
     video.muted = false;
@@ -407,8 +440,22 @@ export class RoomMedia implements SpeakerMedia {
 
   #closeArchive(): void {
     this.#archiveGeneration++;
+    const { handle } = this.#presented;
+    const video = this.#archive?.element;
+    if (handle !== undefined && video && "cancelVideoFrameCallback" in video) video.cancelVideoFrameCallback(handle);
+    this.#presented = { mediaTime: undefined, handle: undefined };
     this.#archive?.close();
     this.#archive = undefined;
+  }
+
+  /** Keep the media time of the frame the element last presented (requestVideoFrameCallback, decision 0020). */
+  #watchFrames(video: HTMLVideoElement, generation: number): void {
+    if (!("requestVideoFrameCallback" in video) || this.#presented.handle !== undefined) return;
+    const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
+      if (generation !== this.#archiveGeneration) return;
+      this.#presented = { mediaTime: metadata.mediaTime, handle: video.requestVideoFrameCallback(onFrame) };
+    };
+    this.#presented = { mediaTime: undefined, handle: video.requestVideoFrameCallback(onFrame) };
   }
 
   #useClock(ms: number, edge: number | undefined): void {
@@ -453,14 +500,20 @@ export class RoomMedia implements SpeakerMedia {
             this.#listeners.emit();
           }),
         );
-        const poll = setInterval(() => {
-          const pts = player.sync.now();
+        const toRoom = (pts: number | undefined): number | undefined => {
           const e = this.#catalog?.tt.E;
-          if (pts === undefined || !clock || e === undefined) return;
-          const shift = shiftOf(this.#catalog?.tt.shift, clock);
-          this.#lastLive = { room: roomTimeOf(wallClockMs(clock, Number(pts)), e, shift), wall: this.#now() };
+          if (pts === undefined || !clock || e === undefined) return undefined;
+          return roomTimeOf(wallClockMs(clock, pts), e, shiftOf(this.#catalog?.tt.shift, clock));
+        };
+        const poll = setInterval(() => {
+          const room = toRoom(player.sync.now());
+          if (room !== undefined) this.#lastLive = { room, wall: this.#now() };
         }, 100);
         cleanup.push(() => clearInterval(poll));
+        // The frame painted on the canvas (its PTS, set in @moq/watch's own rAF), else the shared audio
+        // clock for a room without video (decision 0020).
+        this.#liveFrame = () => toRoom(player.renderer.out.timestamp.peek() ?? player.sync.now());
+        cleanup.push(() => (this.#liveFrame = undefined));
       })
       .catch((e: unknown) => {
         this.#error = String(e);

@@ -100,39 +100,43 @@ services:
     volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro", "auth_sock:/run/auth"]
 
   # One looping demo room per lecture (ticket 0001), named after it: the recording is $TT_DATA/demo/<room>/.
-  # TT_LOOPER_TOKEN is signed for all four rooms (wiki/howto/tokens.md, one --publish pair per room).
+  # TT_LOOPER_TOKEN is signed for all four rooms (wiki/howto/tokens.md). --slides is the EMF slide area: the looper
+  # finds the slides in the video at start (about a minute) and sends them as the speaker's deck and slide tracks.
   looper-virus:
     <<: *agent
     environment:
       <<: *agent-env
       TT_ROOM: virus
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/virus"]
+    command: ["loop", "--insecure", "--recording", "/data/demo/virus", "--slides", "0,0,0.77,0.77"]
   looper-dataviz:
     <<: *agent
     environment:
       <<: *agent-env
       TT_ROOM: dataviz
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/dataviz"]
+    command: ["loop", "--insecure", "--recording", "/data/demo/dataviz", "--slides", "0,0,0.77,0.77"]
   looper-rsa:
     <<: *agent
     environment:
       <<: *agent-env
       TT_ROOM: rsa
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/rsa"]
+    command: ["loop", "--insecure", "--recording", "/data/demo/rsa", "--slides", "0,0,0.77,0.77"]
   looper-qrcode:
     <<: *agent
     environment:
       <<: *agent-env
       TT_ROOM: qrcode
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/qrcode"]
+    command: ["loop", "--insecure", "--recording", "/data/demo/qrcode", "--slides", "0,0,0.77,0.77"]
 
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
-  # serves under /archive/. It records the speaker's media and slides off the relay and publishes talk/<room>/catalog
-  # (its token, $TT_ARCHIVE_TOKEN, may publish talk/*/catalog). Agents write their own slices into the same folder
+  # serves under /archive/. It records the speaker's media, slide frames and event tracks (deck, slide, ink, marks,
+  # pointer) off the relay, serves the event tracks' past by FETCH on talk/<room>/archive/slides (decision 0022),
+  # and publishes talk/<room>/catalog with its room track (its token, $TT_ARCHIVE_TOKEN, may publish
+  # talk/*/catalog, talk/*/comments, talk/*/annotations and talk/*/archive/**; wiki/howto/tokens.md).
+  # Agents write their own slices into the same folder
   # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
   # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
   # leaves the VM. Looped demo rooms are skipped: their recording already is their archive.
