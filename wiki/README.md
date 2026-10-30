@@ -35,3 +35,7 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | The viewer is a media player; every interaction is an event track | [0017](decisions/0017-viewer-is-a-media-player-and-every-interaction-is-a-track.md) |
 | Speaker sends voice, camera, slides with ink and laser; notes stay private | [0018](decisions/0018-speaker-sends-slides-ink-laser-and-camera.md) |
 | Subtitles translate into any language the model supports | [0019](decisions/0019-subtitles-in-any-language-the-model-supports.md) |
+| Player overlays are DOM plus one main-thread ink canvas per slide, on the frame clock | [0020](decisions/0020-player-overlays-are-dom-and-a-main-thread-ink-canvas-on-the-frame-clock.md) |
+| The deck and its annotations are shared state: three tools, every mutation an event | [0021](decisions/0021-deck-annotations-are-shared-state-on-event-tracks.md) |
+| The room service serves the past of the speaker's event tracks | [0022](decisions/0022-the-room-service-serves-the-speakers-track-history.md) |
+| The speaker console renders PDF decks in the browser with PDF.js | [0023](decisions/0023-the-console-renders-pdf-decks-in-the-browser-with-pdfjs.md) |

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-30
 decision-makers: coordinator, project owner
 refines: 0012 (who is the FETCH origin of a track's past), 0018 (the speaker's event tracks)
