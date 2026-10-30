@@ -269,7 +269,7 @@ SLIDES_EVENT = "com.talktracks.slides"
 OUTLINE_EVENT = "com.talktracks.outline"
 
 
-# --- the speaker's and the room's event tracks (ui-design §3.4, decisions 0017 and 0018) --------------------
+# --- the speaker's and the room's event tracks (ui-design §3.4, decisions 0017, 0018, 0021) ---------------
 #
 # Same model as the agent tracks: every object is a JSON array of records ``{"m": <room ms>, "data": {...}}``, and
 # every ``data`` names its ``kind``. The sliced tracks (slide, ink, marks, pointer, comments, room) cut group k at room
