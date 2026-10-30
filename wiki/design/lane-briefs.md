@@ -184,6 +184,61 @@ and Archive are merged, if the Nov 2 checks are not at risk.
 - **Done when:** schemas generated from the Python models, TypeScript types and validators updated, round-trip tests
   pass, and the coordinator has the list of changed names to pass to the other lanes.
 
+### Namespaces
+
+Written by the Event track contracts lane (branch `lane/event-track-contracts`). Models in
+`agents/src/talk_tracks/contracts.py`, schemas in `contracts/*.schema.json`, TypeScript in `web/src/contracts/`
+(`types.ts`, `names.ts`, `validate.ts`, `tracks.ts`). Everything in "Namespaces and tokens" above still holds.
+
+| Namespace | Track | Publisher | Object (Python = TS) | eventType | Groups | Carry-in (object 0) |
+|---|---|---|---|---|---|---|
+| `talk/R/teacher` | hang `catalog.json`, its media tracks | speaker (@moq/publish) | hang | — | hang's | — |
+| `talk/R/slides` | `frames` | speaker | `SlideFrame` (unchanged, for the describe agent) | — | one per slide shown | — |
+| `talk/R/slides` | `deck` | speaker | `DeckObject` | `com.talktracks.deck` | **one per deck** (not sliced) | — (object 0 is `DeckInfo`) |
+| `talk/R/slides` | `slide` | speaker | `CurrentSlideObject` | `com.talktracks.current-slide` | 4 s slices | the last record |
+| `talk/R/slides` | `ink` | speaker | `InkObject` | `com.talktracks.ink` | 4 s slices | strokes visible on the slide on screen |
+| `talk/R/slides` | `pointer` | speaker | `PointerObject` | `com.talktracks.pointer` | 4 s slices | the last record |
+| `talk/R/comments` | `comments` | room service | `CommentsObject` | `com.talktracks.comments` | 4 s slices | threads on the slide on screen |
+| `talk/R/catalog` | `room` | room service | `RoomStateObject` | `com.talktracks.room` | 4 s slices | the last record |
+| `talk/R/catalog` | `catalog` | room service | `RoomCatalog` (now with `tt.sources`) | — | one per change | — |
+
+Tokens: the room service also publishes `talk/R/comments` (the `room` track sits in `talk/R/catalog`, which it
+already holds). The speaker's `talk/R/slides` grant covers deck, slide, ink and pointer. A looper that gives demo
+rooms slide tracks needs publish on `talk/R/slides`.
+
+Rules every lane relies on:
+- **Records.** Every object is a JSON array of `{"m": <room ms>, "data": {...}}`; every `data` has a `kind`:
+  deck `deck`/`image`; slide `show` (deck, index) / `hide`; ink `begin`/`points`/`end`/`stroke`/`erase`/`clear`;
+  pointer `at` (x, y) / `off`; comments `comment`/`reply`/`edit`/`hide`; room `state`
+  (`waiting`, `on_air`, `paused`, `ended`, optional `title` and `speaker`).
+- **Fractions.** Points are `[x, y]` in [0, 1] of the slide, x from the left, y from the top; ink `width` is a
+  fraction of the slide's width; comment regions are `{x, y, w, h}` fractions. Colours are `#rrggbb`.
+- **Deck ids.** A deck is one group of the `deck` track; its group number is the deck id that `show`, ink and
+  comment anchors name (`deck`), with `index` the 0-based slide. The group number is the room slice the deck was
+  loaded in, or one more than the previous deck's group if that is not larger. Object 0 holds `DeckInfo` (count,
+  aspect, title); later objects hold `DeckImage`s (index, mime webp/jpeg/png, width, height, `data_b64`, optional
+  `text` layer), all at once or each before its slide is first shown.
+- **Carry-ins.** Object 0 of slice k is built from every earlier record by `records.py` (`last_record`,
+  `current_slide`, `ink_carry`, `comments_carry`) and identically by `tracks.ts` (`lastRecord`, `currentSlide`,
+  `inkCarry`, `commentsCarry`); both are checked against `contracts/examples/carry-ins.json`. A carry-in record keeps
+  the m of when it took effect, so it may precede the slice. An in-progress stroke is carried as `stroke` with
+  `done: false`.
+- **Re-send on slide change**, so that one group is always enough: when a slide is shown, the console re-sends that
+  slide's remaining strokes as `stroke` records, and the room service re-sends its threads (comment, then replies,
+  current text), each with m = that moment. Comments keep `at` (when posted); m ≥ at.
+- **Reading at time t** (player): fetch group ⌊t/4000⌋, `upTo(objects, t)` its records, and pass them to the same
+  functions: `inkCarry(upTo(ink, t), currentSlide(upTo(slide, t)))` is the ink to draw.
+- **Live edge.** Every speaker and room record goes into the slice of its m (L = 0); a batching publisher (pointer
+  samples) cuts its batch at the slice boundary.
+- **Catalog.** `tt.sources` lists what the speaker sends: `{kind: audio|camera|screen|slides, namespace, tracks,
+  label?}`; audio and camera point at `talk/R/teacher` `catalog.json`, slides at `talk/R/slides` deck, slide, ink,
+  pointer. Each event track also has an MSF track entry (`room_catalog.speaker_tracks`, `room_service_tracks`):
+  packaging `eventtimeline`, the eventType above, `cost: free`, `latenessMs: 0`, the slice template except on `deck`,
+  and `tt.dependsOn` (slide on deck; ink, pointer and comments on slide).
+
+Left to other lanes: who is the FETCH origin for speaker tracks (Archive); comments placed while watching a replay
+(ui-design §12.7) and keeping hidden comments out of replays that start before the hide (Comments).
+
 ### Player
 - **Goal:** the viewer becomes the media player of ui-design §3–§4.8 (comments UI comes later).
 - **Owns:** `web/src/player/` (new), `web/src/pages/WatchPage.tsx`, `DemoPage.tsx`, styles. Reuse `web/src/playback/`

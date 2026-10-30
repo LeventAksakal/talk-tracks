@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "DeckImage": {
+      "additionalProperties": false,
+      "properties": {
+        "data_b64": {
+          "minLength": 1,
+          "title": "Data B64",
+          "type": "string"
+        },
+        "height": {
+          "description": "Pixels",
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "image",
+          "default": "image",
+          "title": "Kind",
+          "type": "string"
+        },
+        "mime": {
+          "enum": [
+            "image/webp",
+            "image/jpeg",
+            "image/png"
+          ],
+          "title": "Mime",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The slide's text layer (from the PDF), which comment text spans index into",
+          "title": "Text"
+        },
+        "width": {
+          "description": "Pixels",
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "mime",
+        "width",
+        "height",
+        "data_b64"
+      ],
+      "title": "DeckImage",
+      "type": "object"
+    },
+    "DeckInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "aspect": {
+          "description": "Slide width / height, for layout before the images arrive",
+          "exclusiveMinimum": 0,
+          "title": "Aspect",
+          "type": "number"
+        },
+        "count": {
+          "description": "Number of slides",
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "deck",
+          "default": "deck",
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The deck's title, if the speaker gave one",
+          "title": "Title"
+        }
+      },
+      "required": [
+        "count",
+        "aspect"
+      ],
+      "title": "DeckInfo",
+      "type": "object"
+    },
+    "DeckRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "deck": "#/$defs/DeckInfo",
+              "image": "#/$defs/DeckImage"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DeckInfo"
+            },
+            {
+              "$ref": "#/$defs/DeckImage"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "description": "Room ms when the deck was loaded or the image sent",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "DeckRecord",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``deck`` track (eventType ``com.talktracks.deck``).",
+  "items": {
+    "$ref": "#/$defs/DeckRecord"
+  },
+  "title": "DeckObject",
+  "type": "array"
+}

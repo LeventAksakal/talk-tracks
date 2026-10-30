@@ -141,6 +141,14 @@
           "title": "Shift",
           "type": "object"
         },
+        "sources": {
+          "description": "The speaker's sources, in the speaker's order",
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
         "status": {
           "additionalProperties": {
             "$ref": "#/$defs/TrackStatus"
@@ -155,6 +163,55 @@
         "shift"
       ],
       "title": "RoomTt",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "description": "A picture or sound the speaker is sending now, which the player can lay out (ui-design \u00a73.2).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "audio",
+            "camera",
+            "screen",
+            "slides"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "namespace": {
+          "description": "talk/<room>/teacher for audio and camera, talk/<room>/slides for slides",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "tracks": {
+          "description": "Track names in that namespace: catalog.json for audio and camera (the hang catalog names the media tracks), deck, slide, ink and pointer for slides",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Tracks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "namespace",
+        "tracks"
+      ],
+      "title": "Source",
       "type": "object"
     },
     "TrackStatus": {

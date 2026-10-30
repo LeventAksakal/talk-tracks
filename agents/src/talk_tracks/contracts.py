@@ -269,6 +269,305 @@ SLIDES_EVENT = "com.talktracks.slides"
 OUTLINE_EVENT = "com.talktracks.outline"
 
 
+# --- the speaker's and the room's event tracks (ui-design §3.4, decisions 0017 and 0018) --------------------
+#
+# Same model as the agent tracks: every object is a JSON array of records ``{"m": <room ms>, "data": {...}}``, and
+# every ``data`` names its ``kind``. The sliced tracks (slide, ink, pointer, comments, room) cut group k at room time
+# [k * 4 s, (k + 1) * 4 s); object 0 is the carry-in, the state needed to draw the slice's start without earlier
+# slices (``records.py`` builds it), and objects 1 and up are the slice's new records in publication order. A
+# carry-in record keeps the m of when it took effect, so its m may precede the slice. The deck track is not sliced:
+# one group per deck, like the outline. Positions and sizes are fractions of the slide, never pixels: x from the
+# left, y from the top.
+
+Fraction = Annotated[float, Field(ge=0, le=1)]
+Point = tuple[Fraction, Fraction]
+SlideIndex = Annotated[int, Field(ge=0, description="The slide's 0-based position in its deck")]
+DeckGroup = Annotated[int, Field(ge=0, description="The deck track's group that holds the deck")]
+
+
+# deck: track ``deck`` in ``talk/<room>/slides``, one group per deck. Object 0 holds the ``DeckInfo``; each later
+# object holds slide images, sent at once or each before it is first shown. The group number is the deck's id that
+# the slide, ink and comment records name: the room slice the deck was loaded in, or one more than the previous
+# deck's group if that is not larger, so ids never repeat.
+
+
+class DeckInfo(Wire):
+    kind: Literal["deck"] = "deck"
+    count: int = Field(ge=1, description="Number of slides")
+    aspect: float = Field(gt=0, description="Slide width / height, for layout before the images arrive")
+    title: str | None = Field(default=None, description="The deck's title, if the speaker gave one")
+
+
+class DeckImage(Wire):
+    kind: Literal["image"] = "image"
+    index: SlideIndex
+    mime: Literal["image/webp", "image/jpeg", "image/png"]
+    width: int = Field(ge=1, description="Pixels")
+    height: int = Field(ge=1, description="Pixels")
+    data_b64: str = Field(min_length=1)
+    text: str | None = Field(
+        default=None, description="The slide's text layer (from the PDF), which comment text spans index into"
+    )
+
+
+class DeckRecord(Wire):
+    m: int = Field(ge=0, description="Room ms when the deck was loaded or the image sent")
+    data: Annotated[DeckInfo | DeckImage, Field(discriminator="kind")]
+
+
+class DeckObject(RootModel[list[DeckRecord]]):
+    """One object of the ``deck`` track (eventType ``com.talktracks.deck``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# slide: which slide is on screen. Carry-in: the last record (the slide on screen, or hidden).
+
+
+class ShowSlide(Wire):
+    kind: Literal["show"] = "show"
+    deck: DeckGroup
+    index: SlideIndex
+
+
+class HideSlide(Wire):
+    """The speaker stopped showing slides."""
+
+    kind: Literal["hide"] = "hide"
+
+
+class CurrentSlideRecord(Wire):
+    m: int = Field(ge=0, description="Room ms when the slide was shown or hidden")
+    data: Annotated[ShowSlide | HideSlide, Field(discriminator="kind")]
+
+
+class CurrentSlideObject(RootModel[list[CurrentSlideRecord]]):
+    """One object of the ``slide`` track (eventType ``com.talktracks.current-slide``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# ink: strokes drawn on a slide. A stroke is ``begin``, ``points`` (any number), ``end``. ``stroke`` states a whole
+# stroke at once: in the carry-in (every stroke visible on the slide on screen, ``done`` false while still being
+# drawn) and, re-sent at the moment a slide that kept its ink is shown again, so a reader that started from a later
+# carry-in sees it too. ``erase`` removes strokes, ``clear`` a slide's ink. ``m`` is when the record took effect on
+# screen; a re-sent stroke's m is when its slide was shown.
+
+
+InkTool = Literal["pen", "highlighter"]
+StrokeId = Annotated[str, Field(min_length=1, description="Unique in the room, stable across re-sends")]
+Colour = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$", description="#rrggbb")]
+Width = Annotated[float, Field(gt=0, le=1, description="Line width as a fraction of the slide's width")]
+Points = Annotated[list[Point], Field(min_length=1, description="[x, y] fractions of the slide, in drawing order")]
+
+
+class InkBegin(Wire):
+    kind: Literal["begin"] = "begin"
+    stroke: StrokeId
+    deck: DeckGroup
+    index: SlideIndex
+    tool: InkTool
+    color: Colour
+    width: Width
+    points: Points
+
+
+class InkPoints(Wire):
+    kind: Literal["points"] = "points"
+    stroke: StrokeId
+    points: Points
+
+
+class InkEnd(Wire):
+    kind: Literal["end"] = "end"
+    stroke: StrokeId
+
+
+class InkStroke(Wire):
+    kind: Literal["stroke"] = "stroke"
+    stroke: StrokeId
+    deck: DeckGroup
+    index: SlideIndex
+    tool: InkTool
+    color: Colour
+    width: Width
+    points: Points
+    done: bool = Field(description="False while the speaker is still drawing it: points and end follow")
+
+
+class InkErase(Wire):
+    kind: Literal["erase"] = "erase"
+    strokes: list[StrokeId] = Field(min_length=1)
+
+
+class InkClear(Wire):
+    kind: Literal["clear"] = "clear"
+    deck: DeckGroup
+    index: SlideIndex
+
+
+InkData = Annotated[InkBegin | InkPoints | InkEnd | InkStroke | InkErase | InkClear, Field(discriminator="kind")]
+
+
+class InkRecord(Wire):
+    m: int = Field(ge=0, description="Room ms when it took effect on screen")
+    data: InkData
+
+
+class InkObject(RootModel[list[InkRecord]]):
+    """One object of the ``ink`` track (eventType ``com.talktracks.ink``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# pointer: the laser, sampled about 20 times a second while held; an object may batch a few samples but never
+# crosses a slice. Carry-in: the last record.
+
+
+class PointerAt(Wire):
+    kind: Literal["at"] = "at"
+    x: Fraction
+    y: Fraction
+
+
+class PointerOff(Wire):
+    kind: Literal["off"] = "off"
+
+
+class PointerRecord(Wire):
+    m: int = Field(ge=0)
+    data: Annotated[PointerAt | PointerOff, Field(discriminator="kind")]
+
+
+class PointerObject(RootModel[list[PointerRecord]]):
+    """One object of the ``pointer`` track (eventType ``com.talktracks.pointer``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# comments: listeners post through the room service, which publishes them (decision 0005). A thread is a
+# ``comment`` and its ``reply`` records; ``edit`` replaces a text, ``hide`` (the speaker) removes a comment or reply.
+# Carry-in: the threads anchored on the slide on screen, as their comment and reply records with edits applied and
+# hidden ones left out. As with ink, when a slide is shown the room service re-sends its threads (comment, then
+# replies, current text) with m = that moment; ``at`` keeps when each was posted.
+
+
+class Region(Wire):
+    x: Fraction
+    y: Fraction
+    w: Fraction
+    h: Fraction
+
+
+class TextSpan(Wire):
+    start: int = Field(ge=0, description="First character, in the deck image's text")
+    end: int = Field(ge=0, description="One past the last character")
+
+    @model_validator(mode="after")
+    def _ordered(self) -> TextSpan:
+        if self.end < self.start:
+            raise ValueError("a text span ends before it starts")
+        return self
+
+
+class Anchor(Wire):
+    """Where on a slide: a region, a text span, both (the span's box), or neither (the whole slide)."""
+
+    deck: DeckGroup
+    index: SlideIndex
+    region: Region | None = None
+    span: TextSpan | None = None
+
+
+CommentId = Annotated[str, Field(min_length=1, description="Given by the room service, unique in the room")]
+Author = Annotated[str, Field(min_length=1, max_length=60, description="Display name, no account")]
+CommentText = Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+PostedAt = Annotated[int, Field(ge=0, description="Room ms it was posted at; the record's m is when it appeared")]
+
+
+class Comment(Wire):
+    kind: Literal["comment"] = "comment"
+    id: CommentId
+    at: PostedAt
+    author: Author
+    text: CommentText
+    anchor: Anchor
+    question: bool = Field(default=False, description="Asked as a question for the speaker")
+    speaker: bool = Field(default=False, description="Written by the speaker")
+
+
+class Reply(Wire):
+    kind: Literal["reply"] = "reply"
+    id: CommentId
+    at: PostedAt
+    to: CommentId = Field(description="The thread's comment")
+    author: Author
+    text: CommentText
+    speaker: bool = Field(default=False, description="Written by the speaker: shown first")
+
+
+class CommentEdit(Wire):
+    kind: Literal["edit"] = "edit"
+    id: CommentId
+    text: CommentText
+
+
+class CommentHide(Wire):
+    kind: Literal["hide"] = "hide"
+    id: CommentId
+
+
+CommentData = Annotated[Comment | Reply | CommentEdit | CommentHide, Field(discriminator="kind")]
+
+
+class CommentRecord(Wire):
+    m: int = Field(ge=0, description="Room ms when it took effect: posted, edited, hidden, or its slide shown again")
+    data: CommentData
+
+    @model_validator(mode="after")
+    def _not_before_posted(self) -> CommentRecord:
+        if isinstance(self.data, Comment | Reply) and self.m < self.data.at:
+            raise ValueError("a comment record's m is not before its at")
+        return self
+
+
+class CommentsObject(RootModel[list[CommentRecord]]):
+    """One object of the ``comments`` track (eventType ``com.talktracks.comments``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# room: the room's state, published by the room service. Carry-in: the last record.
+
+
+class RoomState(Wire):
+    kind: Literal["state"] = "state"
+    state: Literal["waiting", "on_air", "paused", "ended"]
+    title: str | None = Field(default=None, description="The talk's title")
+    speaker: str | None = Field(default=None, description="The speaker's display name")
+
+
+class RoomStateRecord(Wire):
+    m: int = Field(ge=0)
+    data: RoomState
+
+
+class RoomStateObject(RootModel[list[RoomStateRecord]]):
+    """One object of the ``room`` track (eventType ``com.talktracks.room``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+DECK_EVENT = "com.talktracks.deck"
+CURRENT_SLIDE_EVENT = "com.talktracks.current-slide"
+INK_EVENT = "com.talktracks.ink"
+POINTER_EVENT = "com.talktracks.pointer"
+COMMENTS_EVENT = "com.talktracks.comments"
+ROOM_EVENT = "com.talktracks.room"
+
+
 # --- the room catalog (design §5.10), published by the room service on ``talk/<room>/catalog`` ---------------
 
 
@@ -283,6 +582,19 @@ class TrackStatus(Wire):
     updated_ms: int = Field(ge=0, description="Unix ms of the agent's last report")
 
 
+class Source(Wire):
+    """A picture or sound the speaker is sending now, which the player can lay out (ui-design §3.2)."""
+
+    kind: Literal["audio", "camera", "screen", "slides"]
+    namespace: str = Field(description="talk/<room>/teacher for audio and camera, talk/<room>/slides for slides")
+    tracks: list[str] = Field(
+        min_length=1,
+        description="Track names in that namespace: catalog.json for audio and camera (the hang catalog names the media"
+        " tracks), deck, slide, ink and pointer for slides",
+    )
+    label: str | None = None
+
+
 class RoomTt(Wire):
     """Talk Tracks' extension of the catalog root."""
 
@@ -292,6 +604,9 @@ class RoomTt(Wire):
         " a multiple of 4000 (0 normally). Nobody stamps a broadcast that is not listed yet"
     )
     status: dict[str, TrackStatus] = Field(default_factory=dict, description="Per agent name")
+    sources: list[Source] = Field(
+        default_factory=list[Source], description="The speaker's sources, in the speaker's order"
+    )
 
     @model_validator(mode="after")
     def _whole_slices(self) -> RoomTt:
@@ -467,15 +782,39 @@ CATALOG_TRACK = "catalog"  # in catalog_path(room)
 
 
 def teacher_path(room: str) -> str:
+    """The speaker's hang broadcast (@moq/publish): microphone and camera, described by its ``catalog.json``."""
     return f"{ROOT}/{room}/teacher"
 
 
+HANG_CATALOG_TRACK = "catalog.json"  # names the media tracks of teacher_path(room)
+
+
 def slides_path(room: str) -> str:
+    """The speaker's slide broadcast: ``frames`` (for the describe agent), ``deck``, ``slide``, ``ink``, ``pointer``."""
     return f"{ROOT}/{room}/slides"
 
 
+FRAMES_TRACK = "frames"  # SlideFrame objects, one per slide shown
+DECK_TRACK = "deck"  # DeckObject, one group per deck
+SLIDE_TRACK = "slide"  # CurrentSlideObject, sliced
+INK_TRACK = "ink"  # InkObject, sliced
+POINTER_TRACK = "pointer"  # PointerObject, sliced
+
+
 def catalog_path(room: str) -> str:
+    """The room service's broadcast: ``catalog`` (the room catalog) and ``room`` (the room's state)."""
     return f"{ROOT}/{room}/catalog"
+
+
+ROOM_TRACK = "room"  # RoomStateObject, sliced, in catalog_path(room)
+
+
+def comments_path(room: str) -> str:
+    """Listener comments, published by the room service (listeners never publish to the relay)."""
+    return f"{ROOT}/{room}/comments"
+
+
+COMMENTS_TRACK = "comments"  # CommentsObject, sliced
 
 
 def agents_prefix(room: str) -> str:

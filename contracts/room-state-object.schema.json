@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "RoomState": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "state",
+          "default": "state",
+          "title": "Kind",
+          "type": "string"
+        },
+        "speaker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The speaker's display name",
+          "title": "Speaker"
+        },
+        "state": {
+          "enum": [
+            "waiting",
+            "on_air",
+            "paused",
+            "ended"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The talk's title",
+          "title": "Title"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "RoomState",
+      "type": "object"
+    },
+    "RoomStateRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/RoomState"
+        },
+        "m": {
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "RoomStateRecord",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``room`` track (eventType ``com.talktracks.room``).",
+  "items": {
+    "$ref": "#/$defs/RoomStateRecord"
+  },
+  "title": "RoomStateObject",
+  "type": "array"
+}

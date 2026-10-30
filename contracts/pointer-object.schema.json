@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "PointerAt": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "at",
+          "default": "at",
+          "title": "Kind",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "PointerAt",
+      "type": "object"
+    },
+    "PointerOff": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "off",
+          "default": "off",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "PointerOff",
+      "type": "object"
+    },
+    "PointerRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "at": "#/$defs/PointerAt",
+              "off": "#/$defs/PointerOff"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PointerAt"
+            },
+            {
+              "$ref": "#/$defs/PointerOff"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "PointerRecord",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``pointer`` track (eventType ``com.talktracks.pointer``).",
+  "items": {
+    "$ref": "#/$defs/PointerRecord"
+  },
+  "title": "PointerObject",
+  "type": "array"
+}

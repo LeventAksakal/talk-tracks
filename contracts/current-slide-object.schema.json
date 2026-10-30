@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "CurrentSlideRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "hide": "#/$defs/HideSlide",
+              "show": "#/$defs/ShowSlide"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ShowSlide"
+            },
+            {
+              "$ref": "#/$defs/HideSlide"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "description": "Room ms when the slide was shown or hidden",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "CurrentSlideRecord",
+      "type": "object"
+    },
+    "HideSlide": {
+      "additionalProperties": false,
+      "description": "The speaker stopped showing slides.",
+      "properties": {
+        "kind": {
+          "const": "hide",
+          "default": "hide",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "HideSlide",
+      "type": "object"
+    },
+    "ShowSlide": {
+      "additionalProperties": false,
+      "properties": {
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "show",
+          "default": "show",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deck",
+        "index"
+      ],
+      "title": "ShowSlide",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``slide`` track (eventType ``com.talktracks.current-slide``).",
+  "items": {
+    "$ref": "#/$defs/CurrentSlideRecord"
+  },
+  "title": "CurrentSlideObject",
+  "type": "array"
+}
