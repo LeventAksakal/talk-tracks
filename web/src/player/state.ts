@@ -6,14 +6,7 @@ import type { ConnectionStatus } from "../transport/types";
 import { formatBehind } from "./timeline";
 
 export type PlayerStateKind =
-  | "connecting"
-  | "not-started"
-  | "live"
-  | "behind"
-  | "paused"
-  | "ended"
-  | "reconnecting"
-  | "failed";
+  "connecting" | "not-started" | "live" | "behind" | "paused" | "ended" | "reconnecting" | "failed";
 
 export const PLAYER_STATES: readonly PlayerStateKind[] = [
   "connecting",
@@ -98,8 +91,7 @@ export function playerState(input: PlayerStateInput): PlayerState {
     return { kind: "connecting", pill: "Connecting…", canGoLive: false, card: { title: "Connecting…", body: "" } };
 
   const ended = input.room === "ended" || (input.onAir === false && input.liveEdge !== undefined);
-  if (mode === "rewound" && !ended)
-    return { kind: "behind", pill: formatBehind(input.behindMs), canGoLive: true };
+  if (mode === "rewound" && !ended) return { kind: "behind", pill: formatBehind(input.behindMs), canGoLive: true };
   if (ended)
     return mode === "rewound"
       ? { kind: "ended", pill: "Ended", canGoLive: false }

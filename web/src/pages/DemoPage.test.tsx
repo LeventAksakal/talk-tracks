@@ -8,48 +8,79 @@ const advance = async (ms: number) => {
   });
 };
 
-describe("/demo", () => {
+const subtitles = () => screen.queryByLabelText("Subtitles", { selector: ".tt-subs" });
+
+describe("/demo in the player", () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-27T10:00:00Z"));
   });
   afterEach(() => vi.useRealTimers());
 
-  it("lists the scripted room's tracks, all off, and shows captions, translations, slides and the outline once chosen", async () => {
+  it("plays live with nothing subscribed until the viewer turns subtitles on, then in Arabic, side by side", async () => {
     render(<DemoPage />);
     await advance(100);
+    expect(screen.queryByRole("button", { name: /Go live/ })).toBeNull(); // at the live edge
+    expect(subtitles()).toBeNull();
 
-    // Every agent shows up in the track picker; none is on until chosen (decision 0010).
-    const picker = screen.getByRole("region", { name: "Tracks" });
-    const switches = within(picker).getAllByRole("switch") as HTMLInputElement[];
-    expect(switches.length).toBe(5);
-    expect(switches.every((s) => !s.checked)).toBe(true);
-    for (const name of [/Captions/, /Arabic/, /Turkish/, /Slide descriptions/, /Chapters/])
-      fireEvent.click(within(picker).getByRole("switch", { name }));
-    await advance(0);
-
-    // Mid-way through the first line: interim text, shown apart from settled lines.
+    fireEvent.click(screen.getByRole("button", { name: "Subtitles" }));
+    const menu = screen.getByRole("dialog", { name: "Subtitles" });
+    fireEvent.click(within(menu).getByRole("button", { name: /^Original/ }));
     await advance(3_000);
-    const captionsLog = screen.getByRole("log", { name: /Captions \(English\)/ });
-    const interim = captionsLog.querySelector(".interim");
-    expect(interim?.textContent).toMatch(/^Welcome, everyone/);
-    expect(interim?.getAttribute("aria-hidden")).toBe("true");
+    expect(subtitles()?.textContent).toMatch(/\(\d+\)/);
 
-    // Far enough for a few lines, their translations, the first slide and the first outline.
-    await advance(14_000);
-    expect(within(captionsLog).getByText("Water picks up small stones and carries them downstream. (1)")).toBeTruthy();
-    const turkishLog = screen.getByRole("log", { name: /Turkish/ });
-    expect(within(turkishLog).getByText("Su küçük taşları alır ve akış yönünde taşır. (1)")).toBeTruthy();
-    const arabicLog = screen.getByRole("log", { name: /Arabic/ });
-    expect(arabicLog.getAttribute("dir")).toBe("rtl");
-    expect(arabicLog.getAttribute("lang")).toBe("ar");
-    expect(within(arabicLog).getByText("يلتقط الماء الحصى الصغيرة ويحملها مع التيار. (1)")).toBeTruthy();
+    // Any language by search; the demo room has an Arabic translation.
+    fireEvent.change(within(menu).getByRole("searchbox"), { target: { value: "arab" } });
+    fireEvent.click(within(menu).getByRole("button", { name: /Arabic/ }));
+    await advance(6_000);
+    const arabic = subtitles()?.querySelector('[lang="ar"]');
+    expect(arabic?.getAttribute("dir")).toBe("rtl");
+    expect(arabic?.textContent).toMatch(/\(\d+\)/);
+  });
 
-    const slides = screen.getByRole("region", { name: "Slide descriptions" });
-    expect(within(slides).getAllByText(/Slide 1: a diagram of a river/).length).toBeGreaterThan(0);
+  it("rewinds by keyboard and goes live again, saying what was missed", async () => {
+    render(<DemoPage />);
+    await advance(100);
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(document.body, { key: "j" });
+    await advance(500);
+    const goLive = screen.getByRole("button", { name: /Go live/ });
+    expect(goLive.textContent).toMatch(/−1:0\d/);
 
-    const outline = screen.getByRole("region", { name: /Chapters, glossary and recap/ });
-    expect(within(outline).getByText("Introduction")).toBeTruthy();
-    expect(within(outline).getByText("Sediment")).toBeTruthy();
+    fireEvent.click(goLive);
+    await advance(300);
+    expect(screen.queryByRole("button", { name: /Go live/ })).toBeNull();
+    expect(screen.getByText(/You missed/)).toBeTruthy();
+  });
+
+  it("turns chapters on from the side panel, puts them on the bar, and seeks from the list", async () => {
+    render(<DemoPage />);
+    await advance(100);
+    fireEvent.click(screen.getByRole("tab", { name: "Chapters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn on chapters" }));
+    await advance(2_000);
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByText("Introduction")).toBeTruthy();
+    expect(within(panel).getByText("So far")).toBeTruthy();
+    expect(document.querySelectorAll(".tt-seg").length).toBeGreaterThan(1);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Play from 1:01" }));
+    await advance(300);
+    expect(screen.getByRole("button", { name: /Go live/ })).toBeTruthy();
+    expect(screen.getByRole("slider", { name: "Position in the talk" }).getAttribute("aria-valuenow")).toBe("61");
+  });
+
+  it("keeps a bookmark and a note in the Notes tab", async () => {
+    render(<DemoPage />);
+    await advance(100);
+    fireEvent.keyDown(document.body, { key: "b" });
+    fireEvent.keyDown(document.body, { key: "n" });
+    await advance(100);
+    const note = screen.getByRole("textbox", { name: /Note at/ });
+    fireEvent.change(note, { target: { value: "Ask about deltas" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    const list = screen.getByRole("list", { name: "Notes" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(list).getByText("Ask about deltas")).toBeTruthy();
   });
 });

@@ -51,17 +51,9 @@ export function languageOption(tag: string, viewerLocale = defaultLocale()): Lan
   return { tag, autonym: capitalise(autonym, tag), local: capitalise(local, viewerLocale), dir: dirOf(tag) };
 }
 
-/** "Türkçe · Turkish", or one name when both are the same. */
-export function languageLabel(option: LanguageOption): string {
-  return option.autonym === option.local ? option.autonym : `${option.autonym} · ${option.local}`;
-}
-
 /** Fold case and accents so "turk" finds "Türkçe" and "espanol" finds "Español". */
 export function fold(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLocaleLowerCase();
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
 }
 
 /**

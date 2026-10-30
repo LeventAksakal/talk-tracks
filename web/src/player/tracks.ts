@@ -35,8 +35,7 @@ export function wantedTracks(prefs: Prefs, room: RoomTracks): Set<string> {
   const want = new Set<string>();
   const translating = prefs.cc && prefs.subtitleLang !== "original";
   const translation = translating ? translationFor(room, prefs.subtitleLang) : undefined;
-  if (room.captions && ((prefs.cc && (!translating || prefs.dual)) || prefs.transcript))
-    want.add(room.captions.id);
+  if (room.captions && ((prefs.cc && (!translating || prefs.dual)) || prefs.transcript)) want.add(room.captions.id);
   if (translation) want.add(translation.id);
   if (room.outline && prefs.chapters) want.add(room.outline.id);
   if (room.describe && prefs.describe !== "off") want.add(room.describe.id);

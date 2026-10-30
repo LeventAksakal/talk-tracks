@@ -73,7 +73,9 @@ export function ProgressBar() {
   const previewChapter = chapterAt(chapters, preview);
   const previewSlide = preview === undefined ? undefined : slides.findLast((s) => s.atMs <= preview);
   const valueText =
-    t.mode === "live" ? `${formatClock(end)}, live` : `${formatClock(shownAt)}, ${formatBehind(end - shownAt)} behind live`;
+    t.mode === "live"
+      ? `${formatClock(end)}, live`
+      : `${formatClock(shownAt)}, ${formatBehind(end - shownAt)} behind live`;
 
   return (
     <div
@@ -114,15 +116,21 @@ export function ProgressBar() {
             style={{ left: `${frac(h.start) * 100}%`, width: `${(frac(h.end) - frac(h.start)) * 100}%` }}
           />
         ))}
-        {slides.filter((s) => inSpan(s.atMs)).map((s) => (
-          <span key={`s${s.id}`} className="tt-mark tt-mark-slide" style={{ left: `${frac(s.atMs) * 100}%` }} />
-        ))}
-        {notes.notes.filter((n) => inSpan(n.at)).map((n) => (
-          <span key={`n${n.id}`} className="tt-mark tt-mark-note" style={{ left: `${frac(n.at) * 100}%` }} />
-        ))}
-        {matches.filter((l) => inSpan(l.startMs)).map((l) => (
-          <span key={`m${l.id}`} className="tt-mark tt-mark-match" style={{ left: `${frac(l.startMs) * 100}%` }} />
-        ))}
+        {slides
+          .filter((s) => inSpan(s.atMs))
+          .map((s) => (
+            <span key={`s${s.id}`} className="tt-mark tt-mark-slide" style={{ left: `${frac(s.atMs) * 100}%` }} />
+          ))}
+        {notes.notes
+          .filter((n) => inSpan(n.at))
+          .map((n) => (
+            <span key={`n${n.id}`} className="tt-mark tt-mark-note" style={{ left: `${frac(n.at) * 100}%` }} />
+          ))}
+        {matches
+          .filter((l) => inSpan(l.startMs))
+          .map((l) => (
+            <span key={`m${l.id}`} className="tt-mark tt-mark-match" style={{ left: `${frac(l.startMs) * 100}%` }} />
+          ))}
         {ready ? <span className="tt-head" style={{ left: `${frac(shownAt) * 100}%` }} /> : null}
         {preview !== undefined && ready ? (
           <div className="tt-preview" style={{ "--x": `${frac(preview) * 100}%` } as CSSProperties} aria-hidden="true">

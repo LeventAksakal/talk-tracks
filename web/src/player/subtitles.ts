@@ -5,8 +5,8 @@ import type { LineItem } from "../playback/wire";
 
 /** A finished line stays up this long after its last word, ms. */
 export const LINGER_MS = 2_500;
-/** Live, the newest finished line stays up this long, ms (captions trail the voice by a second or two). */
-export const LIVE_HOLD_MS = 5_000;
+/** Live, the newest finished line stays up this long after it ended, ms: a translation lands seconds after its line. */
+export const LIVE_HOLD_MS = 8_000;
 
 /**
  * Up to `max` lines on screen at `t`, oldest first. Live (`live`), the newest lines whatever their start (a

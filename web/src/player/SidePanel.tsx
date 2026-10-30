@@ -63,12 +63,7 @@ export function SidePanel() {
           <Icon name="close" />
         </button>
       </div>
-      <div
-        className="tt-tabpanel"
-        role="tabpanel"
-        id={`tt-tabpanel-${current}`}
-        aria-labelledby={`tt-tab-${current}`}
-      >
+      <div className="tt-tabpanel" role="tabpanel" id={`tt-tabpanel-${current}`} aria-labelledby={`tt-tab-${current}`}>
         {current === "transcript" ? <Transcript /> : null}
         {current === "chapters" ? <Chapters /> : null}
         {current === "glossary" ? <Glossary /> : null}
@@ -180,11 +175,7 @@ function Transcript() {
         ))}
       </div>
       {!following ? (
-        <button
-          type="button"
-          className="tt-jump"
-          onClick={() => setFollowing(true)}
-        >
+        <button type="button" className="tt-jump" onClick={() => setFollowing(true)}>
           Jump to latest
         </button>
       ) : null}
@@ -250,7 +241,11 @@ function Chapters() {
       ) : null}
       <ol className="tt-chapter-list">
         {o.chapters.map((c, i) => (
-          <li key={c.id} className={current?.id === c.id ? "tt-current" : undefined} aria-current={current?.id === c.id}>
+          <li
+            key={c.id}
+            className={current?.id === c.id ? "tt-current" : undefined}
+            aria-current={current?.id === c.id}
+          >
             <Seek ms={c.start_ms} />
             <div>
               <strong>{c.title}</strong>

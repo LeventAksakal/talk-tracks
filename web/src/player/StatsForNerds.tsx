@@ -80,7 +80,9 @@ export function StatsForNerds() {
             const parts = [
               track.enabled ? `on · ${agent.health}` : "off",
               s ? (s.status === "live" && !s.producing ? "live, waiting" : s.status) : undefined,
-              track.enabled ? `${held} slice${held === 1 ? "" : "s"} held${track.loading ? " · fetching" : ""}` : undefined,
+              track.enabled
+                ? `${held} slice${held === 1 ? "" : "s"} held${track.loading ? " · fetching" : ""}`
+                : undefined,
               s ? `origin ${s.fetches_served} · back-fills ${s.backfills}` : undefined,
               s ? `$${s.spend_usd.toFixed(3)}` : undefined,
             ].filter(Boolean);

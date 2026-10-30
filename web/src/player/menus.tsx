@@ -13,8 +13,16 @@ import { translationFor } from "./tracks";
 function Menu({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    // Focus moves into the menu when it opens, onto its first control.
-    ref.current?.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+    // Focus moves into the menu when it opens, onto its first control, and back to where it was (the menu's
+    // button) when it closes, unless the viewer has moved it elsewhere since.
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const menu = ref.current;
+    menu?.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+    return () => {
+      const now = document.activeElement;
+      if (before?.isConnected && (!now || now === document.body || menu?.contains(now)))
+        before.focus({ preventScroll: true });
+    };
   }, []);
   return (
     <div ref={ref} className={`tt-menu${wide ? " tt-menu-wide" : ""}`} role="dialog" aria-label={label}>
