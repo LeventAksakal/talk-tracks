@@ -173,6 +173,16 @@ export function Player(props: PlayerProps) {
     setUi({ playing: !ui.playing });
   }, [media, ui.playing, setUi]);
 
+  // RoomMedia plays the recording as soon as a seek opens it, and takes the next Go live as a wish for live
+  // sound; a seek is a gesture, so it starts sound the way Play does.
+  const seekWith = (move: () => void) => {
+    move();
+    if (media && !ui.playing) {
+      media.play();
+      setUi({ playing: true });
+    }
+  };
+
   const openTab = useCallback((tab: PanelTab) => update({ panel: true, tab }), [update]);
   const addBookmark = useCallback(() => {
     if (at === undefined) return;
@@ -203,7 +213,8 @@ export function Player(props: PlayerProps) {
           sources,
           extraTabs: props.extraTabs ?? [],
           at,
-          seek: (ms) => playback.seek(ms),
+          seek: (ms) => seekWith(() => playback.seek(ms)),
+          seekBy: (ms) => seekWith(() => playback.seekBy(ms)),
           goLive: () => playback.goLive(),
           openTab,
           togglePlay,
@@ -269,7 +280,7 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
         return;
       }
       const onButton = target?.closest("button, a, [role='slider'], [role='separator'], [role='tab']");
-      const { playback, prefs, update, setUi } = c;
+      const { prefs, update, setUi } = c;
       switch (e.key) {
         case " ":
           if (onButton) return;
@@ -280,18 +291,18 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
           c.togglePlay();
           break;
         case "ArrowLeft":
-          playback.seekBy(-5_000);
+          c.seekBy(-5_000);
           break;
         case "ArrowRight":
-          playback.seekBy(5_000);
+          c.seekBy(5_000);
           break;
         case "j":
         case "J":
-          playback.seekBy(-10_000);
+          c.seekBy(-10_000);
           break;
         case "l":
         case "L":
-          playback.seekBy(10_000);
+          c.seekBy(10_000);
           break;
         case "g":
         case "G":

@@ -67,6 +67,8 @@ export interface PlayerCtx {
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
   seek(ms: number): void;
+  /** Move by `deltaMs` from the playhead (negative: back). */
+  seekBy(deltaMs: number): void;
   goLive(): void;
   openTab(tab: PanelTab): void;
   togglePlay(): void;
