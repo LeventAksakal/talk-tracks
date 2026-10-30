@@ -67,6 +67,15 @@ export function moqBroadcast(origin: Moq.Origin.Producer, path: string): Broadca
   };
 }
 
+/** A broadcast made on its first track, so nothing is created (or announced) before going on air. */
+export function lazyBroadcast(make: () => BroadcastSink): BroadcastSink {
+  let real: BroadcastSink | undefined;
+  return {
+    track: (name, maxAgeMs) => (real ??= make()).track(name, maxAgeMs),
+    close: () => real?.close(),
+  };
+}
+
 /** One published object as the memory sink keeps it. */
 export interface WrittenObject {
   track: string;

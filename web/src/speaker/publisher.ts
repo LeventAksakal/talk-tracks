@@ -70,9 +70,11 @@ export interface SlideState {
 }
 
 export class SlidesPublisher {
-  readonly author: Author;
+  /** Stamped on every mutation. */
+  #author: Author;
+  /** Distinguishes this console's ids (strokes, marks) from an earlier page load's. */
+  readonly tag: string;
   #sink: BroadcastSink;
-  #tag: string;
   #seq = 0;
   #now: (() => number) | undefined;
   #lastM = 0;
@@ -93,8 +95,17 @@ export class SlidesPublisher {
 
   constructor(sink: BroadcastSink, author: Author, tag = randomTag()) {
     this.#sink = sink;
-    this.author = author;
-    this.#tag = tag;
+    this.#author = author;
+    this.tag = tag;
+  }
+
+  get author(): Author {
+    return this.#author;
+  }
+
+  /** The speaker's display name on what they draw from now on (same author id). */
+  setAuthorName(name: string): void {
+    this.#author = { ...this.#author, name };
   }
 
   get live(): boolean {
@@ -158,6 +169,10 @@ export class SlidesPublisher {
   /** Open the next slice when its time has come, so every slice has its object 0 while live. */
   tick(): void {
     if (this.#now && !this.#closed) this.#roll(this.#time());
+  }
+
+  close(): void {
+    this.stop();
   }
 
   /** End of every open group and track: the talk ended or the page is going away. */
@@ -257,7 +272,7 @@ export class SlidesPublisher {
         color: style.color,
         width: Math.min(1, Math.max(0.0005, style.width)),
         points: [point(first)],
-        by: this.author,
+        by: this.#author,
       },
     };
     this.#applyInk([r]);
@@ -289,12 +304,12 @@ export class SlidesPublisher {
     if (!s.length && !k.length) return;
     const m = this.#stamp();
     if (s.length) {
-      const r: InkRecord = { m, data: { kind: "erase", strokes: s, by: this.author } };
+      const r: InkRecord = { m, data: { kind: "erase", strokes: s, by: this.#author } };
       this.#applyInk([r]);
       this.#write("ink", [r]);
     }
     if (k.length) {
-      const r: MarkRecord = { m, data: { kind: "unmark", marks: k, by: this.author } };
+      const r: MarkRecord = { m, data: { kind: "unmark", marks: k, by: this.#author } };
       this.#applyMarks([r]);
       this.#write("marks", [r]);
     }
@@ -306,7 +321,7 @@ export class SlidesPublisher {
     const on = this.#shown();
     if (!on) return;
     const m = this.#stamp();
-    const where = { deck: on.deck, index: on.index, by: this.author };
+    const where = { deck: on.deck, index: on.index, by: this.#author };
     const ink: InkRecord = { m, data: { kind: "clear", ...where } };
     const marks: MarkRecord = { m, data: { kind: "clear", ...where } };
     this.#applyInk([ink]);
@@ -325,7 +340,7 @@ export class SlidesPublisher {
     const id = this.#id("m");
     const r: MarkRecord = {
       m: this.#stamp(),
-      data: { kind: "mark", id, deck: on.deck, index: on.index, style, color, span, by: this.author },
+      data: { kind: "mark", id, deck: on.deck, index: on.index, style, color, span, by: this.#author },
     };
     this.#applyMarks([r]);
     this.#write("marks", [r]);
@@ -355,7 +370,7 @@ export class SlidesPublisher {
   }
 
   #id(kind: "s" | "m"): string {
-    return `sp-${this.#tag}-${kind}${this.#seq++}`;
+    return `sp-${this.tag}-${kind}${this.#seq++}`;
   }
 
   #applyInk(records: InkRecord[]): void {
