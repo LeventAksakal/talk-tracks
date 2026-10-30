@@ -33,12 +33,17 @@ services:
   # data/archive/ (not in git), serves the event tracks' past by FETCH on talk/<room>/archive/slides and publishes
   # talk/<room>/catalog with its room track. No bucket copy unless TT_ARCHIVE_BUCKET is set (it needs Google
   # credentials, so leave it unset on a laptop).
+  # Listeners write through it on ws://localhost:8091/api/rooms/<room> (decision 0024); with no room key locally,
+  # TT_OPEN_SPEAKER lets the console's session be the speaker's whatever its token.
   archive:
     <<: *agent
     volumes: ["../data/archive:/data/archive"]
+    ports: ["${TT_LISTEN_PORT:-8091}:8091/tcp"]
     environment:
       TT_RELAY: moqt://relay:4443
       TT_ARCHIVE_DIR: /data/archive
+      TT_LISTEN: 0.0.0.0:8091
+      TT_OPEN_SPEAKER: "1"
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]
