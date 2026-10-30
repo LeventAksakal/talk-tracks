@@ -1,0 +1,327 @@
+{
+  "$defs": {
+    "Anchor": {
+      "additionalProperties": false,
+      "description": "Where on a slide: a region, a text span, both (the span's box), or neither (the whole slide).",
+      "properties": {
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Region"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "deck",
+        "index"
+      ],
+      "title": "Anchor",
+      "type": "object"
+    },
+    "Comment": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "at": {
+          "description": "Room ms it was posted at; the record's m is when it appeared",
+          "minimum": 0,
+          "title": "At",
+          "type": "integer"
+        },
+        "author": {
+          "description": "Display name, no account",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Author",
+          "type": "string"
+        },
+        "id": {
+          "description": "Given by the room service, unique in the room",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "comment",
+          "default": "comment",
+          "title": "Kind",
+          "type": "string"
+        },
+        "question": {
+          "default": false,
+          "description": "Asked as a question for the speaker",
+          "title": "Question",
+          "type": "boolean"
+        },
+        "speaker": {
+          "default": false,
+          "description": "Written by the speaker",
+          "title": "Speaker",
+          "type": "boolean"
+        },
+        "text": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "at",
+        "author",
+        "text",
+        "anchor"
+      ],
+      "title": "Comment",
+      "type": "object"
+    },
+    "CommentEdit": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Given by the room service, unique in the room",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "edit",
+          "default": "edit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "CommentEdit",
+      "type": "object"
+    },
+    "CommentHide": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Given by the room service, unique in the room",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "hide",
+          "default": "hide",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "CommentHide",
+      "type": "object"
+    },
+    "CommentRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "comment": "#/$defs/Comment",
+              "edit": "#/$defs/CommentEdit",
+              "hide": "#/$defs/CommentHide",
+              "reply": "#/$defs/Reply"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Comment"
+            },
+            {
+              "$ref": "#/$defs/Reply"
+            },
+            {
+              "$ref": "#/$defs/CommentEdit"
+            },
+            {
+              "$ref": "#/$defs/CommentHide"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "description": "Room ms when it took effect: posted, edited, hidden, or its slide shown again",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "CommentRecord",
+      "type": "object"
+    },
+    "Region": {
+      "additionalProperties": false,
+      "properties": {
+        "h": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "H",
+          "type": "number"
+        },
+        "w": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "W",
+          "type": "number"
+        },
+        "x": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "Region",
+      "type": "object"
+    },
+    "Reply": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "description": "Room ms it was posted at; the record's m is when it appeared",
+          "minimum": 0,
+          "title": "At",
+          "type": "integer"
+        },
+        "author": {
+          "description": "Display name, no account",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Author",
+          "type": "string"
+        },
+        "id": {
+          "description": "Given by the room service, unique in the room",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "reply",
+          "default": "reply",
+          "title": "Kind",
+          "type": "string"
+        },
+        "speaker": {
+          "default": false,
+          "description": "Written by the speaker: shown first",
+          "title": "Speaker",
+          "type": "boolean"
+        },
+        "text": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "to": {
+          "description": "The thread's comment",
+          "minLength": 1,
+          "title": "To",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "at",
+        "to",
+        "author",
+        "text"
+      ],
+      "title": "Reply",
+      "type": "object"
+    },
+    "TextSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "description": "One past the last character",
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "start": {
+          "description": "First character, in the deck image's text",
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "TextSpan",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``comments`` track (eventType ``com.talktracks.comments``).",
+  "items": {
+    "$ref": "#/$defs/CommentRecord"
+  },
+  "title": "CommentsObject",
+  "type": "array"
+}

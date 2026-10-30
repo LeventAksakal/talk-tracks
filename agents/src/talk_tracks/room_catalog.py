@@ -1,4 +1,6 @@
-"""The room catalog on ``talk/<room>/catalog`` track ``catalog``: an MSF catalog (draft-01) of the room's AI tracks.
+"""The room catalog on ``talk/<room>/catalog`` track ``catalog``: an MSF catalog (draft-01) of the room's event tracks
+(the agents', the speaker's deck/slide/ink/pointer and the room service's room/comments, ui-design §3.4) and, in
+``tt.sources``, the pictures and sound the speaker is sending.
 
 Layout from wiki/design/moq-track-system.md §5.10, field names as locked in wiki/design/lane-briefs.md ("Catalog field
 names"), validated by the contract's ``contracts.RoomCatalog`` before it goes out. Transport-free, so the room service
@@ -26,22 +28,50 @@ from typing import Literal
 
 from .contracts import (
     CATALOG_TRACK,
+    COMMENTS_EVENT,
+    COMMENTS_TRACK,
     CUE_EVENT,
+    CURRENT_SLIDE_EVENT,
+    DECK_EVENT,
+    DECK_TRACK,
+    HANG_CATALOG_TRACK,
+    INK_EVENT,
+    INK_TRACK,
     OUTLINE_EVENT,
+    POINTER_EVENT,
+    POINTER_TRACK,
+    ROOM_EVENT,
+    ROOM_TRACK,
     ROOT,
+    SLIDE_TRACK,
     SLIDES_EVENT,
     RoomTt,
+    Source,
     TrackStatus,
     TrackTt,
+    comments_path,
     slice_template,
+    slides_path,
+    teacher_path,
 )
 from .contracts import CatalogTrack as MsfTrack
 from .contracts import RoomCatalog as MsfRoomCatalog
 from .contracts import catalog_path as catalog_path
 
-__all__ = ["CATALOG_TRACK", "CatalogTrack", "RoomCatalog", "catalog_path", "depends_on"]
+__all__ = [
+    "CATALOG_TRACK",
+    "CatalogTrack",
+    "RoomCatalog",
+    "catalog_path",
+    "depends_on",
+    "room_service_tracks",
+    "speaker_sources",
+    "speaker_tracks",
+]
 
-Kind = Literal["captions", "translation", "slides", "outline"]
+AgentKind = Literal["captions", "translation", "slides", "outline"]
+EventKind = Literal["deck", "slide", "ink", "pointer", "comments", "room"]
+Kind = AgentKind | EventKind
 Cost = Literal["paid", "free"]
 
 EVENT_TYPES: dict[Kind, str] = {
@@ -49,16 +79,24 @@ EVENT_TYPES: dict[Kind, str] = {
     "translation": CUE_EVENT,
     "slides": SLIDES_EVENT,
     "outline": OUTLINE_EVENT,
+    "deck": DECK_EVENT,
+    "slide": CURRENT_SLIDE_EVENT,
+    "ink": INK_EVENT,
+    "pointer": POINTER_EVENT,
+    "comments": COMMENTS_EVENT,
+    "room": ROOM_EVENT,
 }
 ROLES: dict[Kind, str] = {"captions": "caption", "translation": "subtitle"}
+UNSLICED: frozenset[Kind] = frozenset({"outline", "deck"})  # one group per revision or per deck, no template
 
 
 @dataclass(frozen=True)
 class CatalogTrack:
-    """One AI track of the room, as its catalog entry describes it."""
+    """One event track of the room (an agent's, the speaker's or the room service's), as its catalog entry
+    describes it."""
 
-    namespace: str  # talk/<room>/agents/<agent>
-    name: str  # items, or outline
+    namespace: str  # talk/<room>/agents/<agent>, talk/<room>/slides, talk/<room>/comments or talk/<room>/catalog
+    name: str  # items or outline for an agent; deck, slide, ink, pointer, comments or room
     kind: Kind
     lang: str
     label: str
@@ -77,6 +115,7 @@ class RoomCatalog:
     status: Mapping[str, TrackStatus | Mapping[str, object]] = field(
         default_factory=dict[str, TrackStatus | Mapping[str, object]]
     )
+    sources: tuple[Source, ...] = ()  # what the speaker is sending now, in the speaker's order
 
     def entries(self) -> dict[str, TrackStatus]:
         return {name: _status(s) for name, s in self.status.items()}
@@ -87,7 +126,12 @@ class RoomCatalog:
 
     def model(self) -> MsfRoomCatalog:
         """The catalog as the contract's model, which checks it (E and every shift whole slices, the field names)."""
-        tt = RoomTt(E=self.epoch_ms, shift={str(wall): ms for wall, ms in self.shift.items()}, status=self.entries())
+        tt = RoomTt(
+            E=self.epoch_ms,
+            shift={str(wall): ms for wall, ms in self.shift.items()},
+            status=self.entries(),
+            sources=list(self.sources),
+        )
         return MsfRoomCatalog(tracks=[_track(t, self.epoch_ms) for t in self.tracks], tt=tt)
 
     def to_json(self) -> dict[str, object]:
@@ -111,8 +155,51 @@ def _track(track: CatalogTrack, epoch_ms: int) -> MsfTrack:
         lang=track.lang or None,
         label=track.label or None,
         isLive=True,
-        template=None if track.kind == "outline" else slice_template(epoch_ms),
+        template=None if track.kind in UNSLICED else slice_template(epoch_ms),
         tt=TrackTt(dependsOn=list(track.depends_on), latenessMs=track.lateness_ms, cost=track.cost),
+    )
+
+
+def speaker_tracks(room: str) -> tuple[CatalogTrack, ...]:
+    """The speaker's event tracks on ``talk/<room>/slides`` (decision 0018): free, on time (L = 0)."""
+    ns = slides_path(room)
+    deck = f"{ns}/{DECK_TRACK}"
+    slide = f"{ns}/{SLIDE_TRACK}"
+    return (
+        CatalogTrack(ns, DECK_TRACK, "deck", "", "Slide deck", 0, "free"),
+        CatalogTrack(ns, SLIDE_TRACK, "slide", "", "Slide shown", 0, "free", (deck,)),
+        CatalogTrack(ns, INK_TRACK, "ink", "", "Ink", 0, "free", (slide,)),
+        CatalogTrack(ns, POINTER_TRACK, "pointer", "", "Laser pointer", 0, "free", (slide,)),
+    )
+
+
+def room_service_tracks(room: str) -> tuple[CatalogTrack, ...]:
+    """The room service's event tracks: the room's state and the listeners' comments."""
+    slide = f"{slides_path(room)}/{SLIDE_TRACK}"
+    return (
+        CatalogTrack(catalog_path(room), ROOM_TRACK, "room", "", "Room", 0, "free"),
+        CatalogTrack(comments_path(room), COMMENTS_TRACK, "comments", "", "Comments", 0, "free", (slide,)),
+    )
+
+
+def speaker_sources(room: str, *, audio: bool = True, camera: bool = False, slides: bool = False) -> tuple[Source, ...]:
+    """The sources the speaker is sending, for ``RoomCatalog.sources``: audio and camera on the hang broadcast,
+    slides as the deck, slide, ink and pointer tracks."""
+    teacher = teacher_path(room)
+    return (
+        *([Source(kind="audio", namespace=teacher, tracks=[HANG_CATALOG_TRACK])] if audio else []),
+        *([Source(kind="camera", namespace=teacher, tracks=[HANG_CATALOG_TRACK])] if camera else []),
+        *(
+            [
+                Source(
+                    kind="slides",
+                    namespace=slides_path(room),
+                    tracks=[DECK_TRACK, SLIDE_TRACK, INK_TRACK, POINTER_TRACK],
+                )
+            ]
+            if slides
+            else []
+        ),
     )
 
 

@@ -1,0 +1,358 @@
+{
+  "$defs": {
+    "InkBegin": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "#rrggbb",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Color",
+          "type": "string"
+        },
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "begin",
+          "default": "begin",
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "description": "[x, y] fractions of the slide, in drawing order",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Points",
+          "type": "array"
+        },
+        "stroke": {
+          "description": "Unique in the room, stable across re-sends",
+          "minLength": 1,
+          "title": "Stroke",
+          "type": "string"
+        },
+        "tool": {
+          "enum": [
+            "pen",
+            "highlighter"
+          ],
+          "title": "Tool",
+          "type": "string"
+        },
+        "width": {
+          "description": "Line width as a fraction of the slide's width",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": [
+        "stroke",
+        "deck",
+        "index",
+        "tool",
+        "color",
+        "width",
+        "points"
+      ],
+      "title": "InkBegin",
+      "type": "object"
+    },
+    "InkClear": {
+      "additionalProperties": false,
+      "properties": {
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "clear",
+          "default": "clear",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deck",
+        "index"
+      ],
+      "title": "InkClear",
+      "type": "object"
+    },
+    "InkEnd": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "end",
+          "default": "end",
+          "title": "Kind",
+          "type": "string"
+        },
+        "stroke": {
+          "description": "Unique in the room, stable across re-sends",
+          "minLength": 1,
+          "title": "Stroke",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stroke"
+      ],
+      "title": "InkEnd",
+      "type": "object"
+    },
+    "InkErase": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "erase",
+          "default": "erase",
+          "title": "Kind",
+          "type": "string"
+        },
+        "strokes": {
+          "items": {
+            "description": "Unique in the room, stable across re-sends",
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Strokes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "strokes"
+      ],
+      "title": "InkErase",
+      "type": "object"
+    },
+    "InkPoints": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "points",
+          "default": "points",
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "description": "[x, y] fractions of the slide, in drawing order",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Points",
+          "type": "array"
+        },
+        "stroke": {
+          "description": "Unique in the room, stable across re-sends",
+          "minLength": 1,
+          "title": "Stroke",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stroke",
+        "points"
+      ],
+      "title": "InkPoints",
+      "type": "object"
+    },
+    "InkRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "begin": "#/$defs/InkBegin",
+              "clear": "#/$defs/InkClear",
+              "end": "#/$defs/InkEnd",
+              "erase": "#/$defs/InkErase",
+              "points": "#/$defs/InkPoints",
+              "stroke": "#/$defs/InkStroke"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/InkBegin"
+            },
+            {
+              "$ref": "#/$defs/InkPoints"
+            },
+            {
+              "$ref": "#/$defs/InkEnd"
+            },
+            {
+              "$ref": "#/$defs/InkStroke"
+            },
+            {
+              "$ref": "#/$defs/InkErase"
+            },
+            {
+              "$ref": "#/$defs/InkClear"
+            }
+          ],
+          "title": "Data"
+        },
+        "m": {
+          "description": "Room ms when it took effect on screen",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "InkRecord",
+      "type": "object"
+    },
+    "InkStroke": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "#rrggbb",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Color",
+          "type": "string"
+        },
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "done": {
+          "description": "False while the speaker is still drawing it: points and end follow",
+          "title": "Done",
+          "type": "boolean"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "stroke",
+          "default": "stroke",
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "description": "[x, y] fractions of the slide, in drawing order",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Points",
+          "type": "array"
+        },
+        "stroke": {
+          "description": "Unique in the room, stable across re-sends",
+          "minLength": 1,
+          "title": "Stroke",
+          "type": "string"
+        },
+        "tool": {
+          "enum": [
+            "pen",
+            "highlighter"
+          ],
+          "title": "Tool",
+          "type": "string"
+        },
+        "width": {
+          "description": "Line width as a fraction of the slide's width",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": [
+        "stroke",
+        "deck",
+        "index",
+        "tool",
+        "color",
+        "width",
+        "points",
+        "done"
+      ],
+      "title": "InkStroke",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``ink`` track (eventType ``com.talktracks.ink``).",
+  "items": {
+    "$ref": "#/$defs/InkRecord"
+  },
+  "title": "InkObject",
+  "type": "array"
+}
