@@ -39,14 +39,14 @@ from .contracts import (
     Usage,
     agents_prefix,
     catalog_path,
-    slides_path,
     slice_of,
+    slides_path,
     teacher_path,
     wall_unix_ms,
 )
 from .contracts import RoomCatalog as MsfRoomCatalog
-from .follow import FollowedTrack, TrackFollower, catalog_tracks
 from .demo_slides import DECK_GROUP, LectureSlides, with_slides
+from .follow import FollowedTrack, TrackFollower, catalog_tracks
 from .lecture import (
     AUDIO_TRACK,
     CATALOG_TRACK,
@@ -225,7 +225,10 @@ class SpeakerSlides:
             self._slide.append(ComputedTrack(slide, _Computed(self.source.slide_group, published=True)))
         for i, placed in enumerate(self.source.deck):  # one group for the room's life: Largest Location covers it
             for track in self._deck:
-                await (track.open(DECK_GROUP, placed.payload) if i == 0 else track.append(DECK_GROUP, i, placed.payload))
+                if i == 0:
+                    await track.open(DECK_GROUP, placed.payload)
+                else:
+                    await track.append(DECK_GROUP, i, placed.payload)
 
     async def run(self) -> None:
         """Write each slice of the slide track as it comes due on the room clock: its carry-in at the slice's start,

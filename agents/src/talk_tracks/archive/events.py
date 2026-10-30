@@ -26,7 +26,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from pydantic import ValidationError
 
@@ -55,6 +55,13 @@ def history_path(namespace: str) -> str:
 
 
 SliceSource = Callable[[int], Awaitable[Slice]]
+
+
+class TimedRecord(Protocol):
+    """Every event-track record: ``m`` is the room ms it took effect."""
+
+    @property
+    def m(self) -> int: ...
 
 
 class HistoryOut(LiveOut, Protocol):
@@ -207,7 +214,7 @@ class ServiceTrack[R: Wire]:
 
     async def add(self, record: R) -> None:
         """A new record, in the slice of its ``m`` (records come in time order)."""
-        await self.at(record.m, active=True)
+        await self.at(cast(TimedRecord, record).m, active=True)
         self.records.append(record)
         if self._open is not None:
             await self._put(encode([record]))
@@ -236,7 +243,7 @@ class ServiceTrack[R: Wire]:
         try:
             await self.out.put(k, oid, payload)
         except TimeoutError:
-            log.warning("%s group %d object %d: live write timed out (it is in the archive)", self.archive.relpath, k, oid)
+            log.warning("%s group %d object %d: live write timed out (archived)", self.archive.relpath, k, oid)
 
     async def slice(self, k: int) -> Slice:
         return await from_archive(self.archive, k)
@@ -268,6 +275,7 @@ class RoomEvents:
         self.owned_tracks = {(t.namespace, t.name): t for t in room_service_tracks(room)}
         self.mirrors: dict[tuple[str, str], MirroredTrack] = {}
         self.history: dict[tuple[str, str], HistoryOut] = {}
+        self._publishing: dict[tuple[str, str], asyncio.Future[None]] = {}
         self.announced_now: set[str] = set()  # speaker namespaces announced now
         self.owned: dict[tuple[str, str], ServiceTrack[Any]] = {}  # the tracks published so far
         self.state: ServiceTrack[RoomStateRecord] | None = None
@@ -329,11 +337,20 @@ class RoomEvents:
             mirror = self.mirrors[key] = MirroredTrack(
                 self._archive(track), sliced=track.kind not in UNSLICED, on_file=self._on_file, clock=self._clock
             )
-        if key not in self.history:
-            out = await self.relay.publish_sliced(history_path(track.namespace), track.name)
-            out.serve(mirror.slice, None, mirror.open_slice)
-            self.history[key] = out
+        publishing = self._publishing.get(key)
+        if publishing is None:  # once, though restore and a reader may both ask
+            publishing = self._publishing[key] = asyncio.ensure_future(self._serve_history(key, track, mirror))
+        try:
+            await asyncio.shield(publishing)
+        except Exception:
+            self._publishing.pop(key, None)  # the next reader or restore tries again
+            raise
         return mirror
+
+    async def _serve_history(self, key: tuple[str, str], track: CatalogTrack, mirror: MirroredTrack) -> None:
+        out = await self.relay.publish_sliced(history_path(track.namespace), track.name)
+        out.serve(mirror.slice, None, mirror.open_slice)
+        self.history[key] = out
 
     def _archive(self, track: CatalogTrack) -> TrackArchive:
         return TrackArchive.of(track.namespace, track.name, root=self.root)

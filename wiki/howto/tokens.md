@@ -24,7 +24,8 @@ time; a token is refused from then on, and a live session closes at that moment.
 | Speaker of room `R` (browser console or the `teacher` / `slides` stand-ins) | `talk/R/teacher`, `talk/R/slides` | `talk/R/**` |
 | Agents of room `R` | `talk/R/agents/**` | `talk/R/**` |
 | Agents of any room (the VM's live agents) | `talk/*/agents/**` | `talk/**` |
-| Looper of demo room `R` (replays the lecture and every agent track) | `talk/R/teacher`, `talk/R/agents/**`, `talk/R/catalog` | `talk/R/**` |
+| Looper of demo room `R` (replays the lecture, its slides and every agent track) | `talk/R/teacher`, `talk/R/slides`, `talk/R/archive/**`, `talk/R/agents/**`, `talk/R/catalog` | `talk/R/**` |
+| Room service (archive, catalog, room and comments tracks, the past of the speaker's tracks; decision 0022) | `talk/*/catalog`, `talk/*/comments`, `talk/*/archive/**` | `talk/**` |
 | Viewers | nothing, no token | `talk/**` (anonymous) |
 
 ```bash

@@ -8,7 +8,7 @@ import base64
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, Protocol, cast
 
 import numpy as np
 import pytest
@@ -55,7 +55,9 @@ ROOM = "talk1"
 NS = f"talk/{ROOM}/slides"
 E = 1_761_650_000_000
 
-R = TypeVar("R", bound=Wire)
+class Timed(Protocol):
+    @property
+    def m(self) -> int: ...
 
 
 # --- a fake relay: the speaker's objects in, FETCH sources out ------------------------------------------------
@@ -128,7 +130,7 @@ async def until(check: Callable[[], bool]) -> None:
 # --- a recorded talk, as the speaker's console sends it ---------------------------------------------------------
 
 
-def sliced(
+def sliced[R: Timed](
     records: Sequence[R], first: int, last: int, carry: Callable[[list[R], int], Sequence[Wire]]
 ) -> list[tuple[int, int, bytes]]:
     """Groups ``first..last`` of a sliced track: object 0 the carry-in of every earlier record (given the slice's
@@ -137,7 +139,7 @@ def sliced(
     for k in range(first, last + 1):
         out.append((k, 0, encode(carry([r for r in records if r.m < k * SLICE_MS], k * SLICE_MS))))
         mine = [r for r in records if k * SLICE_MS <= r.m < (k + 1) * SLICE_MS]
-        out += [(k, i + 1, encode([r])) for i, r in enumerate(mine)]
+        out += [(k, i + 1, encode([cast(Wire, r)])) for i, r in enumerate(mine)]
     return out
 
 
@@ -147,15 +149,19 @@ SLIDES = [
     CurrentSlideRecord(m=21_000, data=ShowSlide(deck=DECK, index=1)),
     CurrentSlideRecord(m=26_000, data=ShowSlide(deck=DECK, index=0)),
 ]
-S1 = {"deck": DECK, "index": 0, "tool": "pen", "color": "#ff0000", "width": 0.004}
+STROKE = [(0.1, 0.1), (0.2, 0.2), (0.3, 0.25)]
+PEN = InkBegin(stroke="s1", deck=DECK, index=0, tool="pen", color="#ff0000", width=0.004, points=[(0.1, 0.1)])
 INK = [
-    InkRecord(m=13_000, data=InkBegin(stroke="s1", points=[(0.1, 0.1)], **S1)),
+    InkRecord(m=13_000, data=PEN),
     InkRecord(m=13_200, data=InkPoints(stroke="s1", points=[(0.2, 0.2), (0.3, 0.25)])),
     InkRecord(m=13_500, data=InkEnd(stroke="s1")),
-    InkRecord(m=22_000, data=InkBegin(stroke="s2", points=[(0.5, 0.5)], **{**S1, "index": 1})),
+    InkRecord(m=22_000, data=PEN.model_copy(update={"stroke": "s2", "index": 1, "points": [(0.5, 0.5)]})),
     InkRecord(m=22_400, data=InkEnd(stroke="s2")),
     # slide 0 shown again: its strokes re-sent with m = that moment, so one group is enough for a seek
-    InkRecord(m=26_000, data=InkStroke(stroke="s1", points=[(0.1, 0.1), (0.2, 0.2), (0.3, 0.25)], done=True, **S1)),
+    InkRecord(
+        m=26_000,
+        data=InkStroke.model_validate({**PEN.model_dump(), "kind": "stroke", "points": STROKE, "done": True}),
+    ),
 ]
 POINTER = [
     PointerRecord(m=14_000, data=PointerAt(x=0.4, y=0.4)),
@@ -220,7 +226,7 @@ async def test_a_recorded_talks_slides_ink_and_pointer_replay_from_the_archive_b
         assert slide == current_slide([s for s in SLIDES if s.m <= t]), t
         ink = ink_carry(up_to(await outs["ink"].fetch(k), InkObject, t), slide)
         expected = ink_carry([r for r in INK if r.m <= t], slide)
-        assert [(r.data.stroke, r.data.points) for r in ink] == [(r.data.stroke, r.data.points) for r in expected], t
+        assert ink == expected, t  # whole strokes, with the m they appeared at
         pointer = last_record(up_to(await outs["pointer"].fetch(k), PointerObject, t))
         assert pointer == last_record([p for p in POINTER if p.m <= t]), t
         assert slide is not None and slide.deck == DECK
@@ -357,7 +363,8 @@ def test_a_demo_rooms_catalog_carries_its_slide_tracks() -> None:
     doc = built.to_json()
     MsfRoomCatalog.model_validate(doc)
     tracks = cast(list[dict[str, Any]], doc["tracks"])
-    assert [(t["namespace"], t["name"]) for t in tracks] == [("talk/virus/slides", "deck"), ("talk/virus/slides", "slide")]
+    names = [(t["namespace"], t["name"]) for t in tracks]
+    assert names == [("talk/virus/slides", "deck"), ("talk/virus/slides", "slide")]
     assert "template" not in tracks[0] and tracks[1]["template"][1] == SLICE_MS
     tt = cast(dict[str, Any], doc["tt"])
     assert tt["sources"][-1] == {"kind": "slides", "namespace": "talk/virus/slides", "tracks": ["deck", "slide"]}

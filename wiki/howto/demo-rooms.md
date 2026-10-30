@@ -51,6 +51,20 @@ memory for the run. They are never written to disk or stored as assets: the slid
 - `--slides x,y,w,h` crops to the slide area, in fractions of the frame. The EMF layout is `0,0,0.77,0.77`, which
   leaves out the speaker inset and the logo. A bare `--slides` sends the whole frame.
 
+### Slides in the player
+
+`loop --slides x,y,w,h` (the VM's loopers use the EMF area `0,0,0.77,0.77`, the local looper `$TT_SLIDES`) scans the
+lecture the same way when the looper starts (about a minute, before the room goes up), keeps the frames in memory,
+and sends them as the speaker's tracks ([decision 0022](../decisions/0022-the-room-service-serves-the-speakers-track-history.md)),
+`agents/src/talk_tracks/demo_slides.py`:
+
+- `deck`: one group, 0, for the room's life: its `DeckInfo`, then one JPEG `DeckImage` per slide.
+- `slide`: 4 s slices; each opens with the slide on screen (the previous loop's last one at a loop's start), then a
+  `show` for each slide at its time in the loop.
+- Both are on `talk/<room>/slides` and, for FETCH, on `talk/<room>/archive/slides`, where a player fetches the past
+  of any speaker track. Every group is computed from its number, so any past group is answered. The room catalog
+  lists the two tracks and a `slides` source. No ink or laser: a recorded talk has none.
+
 | Lecture | Slides sent | Of which | Scan |
 |---|---|---|---|
 | `virus` | 21 | 17 numbered slides and 4 zoomed views | about 20–45 s |
