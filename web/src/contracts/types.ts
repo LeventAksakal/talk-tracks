@@ -114,17 +114,47 @@ export const OUTLINE_EVENT = "com.talktracks.outline";
 
 export const isCarryRecord = (r: { data: object }): r is CarryRecord => "tt" in r.data;
 
-// --- the speaker's and the room's event tracks (ui-design §3.4, decisions 0017 and 0018) ---------
+// --- the speaker's and the room's event tracks (ui-design §3.4, decisions 0017, 0018, 0021) ----
 //
 // Same model: each object is a JSON array of records {m, data}, and every data names its `kind`. The
-// sliced tracks (slide, ink, pointer, comments, room) cut group k at room time [k·4 s, (k+1)·4 s);
+// sliced tracks (slide, ink, marks, pointer, comments, room) cut group k at room time [k·4 s, (k+1)·4 s);
 // object 0 is the carry-in (tracks.ts builds and reads it), objects 1 and up the slice's new records.
 // A carry-in record keeps the m of when it took effect, so its m may precede the slice. The deck track
 // is not sliced: one group per deck. Positions and sizes are fractions of the slide (x from the left,
-// y from the top), never pixels.
+// y from the top), never pixels. Group, object 0 and deltas of every track:
+// wiki/design/container-formats.md.
+//
+// Three separate tools (decision 0021): the laser (`pointer`, ephemeral), the pencil (`ink`, kept on
+// its slide) and text marks (`marks`, kept on a range of the slide's text). The deck with its ink,
+// marks and comments is shared state: the speaker changes it on their own tracks, everyone else through
+// the room service, which publishes talk/<room>/annotations `ink` and `marks`.
 
 /** [x, y], each a fraction of the slide in [0, 1]. */
 export type Point = [x: number, y: number];
+
+/** A box on the slide, in fractions of it: x, y the top-left corner. */
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Who made an annotation mutation, stamped by the publisher (the console on the speaker's tracks, the
+ * room service for everyone else), never taken from what a listener sent.
+ */
+export interface Author {
+  /** Stable for one person in the room; 1–64 of A–Z a–z 0–9 _ -. */
+  id: string;
+  /** Display name, 1–60 characters, no account. */
+  name: string;
+  /** The speaker: may erase, unmark or hide anyone's annotations. */
+  speaker?: boolean;
+}
+
+/** Whether `by` may erase, unmark, clear or hide what `owner` made: their own, or anyone's for the speaker. */
+export const mayChange = (by: Author, owner: Author) => by.speaker === true || by.id === owner.id;
 
 /** Object 0 of a deck group. The group number is the deck id that slide, ink and comment records name. */
 export interface DeckInfo {
@@ -135,6 +165,18 @@ export interface DeckInfo {
   title?: string | null;
 }
 
+/**
+ * A run of the slide's text layer (a word or a line of one style, from the PDF's text content), so text
+ * marks and comment anchors can address it: "underline slide 13, run t23".
+ */
+export interface TextRun {
+  /** Unique within its slide, 1–32 characters, e.g. t23. */
+  id: string;
+  text: string;
+  /** Where the run sits on the slide; a part of a run is placed by character count. */
+  box: Region;
+}
+
 export interface DeckImage {
   kind: "image";
   /** 0-based slide position in the deck. */
@@ -143,8 +185,8 @@ export interface DeckImage {
   width: number;
   height: number;
   data_b64: string;
-  /** The slide's text layer, which comment text spans index into. */
-  text?: string | null;
+  /** The slide's text layer in reading order, which text marks and comment anchors address. */
+  runs?: TextRun[];
 }
 
 export interface DeckRecord {
@@ -174,7 +216,7 @@ export type CurrentSlideObject = CurrentSlideRecord[];
 export type InkTool = "pen" | "highlighter";
 
 interface InkStyle {
-  /** Unique in the room, stable across re-sends. */
+  /** Unique in the room, stable across re-sends; the room service prefixes a listener's with their id. */
   stroke: string;
   deck: number;
   index: number;
@@ -185,6 +227,7 @@ interface InkStyle {
   width: number;
   /** At least one point, in drawing order. */
   points: Point[];
+  by: Author;
 }
 export interface InkBegin extends InkStyle {
   kind: "begin";
@@ -204,24 +247,80 @@ export interface InkStroke extends InkStyle {
   /** False while still being drawn: points and end follow. */
   done: boolean;
 }
+/** Removes the listed strokes that `by` may change (mayChange). */
 export interface InkErase {
   kind: "erase";
   strokes: string[];
+  by: Author;
 }
-/** Removes every stroke of one slide. */
+/** Removes the strokes of one slide that `by` may change: all of them for the speaker, else their own. */
 export interface InkClear {
   kind: "clear";
   deck: number;
   index: number;
+  by: Author;
 }
+/** begin, stroke, erase and clear name their author; points and end belong to their stroke's author. */
 export type InkData = InkBegin | InkPoints | InkEnd | InkStroke | InkErase | InkClear;
 /** m: when it took effect on screen (a re-sent stroke: when its slide was shown). */
 export interface InkRecord {
   m: number;
   data: InkData;
 }
-/** One object of the `ink` track (eventType com.talktracks.ink). Carry-in: strokes visible on the slide on screen. */
+/**
+ * One object of an `ink` track (eventType com.talktracks.ink): the speaker's (talk/<room>/slides) or
+ * everyone else's (talk/<room>/annotations). Carry-in: strokes visible on the slide on screen.
+ */
 export type InkObject = InkRecord[];
+
+/** Characters [start, end) of one text run; the whole run by default. */
+export interface RunSpan {
+  /** A TextRun id of the slide. */
+  run: string;
+  start?: number;
+  /** One past the last character; absent for the run's end. */
+  end?: number | null;
+}
+/** At least one run span, in reading order. */
+export type TextRange = RunSpan[];
+
+/** An underline or highlight anchored to a range of the slide's text, made whole (no begin/end). */
+export interface TextMark {
+  kind: "mark";
+  /** Unique in the room; the room service prefixes a listener's with their id. */
+  id: string;
+  deck: number;
+  index: number;
+  style: "underline" | "highlight";
+  /** #rrggbb */
+  color: string;
+  span: TextRange;
+  by: Author;
+}
+/** Removes the listed marks that `by` may change. */
+export interface Unmark {
+  kind: "unmark";
+  marks: string[];
+  by: Author;
+}
+/** Removes the marks of one slide that `by` may change. */
+export interface MarksClear {
+  kind: "clear";
+  deck: number;
+  index: number;
+  by: Author;
+}
+export type MarkData = TextMark | Unmark | MarksClear;
+/** m: when it took effect on screen (a re-sent mark: when its slide was shown). */
+export interface MarkRecord {
+  m: number;
+  data: MarkData;
+}
+/**
+ * One object of a `marks` track (eventType com.talktracks.marks): the speaker's or everyone else's.
+ * Carry-in: the marks on the slide on screen.
+ */
+export type MarksObject = MarkRecord[];
 
 export interface PointerAt {
   kind: "at";
@@ -235,39 +334,30 @@ export interface PointerRecord {
   m: number;
   data: PointerAt | PointerOff;
 }
-/** One object of the `pointer` track (eventType com.talktracks.pointer), ~20 samples/s while held. Carry-in: the last record. */
+/**
+ * One object of the `pointer` track (eventType com.talktracks.pointer), the laser: ~20 samples/s while
+ * held, ephemeral (never part of the deck's state, never re-sent). Carry-in: the last record.
+ */
 export type PointerObject = PointerRecord[];
 
-export interface Region {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-/** Character offsets into the deck image's `text`; end is one past the last. */
-export interface TextSpan {
-  start: number;
-  end: number;
-}
-/** Where on a slide: a region, a text span, both, or neither (the whole slide). */
+/** Where on a slide: a region, a text range, both (the range's box), or neither (the whole slide). */
 export interface Anchor {
   deck: number;
   index: number;
   region?: Region | null;
-  span?: TextSpan | null;
+  /** Spans of the slide's text runs. */
+  span?: TextRange | null;
 }
 export interface Comment {
   kind: "comment";
   id: string;
   /** Room ms it was posted at; the record's m is when it appeared (posted, or its slide shown again). */
   at: number;
-  /** Display name, 1–60 characters. */
-  author: string;
+  by: Author;
   /** 1–2000 characters. */
   text: string;
   anchor: Anchor;
   question?: boolean;
-  speaker?: boolean;
 }
 export interface Reply {
   kind: "reply";
@@ -275,19 +365,22 @@ export interface Reply {
   at: number;
   /** The thread's comment. */
   to: string;
-  author: string;
+  /** The speaker's replies are shown first. */
+  by: Author;
   text: string;
-  /** Written by the speaker: shown first. */
-  speaker?: boolean;
 }
+/** Replaces a text; only its author's edit applies. */
 export interface CommentEdit {
   kind: "edit";
   id: string;
   text: string;
+  by: Author;
 }
+/** Removes a comment (with its replies) or a reply; only its author's or the speaker's hide applies. */
 export interface CommentHide {
   kind: "hide";
   id: string;
+  by: Author;
 }
 export type CommentData = Comment | Reply | CommentEdit | CommentHide;
 export interface CommentRecord {
@@ -313,6 +406,7 @@ export type RoomStateObject = RoomStateRecord[];
 export const DECK_EVENT = "com.talktracks.deck";
 export const CURRENT_SLIDE_EVENT = "com.talktracks.current-slide";
 export const INK_EVENT = "com.talktracks.ink";
+export const MARKS_EVENT = "com.talktracks.marks";
 export const POINTER_EVENT = "com.talktracks.pointer";
 export const COMMENTS_EVENT = "com.talktracks.comments";
 export const ROOM_EVENT = "com.talktracks.room";
@@ -336,7 +430,7 @@ export interface Source {
   kind: "audio" | "camera" | "screen" | "slides";
   /** talk/<room>/teacher for audio and camera, talk/<room>/slides for slides. */
   namespace: string;
-  /** catalog.json for audio and camera (the hang catalog names the media tracks); deck, slide, ink, pointer for slides. */
+  /** catalog.json for audio and camera (the hang catalog names the media tracks); deck, slide, ink, marks, pointer for slides. */
   tracks: string[];
   label?: string | null;
 }

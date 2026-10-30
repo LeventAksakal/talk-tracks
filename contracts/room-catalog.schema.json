@@ -197,7 +197,7 @@
           "type": "string"
         },
         "tracks": {
-          "description": "Track names in that namespace: catalog.json for audio and camera (the hang catalog names the media tracks), deck, slide, ink and pointer for slides",
+          "description": "Track names in that namespace: catalog.json for audio and camera (the hang catalog names the media tracks), deck, slide, ink, marks and pointer for slides",
           "items": {
             "type": "string"
           },

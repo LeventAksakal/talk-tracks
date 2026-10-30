@@ -1,5 +1,289 @@
 {
   "at 12000": {
+    "annotations_ink": {
+      "carry": [
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "done": true,
+            "index": 1,
+            "kind": "stroke",
+            "points": [
+              [
+                0.6,
+                0.6
+              ],
+              [
+                0.62,
+                0.6
+              ]
+            ],
+            "stroke": "u-bob-1",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 10500
+        }
+      ],
+      "records": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.3,
+                0.3
+              ]
+            ],
+            "stroke": "u-ada-1",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 9900
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-ada-1"
+          },
+          "m": 9950
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.6,
+                0.6
+              ]
+            ],
+            "stroke": "u-bob-1",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 10500
+        },
+        {
+          "data": {
+            "kind": "points",
+            "points": [
+              [
+                0.62,
+                0.6
+              ]
+            ],
+            "stroke": "u-bob-1"
+          },
+          "m": 10550
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-bob-1"
+          },
+          "m": 10600
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "kind": "erase",
+            "strokes": [
+              "u-ada-1"
+            ]
+          },
+          "m": 10700
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.2,
+                0.8
+              ]
+            ],
+            "stroke": "u-ada-2",
+            "tool": "highlighter",
+            "width": 0.02
+          },
+          "m": 11100
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-ada-2"
+          },
+          "m": 11150
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "deck": 2,
+            "index": 1,
+            "kind": "clear"
+          },
+          "m": 11400
+        }
+      ]
+    },
+    "annotations_marks": {
+      "carry": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "u-ada-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 10000
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "u-grace-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 4
+              },
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 0
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 11900
+        }
+      ],
+      "records": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "u-ada-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 10000
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "kind": "unmark",
+            "marks": [
+              "u-ada-m1"
+            ]
+          },
+          "m": 10100
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "u-grace-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 4
+              },
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 0
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 11900
+        }
+      ]
+    },
     "comments": {
       "carry": [
         {
@@ -8,22 +292,27 @@
               "deck": 2,
               "index": 1,
               "region": {
-                "h": 0.1,
-                "w": 0.3,
+                "h": 0.06,
+                "w": 0.4,
                 "x": 0.1,
                 "y": 0.1
               },
-              "span": {
-                "end": 12,
-                "start": 0
-              }
+              "span": [
+                {
+                  "run": "t1",
+                  "start": 0
+                }
+              ]
             },
             "at": 9800,
-            "author": "Ada",
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
             "id": "c1",
             "kind": "comment",
             "question": true,
-            "speaker": false,
             "text": "Why 4 s slices?"
           },
           "m": 9800
@@ -31,10 +320,13 @@
         {
           "data": {
             "at": 10200,
-            "author": "Grace",
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "reply",
-            "speaker": false,
             "text": "So a seek lands close.",
             "to": "c1"
           },
@@ -43,10 +335,13 @@
         {
           "data": {
             "at": 10300,
-            "author": "Levent",
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "id": "c3",
             "kind": "reply",
-            "speaker": true,
             "text": "Slide 9 says.",
             "to": "c1"
           },
@@ -59,11 +354,14 @@
               "index": 1
             },
             "at": 11500,
-            "author": "Bob",
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
             "id": "c5",
             "kind": "comment",
             "question": false,
-            "speaker": false,
             "text": "spam"
           },
           "m": 11500
@@ -71,10 +369,13 @@
         {
           "data": {
             "at": 11600,
-            "author": "Eve",
+            "by": {
+              "id": "u-eve",
+              "name": "Eve",
+              "speaker": false
+            },
             "id": "c6",
             "kind": "reply",
-            "speaker": false,
             "text": "more spam",
             "to": "c5"
           },
@@ -88,22 +389,27 @@
               "deck": 2,
               "index": 1,
               "region": {
-                "h": 0.1,
-                "w": 0.3,
+                "h": 0.06,
+                "w": 0.4,
                 "x": 0.1,
                 "y": 0.1
               },
-              "span": {
-                "end": 12,
-                "start": 0
-              }
+              "span": [
+                {
+                  "run": "t1",
+                  "start": 0
+                }
+              ]
             },
             "at": 9800,
-            "author": "Ada",
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
             "id": "c1",
             "kind": "comment",
             "question": true,
-            "speaker": false,
             "text": "Why 4 s slices?"
           },
           "m": 9800
@@ -111,10 +417,13 @@
         {
           "data": {
             "at": 10200,
-            "author": "Grace",
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "reply",
-            "speaker": false,
             "text": "A seek lands close.",
             "to": "c1"
           },
@@ -123,10 +432,13 @@
         {
           "data": {
             "at": 10300,
-            "author": "Levent",
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "id": "c3",
             "kind": "reply",
-            "speaker": true,
             "text": "Slide 9 says.",
             "to": "c1"
           },
@@ -134,6 +446,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "edit",
             "text": "So a seek lands close."
@@ -142,16 +459,32 @@
         },
         {
           "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "id": "c1",
+            "kind": "edit",
+            "text": "spam"
+          },
+          "m": 10450
+        },
+        {
+          "data": {
             "anchor": {
               "deck": 2,
               "index": 0
             },
             "at": 11000,
-            "author": "Alan",
+            "by": {
+              "id": "u-alan",
+              "name": "Alan",
+              "speaker": false
+            },
             "id": "c4",
             "kind": "comment",
             "question": false,
-            "speaker": false,
             "text": "Nice chart"
           },
           "m": 11000
@@ -163,11 +496,14 @@
               "index": 1
             },
             "at": 11500,
-            "author": "Bob",
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
             "id": "c5",
             "kind": "comment",
             "question": false,
-            "speaker": false,
             "text": "spam"
           },
           "m": 11500
@@ -175,14 +511,29 @@
         {
           "data": {
             "at": 11600,
-            "author": "Eve",
+            "by": {
+              "id": "u-eve",
+              "name": "Eve",
+              "speaker": false
+            },
             "id": "c6",
             "kind": "reply",
-            "speaker": false,
             "text": "more spam",
             "to": "c5"
           },
           "m": 11600
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-eve",
+              "name": "Eve",
+              "speaker": false
+            },
+            "id": "c4",
+            "kind": "hide"
+          },
+          "m": 11700
         }
       ]
     },
@@ -190,6 +541,11 @@
       "carry": [
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "done": true,
@@ -217,6 +573,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "done": false,
@@ -242,6 +603,11 @@
       "records": [
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "index": 1,
@@ -284,6 +650,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#FFEB3B",
             "deck": 2,
             "index": 1,
@@ -309,6 +680,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "kind": "erase",
             "strokes": [
               "s2"
@@ -318,6 +694,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "index": 1,
@@ -346,6 +727,93 @@
             "stroke": "s3"
           },
           "m": 11050
+        }
+      ]
+    },
+    "marks": {
+      "carry": [
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 0
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 9700
+        }
+      ],
+      "records": [
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 0
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 9700
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "m2",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 10900
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "kind": "unmark",
+            "marks": [
+              "m2"
+            ]
+          },
+          "m": 11200
         }
       ]
     },
@@ -453,6 +921,425 @@
     }
   },
   "at 16000": {
+    "annotations_ink": {
+      "carry": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "done": true,
+            "index": 1,
+            "kind": "stroke",
+            "points": [
+              [
+                0.4,
+                0.4
+              ],
+              [
+                0.45,
+                0.42
+              ]
+            ],
+            "stroke": "u-ada-3",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 15500
+        }
+      ],
+      "records": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.3,
+                0.3
+              ]
+            ],
+            "stroke": "u-ada-1",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 9900
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-ada-1"
+          },
+          "m": 9950
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.6,
+                0.6
+              ]
+            ],
+            "stroke": "u-bob-1",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 10500
+        },
+        {
+          "data": {
+            "kind": "points",
+            "points": [
+              [
+                0.62,
+                0.6
+              ]
+            ],
+            "stroke": "u-bob-1"
+          },
+          "m": 10550
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-bob-1"
+          },
+          "m": 10600
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "kind": "erase",
+            "strokes": [
+              "u-ada-1"
+            ]
+          },
+          "m": 10700
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.2,
+                0.8
+              ]
+            ],
+            "stroke": "u-ada-2",
+            "tool": "highlighter",
+            "width": 0.02
+          },
+          "m": 11100
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-ada-2"
+          },
+          "m": 11150
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "deck": 2,
+            "index": 1,
+            "kind": "clear"
+          },
+          "m": 11400
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "kind": "erase",
+            "strokes": [
+              "u-bob-1"
+            ]
+          },
+          "m": 12200
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "index": 1,
+            "kind": "begin",
+            "points": [
+              [
+                0.4,
+                0.4
+              ]
+            ],
+            "stroke": "u-ada-3",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 12500
+        },
+        {
+          "data": {
+            "kind": "points",
+            "points": [
+              [
+                0.45,
+                0.42
+              ]
+            ],
+            "stroke": "u-ada-3"
+          },
+          "m": 12550
+        },
+        {
+          "data": {
+            "kind": "end",
+            "stroke": "u-ada-3"
+          },
+          "m": 12600
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#e53935",
+            "deck": 2,
+            "done": true,
+            "index": 1,
+            "kind": "stroke",
+            "points": [
+              [
+                0.4,
+                0.4
+              ],
+              [
+                0.45,
+                0.42
+              ]
+            ],
+            "stroke": "u-ada-3",
+            "tool": "pen",
+            "width": 0.004
+          },
+          "m": 15500
+        }
+      ]
+    },
+    "annotations_marks": {
+      "carry": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "u-ada-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 15500
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "u-grace-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 4
+              },
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 0
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 15500
+        }
+      ],
+      "records": [
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "u-ada-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 10000
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "kind": "unmark",
+            "marks": [
+              "u-ada-m1"
+            ]
+          },
+          "m": 10100
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "u-grace-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 4
+              },
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 0
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 11900
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "u-ada-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 15500
+        },
+        {
+          "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "u-grace-m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 4
+              },
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 0
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 15500
+        }
+      ]
+    },
     "comments": {
       "carry": [
         {
@@ -461,22 +1348,27 @@
               "deck": 2,
               "index": 1,
               "region": {
-                "h": 0.1,
-                "w": 0.3,
+                "h": 0.06,
+                "w": 0.4,
                 "x": 0.1,
                 "y": 0.1
               },
-              "span": {
-                "end": 12,
-                "start": 0
-              }
+              "span": [
+                {
+                  "run": "t1",
+                  "start": 0
+                }
+              ]
             },
             "at": 9800,
-            "author": "Ada",
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
             "id": "c1",
             "kind": "comment",
             "question": true,
-            "speaker": false,
             "text": "Why 4 s slices?"
           },
           "m": 15500
@@ -484,10 +1376,13 @@
         {
           "data": {
             "at": 10200,
-            "author": "Grace",
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "reply",
-            "speaker": false,
             "text": "So a seek lands close.",
             "to": "c1"
           },
@@ -501,22 +1396,27 @@
               "deck": 2,
               "index": 1,
               "region": {
-                "h": 0.1,
-                "w": 0.3,
+                "h": 0.06,
+                "w": 0.4,
                 "x": 0.1,
                 "y": 0.1
               },
-              "span": {
-                "end": 12,
-                "start": 0
-              }
+              "span": [
+                {
+                  "run": "t1",
+                  "start": 0
+                }
+              ]
             },
             "at": 9800,
-            "author": "Ada",
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
             "id": "c1",
             "kind": "comment",
             "question": true,
-            "speaker": false,
             "text": "Why 4 s slices?"
           },
           "m": 9800
@@ -524,10 +1424,13 @@
         {
           "data": {
             "at": 10200,
-            "author": "Grace",
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "reply",
-            "speaker": false,
             "text": "A seek lands close.",
             "to": "c1"
           },
@@ -536,10 +1439,13 @@
         {
           "data": {
             "at": 10300,
-            "author": "Levent",
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "id": "c3",
             "kind": "reply",
-            "speaker": true,
             "text": "Slide 9 says.",
             "to": "c1"
           },
@@ -547,6 +1453,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "edit",
             "text": "So a seek lands close."
@@ -555,16 +1466,32 @@
         },
         {
           "data": {
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
+            "id": "c1",
+            "kind": "edit",
+            "text": "spam"
+          },
+          "m": 10450
+        },
+        {
+          "data": {
             "anchor": {
               "deck": 2,
               "index": 0
             },
             "at": 11000,
-            "author": "Alan",
+            "by": {
+              "id": "u-alan",
+              "name": "Alan",
+              "speaker": false
+            },
             "id": "c4",
             "kind": "comment",
             "question": false,
-            "speaker": false,
             "text": "Nice chart"
           },
           "m": 11000
@@ -576,11 +1503,14 @@
               "index": 1
             },
             "at": 11500,
-            "author": "Bob",
+            "by": {
+              "id": "u-bob",
+              "name": "Bob",
+              "speaker": false
+            },
             "id": "c5",
             "kind": "comment",
             "question": false,
-            "speaker": false,
             "text": "spam"
           },
           "m": 11500
@@ -588,10 +1518,13 @@
         {
           "data": {
             "at": 11600,
-            "author": "Eve",
+            "by": {
+              "id": "u-eve",
+              "name": "Eve",
+              "speaker": false
+            },
             "id": "c6",
             "kind": "reply",
-            "speaker": false,
             "text": "more spam",
             "to": "c5"
           },
@@ -599,6 +1532,23 @@
         },
         {
           "data": {
+            "by": {
+              "id": "u-eve",
+              "name": "Eve",
+              "speaker": false
+            },
+            "id": "c4",
+            "kind": "hide"
+          },
+          "m": 11700
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "id": "c5",
             "kind": "hide"
           },
@@ -606,6 +1556,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "id": "c3",
             "kind": "hide"
           },
@@ -618,11 +1573,14 @@
               "index": 0
             },
             "at": 11000,
-            "author": "Alan",
+            "by": {
+              "id": "u-alan",
+              "name": "Alan",
+              "speaker": false
+            },
             "id": "c4",
             "kind": "comment",
             "question": false,
-            "speaker": false,
             "text": "Nice chart"
           },
           "m": 14200
@@ -633,22 +1591,27 @@
               "deck": 2,
               "index": 1,
               "region": {
-                "h": 0.1,
-                "w": 0.3,
+                "h": 0.06,
+                "w": 0.4,
                 "x": 0.1,
                 "y": 0.1
               },
-              "span": {
-                "end": 12,
-                "start": 0
-              }
+              "span": [
+                {
+                  "run": "t1",
+                  "start": 0
+                }
+              ]
             },
             "at": 9800,
-            "author": "Ada",
+            "by": {
+              "id": "u-ada",
+              "name": "Ada",
+              "speaker": false
+            },
             "id": "c1",
             "kind": "comment",
             "question": true,
-            "speaker": false,
             "text": "Why 4 s slices?"
           },
           "m": 15500
@@ -656,10 +1619,13 @@
         {
           "data": {
             "at": 10200,
-            "author": "Grace",
+            "by": {
+              "id": "u-grace",
+              "name": "Grace",
+              "speaker": false
+            },
             "id": "c2",
             "kind": "reply",
-            "speaker": false,
             "text": "So a seek lands close.",
             "to": "c1"
           },
@@ -671,6 +1637,11 @@
       "carry": [
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "done": true,
@@ -698,6 +1669,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "done": true,
@@ -723,6 +1699,11 @@
       "records": [
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "index": 1,
@@ -765,6 +1746,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#FFEB3B",
             "deck": 2,
             "index": 1,
@@ -790,6 +1776,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "kind": "erase",
             "strokes": [
               "s2"
@@ -799,6 +1790,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "index": 1,
@@ -830,6 +1826,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "index": 0,
@@ -855,6 +1856,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "deck": 2,
             "index": 0,
             "kind": "clear"
@@ -870,6 +1876,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "done": true,
@@ -897,6 +1908,11 @@
         },
         {
           "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "color": "#e53935",
             "deck": 2,
             "done": true,
@@ -915,6 +1931,150 @@
             "stroke": "s3",
             "tool": "pen",
             "width": 0.004
+          },
+          "m": 15500
+        }
+      ]
+    },
+    "marks": {
+      "carry": [
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 0
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 15500
+        }
+      ],
+      "records": [
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 0
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 9700
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#FFEB3B",
+            "deck": 2,
+            "id": "m2",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "end": 6,
+                "run": "t2",
+                "start": 2
+              }
+            ],
+            "style": "highlight"
+          },
+          "m": 10900
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "kind": "unmark",
+            "marks": [
+              "m2"
+            ]
+          },
+          "m": 11200
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "m3",
+            "index": 0,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t0",
+                "start": 0
+              }
+            ],
+            "style": "underline"
+          },
+          "m": 14300
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "deck": 2,
+            "index": 0,
+            "kind": "clear"
+          },
+          "m": 14600
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "color": "#1e88e5",
+            "deck": 2,
+            "id": "m1",
+            "index": 1,
+            "kind": "mark",
+            "span": [
+              {
+                "run": "t1",
+                "start": 0
+              }
+            ],
+            "style": "underline"
           },
           "m": 15500
         }
