@@ -272,17 +272,57 @@ OUTLINE_EVENT = "com.talktracks.outline"
 # --- the speaker's and the room's event tracks (ui-design §3.4, decisions 0017 and 0018) --------------------
 #
 # Same model as the agent tracks: every object is a JSON array of records ``{"m": <room ms>, "data": {...}}``, and
-# every ``data`` names its ``kind``. The sliced tracks (slide, ink, pointer, comments, room) cut group k at room time
-# [k * 4 s, (k + 1) * 4 s); object 0 is the carry-in, the state needed to draw the slice's start without earlier
+# every ``data`` names its ``kind``. The sliced tracks (slide, ink, marks, pointer, comments, room) cut group k at room
+# time [k * 4 s, (k + 1) * 4 s); object 0 is the carry-in, the state needed to draw the slice's start without earlier
 # slices (``records.py`` builds it), and objects 1 and up are the slice's new records in publication order. A
 # carry-in record keeps the m of when it took effect, so its m may precede the slice. The deck track is not sliced:
 # one group per deck, like the outline. Positions and sizes are fractions of the slide, never pixels: x from the
-# left, y from the top.
+# left, y from the top. Group, object 0 and deltas of every track: wiki/design/container-formats.md.
+#
+# Three separate tools (decision 0021): the laser (``pointer``, ephemeral), the pencil (``ink``, kept on its slide)
+# and text marks (``marks``, kept on a range of the slide's text). The deck with its ink, marks and comments is shared
+# state; anyone in the room may change it, the speaker on their own tracks and everyone else through the room service.
 
 Fraction = Annotated[float, Field(ge=0, le=1)]
 Point = tuple[Fraction, Fraction]
 SlideIndex = Annotated[int, Field(ge=0, description="The slide's 0-based position in its deck")]
 DeckGroup = Annotated[int, Field(ge=0, description="The deck track's group that holds the deck")]
+
+
+class Region(Wire):
+    """A box on the slide, in fractions of it: x, y the top-left corner."""
+
+    x: Fraction
+    y: Fraction
+    w: Fraction
+    h: Fraction
+
+
+# The deck and its annotations are shared state (decision 0021). Every annotation mutation names who made it: an
+# ``Author``, stamped by the publisher (the speaker's console on its own tracks, the room service for everyone
+# else), never taken from what a listener sent.
+
+UserId = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Stable for one person in the room: given by the room service (listeners) or the console (speaker)",
+    ),
+]
+DisplayName = Annotated[str, Field(min_length=1, max_length=60, description="Display name, no account")]
+
+
+class Author(Wire):
+    id: UserId
+    name: DisplayName
+    speaker: bool = Field(default=False, description="The speaker: may erase, unmark or hide anyone's annotations")
+
+
+def may_change(by: Author, owner: Author) -> bool:
+    """Whether ``by`` may erase, unmark, clear or hide what ``owner`` made: their own, or anyone's for the speaker."""
+    return by.speaker or by.id == owner.id
 
 
 # deck: track ``deck`` in ``talk/<room>/slides``, one group per deck. Object 0 holds the ``DeckInfo``; each later
@@ -298,6 +338,18 @@ class DeckInfo(Wire):
     title: str | None = Field(default=None, description="The deck's title, if the speaker gave one")
 
 
+RunId = Annotated[str, Field(min_length=1, max_length=32, description="Unique within its slide, e.g. t23")]
+
+
+class TextRun(Wire):
+    """A run of the slide's text layer (a word or a line of one style, from the PDF's text content), so text marks and
+    comment anchors can address it: 'underline slide 13, run t23'."""
+
+    id: RunId
+    text: str = Field(min_length=1)
+    box: Region = Field(description="Where the run sits on the slide; a part of a run is placed by character count")
+
+
 class DeckImage(Wire):
     kind: Literal["image"] = "image"
     index: SlideIndex
@@ -305,9 +357,17 @@ class DeckImage(Wire):
     width: int = Field(ge=1, description="Pixels")
     height: int = Field(ge=1, description="Pixels")
     data_b64: str = Field(min_length=1)
-    text: str | None = Field(
-        default=None, description="The slide's text layer (from the PDF), which comment text spans index into"
+    runs: list[TextRun] = Field(
+        default_factory=list[TextRun],
+        description="The slide's text layer in reading order, which text marks and comment anchors address; empty for"
+        " a slide without text",
     )
+
+    @model_validator(mode="after")
+    def _unique_runs(self) -> DeckImage:
+        if len({r.id for r in self.runs}) != len(self.runs):
+            raise ValueError("run ids repeat within a slide")
+        return self
 
 
 class DeckRecord(Wire):
@@ -347,15 +407,27 @@ class CurrentSlideObject(RootModel[list[CurrentSlideRecord]]):
     model_config = ConfigDict(frozen=True)
 
 
-# ink: strokes drawn on a slide. A stroke is ``begin``, ``points`` (any number), ``end``. ``stroke`` states a whole
-# stroke at once: in the carry-in (every stroke visible on the slide on screen, ``done`` false while still being
-# drawn) and, re-sent at the moment a slide that kept its ink is shown again, so a reader that started from a later
-# carry-in sees it too. ``erase`` removes strokes, ``clear`` a slide's ink. ``m`` is when the record took effect on
-# screen; a re-sent stroke's m is when its slide was shown.
+# ink (the pencil tool): freehand strokes that stay on their slide. A stroke is ``begin``, ``points`` (any number),
+# ``end``. ``stroke`` states a whole stroke at once: in the carry-in (every stroke visible on the slide on screen,
+# ``done`` false while still being drawn) and, re-sent at the moment a slide that kept its ink is shown again, so a
+# reader that started from a later carry-in sees it too. ``erase`` removes strokes, ``clear`` a slide's ink. ``m`` is
+# when the record took effect on screen; a re-sent stroke's m is when its slide was shown.
+#
+# The same object is used on the speaker's track (``talk/<room>/slides`` ``ink``) and on the room service's track of
+# everyone else's ink (``talk/<room>/annotations`` ``ink``). ``begin``, ``stroke``, ``erase`` and ``clear`` name
+# their author (``by``); ``points`` and ``end`` belong to their stroke's author. A record changes only its own
+# track's strokes, and only those ``by`` may change (``may_change``): ``clear`` removes the strokes on the slide that
+# its author may change, so the speaker's clear empties the slide and a listener's removes their own.
 
 
 InkTool = Literal["pen", "highlighter"]
-StrokeId = Annotated[str, Field(min_length=1, description="Unique in the room, stable across re-sends")]
+StrokeId = Annotated[
+    str,
+    Field(
+        min_length=1,
+        description="Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
+    ),
+]
 Colour = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$", description="#rrggbb")]
 Width = Annotated[float, Field(gt=0, le=1, description="Line width as a fraction of the slide's width")]
 Points = Annotated[list[Point], Field(min_length=1, description="[x, y] fractions of the slide, in drawing order")]
@@ -370,6 +442,7 @@ class InkBegin(Wire):
     color: Colour
     width: Width
     points: Points
+    by: Author
 
 
 class InkPoints(Wire):
@@ -392,18 +465,21 @@ class InkStroke(Wire):
     color: Colour
     width: Width
     points: Points
-    done: bool = Field(description="False while the speaker is still drawing it: points and end follow")
+    by: Author
+    done: bool = Field(description="False while its author is still drawing it: points and end follow")
 
 
 class InkErase(Wire):
     kind: Literal["erase"] = "erase"
     strokes: list[StrokeId] = Field(min_length=1)
+    by: Author
 
 
 class InkClear(Wire):
     kind: Literal["clear"] = "clear"
     deck: DeckGroup
     index: SlideIndex
+    by: Author
 
 
 InkData = Annotated[InkBegin | InkPoints | InkEnd | InkStroke | InkErase | InkClear, Field(discriminator="kind")]
@@ -415,13 +491,79 @@ class InkRecord(Wire):
 
 
 class InkObject(RootModel[list[InkRecord]]):
-    """One object of the ``ink`` track (eventType ``com.talktracks.ink``)."""
+    """One object of an ``ink`` track (eventType ``com.talktracks.ink``): the speaker's or the room service's."""
 
     model_config = ConfigDict(frozen=True)
 
 
-# pointer: the laser, sampled about 20 times a second while held; an object may batch a few samples but never
-# crosses a slice. Carry-in: the last record.
+# marks (the text tool): underlines and highlights anchored to a range of the slide's text layer (``DeckImage.runs``),
+# not to pixels, so they follow the text. A mark is one ``mark`` record (no begin/points/end: it is made whole);
+# ``unmark`` removes marks, ``clear`` a slide's marks, with the same author rules as ink. Carry-in: the marks on the
+# slide on screen; when a slide is shown its marks are re-sent with m = that moment. Speaker's track:
+# ``talk/<room>/slides`` ``marks``; everyone else's: ``talk/<room>/annotations`` ``marks``.
+
+
+class RunSpan(Wire):
+    """Characters [start, end) of one text run; the whole run by default."""
+
+    run: RunId
+    start: int = Field(default=0, ge=0, description="First character in the run")
+    end: int | None = Field(default=None, ge=0, description="One past the last character; none for the run's end")
+
+    @model_validator(mode="after")
+    def _ordered(self) -> RunSpan:
+        if self.end is not None and self.end < self.start:
+            raise ValueError("a run span ends before it starts")
+        return self
+
+
+TextRange = Annotated[
+    list[RunSpan], Field(min_length=1, description="Spans of the slide's text runs, in reading order")
+]
+MarkId = Annotated[
+    str,
+    Field(min_length=1, description="Unique in the room; the room service prefixes a listener's with their id"),
+]
+
+
+class TextMark(Wire):
+    kind: Literal["mark"] = "mark"
+    id: MarkId
+    deck: DeckGroup
+    index: SlideIndex
+    style: Literal["underline", "highlight"]
+    color: Colour
+    span: TextRange
+    by: Author
+
+
+class Unmark(Wire):
+    kind: Literal["unmark"] = "unmark"
+    marks: list[MarkId] = Field(min_length=1)
+    by: Author
+
+
+class MarksClear(Wire):
+    kind: Literal["clear"] = "clear"
+    deck: DeckGroup
+    index: SlideIndex
+    by: Author
+
+
+class MarkRecord(Wire):
+    m: int = Field(ge=0, description="Room ms when it took effect on screen (a re-sent mark: when its slide was shown)")
+    data: Annotated[TextMark | Unmark | MarksClear, Field(discriminator="kind")]
+
+
+class MarksObject(RootModel[list[MarkRecord]]):
+    """One object of a ``marks`` track (eventType ``com.talktracks.marks``): the speaker's or the room service's."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# pointer (the laser tool): where the speaker points, sampled about 20 times a second while held; an object may batch a
+# few samples but never crosses a slice. Ephemeral: never part of the deck's state, never re-sent, never kept per
+# slide; the console sends ``off`` when the laser is released or the slide changes. Carry-in: the last record.
 
 
 class PointerAt(Wire):
@@ -446,41 +588,22 @@ class PointerObject(RootModel[list[PointerRecord]]):
 
 
 # comments: listeners post through the room service, which publishes them (decision 0005). A thread is a
-# ``comment`` and its ``reply`` records; ``edit`` replaces a text, ``hide`` (the speaker) removes a comment or reply.
-# Carry-in: the threads anchored on the slide on screen, as their comment and reply records with edits applied and
-# hidden ones left out. As with ink, when a slide is shown the room service re-sends its threads (comment, then
-# replies, current text) with m = that moment; ``at`` keeps when each was posted.
-
-
-class Region(Wire):
-    x: Fraction
-    y: Fraction
-    w: Fraction
-    h: Fraction
-
-
-class TextSpan(Wire):
-    start: int = Field(ge=0, description="First character, in the deck image's text")
-    end: int = Field(ge=0, description="One past the last character")
-
-    @model_validator(mode="after")
-    def _ordered(self) -> TextSpan:
-        if self.end < self.start:
-            raise ValueError("a text span ends before it starts")
-        return self
+# ``comment`` and its ``reply`` records; ``edit`` replaces a text (its author only), ``hide`` removes a comment or
+# reply (its author or the speaker). Carry-in: the threads anchored on the slide on screen, as their comment and reply
+# records with edits applied and hidden ones left out. As with ink, when a slide is shown the room service re-sends its
+# threads (comment, then replies, current text) with m = that moment; ``at`` keeps when each was posted.
 
 
 class Anchor(Wire):
-    """Where on a slide: a region, a text span, both (the span's box), or neither (the whole slide)."""
+    """Where on a slide: a region, a text range, both (the range's box), or neither (the whole slide)."""
 
     deck: DeckGroup
     index: SlideIndex
     region: Region | None = None
-    span: TextSpan | None = None
+    span: TextRange | None = Field(default=None, description="Spans of the slide's text runs")
 
 
 CommentId = Annotated[str, Field(min_length=1, description="Given by the room service, unique in the room")]
-Author = Annotated[str, Field(min_length=1, max_length=60, description="Display name, no account")]
 CommentText = Annotated[str, Field(min_length=1, max_length=2000)]
 
 
@@ -491,11 +614,10 @@ class Comment(Wire):
     kind: Literal["comment"] = "comment"
     id: CommentId
     at: PostedAt
-    author: Author
+    by: Author
     text: CommentText
     anchor: Anchor
     question: bool = Field(default=False, description="Asked as a question for the speaker")
-    speaker: bool = Field(default=False, description="Written by the speaker")
 
 
 class Reply(Wire):
@@ -503,20 +625,21 @@ class Reply(Wire):
     id: CommentId
     at: PostedAt
     to: CommentId = Field(description="The thread's comment")
-    author: Author
+    by: Author = Field(description="The speaker's replies are shown first")
     text: CommentText
-    speaker: bool = Field(default=False, description="Written by the speaker: shown first")
 
 
 class CommentEdit(Wire):
     kind: Literal["edit"] = "edit"
     id: CommentId
     text: CommentText
+    by: Author
 
 
 class CommentHide(Wire):
     kind: Literal["hide"] = "hide"
     id: CommentId
+    by: Author
 
 
 CommentData = Annotated[Comment | Reply | CommentEdit | CommentHide, Field(discriminator="kind")]
@@ -563,6 +686,7 @@ class RoomStateObject(RootModel[list[RoomStateRecord]]):
 DECK_EVENT = "com.talktracks.deck"
 CURRENT_SLIDE_EVENT = "com.talktracks.current-slide"
 INK_EVENT = "com.talktracks.ink"
+MARKS_EVENT = "com.talktracks.marks"
 POINTER_EVENT = "com.talktracks.pointer"
 COMMENTS_EVENT = "com.talktracks.comments"
 ROOM_EVENT = "com.talktracks.room"
@@ -590,7 +714,7 @@ class Source(Wire):
     tracks: list[str] = Field(
         min_length=1,
         description="Track names in that namespace: catalog.json for audio and camera (the hang catalog names the media"
-        " tracks), deck, slide, ink and pointer for slides",
+        " tracks), deck, slide, ink, marks and pointer for slides",
     )
     label: str | None = None
 
@@ -790,14 +914,16 @@ HANG_CATALOG_TRACK = "catalog.json"  # names the media tracks of teacher_path(ro
 
 
 def slides_path(room: str) -> str:
-    """The speaker's slide broadcast: ``frames`` (for the describe agent), ``deck``, ``slide``, ``ink``, ``pointer``."""
+    """The speaker's slide broadcast: ``frames`` (for the describe agent), ``deck``, ``slide``, ``ink``, ``marks``,
+    ``pointer``."""
     return f"{ROOT}/{room}/slides"
 
 
 FRAMES_TRACK = "frames"  # SlideFrame objects, one per slide shown
 DECK_TRACK = "deck"  # DeckObject, one group per deck
 SLIDE_TRACK = "slide"  # CurrentSlideObject, sliced
-INK_TRACK = "ink"  # InkObject, sliced
+INK_TRACK = "ink"  # InkObject, sliced; also in annotations_path(room)
+MARKS_TRACK = "marks"  # MarksObject, sliced; also in annotations_path(room)
 POINTER_TRACK = "pointer"  # PointerObject, sliced
 
 
@@ -815,6 +941,11 @@ def comments_path(room: str) -> str:
 
 
 COMMENTS_TRACK = "comments"  # CommentsObject, sliced
+
+
+def annotations_path(room: str) -> str:
+    """Everyone else's annotations of the deck (``ink``, ``marks``), published by the room service (decision 0021)."""
+    return f"{ROOT}/{room}/annotations"
 
 
 def agents_prefix(room: str) -> str:

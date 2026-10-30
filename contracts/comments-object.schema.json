@@ -2,7 +2,7 @@
   "$defs": {
     "Anchor": {
       "additionalProperties": false,
-      "description": "Where on a slide: a region, a text span, both (the span's box), or neither (the whole slide).",
+      "description": "Where on a slide: a region, a text range, both (the range's box), or neither (the whole slide).",
       "properties": {
         "deck": {
           "description": "The deck track's group that holds the deck",
@@ -30,13 +30,20 @@
         "span": {
           "anyOf": [
             {
-              "$ref": "#/$defs/TextSpan"
+              "description": "Spans of the slide's text runs, in reading order",
+              "items": {
+                "$ref": "#/$defs/RunSpan"
+              },
+              "minItems": 1,
+              "type": "array"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Spans of the slide's text runs",
+          "title": "Span"
         }
       },
       "required": [
@@ -44,6 +51,38 @@
         "index"
       ],
       "title": "Anchor",
+      "type": "object"
+    },
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable for one person in the room: given by the room service (listeners) or the console (speaker)",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name, no account",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "speaker": {
+          "default": false,
+          "description": "The speaker: may erase, unmark or hide anyone's annotations",
+          "title": "Speaker",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Author",
       "type": "object"
     },
     "Comment": {
@@ -58,12 +97,8 @@
           "title": "At",
           "type": "integer"
         },
-        "author": {
-          "description": "Display name, no account",
-          "maxLength": 60,
-          "minLength": 1,
-          "title": "Author",
-          "type": "string"
+        "by": {
+          "$ref": "#/$defs/Author"
         },
         "id": {
           "description": "Given by the room service, unique in the room",
@@ -83,12 +118,6 @@
           "title": "Question",
           "type": "boolean"
         },
-        "speaker": {
-          "default": false,
-          "description": "Written by the speaker",
-          "title": "Speaker",
-          "type": "boolean"
-        },
         "text": {
           "maxLength": 2000,
           "minLength": 1,
@@ -99,7 +128,7 @@
       "required": [
         "id",
         "at",
-        "author",
+        "by",
         "text",
         "anchor"
       ],
@@ -109,6 +138,9 @@
     "CommentEdit": {
       "additionalProperties": false,
       "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
         "id": {
           "description": "Given by the room service, unique in the room",
           "minLength": 1,
@@ -130,7 +162,8 @@
       },
       "required": [
         "id",
-        "text"
+        "text",
+        "by"
       ],
       "title": "CommentEdit",
       "type": "object"
@@ -138,6 +171,9 @@
     "CommentHide": {
       "additionalProperties": false,
       "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
         "id": {
           "description": "Given by the room service, unique in the room",
           "minLength": 1,
@@ -152,7 +188,8 @@
         }
       },
       "required": [
-        "id"
+        "id",
+        "by"
       ],
       "title": "CommentHide",
       "type": "object"
@@ -202,6 +239,7 @@
     },
     "Region": {
       "additionalProperties": false,
+      "description": "A box on the slide, in fractions of it: x, y the top-left corner.",
       "properties": {
         "h": {
           "maximum": 1,
@@ -246,12 +284,9 @@
           "title": "At",
           "type": "integer"
         },
-        "author": {
-          "description": "Display name, no account",
-          "maxLength": 60,
-          "minLength": 1,
-          "title": "Author",
-          "type": "string"
+        "by": {
+          "$ref": "#/$defs/Author",
+          "description": "The speaker's replies are shown first"
         },
         "id": {
           "description": "Given by the room service, unique in the room",
@@ -264,12 +299,6 @@
           "default": "reply",
           "title": "Kind",
           "type": "string"
-        },
-        "speaker": {
-          "default": false,
-          "description": "Written by the speaker: shown first",
-          "title": "Speaker",
-          "type": "boolean"
         },
         "text": {
           "maxLength": 2000,
@@ -288,33 +317,49 @@
         "id",
         "at",
         "to",
-        "author",
+        "by",
         "text"
       ],
       "title": "Reply",
       "type": "object"
     },
-    "TextSpan": {
+    "RunSpan": {
       "additionalProperties": false,
+      "description": "Characters [start, end) of one text run; the whole run by default.",
       "properties": {
         "end": {
-          "description": "One past the last character",
-          "minimum": 0,
-          "title": "End",
-          "type": "integer"
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One past the last character; none for the run's end",
+          "title": "End"
+        },
+        "run": {
+          "description": "Unique within its slide, e.g. t23",
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Run",
+          "type": "string"
         },
         "start": {
-          "description": "First character, in the deck image's text",
+          "default": 0,
+          "description": "First character in the run",
           "minimum": 0,
           "title": "Start",
           "type": "integer"
         }
       },
       "required": [
-        "start",
-        "end"
+        "run"
       ],
-      "title": "TextSpan",
+      "title": "RunSpan",
       "type": "object"
     }
   },

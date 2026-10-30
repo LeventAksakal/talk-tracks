@@ -32,6 +32,8 @@ from .contracts import (
     InkPoints,
     InkRecord,
     InkStroke,
+    MarkRecord,
+    MarksClear,
     OutlineObject,
     OutlineRecord,
     Reply,
@@ -39,7 +41,10 @@ from .contracts import (
     Slide,
     SlideObject,
     SlideRecord,
+    TextMark,
+    Unmark,
     Wire,
+    may_change,
 )
 
 log = logging.getLogger("talk_tracks")
@@ -118,9 +123,9 @@ def line_of(cue: Cue) -> CaptionLine:
     return CaptionLine(id=cue_number(cue), start_ms=cue.start, end_ms=cue.end, text=cue.text)
 
 
-# --- carry-ins of the speaker's and the room's tracks (ui-design §3.4) ----------------------------------------
+# --- carry-ins of the speaker's and the room's tracks (ui-design §3.4, container-formats.md) -----------------
 #
-# Each function takes every record of the track before slice k, in publication order (earlier slices' objects
+# Each function takes every record of one track before slice k, in publication order (earlier slices' objects
 # 1 and up, or the previous carry-in followed by its slice's records), and returns object 0 of slice k. Given the
 # records up to a time t instead, it returns what is on screen at t. web/src/contracts/tracks.ts mirrors them; both
 # are checked against contracts/examples/carry-ins.json.
@@ -140,8 +145,9 @@ def current_slide(records: Iterable[CurrentSlideRecord]) -> ShowSlide | None:
 
 
 def ink_strokes(records: Iterable[InkRecord]) -> dict[str, InkRecord]:
-    """Every stroke still on some slide after these records, by id, as a whole ``stroke`` record whose m is when it
-    appeared. Points, end or erase of a stroke never seen are ignored."""
+    """Every stroke still on some slide after these records (of one ink track), by id, as a whole ``stroke`` record
+    whose m is when it appeared. Points, end or erase of a stroke never seen are ignored, and so are erase and clear of
+    strokes their author may not change (``may_change``)."""
     strokes: dict[str, tuple[int, InkStroke]] = {}
     for r in records:
         d = r.data
@@ -157,9 +163,10 @@ def ink_strokes(records: Iterable[InkRecord]) -> dict[str, InkRecord]:
                 strokes[d.stroke] = (seen[0], seen[1].model_copy(update={"done": True}))
         elif isinstance(d, InkErase):
             for stroke in d.strokes:
-                strokes.pop(stroke, None)
+                if (seen := strokes.get(stroke)) is not None and may_change(d.by, seen[1].by):
+                    del strokes[stroke]
         else:
-            strokes = {k: v for k, v in strokes.items() if not _on(v[1], d)}
+            strokes = {k: v for k, v in strokes.items() if not (_on(v[1], d) and may_change(d.by, v[1].by))}
     return {k: InkRecord(m=m, data=s) for k, (m, s) in strokes.items()}
 
 
@@ -171,18 +178,45 @@ def ink_carry(records: Iterable[InkRecord], on: ShowSlide | None) -> list[InkRec
     return sorted(visible, key=lambda r: r.m)
 
 
+def text_marks(records: Iterable[MarkRecord]) -> dict[str, MarkRecord]:
+    """Every text mark still on some slide after these records (of one marks track), by id, with the m of when it
+    appeared. Unmark and clear apply only to marks their author may change."""
+    marks: dict[str, MarkRecord] = {}
+    for r in records:
+        d = r.data
+        if isinstance(d, TextMark):
+            marks[d.id] = r
+        elif isinstance(d, Unmark):
+            for mark in d.marks:
+                if (seen := marks.get(mark)) is not None and may_change(d.by, _mark(seen).by):
+                    del marks[mark]
+        else:
+            marks = {k: v for k, v in marks.items() if not (_on(_mark(v), d) and may_change(d.by, _mark(v).by))}
+    return marks
+
+
+def marks_carry(records: Iterable[MarkRecord], on: ShowSlide | None) -> list[MarkRecord]:
+    """Object 0 of a marks track: the marks on the slide on screen (``on``), oldest first."""
+    if on is None:
+        return []
+    return sorted((r for r in text_marks(records).values() if _on(_mark(r), on)), key=lambda r: r.m)
+
+
 def comment_threads(records: Iterable[CommentRecord]) -> list[CommentRecord]:
     """Every comment and reply still shown after these records, edits applied and hidden ones (with a hidden
-    comment's replies) left out, in the order they were made. A reply to a comment not shown is dropped."""
+    comment's replies) left out, in the order they were made. A reply to a comment not shown is dropped; an edit by
+    anyone but the author, or a hide by anyone but the author or the speaker, is ignored."""
     shown: dict[str, CommentRecord] = {}
     for r in records:
         d = r.data
         if isinstance(d, Comment) or (isinstance(d, Reply) and _is_comment(shown.get(d.to))):
             shown[d.id] = r
         elif isinstance(d, CommentEdit):
-            if (seen := shown.get(d.id)) is not None:
-                shown[d.id] = seen.model_copy(update={"data": seen.data.model_copy(update={"text": d.text})})
-        elif isinstance(d, CommentHide):
+            if (seen := shown.get(d.id)) is not None and _posted(seen).by.id == d.by.id:
+                shown[d.id] = seen.model_copy(update={"data": _posted(seen).model_copy(update={"text": d.text})})
+        elif (
+            isinstance(d, CommentHide) and (seen := shown.get(d.id)) is not None and may_change(d.by, _posted(seen).by)
+        ):
             shown = {k: v for k, v in shown.items() if d.id not in (k, _to(v))}
     return list(shown.values())
 
@@ -196,8 +230,18 @@ def comments_carry(records: Iterable[CommentRecord], on: ShowSlide | None) -> li
     return [r for r in threads if r.data.id in anchored or _to(r) in anchored]
 
 
-def _on(where: InkStroke | InkClear | ShowSlide | Anchor, slide: InkClear | ShowSlide) -> bool:
+def _on(where: InkStroke | TextMark | ShowSlide | Anchor, slide: InkClear | MarksClear | ShowSlide) -> bool:
     return (where.deck, where.index) == (slide.deck, slide.index)
+
+
+def _mark(r: MarkRecord) -> TextMark:
+    assert isinstance(r.data, TextMark)  # text_marks keeps only marks
+    return r.data
+
+
+def _posted(r: CommentRecord) -> Comment | Reply:
+    assert isinstance(r.data, Comment | Reply)  # comment_threads keeps only comments and replies
+    return r.data
 
 
 def _is_comment(r: CommentRecord | None) -> bool:
