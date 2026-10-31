@@ -83,3 +83,4 @@ submission need. Decide fast, then hand 03 one tokens file it can build on.
 | When (+03) | Session | Entry |
 |---|---|---|
 | 10-31 12:57 | coordinator | Brief written. |
+| 10-31 15:40 | coordinator | Owner (10-31): "The design tokens; assets are WIP, I'll define them along with design rules seperately then we'll transfrom the app once thery are set. so the app looks unique and our own." This workstream is now owned by the owner. Target: the app restyles by swapping token values, with no component rewrites. Status: waiting on the owner. Check: changing the token file alone changes the look of every screen. |
