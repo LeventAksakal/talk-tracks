@@ -27,10 +27,12 @@ from .contracts import (
     CurrentSlideRecord,
     InkBegin,
     InkClear,
+    InkElement,
     InkEnd,
     InkErase,
     InkPoints,
     InkRecord,
+    InkShape,
     InkStroke,
     MarkRecord,
     MarksClear,
@@ -145,21 +147,22 @@ def current_slide(records: Iterable[CurrentSlideRecord]) -> ShowSlide | None:
 
 
 def ink_strokes(records: Iterable[InkRecord]) -> dict[str, InkRecord]:
-    """Every stroke still on some slide after these records (of one ink track), by id, as a whole ``stroke`` record
-    whose m is when it appeared. Points, end or erase of a stroke never seen are ignored, and so are erase and clear of
-    strokes their author may not change (``may_change``)."""
-    strokes: dict[str, tuple[int, InkStroke]] = {}
+    """Every element (stroke or shape) still on some slide after these records (of one ink track), by id, as a whole
+    ``stroke`` or ``shape`` record whose m is when it appeared. Points, end or erase of an element never seen are
+    ignored, and so are erase and clear of elements their author may not change (``may_change``). A whole record
+    replaces the element with its id, which is how a re-send, a shape being dragged and a redo all work."""
+    strokes: dict[str, tuple[int, InkElement]] = {}
     for r in records:
         d = r.data
         if isinstance(d, InkBegin):
             strokes[d.stroke] = (r.m, InkStroke(**d.model_dump(exclude={"kind"}), done=False))
-        elif isinstance(d, InkStroke):
+        elif isinstance(d, InkStroke | InkShape):
             strokes[d.stroke] = (r.m, d)
         elif isinstance(d, InkPoints):
-            if (seen := strokes.get(d.stroke)) is not None:
+            if (seen := strokes.get(d.stroke)) is not None and isinstance(seen[1], InkStroke):
                 strokes[d.stroke] = (seen[0], seen[1].model_copy(update={"points": [*seen[1].points, *d.points]}))
         elif isinstance(d, InkEnd):
-            if (seen := strokes.get(d.stroke)) is not None:
+            if (seen := strokes.get(d.stroke)) is not None and isinstance(seen[1], InkStroke):
                 strokes[d.stroke] = (seen[0], seen[1].model_copy(update={"done": True}))
         elif isinstance(d, InkErase):
             for stroke in d.strokes:
@@ -171,10 +174,10 @@ def ink_strokes(records: Iterable[InkRecord]) -> dict[str, InkRecord]:
 
 
 def ink_carry(records: Iterable[InkRecord], on: ShowSlide | None) -> list[InkRecord]:
-    """Object 0 of the ink track: the strokes visible on the slide on screen (``on``), oldest first."""
+    """Object 0 of the ink track: the strokes and shapes visible on the slide on screen (``on``), oldest first."""
     if on is None:
         return []
-    visible = [r for r in ink_strokes(records).values() if isinstance(r.data, InkStroke) and _on(r.data, on)]
+    visible = [r for r in ink_strokes(records).values() if _on(element(r), on)]
     return sorted(visible, key=lambda r: r.m)
 
 
@@ -230,8 +233,14 @@ def comments_carry(records: Iterable[CommentRecord], on: ShowSlide | None) -> li
     return [r for r in threads if r.data.id in anchored or _to(r) in anchored]
 
 
-def _on(where: InkStroke | TextMark | ShowSlide | Anchor, slide: InkClear | MarksClear | ShowSlide) -> bool:
+def _on(where: InkElement | TextMark | ShowSlide | Anchor, slide: InkClear | MarksClear | ShowSlide) -> bool:
     return (where.deck, where.index) == (slide.deck, slide.index)
+
+
+def element(r: InkRecord) -> InkElement:
+    """The stroke or shape of a record that ``ink_strokes`` kept."""
+    assert isinstance(r.data, InkStroke | InkShape)  # ink_strokes keeps whole strokes and shapes only
+    return r.data
 
 
 def _mark(r: MarkRecord) -> TextMark:

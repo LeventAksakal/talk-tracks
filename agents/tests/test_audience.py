@@ -28,12 +28,21 @@ from talk_tracks.contracts import (
     InkBegin,
     InkObject,
     InkRecord,
+    InkShape,
     InkStroke,
     MarksObject,
     Reply,
     ShowSlide,
 )
-from talk_tracks.records import comment_threads, comments_carry, current_slide, encode, ink_carry, marks_carry
+from talk_tracks.records import (
+    comment_threads,
+    comments_carry,
+    current_slide,
+    element,
+    encode,
+    ink_carry,
+    marks_carry,
+)
 
 ROOM = "talk1"
 SLIDES = f"talk/{ROOM}/slides"
@@ -265,7 +274,7 @@ async def test_what_a_listener_may_not_do_publishes_nothing(tmp_path: Path) -> N
     assert await code(bob, "ink", {"kind": "points", "stroke": f"{me}:1", "points": [[0.5, 0.5]]}) == "forbidden"
     assert await code(bob, "ink", {"kind": "erase", "strokes": [f"{me}:1"]}) == "forbidden"
     assert await code(ada, "ink", {**begin(f"{me}:3"), "color": "red"}) == "invalid"  # the contract's shape
-    assert await code(ada, "ink", {"kind": "stroke", "stroke": f"{me}:4"}) == "invalid"  # only re-sends are whole
+    assert await code(ada, "ink", {"kind": "stroke", "stroke": f"{me}:4"}) == "invalid"  # a whole stroke is whole
     assert await code(nameless, "ink", begin("x:1")) == "name"  # a display name first
     assert room.objects(ANNOTATIONS, "ink") == before
 
@@ -276,6 +285,68 @@ async def test_what_a_listener_may_not_do_publishes_nothing(tmp_path: Path) -> N
 
 
 ON = ShowSlide(deck=DECK, index=0)
+
+
+def arrow(stroke: str, end: list[float]) -> dict[str, Any]:
+    return {
+        "kind": "shape",
+        "stroke": stroke,
+        "deck": DECK,
+        "index": 0,
+        "shape": "arrow",
+        "start": [0.1, 0.1],
+        "end": end,
+        "color": "#2f9e44",
+        "width": 0.004,
+    }
+
+
+async def test_a_listener_draws_shapes_and_undoes_and_redoes_their_own_work_for_everyone(tmp_path: Path) -> None:
+    """Shapes and undo are ordinary records: a late joiner's carry-in shows what the room saw at that moment."""
+    room = Room(tmp_path)
+    await room.start()
+    ada, [hello] = await room.join({"name": "Ada"})
+    bob, [bob_hello] = await room.join({"name": "Bob"})
+    me = hello["id"]
+
+    async def answer(session: Session, data: dict[str, Any]) -> str:
+        reply = await room.write(session, "ink", data)
+        return str(reply.get("code", reply["type"]))
+
+    # an arrow dragged out: sent again with the same id, the last one wins
+    assert await answer(ada, arrow(f"{me}:1", [0.2, 0.2])) == "ack"
+    assert await answer(ada, arrow(f"{me}:1", [0.5, 0.4])) == "ack"
+    # a pen stroke, drawn and finished
+    await room.write(ada, "ink", begin(f"{me}:2"))
+    assert await answer(ada, {**begin(f"{me}:2"), "kind": "stroke", "done": True}) == "invalid"  # still being drawn
+    await room.write(ada, "ink", {"kind": "end", "stroke": f"{me}:2"})
+    stroke = {**begin(f"{me}:2"), "kind": "stroke", "done": True}
+
+    assert await answer(bob, arrow(f"{me}:9", [0.3, 0.3])) == "invalid"  # not Bob's id
+    assert await answer(bob, {"kind": "erase", "strokes": [f"{me}:1"]}) == "forbidden"  # not Bob's to undo
+    assert await answer(ada, {**stroke, "done": False}) == "invalid"  # a whole stroke is done
+
+    room.now = 12_600
+    assert await answer(ada, {"kind": "erase", "strokes": [f"{me}:2"]}) == "ack"  # undo the stroke
+    room.now = 12_800
+    assert await answer(ada, stroke) == "ack"  # redo: the stroke sent again whole
+    room.now = 13_000
+    assert await answer(ada, {"kind": "erase", "strokes": [f"{me}:1"]}) == "ack"  # undo the arrow, not redone
+
+    def visible(t: int) -> list[str]:
+        return [element(r).stroke for r in ink_carry(ink(room.group(ANNOTATIONS, "ink", 3), t), ON)]
+
+    assert visible(12_500) == [f"{me}:1", f"{me}:2"]
+    assert visible(12_700) == [f"{me}:1"]
+    assert visible(12_900) == [f"{me}:1", f"{me}:2"]
+    assert visible(13_100) == [f"{me}:2"]
+    [dragged] = [r.data for r in ink_carry(ink(room.group(ANNOTATIONS, "ink", 3), 12_500), ON)[:1]]
+    assert isinstance(dragged, InkShape) and dragged.end == (0.5, 0.4) and dragged.by.id == me
+    # a late joiner: the next slice's carry-in alone
+    await room.at(16_100)
+    carry = ink(room.group(ANNOTATIONS, "ink", 4)[:1])
+    assert [(r.data.kind, getattr(r.data, "stroke", None)) for r in carry] == [("stroke", f"{me}:2")]
+    assert bob_hello["id"] != me
 
 
 async def test_the_speaker_moderates_through_the_room_service_with_their_relay_token(tmp_path: Path) -> None:

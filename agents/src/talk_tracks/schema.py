@@ -38,6 +38,7 @@ from .contracts import (
     InkObject,
     InkPoints,
     InkRecord,
+    InkShape,
     InkStroke,
     InkTool,
     MarkRecord,
@@ -56,6 +57,7 @@ from .contracts import (
     RoomStateObject,
     RoomStateRecord,
     RunSpan,
+    ShapeKind,
     ShowSlide,
     SlideFrame,
     SlideObject,
@@ -148,6 +150,16 @@ def end(m: int, stroke: str) -> InkRecord:
     return InkRecord(m=m, data=InkEnd(stroke=stroke))
 
 
+def shape(m: int, stroke: str, kind: ShapeKind, start: Point, to: Point, by: Author = SPEAKER) -> InkRecord:
+    """A shape on slide 1, whole (sent again while it is dragged, and to restore it)."""
+    data = InkShape(stroke=stroke, deck=DECK, index=1, shape=kind, start=start, end=to, color=BLUE, width=0.003, by=by)
+    return InkRecord(m=m, data=data)
+
+
+def erase(m: int, *strokes: str, by: Author = SPEAKER) -> InkRecord:
+    return InkRecord(m=m, data=InkErase(strokes=list(strokes), by=by))
+
+
 INK = [
     pen(9_600, "s1", 1, S1[:1]),
     InkRecord(m=9_650, data=InkPoints(stroke="s1", points=S1[1:])),
@@ -157,12 +169,21 @@ INK = [
     InkRecord(m=10_400, data=InkErase(strokes=["s2"], by=SPEAKER)),
     pen(11_000, "s3", 1, S3[:1]),
     InkRecord(m=11_050, data=InkPoints(stroke="s3", points=S3[1:])),
+    shape(11_200, "s5", "rect", (0.6, 0.1), (0.7, 0.2)),  # dragged: sent again, the last one wins
+    shape(11_250, "s5", "rect", (0.6, 0.1), (0.8, 0.3)),
+    shape(11_300, "s6", "arrow", (0.2, 0.9), (0.4, 0.7)),
+    erase(11_350, "s6"),  # undo the arrow
+    shape(11_380, "s6", "arrow", (0.2, 0.9), (0.4, 0.7)),  # redo: sent again whole
+    shape(11_600, "s7", "ellipse", (0.3, 0.3), (0.5, 0.45)),
+    erase(11_650, "s7"),  # undone, not redone
     pen(14_300, "s4", 0, [(0.9, 0.9)]),  # slide 0, shown at 14.2 s with no ink
     end(14_400, "s4"),
     InkRecord(m=14_500, data=InkClear(deck=DECK, index=0, by=SPEAKER)),
     end(15_100, "s3"),
     resent(15_500, "s1", S1),  # slide 1 shown again: its ink comes back
     resent(15_500, "s3", S3),
+    shape(15_500, "s5", "rect", (0.6, 0.1), (0.8, 0.3)),
+    shape(15_500, "s6", "arrow", (0.2, 0.9), (0.4, 0.7)),
 ]
 ANNOTATIONS_INK = [
     pen(9_900, "u-ada-1", 1, [(0.3, 0.3)], ADA),

@@ -22,8 +22,8 @@ import {
   type CommentRecord,
   type CurrentSlideRecord,
   type InkClear,
+  type InkElement,
   type InkRecord,
-  type InkStroke,
   type MarkRecord,
   type MarksClear,
   type Reply,
@@ -48,31 +48,36 @@ export function currentSlide(records: Iterable<CurrentSlideRecord>): ShowSlide |
   return shown;
 }
 
-export type StrokeRecord = { m: number; data: InkStroke };
+/** A stroke or shape on a slide, whole, with the m of when it appeared (or was last sent whole). */
+export type ElementRecord = { m: number; data: InkElement };
+/** @deprecated The ink track's state holds shapes too: use ElementRecord. */
+export type StrokeRecord = ElementRecord;
 export type TextMarkRecord = { m: number; data: TextMark };
 
-const onSlide = (where: InkStroke | TextMark | Anchor, slide: InkClear | MarksClear | ShowSlide) =>
+const onSlide = (where: InkElement | TextMark | Anchor, slide: InkClear | MarksClear | ShowSlide) =>
   where.deck === slide.deck && where.index === slide.index;
 
 /**
- * Every stroke still on some slide after these records (of one ink track), by id, as a whole `stroke`
- * record whose m is when it appeared. Points, end or erase of a stroke never seen are ignored, and so
- * are erase and clear of strokes their author may not change.
+ * Every element (stroke or shape) still on some slide after these records (of one ink track), by id, as
+ * a whole `stroke` or `shape` record whose m is when it appeared. Points, end or erase of an element
+ * never seen are ignored, and so are erase and clear of elements their author may not change. A whole
+ * record replaces the element with its id: a re-send, a shape being dragged, a redo.
  */
-export function inkStrokes(records: Iterable<InkRecord>): Map<string, StrokeRecord> {
-  let strokes = new Map<string, StrokeRecord>();
+export function inkStrokes(records: Iterable<InkRecord>): Map<string, ElementRecord> {
+  let strokes = new Map<string, ElementRecord>();
   for (const { m, data: d } of records) {
     switch (d.kind) {
       case "begin":
         strokes.set(d.stroke, { m, data: { ...d, kind: "stroke", done: false } });
         break;
       case "stroke":
+      case "shape":
         strokes.set(d.stroke, { m, data: d });
         break;
       case "points":
       case "end": {
         const seen = strokes.get(d.stroke);
-        if (!seen) break;
+        if (seen?.data.kind !== "stroke") break;
         const data =
           d.kind === "points"
             ? { ...seen.data, points: [...seen.data.points, ...d.points] }
@@ -94,8 +99,8 @@ export function inkStrokes(records: Iterable<InkRecord>): Map<string, StrokeReco
   return strokes;
 }
 
-/** Carry-in of an ink track, or the ink to draw: the strokes on the slide on screen, oldest first. */
-export function inkCarry(records: Iterable<InkRecord>, on: ShowSlide | null): StrokeRecord[] {
+/** Carry-in of an ink track, or the ink to draw: the strokes and shapes on the slide on screen, oldest first. */
+export function inkCarry(records: Iterable<InkRecord>, on: ShowSlide | null): ElementRecord[] {
   if (!on) return [];
   return [...inkStrokes(records).values()].filter((s) => onSlide(s.data, on)).sort((a, b) => a.m - b.m);
 }

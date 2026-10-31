@@ -57,7 +57,7 @@ decodes alone.
 | `frames` | one per slide shown | the `SlideFrame` (JPEG/PNG + wall time), the only object | none | the newest frame; input for the describe agent, not drawn |
 | `deck` | **one per deck**, group number = deck id (not time) | `DeckInfo` (count, aspect, title): the init segment | `DeckImage`s (image + `runs`, the text layer), all at once or each before its slide is first shown | the deck's images and text runs; read by id, not by time |
 | `slide` | 4 s slice | the last record (`show` deck/index, or `hide`) | `show` / `hide` | `currentSlide` |
-| `ink` (pencil) | 4 s slice | a whole `stroke` record per stroke visible on the slide on screen (`done: false` while drawn) | `begin`, `points`, `end`, `stroke` (re-send), `erase`, `clear` | `inkCarry(records, on)`: strokes on the slide on screen |
+| `ink` (pencil) | 4 s slice | a whole `stroke` or `shape` record per element visible on the slide on screen (`done: false` while a stroke is drawn) | `begin`, `points`, `end`, `stroke` (re-send, redo), `shape` (new, dragged, re-send, redo), `erase` (eraser, undo), `clear` | `inkCarry(records, on)`: strokes and shapes on the slide on screen |
 | `marks` (text tool) | 4 s slice | a `mark` record per mark on the slide on screen | `mark` (new or re-send), `unmark`, `clear` | `marksCarry(records, on)` |
 | `pointer` (laser) | 4 s slice | the last record (`at` x/y, or `off`) | `at` about 20/s while held, `off` | the last record; **ephemeral**: never re-sent, never kept per slide |
 
@@ -87,7 +87,7 @@ each video group start. Archived as fMP4/HLS. Not ours to define; listed so the 
 ## 3. Shared annotation state (decision 0021)
 
 - **Three tools, three tracks.** The laser is `pointer` (ephemeral, not state). The pencil is `ink` (strokes that stay
-  on their slide; `pen` and `highlighter` are its two nibs). Text marks are `marks` (underline or highlight anchored to
+  on their slide, with `pen` and `highlighter` its two nibs, and shapes: `rect`, `ellipse`, `line`, `arrow`). Text marks are `marks` (underline or highlight anchored to
   a range of the slide's text runs, so "underline slide 13 run t23" is `{deck, index: 13, span: [{run: "t23"}]}`).
 - **The deck is shared state.** State of slide `s` at `t` = the deck image of `s` + the strokes and marks of the
   speaker's tracks + those of the annotations tracks + the comment threads. Each track is reduced on its own; a
@@ -98,6 +98,17 @@ each video group start. Archived as fMP4/HLS. Not ours to define; listed so the 
   edit only from the author; the room service also refuses the rest, so the rule holds even for a bad publisher.
   `clear` therefore empties the slide for the speaker and removes a listener's own strokes for them. The speaker
   moderates listener annotations through the room service (an `erase` with `by.speaker` on the annotations track).
+- **Elements of the ink track.** A stroke and a shape are both elements, with ids from one space, so `erase` and
+  `clear` take either. A stroke grows (`begin`, `points`, `end`); a shape is one whole `shape` record
+  (`shape`, `start`, `end` as slide fractions, `color`, `width` a fraction of the slide's width), sent again with the
+  same id while its author drags it: a whole record replaces the element with its id, so the last one wins and a
+  reader that joins mid-drag sees the shape as it was then. Width rides on every stroke and shape.
+- **Undo and redo are records.** The undo history is the author's (the console's, per slide); its effects are
+  ordinary records, so replay and late joiners match live. Undoing a new element is an `erase` of it (a text mark:
+  `unmark`); redoing it, or undoing an eraser sweep or a clear, re-sends the elements whole (`stroke` with
+  `done: true`, `shape`, `mark`) with m = now, which restores them; redoing an erase or clear sends it again. A
+  restored element is drawn on top (its m is the restore). Listeners do the same through the room service, which
+  accepts a whole `stroke` (done) or `shape` only with an id of the writer's own.
 - **Stamping.** The room service stamps `by` (and prefixes ids with the user id) from the listener's session; the
   console stamps the speaker's. A listener cannot claim `speaker`.
 - **Text layout.** `DeckImage.runs` is the slide's text layer from the PDF (`page.getTextContent()`): runs in reading

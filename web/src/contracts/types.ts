@@ -247,7 +247,34 @@ export interface InkStroke extends InkStyle {
   /** False while still being drawn: points and end follow. */
   done: boolean;
 }
-/** Removes the listed strokes that `by` may change (mayChange). */
+export type ShapeKind = "rect" | "ellipse" | "line" | "arrow";
+/**
+ * A shape, whole: a rectangle or ellipse in the box from `start` to `end`, or a line or arrow from `start` to
+ * `end` (the arrow's head). Sent again with the same id while dragged (the last one wins), re-sent like a stroke.
+ */
+export interface InkShape {
+  kind: "shape";
+  /** Shares the stroke id space, so erase and clear take it like a stroke. */
+  stroke: string;
+  deck: number;
+  index: number;
+  shape: ShapeKind;
+  /** Where the drag began. */
+  start: Point;
+  /** Where it ended: the opposite corner, or the arrow's head. */
+  end: Point;
+  /** #rrggbb */
+  color: string;
+  /** Line width as a fraction of the slide's width. */
+  width: number;
+  by: Author;
+}
+/** What stays on a slide: the state of an ink track. */
+export type InkElement = InkStroke | InkShape;
+/**
+ * Removes the listed strokes and shapes that `by` may change (mayChange). Undo of a new element is an erase of
+ * it; redo, or undo of an erase or clear, re-sends the elements whole (stroke with done true, or shape).
+ */
 export interface InkErase {
   kind: "erase";
   strokes: string[];
@@ -261,7 +288,7 @@ export interface InkClear {
   by: Author;
 }
 /** begin, stroke, erase and clear name their author; points and end belong to their stroke's author. */
-export type InkData = InkBegin | InkPoints | InkEnd | InkStroke | InkErase | InkClear;
+export type InkData = InkBegin | InkPoints | InkEnd | InkStroke | InkShape | InkErase | InkClear;
 /** m: when it took effect on screen (a re-sent stroke: when its slide was shown). */
 export interface InkRecord {
   m: number;
@@ -269,7 +296,7 @@ export interface InkRecord {
 }
 /**
  * One object of an `ink` track (eventType com.talktracks.ink): the speaker's (talk/<room>/slides) or
- * everyone else's (talk/<room>/annotations). Carry-in: strokes visible on the slide on screen.
+ * everyone else's (talk/<room>/annotations). Carry-in: strokes and shapes visible on the slide on screen.
  */
 export type InkObject = InkRecord[];
 
