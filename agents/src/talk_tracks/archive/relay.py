@@ -10,8 +10,8 @@ Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk
 * ``<room>/agents/<agent>``: never subscribed. A subscription is demand and keeps a lazy agent awake; agents record
   their own slices (decision 0012). Their announcements only list them in the catalog;
 * ``<room>/catalog``: published here (``archive.catalog``), with the room's epoch and each broadcast's shift as soon
-  as they are decided, since consumers stamp nothing before; beside it the ``room`` track (on air or paused), which
-  the room service archives and serves by FETCH like an agent's track.
+  as they are decided, since consumers stamp nothing before; beside it the ``room`` track (on air, paused, or ended
+  by the speaker), which the room service archives and serves by FETCH like an agent's track.
 """
 
 from __future__ import annotations
@@ -141,6 +141,13 @@ class Archiver:
             return None
         return await state.events.audience_tracks()
 
+    async def end(self, room: str) -> int | None:
+        """The speaker ended the room's talk (the endpoint's ``end``): its room track says ``ended``."""
+        state = self.rooms.get(room)
+        if state is None or not self.wanted(room):
+            return None
+        return await state.events.end()
+
     def _finished(self, path: Path) -> None:
         self.archive.reported(path, mutable=False)  # a finished event slice: copied to the bucket
 
@@ -259,7 +266,7 @@ async def archive_rooms(
     listeners: EndpointConfig | None = None,
 ) -> None:
     archiver = Archiver(relay, archive, rooms, on_tick=on_tick, publish_catalog=publish_catalog, capped=capped)
-    endpoint = asyncio.create_task(listeners.run(archiver.audience)) if listeners is not None else None
+    endpoint = asyncio.create_task(listeners.run(archiver.audience, archiver.end)) if listeners is not None else None
     try:
         await archiver.run()
     finally:

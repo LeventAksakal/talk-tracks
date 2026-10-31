@@ -304,6 +304,48 @@ async def test_the_room_track_says_on_air_and_paused_and_is_fetched_from_the_arc
         await out2.fetch(4)  # nobody on air then: no slice
 
 
+def room_states(payloads: list[bytes]) -> list[tuple[int, str]]:
+    return [(r.m, r.data.state) for p in payloads for r in RoomStateObject.model_validate_json(p).root]
+
+
+async def test_end_talk_makes_the_room_track_say_ended_for_good_even_after_a_restart(tmp_path: Path) -> None:
+    relay = FakeRelay()
+    events = RoomEvents(ROOM, relay, tmp_path)
+    assert await events.end() is None  # no clock yet: nothing to end
+    await events.tick(9_000, live=True)
+    await events.tick(10_500, live=True)
+    assert await events.end() == 10_500  # End talk: said at once, in the open slice, which closes
+    out = relay.published[(f"talk/{ROOM}/catalog", "room")]
+    assert room_states(out.live[2]) == [(9_000, "on_air"), (10_500, "ended")] and out.ended == [2]
+    await events.tick(11_500, live=True)  # the speaker's broadcast is on its way out: not on air again
+    await events.tick(12_400, live=False)  # gone: not a pause either
+    assert sorted(out.live) == [2] and room_states(await out.fetch(2)) == room_states(out.live[2])
+    assert await events.end() == 10_500  # a second click changes nothing
+
+    # a replay opened tomorrow: the restarted room service still says ended, and writes nothing more
+    relay2 = FakeRelay()
+    again = RoomEvents(ROOM, relay2, tmp_path)
+    await again.tick(12_400, live=False)
+    out2 = relay2.published[(f"talk/{ROOM}/catalog", "room")]
+    assert not out2.live and room_states(await out2.fetch(2))[-1] == (10_500, "ended")
+
+    # the same speaker link goes on air again later: a new start, after the ended carry-in
+    await again.tick(30_000, live=True)
+    assert room_states(out2.live[7]) == [(10_500, "ended"), (30_000, "on_air")]
+
+
+async def test_end_talk_after_the_broadcast_paused_opens_the_next_slice(tmp_path: Path) -> None:
+    relay = FakeRelay()
+    events = RoomEvents(ROOM, relay, tmp_path)
+    await events.tick(9_000, live=True)
+    await events.tick(9_500, live=False)  # the console stopped its media first: paused, slice 2 finished
+    assert await events.end() == 12_000  # slice 2 is never written again: the record opens slice 3
+    out = relay.published[(f"talk/{ROOM}/catalog", "room")]
+    assert room_states(await out.fetch(2)) == [(9_000, "on_air"), (9_500, "paused")]
+    assert room_states(await out.fetch(3)) == [(9_500, "paused"), (12_000, "ended")]
+    assert out.ended == [2, 3]
+
+
 async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_path: Path) -> None:
     relay = FakeRelay({"slide": [(3, 0, b"[]")]})
     events = RoomEvents(ROOM, relay, tmp_path)

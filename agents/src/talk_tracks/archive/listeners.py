@@ -19,6 +19,9 @@ Protocol (JSON text messages):
   ``by`` (and a new comment's ``id`` and ``at``). Answer ``{"type": "ack", "seq", "m", "id"?}`` or
   ``{"type": "error", "seq", "code", "message"}``; codes ``invalid``, ``forbidden``, ``not-live``, ``limit``,
   ``rate``, ``name``.
+* ``{"type": "end", "seq"}``, the speaker only (End talk in the console): the room's state is ``ended`` from now on
+  and its agents stop. Answer ``{"type": "ack", "seq", "m"}`` (the room time it ended), or an error: ``forbidden``
+  for a listener, ``not-live`` before the room has a clock.
 * From the service: ``{"type": "comment", "record"}`` for every new comment, reply, edit or hide in the room.
 
 Limits: a token bucket per session and track (``LIMITS``), at most ``SESSIONS_PER_IP`` sessions per address, 32 KiB
@@ -63,6 +66,7 @@ SPEAKER_LIMITS: dict[str, tuple[float, float]] = {"ink": (60.0, 120.0), "marks":
 NAME: TypeAdapter[str] = TypeAdapter(DisplayName)
 
 Lookup = Callable[[str], Awaitable[Audience | None]]  # a room's audience, None for a room this service does not serve
+EndRoom = Callable[[str], Awaitable[int | None]]  # the speaker ended the room's talk: its room ms, None without a clock
 
 
 @dataclass
@@ -166,6 +170,7 @@ class Endpoint:
         speaker_key: SpeakerKey | None = None,
         open_speaker: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        end: EndRoom | None = None,
     ) -> None:
         self.lookup, self.identities, self.speaker_key, self.open_speaker = (
             lookup,
@@ -173,7 +178,7 @@ class Endpoint:
             speaker_key,
             open_speaker,
         )
-        self.clock = clock
+        self.clock, self.end = clock, end
         self.rooms: dict[str, set[Session]] = {}  # sessions that read the threads, per room
         self._hooked: dict[str, Audience] = {}
         self.per_ip: dict[str, int] = {}
@@ -218,7 +223,18 @@ class Endpoint:
             return [{"type": "name", "name": name}]
         if kind == "write":
             return [await self._write(session, msg, seq)]
+        if kind == "end":
+            return [await self._end(session, seq)]
         return [error(seq, "invalid", f"Unknown message {kind!r}")]
+
+    async def _end(self, session: Session, seq: int | None) -> dict[str, Any]:
+        if not session.speaker:
+            return error(seq, "forbidden", "Only the speaker ends the talk")
+        m = await self.end(session.room) if self.end is not None else None
+        if m is None:
+            return error(seq, "not-live", "The room has no clock yet: nothing to end")
+        log.info("room %s: ended by the speaker", session.room)
+        return {"type": "ack", "seq": seq, "m": m}
 
     async def _hello(self, session: Session, msg: dict[str, Any]) -> list[dict[str, Any]]:
         if session.user_id is not None:
@@ -408,12 +424,12 @@ class EndpointConfig:
         host, _, port = value.rpartition(":")
         return host or "0.0.0.0", int(port)
 
-    async def run(self, lookup: Lookup) -> None:
+    async def run(self, lookup: Lookup, end: EndRoom | None = None) -> None:
         key = SpeakerKey.read(self.speaker_key) if self.speaker_key is not None else None
         if key is None and not self.open_speaker:
             log.warning("no speaker key (TT_SPEAKER_KEY): the speaker cannot reply to or hide comments")
         endpoint = Endpoint(
-            lookup, Identities(load_secret(self.secret_file)), speaker_key=key, open_speaker=self.open_speaker
+            lookup, Identities(load_secret(self.secret_file)), speaker_key=key, open_speaker=self.open_speaker, end=end
         )
         await endpoint.serve(self.host, self.port, origins=self.origins or None, proxied=self.proxied)
 

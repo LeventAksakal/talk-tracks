@@ -522,13 +522,19 @@ async def run_agent(args: argparse.Namespace) -> None:
         await serve_room(args, args.room)
         return
     from . import moq
-    from .rooms import ROOM_LINGER_S, RoomPolicy, serve_rooms
+    from .rooms import ROOM_LINGER_S, RoomPolicy, room_ended, serve_rooms
 
     policy = RoomPolicy(args.rooms, os.environ.get("TT_ROOMS_EXCLUDE", "").split(","))
     linger = env_float("TT_ROOM_LINGER_S", ROOM_LINGER_S)
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         logging.getLogger("talk_tracks").info("%s serving rooms %s", args.agent, args.rooms)
-        rooms = serve_rooms(moq.rooms_on_air(relay), policy, lambda room: serve_room(args, room), linger_s=linger)
+        rooms = serve_rooms(
+            moq.rooms_on_air(relay),
+            policy,
+            lambda room: serve_room(args, room),
+            linger_s=linger,
+            ended=lambda room: room_ended(relay.joined, room),
+        )
         await moq.until_closed(relay, rooms)
 
 

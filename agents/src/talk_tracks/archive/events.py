@@ -28,7 +28,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from pydantic import ValidationError
 
@@ -250,6 +250,11 @@ class ServiceTrack[R: Wire]:
     def open_group(self) -> int | None:
         return self._open
 
+    @property
+    def newest(self) -> int | None:
+        """The newest slice written (by this process or one before it)."""
+        return self._newest
+
     async def at(self, room_ms: int, *, active: bool) -> None:
         """Room time has reached ``room_ms``: the open slice closes once it is over, and while ``active`` the slice
         of ``room_ms`` opens, so a reader seeking into it finds its carry-in."""
@@ -326,10 +331,11 @@ SLIDES_KEPT = 64  # slide records kept for the audience tracks' carry-ins: the s
 
 class RoomEvents:
     """One room's event tracks at the room service: the speaker's mirrored while its namespace is announced, each
-    with its history served on ``history_path``; the ``room`` track (on air or paused, from the teacher broadcast)
-    published and archived; and the audience's tracks (``annotations`` ink and marks, ``comments``), published once the
-    speaker shows slides or a listener writes. ``tick`` about once a second with the room's newest media time drives
-    them. ``room_now`` is the room time now for what listeners write (None before the room has a clock)."""
+    with its history served on ``history_path``; the ``room`` track (on air or paused, from the teacher broadcast;
+    ended when the speaker says so, ``end``) published and archived; and the audience's tracks (``annotations`` ink
+    and marks, ``comments``), published once the speaker shows slides or a listener writes. ``tick`` about once a
+    second with the room's newest media time drives them. ``room_now`` is the room time now for what listeners write
+    (None before the room has a clock)."""
 
     def __init__(
         self,
@@ -356,6 +362,10 @@ class RoomEvents:
         self._audience_tracks: list[ServiceTrack[Any]] = []
         self.slides: list[CurrentSlideRecord] = []  # the newest records of the speaker's slide track
         self._readers: dict[str, list[asyncio.Task[None]]] = {}
+        self._state_lock = asyncio.Lock()
+        self._ending = False  # the speaker ended the talk; their broadcast going away after it is not a pause
+        self._room_ms: int | None = None  # the newest room time a tick saw
+        self._meta: tuple[str | None, str | None] | None = None  # title and speaker, once the room is created
 
     # --- the catalog's view ----------------------------------------------------------------------------------------
 
@@ -554,24 +564,67 @@ class RoomEvents:
     async def tick(self, room_ms: int | None, *, live: bool) -> None:
         """Once a second. ``room_ms``: the room's newest teacher media time (None before the room has an epoch);
         ``live``: a teacher broadcast is up. The room track says ``on_air`` while it is and ``paused`` once it is
-        not, and has a slice for every 4 s on air; so have the audience's tracks, whose slices close once over."""
+        not, and has a slice for every 4 s on air; so have the audience's tracks, whose slices close once over.
+        After ``end`` the broadcast still up counts as gone; a broadcast that comes back later is on air again."""
         for mirror in self.mirrors.values():
             mirror.tick()
         if room_ms is None:
             return
-        state = await self.room_state()
-        last = state.records[-1].data.state if state.records else None
-        at = max(room_ms, state.records[-1].m if state.records else 0)
-        if live and last != "on_air":
-            await state.add(RoomStateRecord(m=at, data=RoomState(state="on_air")))
-        elif not live and last == "on_air":
-            await state.add(RoomStateRecord(m=at, data=RoomState(state="paused")))
-        await state.at(at, active=live)
-        if not live:
-            await state.close()
+        self._room_ms = max(room_ms, self._room_ms or 0)
+        async with self._state_lock:
+            if self._ending:
+                if live:
+                    live = False  # ended: the speaker's broadcast is on its way out
+                else:
+                    self._ending = False  # gone: the next broadcast is a new start
+            state = await self.room_state()
+            last = state.records[-1].data.state if state.records else None
+            at = max(room_ms, state.records[-1].m if state.records else 0)
+            if live and last != "on_air":
+                await state.add(RoomStateRecord(m=at, data=self._state("on_air")))
+            elif not live and last == "on_air":
+                await state.add(RoomStateRecord(m=at, data=self._state("paused")))
+            await state.at(at, active=live)
+            if not live:
+                await state.close()
         now = max(at, self.room_now() or 0)
         for track in self._audience_tracks:
             await track.at(now, active=live)
+
+    async def end(self) -> int | None:
+        """The speaker ended the talk (End talk in the console): the room track says ``ended`` from now on, live and
+        in the archive, so a replay opened later shows a finished talk; its slice closes at once. The room ms of the
+        record, or None while the room has no clock (nothing to end)."""
+        async with self._state_lock:
+            state = await self.room_state()
+            last = state.records[-1] if state.records else None
+            now = self.room_now()
+            if now is None and self._room_ms is None and last is None:
+                return None
+            self._ending = True
+            if last is not None and last.data.state == "ended":
+                return last.m  # said already (a second click, or a reconnect)
+            at = max(now or 0, self._room_ms or 0, last.m if last else 0)
+            newest = state.newest
+            if state.open_group is None and newest is not None and slice_of(at) <= newest:
+                at = (newest + 1) * SLICE_MS  # a finished slice is never written again: the record opens the next
+            await state.add(RoomStateRecord(m=at, data=self._state("ended")))
+            await state.close()
+            log.info("%s: the speaker ended the talk at room time %d ms", self.room, at)
+            return at
+
+    def _state(self, kind: Literal["waiting", "on_air", "paused", "ended"]) -> RoomState:
+        """A room state record's data, with the talk's title and speaker as the room was created with."""
+        title, speaker = self.meta
+        return RoomState(state=kind, title=title, speaker=speaker)
+
+    @property
+    def meta(self) -> tuple[str | None, str | None]:
+        """The talk's title and speaker name: as set (``describe``), else from the newest state record."""
+        if self._meta is not None:
+            return self._meta
+        last = self.state.records[-1].data if self.state is not None and self.state.records else None
+        return (last.title, last.speaker) if last is not None else (None, None)
 
     async def close(self) -> None:
         """Stop reading. Open mirrored slices stay open on disk: a restarted room service writes them afresh."""

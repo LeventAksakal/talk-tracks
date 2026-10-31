@@ -203,7 +203,8 @@ describe("the speaker console", () => {
 
   it("goes on air with the microphone, and ends the talk only after one confirmation", async () => {
     const media = fakeMedia();
-    const { sink } = setup({ createMedia: async () => media });
+    let ended = 0;
+    const { sink } = setup({ createMedia: async () => media, endRoom: async () => (ended++, true) });
     await loadDeck();
     const goLive = await screen.findByRole("button", { name: "Go on air" });
     await waitFor(() => expect(goLive.hasAttribute("disabled")).toBe(false));
@@ -212,9 +213,11 @@ describe("the speaker console", () => {
 
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "End talk" })));
     expect(sink().closed).toBe(false);
+    expect(ended).toBe(0);
     const dialog = await screen.findByRole("alertdialog");
     await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "End talk" })));
     await screen.findByText("What is kept");
+    expect(ended).toBe(1); // the room service is told, so the room says "ended" rather than "paused"
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);
   });

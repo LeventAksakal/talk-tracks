@@ -31,6 +31,7 @@ from talk_tracks.contracts import (
     InkStroke,
     MarksObject,
     Reply,
+    RoomStateObject,
     ShowSlide,
 )
 from talk_tracks.records import comment_threads, comments_carry, current_slide, encode, ink_carry, marks_carry
@@ -156,11 +157,16 @@ class Room:
         self.now = now
         self.events = RoomEvents(ROOM, self.relay, tmp, room_now=lambda: self.now)
         self.clock = 0.0
-        self.endpoint = Endpoint(self.lookup, Identities(b"secret"), speaker_key=key, clock=lambda: self.clock)
+        self.endpoint = Endpoint(
+            self.lookup, Identities(b"secret"), speaker_key=key, clock=lambda: self.clock, end=self.end
+        )
         self.pushed: dict[int, list[dict[str, Any]]] = {}
 
     async def lookup(self, room: str) -> Any:
         return await self.events.audience_tracks() if room == ROOM else None
+
+    async def end(self, room: str) -> int | None:
+        return await self.events.end() if room == ROOM else None
 
     async def start(self) -> None:
         self.events.announced(SLIDES, True)
@@ -292,6 +298,21 @@ async def test_the_speaker_moderates_through_the_room_service_with_their_relay_t
     assert welcome["speaker"] is True and welcome["id"] == "speaker" and "key" not in welcome
     assert (await room.write(console, "ink", {"kind": "erase", "strokes": [f"{me}:1"]}))["type"] == "ack"
     assert ink_carry(ink(room.objects(ANNOTATIONS, "ink")), ON) == []
+
+
+async def test_only_the_speaker_ends_the_talk_and_the_room_track_then_says_ended(tmp_path: Path) -> None:
+    d, jwk = keypair()
+    room = Room(tmp_path, key=SpeakerKey.from_jwk(jwk))
+    await room.start()
+    ada, _ = await room.join({"name": "Ada"})
+    [refused] = await room.endpoint.handle(ada, json.dumps({"type": "end", "seq": 7}))
+    assert refused["type"] == "error" and refused["code"] == "forbidden" and refused["seq"] == 7
+    console, _ = await room.join({"name": "Grace", "token": token(d, {"put": [SLIDES]})})
+    room.now = 13_500
+    [ack] = await room.endpoint.handle(console, json.dumps({"type": "end", "seq": 1}))
+    assert ack == {"type": "ack", "seq": 1, "m": 13_500}
+    states = [RoomStateObject.model_validate_json(p).root for p in room.objects(f"talk/{ROOM}/catalog", "room")]
+    assert [(r.m, r.data.state) for rs in states for r in rs][-1] == (13_500, "ended")
 
 
 async def test_comments_threads_and_questions_reach_every_reader_and_hidden_ones_stay_out(tmp_path: Path) -> None:
