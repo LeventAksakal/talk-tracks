@@ -23,3 +23,4 @@ it briefs, supervises, merges and deploys. The lanes, their files, dependencies 
 ## Artifacts
 
 - Player Mockups: https://claude.ai/artifact/3nZmzbEh1AgsRF7UExrbNr   (clickable sketch of wiki/product/ui-design.md; source in scratch/player-mockups/)
+- Reference Canvas: https://claude.ai/artifact/QCuNtrEjprGWyV8VQLJumi   (design direction board: journeys → capabilities → reference products → ours; workstream 02)
