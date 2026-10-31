@@ -1,8 +1,8 @@
 """Tests for Decision 0019: Subtitles translate into any language the Muse model supports (Any-language translation).
 
 Requirements:
-1. Allow translation tracks on demand for any BCP 47 language tag supported by Muse LLM (e.g. talk/<room>/agents/translate-<lang>),
-   rather than hardcoding only tr, es, ar.
+1. Allow translation tracks on demand for any BCP 47 language tag supported by Muse LLM
+   (e.g. talk/<room>/agents/translate-<lang>), rather than hardcoding only tr, es, ar.
 2. Ensure lazy activation via demand tracking (demand.py), so tracks only run and consume spend when subscribed.
 3. Respect room spend ceilings.
 4. Keep Python tests passing (pytest agents/tests).
@@ -13,19 +13,22 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+import sys
+import types
+from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import jsonschema
 import pytest
 
+import talk_tracks
+from talk_tracks import cli
+from talk_tracks.archive.slices import SliceObject
 from talk_tracks.contracts import Cue
-from talk_tracks.schema import CONTRACTS_DIR
 from talk_tracks.cores.translate import TranslateCore
 from talk_tracks.demand import Demand, Gate, gated
 from talk_tracks.languages import (
-    LANGUAGE_NAMES,
     SUPPORTED_LANGUAGES,
     is_supported_language,
     language_name,
@@ -33,12 +36,14 @@ from talk_tracks.languages import (
     translation_agent_name,
 )
 from talk_tracks.llm.fake import FakeLlm
-from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger
-from talk_tracks.records import cues_of
+from talk_tracks.llm.ledger import RoomCap, SpendLedger
+from talk_tracks.llm.queued import Priority
+from talk_tracks.records import carry_in, cues_of, encode, record
 from talk_tracks.room_catalog import RoomCatalog, translation_track, translation_tracks
 from talk_tracks.runtime import CaptionsObject, run_translate
+from talk_tracks.schema import CONTRACTS_DIR
 
-from .slicekit import sliced
+from .slicekit import archive, sliced
 
 
 def schema_of(name: str) -> dict[str, Any]:
@@ -128,6 +133,7 @@ def test_translate_core_supports_any_language() -> None:
 
 async def test_run_translate_for_any_bcp47_language(tmp_path: Path) -> None:
     """Translation produces translated cues in any requested language (e.g. German 'de')."""
+
     async def objects() -> AsyncIterator[CaptionsObject | None]:
         yield captions_item(0)
         yield captions_item(1)
@@ -163,7 +169,7 @@ async def test_lazy_activation_consumes_zero_spend_when_not_subscribed(tmp_path:
 
     opened = False
 
-    async def captions_source() -> AsyncIterator[CaptionsObject | None]:
+    async def captions_source() -> AsyncGenerator[CaptionsObject | None]:
         nonlocal opened
         opened = True
         yield captions_item(0)
@@ -176,7 +182,7 @@ async def test_lazy_activation_consumes_zero_spend_when_not_subscribed(tmp_path:
     async def runner() -> None:
         cues = gated(gate, captions_source, "translate-fr test", track.finish)
         async with asyncio.timeout(0.1):
-            async for obj in cues:
+            async for _ in cues:
                 pass
 
     with pytest.raises(TimeoutError):
@@ -195,7 +201,7 @@ async def test_lazy_activation_wakes_on_subscription_and_idles_when_last_leaves(
 
     cues_queue: asyncio.Queue[CaptionsObject | None] = asyncio.Queue()
 
-    async def captions_stream() -> AsyncIterator[CaptionsObject | None]:
+    async def captions_stream() -> AsyncGenerator[CaptionsObject | None]:
         while True:
             item = await cues_queue.get()
             yield item
@@ -241,7 +247,7 @@ async def test_translation_respects_room_spend_ceiling(tmp_path: Path) -> None:
         for n in range(5):
             yield captions_item(n)
 
-    track, out = sliced(tmp_path, "translate-nl")
+    track, _ = sliced(tmp_path, "translate-nl")
     core = TranslateCore("nl")
     track.carry = core.carry
 
@@ -259,12 +265,12 @@ async def test_multiple_translations_share_same_room_ledger_and_cap_together(tmp
     llm = FakeLlm(room_ledger, usd_per_call=0.01)
 
     # Track 1: German
-    track_de, out_de = sliced(tmp_path / "de", "translate-de")
+    track_de, _ = sliced(tmp_path / "de", "translate-de")
     core_de = TranslateCore("de")
     track_de.carry = core_de.carry
 
     # Track 2: Italian
-    track_it, out_it = sliced(tmp_path / "it", "translate-it")
+    track_it, _ = sliced(tmp_path / "it", "translate-it")
     core_it = TranslateCore("it")
     track_it.carry = core_it.carry
 
@@ -310,7 +316,7 @@ def test_room_catalog_with_any_language_translations_validates_msf_schema() -> N
     assert len(tracks) == 4
 
     catalog = RoomCatalog(1_700_000_000_000, tracks, {100: 0}, {})
-    doc = catalog.to_json()
+    doc: Any = catalog.to_json()
     jsonschema.validate(doc, schema_of("room-catalog.schema.json"))
 
     by_ns = {t["namespace"]: t for t in doc["tracks"]}
@@ -324,3 +330,52 @@ def test_room_catalog_with_any_language_translations_validates_msf_schema() -> N
     assert de["eventType"] == "urn:msf:captions:webvtt"
     assert de["lang"] == "de"
     assert de["label"] == "German translation"
+
+
+# --- Back-fill and the per-room translation agent --------------------------------------------------------------
+
+
+class CaptionsRelay:
+    """The relay as back-fill sees it: FETCH of one captions slice, recorded."""
+
+    def __init__(self, slices: dict[int, list[bytes]]) -> None:
+        self.slices = slices
+        self.fetched: list[tuple[str, str, int]] = []
+
+    async def fetch_group(self, namespace: str, track: str, k: int) -> list[bytes]:
+        self.fetched.append((namespace, track, k))
+        return self.slices.get(k, [])
+
+
+async def test_translation_back_fill_carries_in_the_end_of_the_slice_before(tmp_path: Path) -> None:
+    """A FETCH for an unproduced translation slice translates its captions slice, carrying in the archived end of
+    this track's slice before (the back-fill each translate-<lang> track serves, decision 0019)."""
+    done = archive(tmp_path, "translate-de")
+    earlier = cue(1).model_copy(update={"text": "[de] cue 1"})
+    done.create(0, [SliceObject(0, carry_in(0, [])), SliceObject(1, encode([record(earlier)]))])
+    relay = CaptionsRelay({1: [carry_in(1, [cue(3)]), encode([record(cue(4)), record(cue(5))])]})
+    produce = cli.translation_backfill(relay, "room-1", "de", done, FakeLlm(), Priority())
+
+    carry, made = await produce(1)
+
+    assert relay.fetched == [("talk/room-1/agents/captions", "items", 1)]
+    assert [c.text for c in carry] == ["[de] cue 1"]
+    assert [c.id for c in made] == ["4000", "5000"] and made[0].text.startswith("[de] cue 4")
+    with pytest.raises(LookupError, match="slice 2 is empty"):
+        await produce(2)
+
+
+async def test_translation_agent_imports_resolve_before_it_connects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The per-room translation agent gets as far as connecting to the relay (its lazy imports all resolve).
+    aiomoqt has no Windows wheels, so ``talk_tracks.moq`` is a stand-in whose connect refuses."""
+
+    def refuse(*_: Any, **__: Any) -> Any:
+        raise ConnectionRefusedError("no relay in tests")
+
+    stand_in = types.ModuleType("talk_tracks.moq")
+    stand_in.connect = refuse  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "talk_tracks.moq", stand_in)
+    monkeypatch.setattr(talk_tracks, "moq", stand_in, raising=False)
+    args = cli.parse(["translate", "--relay", "moqt://127.0.0.1:4443", "--room", "room-1", "--lang", "de", "--fake"])
+    with pytest.raises(ConnectionRefusedError, match="no relay"):
+        await cli.serve_translate_room(args, "room-1")
