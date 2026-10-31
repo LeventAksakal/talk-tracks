@@ -9,6 +9,9 @@
   --tt-text: var(--color-text-primary, #1c1e21);
   --tt-muted: var(--color-text-secondary, #5d6470);
   --tt-focus: var(--color-border-emphasized, #0064e0);
+  /* Lobby: a private-link warning's background and a form error's text (Astryx tokens, no fallbacks). */
+  --tt-warning-surface: var(--color-warning-muted);
+  --tt-error: var(--color-error);
   color-scheme: light dark;
 }
 
@@ -86,8 +89,90 @@ body {
 .join-form > :first-child {
   flex: 1 1 260px;
 }
-.landing-links {
-  padding-inline-start: 20px;
+.lobby-section {
+  margin: 40px 0;
+}
+.lobby-section h2 {
+  margin: 0 0 8px;
+  font-size: 1.4rem;
+}
+.lobby-created h3 {
+  margin: 0;
+}
+.lobby-subheading {
+  margin: 24px 0 8px;
+  font-size: 1rem;
+}
+.lobby-cards {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--tt-gap);
+}
+.lobby-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--tt-gap);
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius);
+}
+.lobby-card-link {
+  color: inherit;
+  font-weight: 600;
+}
+.lobby-card-speaker {
+  color: var(--tt-muted);
+}
+.lobby-card-state {
+  align-self: flex-start;
+}
+.lobby-form,
+.lobby-created,
+.lobby-speaker-link {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 520px;
+}
+.lobby-form > button,
+.lobby-created > button,
+.lobby-speaker-link > button {
+  align-self: flex-start;
+}
+.lobby-inline-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.lobby-inline-form > :first-child {
+  flex: 1 1 260px;
+}
+.lobby-link-field {
+  font: inherit;
+  padding: 8px;
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+  background: var(--tt-surface);
+  color: var(--tt-text);
+}
+.lobby-warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--tt-warning-surface);
+}
+.lobby-error {
+  margin: 0;
+  color: var(--tt-error);
+}
+.lobby-created p {
+  margin: 0;
 }
 
 /* --- room header --- */

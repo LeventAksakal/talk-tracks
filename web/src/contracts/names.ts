@@ -57,7 +57,7 @@ export const STATE_TRACK = "state";
 /** Agents send a heartbeat every 2 s; an agent with no object for this long is stale. */
 export const STALE_AFTER_MS = 6_000;
 
-const ROOM_RE = /^[a-z0-9-]{3,32}$/;
+const ROOM_RE = /^[a-z0-9-]{3,40}$/;
 
 export function isValidRoom(room: string): boolean {
   return ROOM_RE.test(room);
