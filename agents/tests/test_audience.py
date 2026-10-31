@@ -172,7 +172,7 @@ class Room:
         async def send(_: str) -> None:
             pass
 
-        session = self.endpoint.open(ROOM, "10.0.0.1", send)
+        session = self.endpoint.open(ROOM, "192.0.2.1", send)
         return session, await self.endpoint.handle(session, json.dumps({"type": "hello", **hello}))
 
     async def write(self, session: Session, track: str, data: dict[str, Any], **extra: Any) -> dict[str, Any]:
@@ -461,7 +461,7 @@ async def test_before_the_room_has_a_clock_nothing_is_written(tmp_path: Path) ->
     ada, [hello] = await room.join({"name": "Ada"})
     assert hello["now"] is None
     assert (await room.write(ada, "ink", begin(f"{hello['id']}:1")))["code"] == "not-live"
-    nowhere = room.endpoint.open("other-room", "10.0.0.2", ada.send)
+    nowhere = room.endpoint.open("other-room", "192.0.2.2", ada.send)
     [answer] = await room.endpoint.handle(nowhere, json.dumps({"type": "hello", "name": "Ada"}))
     assert answer["code"] == "no-room"
 
