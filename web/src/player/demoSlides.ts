@@ -4,6 +4,7 @@
 // room service (live, and the archive on talk/<room>/archive/slides) would, so the player reads it exactly as it
 // reads a real room: SUBSCRIBE live, FETCH one group per track to rewind.
 
+import { inkColor } from "../theme/ink";
 import {
   annotationsPath,
   catalogPath,
@@ -292,7 +293,7 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
       const a = -Math.PI / 2 + (i / 32) * Math.PI * 2.08;
       return pt(cx + (title.w / 2 + 0.03) * Math.cos(a), cy + (title.h / 2 + 0.035) * Math.sin(a));
     });
-    draw(s.ink, `sp${n}a`, S + 5_000, 1_200, ring, { ...where, tool: "pen", color: "#e5484d", width: 0.005 });
+    draw(s.ink, `sp${n}a`, S + 5_000, 1_200, ring, { ...where, tool: "pen", color: inkColor("coral"), width: 0.005 });
     s.marks.push({
       m: S + 9_000,
       data: {
@@ -301,7 +302,7 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
         deck: 0,
         index,
         style: "underline",
-        color: "#e5484d",
+        color: inkColor("coral"),
         span: titleRuns.map((r) => ({ run: r.id })),
         by: SPEAKER,
       },
@@ -311,7 +312,12 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
     const sweep = Array.from({ length: 13 }, (_, i) =>
       pt(second.x + (second.w * i) / 12, second.y + second.h * (0.6 + 0.03 * Math.sin(i))),
     );
-    draw(s.ink, `sp${n}b`, S + 12_000, 1_000, sweep, { ...where, tool: "highlighter", color: "#ffd400", width: 0.03 });
+    draw(s.ink, `sp${n}b`, S + 12_000, 1_000, sweep, {
+      ...where,
+      tool: "highlighter",
+      color: inkColor("sun"),
+      width: 0.03,
+    });
 
     // A listener highlights the start of the first bullet and ticks the third (through the room service).
     s.audienceMarks.push({
@@ -322,7 +328,7 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
         deck: 0,
         index,
         style: "highlight",
-        color: "#4dabf7",
+        color: inkColor("sky"),
         span: b1.slice(0, 2).map((r) => ({ run: r.id })),
         by: LISTENER,
       },
@@ -341,7 +347,7 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
       index,
       by: LISTENER,
       tool: "pen",
-      color: "#2f9e44",
+      color: inkColor("mint"),
       width: 0.006,
     });
 
@@ -356,7 +362,7 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
           deck: 0,
           index,
           style: "highlight",
-          color: "#ffd400",
+          color: inkColor("sun"),
           span: [{ run: w2.id }, { run: w3.id, start: 0, end: Math.min(3, w3.text.length) }],
           by: SPEAKER,
         },
@@ -365,7 +371,7 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
 
     // A rectangle round the first bullet, then an arrow to it from the corner: undone, and redone.
     const first = box(b1);
-    const shapeStyle = { ...where, color: "#1e6bd6", width: 0.004 };
+    const shapeStyle = { ...where, color: inkColor("sky"), width: 0.004 };
     drag(
       `sp${n}r`,
       S + 23_200,

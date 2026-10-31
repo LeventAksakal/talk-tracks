@@ -2,35 +2,22 @@
    whatever the page theme; red only for LIVE, amber for degraded, every state also has a word. */
 
 .tt-player {
-  --pl-bg: #0b0d11;
-  --pl-chrome: #15181f;
-  --pl-raised: #1c2029;
-  --pl-line: #2a2f3a;
-  --pl-fg: #eef0f4;
-  --pl-muted: #a3abb9;
-  --pl-accent: #86a3ff;
-  --pl-live: #e5484d;
-  --pl-warn: #f5a524;
-  --pl-panel-w: 360px;
-  --pl-font: var(--font-family-body, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
-  --pl-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
-
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   height: 100dvh;
   min-height: 420px;
-  background: var(--pl-bg);
-  color: var(--pl-fg);
-  font: 14px/1.45 var(--pl-font);
+  background: var(--tt-color-ground);
+  color: var(--tt-color-text);
+  font: 14px/1.45 var(--tt-font-ui);
   color-scheme: dark;
   overflow: hidden;
 }
 .tt-player.tt-with-panel {
-  grid-template-columns: minmax(0, 1fr) var(--pl-panel-w);
+  grid-template-columns: minmax(0, 1fr) var(--tt-panel-width);
 }
 .tt-player :focus-visible {
-  outline: 2px solid var(--pl-accent);
+  outline: 2px solid var(--tt-color-accent);
   outline-offset: 2px;
 }
 .tt-loading {
@@ -48,17 +35,17 @@
   gap: 12px;
   min-width: 0;
   padding: 10px 16px;
-  background: var(--pl-chrome);
-  border-bottom: 1px solid var(--pl-line);
+  background: var(--tt-color-surface);
+  border-bottom: 1px solid var(--tt-color-line);
 }
 .tt-brand {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
 }
 .tt-brand:hover {
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 .tt-title {
   margin: 0;
@@ -70,7 +57,7 @@
   min-width: 0;
 }
 .tt-credit {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -81,8 +68,8 @@
   margin-left: auto;
   flex: none;
   font-size: 12px;
-  color: var(--pl-muted);
-  border: 1px solid var(--pl-line);
+  color: var(--tt-color-text-muted);
+  border: 1px solid var(--tt-color-line);
   border-radius: 999px;
   padding: 2px 10px;
 }
@@ -173,7 +160,7 @@
 }
 .tt-divider:hover::after,
 .tt-divider:focus-visible::after {
-  background: var(--pl-accent);
+  background: var(--tt-color-accent);
 }
 
 /* --- source tiles: the box whose aspect is the source's; overlays are its children --- */
@@ -204,7 +191,7 @@
   z-index: 1;
   font-size: 11px;
   background: #000a;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -220,7 +207,7 @@
 }
 .tt-camera-note {
   font-size: 12px;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   background: #000a;
   padding: 2px 8px;
   border-radius: 4px;
@@ -277,7 +264,7 @@
   font-size: clamp(10px, 2.2cqw, 15px);
   line-height: 1.35;
   background: #000b;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 .tt-marks,
 .tt-ink,
@@ -321,8 +308,8 @@
   height: 14px;
   translate: -50% -50%;
   border-radius: 50%;
-  background: radial-gradient(circle, #fff 0 18%, #ff3b30 30% 55%, #ff3b3000 72%);
-  box-shadow: 0 0 12px 4px #ff3b3088;
+  background: radial-gradient(circle, #fff 0 18%, var(--tt-laser) 30% 55%, transparent 72%);
+  box-shadow: 0 0 12px 4px color-mix(in srgb, var(--tt-laser) 53%, transparent);
 }
 
 /* --- listener tools on the slide and the comments anchored there (decision 0024) --- */
@@ -346,11 +333,11 @@
   pointer-events: none;
 }
 .tt-annotate-range {
-  background: #2f6bff44;
+  background: color-mix(in srgb, var(--tt-color-accent) 27%, transparent);
 }
 .tt-annotate-region {
-  border: 2px dashed var(--pl-accent);
-  background: #86a3ff1a;
+  border: 2px dashed var(--tt-color-accent);
+  background: color-mix(in srgb, var(--tt-color-accent) 10%, transparent);
 }
 .tt-annotate-bar {
   position: absolute;
@@ -364,9 +351,9 @@
   gap: 4px;
   padding: 4px;
   border-radius: 8px;
-  background: #15181fe6;
-  color: var(--pl-fg);
-  font: 12px var(--pl-font);
+  background: color-mix(in srgb, var(--tt-color-surface) 90%, transparent);
+  color: var(--tt-color-text);
+  font: 12px var(--tt-font-ui);
   pointer-events: auto;
 }
 .tt-annotate-bar:not([data-open]) {
@@ -376,16 +363,16 @@
 .tt-annotate-open,
 .tt-annotate-tool {
   padding: 4px 8px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: #15181fe6;
-  color: var(--pl-fg);
-  font: 500 12px var(--pl-font);
+  background: color-mix(in srgb, var(--tt-color-surface) 90%, transparent);
+  color: var(--tt-color-text);
+  font: 500 12px var(--tt-font-ui);
   cursor: pointer;
 }
 .tt-annotate-tool[aria-pressed="true"] {
-  border-color: var(--pl-accent);
-  background: #86a3ff33;
+  border-color: var(--tt-color-accent);
+  background: color-mix(in srgb, var(--tt-color-accent) 20%, transparent);
 }
 .tt-annotate-tool:disabled {
   opacity: 0.45;
@@ -406,11 +393,11 @@
   cursor: pointer;
 }
 .tt-annotate-color[aria-checked="true"] {
-  border-color: var(--pl-fg);
+  border-color: var(--tt-color-text);
 }
 .tt-annotate-note {
   padding: 0 6px;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-annotate-name {
   display: flex;
@@ -425,10 +412,10 @@
 }
 .tt-annotate-name input {
   padding: 3px 6px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--pl-bg);
-  color: var(--pl-fg);
+  background: var(--tt-color-ground);
+  color: var(--tt-color-text);
   font: inherit;
 }
 .tt-comment-marks {
@@ -439,12 +426,12 @@
 .tt-comment-box {
   position: absolute;
   border-radius: 3px;
-  background: #f5b70033;
-  box-shadow: inset 0 0 0 1px #f5b700aa;
+  background: color-mix(in srgb, var(--tt-color-degraded) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tt-color-degraded) 67%, transparent);
 }
 .tt-comment-anchor[data-focus] .tt-comment-box {
-  background: #f5b70066;
-  box-shadow: inset 0 0 0 2px #f5b700;
+  background: color-mix(in srgb, var(--tt-color-degraded) 40%, transparent);
+  box-shadow: inset 0 0 0 2px var(--tt-color-degraded);
 }
 .tt-comment-badge {
   position: absolute;
@@ -454,14 +441,14 @@
   padding: 0 5px;
   border: 0;
   border-radius: 10px;
-  background: #f5b700;
+  background: var(--tt-color-degraded);
   color: #1b1f27;
-  font: 700 11px var(--pl-font);
+  font: 700 11px var(--tt-font-ui);
   cursor: pointer;
   pointer-events: auto;
 }
 .tt-comment-anchor[data-question] .tt-comment-badge {
-  background: var(--pl-accent);
+  background: var(--tt-color-accent);
 }
 .tt-comment-whole {
   right: 8px;
@@ -549,8 +536,8 @@
   align-items: center;
   gap: 6px;
   padding: 6px 8px 6px 12px;
-  background: var(--pl-chrome);
-  border: 1px solid var(--pl-line);
+  background: var(--tt-color-surface);
+  border: 1px solid var(--tt-color-line);
   border-radius: 8px;
   font-size: 13px;
 }
@@ -583,7 +570,7 @@
   font-weight: 600;
 }
 .tt-state-card span {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   max-width: 46ch;
 }
 .tt-dimmed .tt-state-card {
@@ -605,8 +592,8 @@
   border-radius: 999px;
   border: 0;
   background: #000c;
-  color: var(--pl-fg);
-  font: 600 16px var(--pl-font);
+  color: var(--tt-color-text);
+  font: 600 16px var(--tt-font-ui);
   cursor: pointer;
 }
 .tt-big-play .tt-icon {
@@ -625,7 +612,7 @@
   border-radius: 6px;
   background: #000d;
   color: #dfe3ea;
-  font: 12px/1.5 var(--pl-mono);
+  font: 12px/1.5 var(--tt-font-numeric);
   user-select: text;
 }
 .tt-stats-head {
@@ -640,7 +627,7 @@
 .tt-stats th {
   text-align: left;
   font-weight: 500;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   padding: 0 12px 0 0;
   white-space: nowrap;
   vertical-align: top;
@@ -651,7 +638,7 @@
 
 /* --- progress bar --- */
 .tt-chrome {
-  background: var(--pl-chrome);
+  background: var(--tt-color-surface);
   position: relative;
   z-index: 10;
 }
@@ -697,16 +684,16 @@
 .tt-seg-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--pl-fg);
+  background: var(--tt-color-text);
 }
 .tt-player[data-state="live"] .tt-seg-fill {
-  background: var(--pl-live);
+  background: var(--tt-color-live);
 }
 .tt-hole {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: repeating-linear-gradient(90deg, #0b0d11 0 2px, transparent 2px 5px);
+  background: repeating-linear-gradient(90deg, var(--tt-color-ground) 0 2px, transparent 2px 5px);
   pointer-events: none;
 }
 .tt-mark {
@@ -718,14 +705,14 @@
   pointer-events: none;
 }
 .tt-mark-slide {
-  background: var(--pl-accent);
+  background: var(--tt-color-accent);
   opacity: 0.75;
 }
 .tt-mark-note {
-  background: #f5d90a;
+  background: var(--tt-ink-sun);
 }
 .tt-mark-match {
-  background: #4cc38a;
+  background: var(--tt-ink-mint);
 }
 .tt-head {
   position: absolute;
@@ -734,7 +721,7 @@
   height: 12px;
   border-radius: 50%;
   translate: -50% -50%;
-  background: var(--pl-fg);
+  background: var(--tt-color-text);
   box-shadow: 0 0 0 3px #0006;
   pointer-events: none;
 }
@@ -750,8 +737,8 @@
   gap: 2px;
   padding: 4px;
   border-radius: 6px;
-  border: 1px solid var(--pl-line);
-  background: var(--pl-chrome);
+  border: 1px solid var(--tt-color-line);
+  background: var(--tt-color-surface);
   font-size: 12px;
   pointer-events: none;
 }
@@ -781,11 +768,11 @@
   box-shadow: 0 8px 0 -1px #1b1f2722;
 }
 .tt-preview-time {
-  font-family: var(--pl-mono);
+  font-family: var(--tt-font-numeric);
   font-variant-numeric: tabular-nums;
 }
 .tt-preview-chapter {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -833,7 +820,7 @@
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
   cursor: pointer;
 }
 .tt-icon-button:hover:not(:disabled),
@@ -861,7 +848,7 @@
   bottom: 5px;
   height: 2px;
   border-radius: 1px;
-  background: var(--pl-live);
+  background: var(--tt-color-live);
 }
 .tt-volume {
   display: flex;
@@ -869,13 +856,13 @@
 }
 .tt-volume-slider {
   width: 72px;
-  accent-color: var(--pl-fg);
+  accent-color: var(--tt-color-text);
 }
 .tt-time {
   padding: 0 6px 0 8px;
-  font: 13px var(--pl-mono);
+  font: 13px var(--tt-font-numeric);
   font-variant-numeric: tabular-nums;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
   white-space: nowrap;
 }
 .tt-pill {
@@ -884,18 +871,18 @@
   border-radius: 4px;
   border: 0;
   background: #ffffff16;
-  color: var(--pl-muted);
-  font: 600 12px var(--pl-font);
+  color: var(--tt-color-text-muted);
+  font: 600 12px var(--tt-font-ui);
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
 .tt-pill-live {
   background: none;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 .tt-pill-live::before {
   content: "● ";
-  color: var(--pl-live);
+  color: var(--tt-color-live);
 }
 .tt-pill-behind {
   cursor: pointer;
@@ -906,18 +893,18 @@
 }
 .tt-pill-behind:hover {
   background: #ffffff26;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 .tt-player[data-state="reconnecting"] .tt-pill,
 .tt-player[data-state="failed"] .tt-pill {
-  color: var(--pl-warn);
+  color: var(--tt-color-degraded);
 }
 .tt-chapter-name {
   min-width: 0;
   padding: 4px 6px;
   border: 0;
   background: none;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   font: inherit;
   text-align: left;
   white-space: nowrap;
@@ -926,7 +913,7 @@
   cursor: pointer;
 }
 .tt-chapter-name:hover {
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 
 /* --- menus --- */
@@ -943,9 +930,9 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 10px;
-  background: var(--pl-chrome);
+  background: var(--tt-color-surface);
   box-shadow: 0 8px 30px #0009;
 }
 .tt-menu-wide {
@@ -955,7 +942,7 @@
   margin: 6px 6px 0;
   font-size: 11px;
   font-weight: 500;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -969,7 +956,7 @@
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -979,12 +966,12 @@
 }
 .tt-menu-item[aria-pressed="true"]::after {
   content: "✓";
-  color: var(--pl-accent);
+  color: var(--tt-color-accent);
   flex: none;
 }
 .tt-menu-back {
   justify-content: flex-start;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-menu-back .tt-icon {
   width: 16px;
@@ -992,34 +979,34 @@
 }
 .tt-menu-sub {
   margin-left: auto;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 .tt-menu-local {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-menu-list {
   display: flex;
   flex-direction: column;
   max-height: 190px;
   overflow: auto;
-  border-top: 1px solid var(--pl-line);
-  border-bottom: 1px solid var(--pl-line);
+  border-top: 1px solid var(--tt-color-line);
+  border-bottom: 1px solid var(--tt-color-line);
   padding: 2px 0;
 }
 .tt-menu-note {
   margin: 6px 8px;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-input {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--pl-bg);
-  color: var(--pl-fg);
+  background: var(--tt-color-ground);
+  color: var(--tt-color-text);
   font: inherit;
 }
 .tt-number {
@@ -1033,9 +1020,9 @@
 }
 .tt-preset {
   padding: 8px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  font: 500 13px var(--pl-font);
+  font: 500 13px var(--tt-font-ui);
   cursor: pointer;
   background: #000a;
   color: #fff;
@@ -1052,7 +1039,7 @@
   color: #111;
 }
 .tt-preset[aria-pressed="true"] {
-  outline: 2px solid var(--pl-accent);
+  outline: 2px solid var(--tt-color-accent);
   outline-offset: 1px;
 }
 .tt-slider-row {
@@ -1068,13 +1055,13 @@
 .tt-slider-row input[type="range"] {
   flex: 1;
   min-width: 0;
-  accent-color: var(--pl-accent);
+  accent-color: var(--tt-color-accent);
 }
 .tt-slider-value {
   width: 44px;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-segmented {
   display: flex;
@@ -1084,16 +1071,16 @@
 .tt-segmented button {
   flex: 1;
   padding: 6px 8px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
   background: none;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
   font: inherit;
   cursor: pointer;
 }
 .tt-segmented button[aria-pressed="true"] {
-  border-color: var(--pl-accent);
-  background: #86a3ff22;
+  border-color: var(--tt-color-accent);
+  background: color-mix(in srgb, var(--tt-color-accent) 14%, transparent);
 }
 
 /* --- buttons and small text shared by panel and cards --- */
@@ -1101,9 +1088,9 @@
   padding: 7px 14px;
   border: 0;
   border-radius: 6px;
-  background: var(--pl-accent);
-  color: #0b0d11;
-  font: 600 13px var(--pl-font);
+  background: var(--tt-color-accent);
+  color: var(--tt-color-ground);
+  font: 600 13px var(--tt-font-ui);
   cursor: pointer;
 }
 .tt-button:disabled {
@@ -1112,20 +1099,20 @@
 }
 .tt-button.tt-secondary {
   background: none;
-  color: var(--pl-fg);
-  border: 1px solid var(--pl-line);
+  color: var(--tt-color-text);
+  border: 1px solid var(--tt-color-line);
 }
 .tt-link {
   padding: 4px 6px;
   border: 0;
   border-radius: 4px;
   background: none;
-  color: var(--pl-accent);
-  font: 500 13px var(--pl-font);
+  color: var(--tt-color-accent);
+  font: 500 13px var(--tt-font-ui);
   cursor: pointer;
 }
 .tt-muted {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   margin: 0;
 }
 .tt-small-print {
@@ -1145,15 +1132,15 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-left: 1px solid var(--pl-line);
-  background: var(--pl-bg);
+  border-left: 1px solid var(--tt-color-line);
+  background: var(--tt-color-ground);
 }
 .tt-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 6px;
-  border-bottom: 1px solid var(--pl-line);
+  border-bottom: 1px solid var(--tt-color-line);
   overflow-x: auto;
 }
 .tt-tab {
@@ -1161,13 +1148,13 @@
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--pl-muted);
-  font: 500 13px var(--pl-font);
+  color: var(--tt-color-text-muted);
+  font: 500 13px var(--tt-font-ui);
   white-space: nowrap;
   cursor: pointer;
 }
 .tt-tab[aria-selected="true"] {
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
   background: #ffffff14;
 }
 .tt-panel-close {
@@ -1186,7 +1173,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   margin: 0;
 }
 .tt-empty p {
@@ -1197,8 +1184,8 @@
   padding: 1px 0;
   border: 0;
   background: none;
-  color: var(--pl-accent);
-  font: 12px var(--pl-mono);
+  color: var(--tt-color-accent);
+  font: 12px var(--tt-font-numeric);
   font-variant-numeric: tabular-nums;
   text-align: left;
   cursor: pointer;
@@ -1233,11 +1220,11 @@
   grid-template-columns: 52px 1fr 1fr;
 }
 .tt-line-interim {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   font-style: italic;
 }
 .tt-line-translation {
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-jump {
   position: absolute;
@@ -1245,11 +1232,11 @@
   left: 50%;
   translate: -50%;
   padding: 5px 12px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 999px;
-  background: var(--pl-chrome);
-  color: var(--pl-fg);
-  font: 500 12px var(--pl-font);
+  background: var(--tt-color-surface);
+  color: var(--tt-color-text);
+  font: 500 12px var(--tt-font-ui);
   cursor: pointer;
 }
 .tt-chapters {
@@ -1260,11 +1247,11 @@
 .tt-recap {
   padding: 10px;
   border-radius: 8px;
-  background: var(--pl-chrome);
+  background: var(--tt-color-surface);
 }
 .tt-recap p {
   margin: 4px 0 0;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-chapter-list {
   list-style: none;
@@ -1282,15 +1269,15 @@
   border-left: 2px solid transparent;
 }
 .tt-chapter-list li.tt-current {
-  border-left-color: var(--pl-live);
+  border-left-color: var(--tt-color-live);
 }
 .tt-chapter-list p {
   margin: 2px 0 0;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
   font-size: 13px;
 }
 .tt-live-tag {
-  color: var(--pl-live);
+  color: var(--tt-color-live);
 }
 .tt-glossary {
   margin: 0;
@@ -1300,7 +1287,7 @@
 }
 .tt-glossary dd {
   margin: 0 0 10px;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-notes {
   display: flex;
@@ -1337,9 +1324,9 @@
 .tt-dialog {
   width: min(420px, calc(100vw - 32px));
   padding: 16px 20px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 12px;
-  background: var(--pl-chrome);
+  background: var(--tt-color-surface);
 }
 .tt-dialog h2 {
   margin: 0 0 12px;
@@ -1357,14 +1344,14 @@
 }
 .tt-shortcuts dd {
   margin: 0;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-shortcuts kbd {
-  font: 12px var(--pl-mono);
+  font: 12px var(--tt-font-numeric);
   padding: 1px 6px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 4px;
-  background: var(--pl-bg);
+  background: var(--tt-color-ground);
 }
 
 /* --- full screen: the canvas fills, title and controls float over it and fade when idle --- */
@@ -1418,7 +1405,7 @@
   flex-direction: column;
   gap: 6px;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--pl-line);
+  border-bottom: 1px solid var(--tt-color-line);
 }
 .tt-discussion-name .tt-input {
   flex: 1;
@@ -1442,7 +1429,7 @@
 }
 .tt-discussion-error {
   margin: 0;
-  color: var(--pl-live);
+  color: var(--tt-color-live);
   font-size: 12px;
 }
 .tt-button.tt-small {
@@ -1454,7 +1441,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--pl-muted);
+  color: var(--tt-color-text-muted);
 }
 .tt-thread-list,
 .tt-replies {
@@ -1471,15 +1458,15 @@
 }
 .tt-thread {
   padding: 8px 10px;
-  border: 1px solid var(--pl-line);
+  border: 1px solid var(--tt-color-line);
   border-radius: 8px;
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 .tt-thread[data-question] {
-  border-left: 3px solid var(--pl-accent);
+  border-left: 3px solid var(--tt-color-accent);
 }
 .tt-thread[data-focus] {
-  background: #f5b70014;
+  background: color-mix(in srgb, var(--tt-color-degraded) 8%, transparent);
 }
 .tt-thread-head {
   display: flex;
@@ -1499,29 +1486,29 @@
   gap: 4px;
   margin: 4px 0 0 10px;
   padding-left: 8px;
-  border-left: 2px solid var(--pl-line);
+  border-left: 2px solid var(--tt-color-line);
   font-size: 13px;
 }
 .tt-reply[data-speaker] {
-  color: var(--pl-fg);
+  color: var(--tt-color-text);
 }
 .tt-tag {
   padding: 0 5px;
   border-radius: 4px;
-  background: #86a3ff33;
-  color: var(--pl-accent);
+  background: color-mix(in srgb, var(--tt-color-accent) 20%, transparent);
+  color: var(--tt-color-accent);
   font-size: 11px;
 }
 .tt-tag-question {
-  background: #f5b70033;
-  color: #f5b700;
+  background: color-mix(in srgb, var(--tt-color-degraded) 20%, transparent);
+  color: var(--tt-color-degraded);
 }
 .tt-link-button {
   padding: 2px 4px;
   border: 0;
   background: none;
-  color: var(--pl-accent);
-  font: 500 12px var(--pl-font);
+  color: var(--tt-color-accent);
+  font: 500 12px var(--tt-font-ui);
   cursor: pointer;
 }
 .tt-reply-form {
@@ -1548,6 +1535,6 @@
     grid-row: 3;
     grid-column: 1;
     border-left: 0;
-    border-top: 1px solid var(--pl-line);
+    border-top: 1px solid var(--tt-color-line);
   }
 }

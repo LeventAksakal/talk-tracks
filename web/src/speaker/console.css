@@ -1,9 +1,6 @@
-/* The speaker console (ui-design §7): desktop first. Graphite neutrals; red only for on air. */
+/* The speaker console (ui-design §7): desktop first. The Chalk tokens; red only for on air. */
 
 .console {
-  --tt-onair: var(--color-text-red, #d4202c);
-  --tt-ok: var(--color-text-green, #1f7a3a);
-  --tt-wait: var(--color-text-orange, #a35a00);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -16,13 +13,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--tt-gap);
-  padding: 10px var(--tt-gap);
-  background: var(--tt-surface);
-  border-bottom: 1px solid var(--tt-border);
+  gap: var(--tt-space-4);
+  padding: 10px var(--tt-space-4);
+  background: var(--tt-color-surface);
+  border-bottom: 1px solid var(--tt-color-line);
 }
 .console[data-phase="on-air"] .console-bar {
-  border-bottom: 3px solid var(--tt-onair);
+  border-bottom: 3px solid var(--tt-color-live);
 }
 .console-title {
   display: flex;
@@ -49,8 +46,8 @@
 .console-grid {
   display: grid;
   grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(240px, 300px);
-  gap: var(--tt-gap);
-  padding: var(--tt-gap);
+  gap: var(--tt-space-4);
+  padding: var(--tt-space-4);
   align-items: start;
   flex: 1;
 }
@@ -58,7 +55,7 @@
 .console-presenter {
   display: flex;
   flex-direction: column;
-  gap: var(--tt-gap);
+  gap: var(--tt-space-4);
   min-width: 0;
 }
 .console-main {
@@ -68,7 +65,7 @@
   min-width: 0;
 }
 .console > .audience {
-  margin: 0 var(--tt-gap) var(--tt-gap);
+  margin: 0 var(--tt-space-4) var(--tt-space-4);
 }
 
 .row {
@@ -78,7 +75,7 @@
   flex-wrap: wrap;
 }
 .alert {
-  color: var(--tt-onair);
+  color: var(--tt-color-live);
   margin: 0;
 }
 
@@ -105,16 +102,16 @@
   padding-top: 2px;
 }
 .check-ok .check-state {
-  color: var(--tt-ok);
+  color: var(--tt-color-ready);
 }
 .check-wait .check-state {
-  color: var(--tt-wait);
+  color: var(--tt-color-degraded);
 }
 .check-bad .check-state {
-  color: var(--tt-onair);
+  color: var(--tt-color-live);
 }
 .check-off .check-state {
-  color: var(--tt-muted);
+  color: var(--tt-color-text-muted);
 }
 .check-body {
   display: flex;
@@ -133,9 +130,9 @@
   font: inherit;
   font-size: 0.85rem;
   padding: 4px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--tt-surface);
+  background: var(--tt-color-surface);
   color: inherit;
 }
 .name-field {
@@ -146,9 +143,9 @@
 .name-field input {
   font: inherit;
   padding: 6px 8px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--tt-surface);
+  background: var(--tt-color-surface);
   color: inherit;
 }
 
@@ -162,13 +159,13 @@
   width: 6px;
   height: 100%;
   border-radius: 2px;
-  background: var(--tt-border);
+  background: var(--tt-color-line);
 }
 .level .bar.on {
-  background: var(--tt-ok);
+  background: var(--tt-color-ready);
 }
 .level .bar.hot {
-  background: var(--tt-wait);
+  background: var(--tt-color-degraded);
 }
 .self-view {
   width: 100%;
@@ -190,7 +187,7 @@
   background: #000;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   margin-inline: auto;
 }
 .stage-image,
@@ -244,7 +241,7 @@
   gap: 12px;
   padding: 24px;
   text-align: center;
-  background: var(--tt-body);
+  background: var(--tt-color-ground);
   border-style: dashed;
 }
 .stage-camera {
@@ -284,12 +281,12 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 2px solid var(--tt-border);
+  border: 2px solid var(--tt-color-line);
   cursor: pointer;
   padding: 0;
 }
 .swatch[aria-checked="true"] {
-  outline: 3px solid var(--tt-focus);
+  outline: 3px solid var(--tt-color-focus);
   outline-offset: 1px;
 }
 .toolbar-group {
@@ -299,7 +296,7 @@
 }
 .toolbar-group + .toolbar-group {
   padding-inline-start: 6px;
-  border-inline-start: 1px solid var(--tt-border);
+  border-inline-start: 1px solid var(--tt-color-line);
 }
 .widths {
   display: flex;
@@ -312,14 +309,14 @@
   width: 28px;
   height: 24px;
   border-radius: 4px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   background: transparent;
   color: inherit;
   cursor: pointer;
   padding: 0;
 }
 .width-option[aria-checked="true"] {
-  outline: 3px solid var(--tt-focus);
+  outline: 3px solid var(--tt-color-focus);
   outline-offset: 1px;
 }
 .width-option span {
@@ -332,7 +329,7 @@
 /* --- presenter view --- */
 .next-slide {
   width: 100%;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
   background: #fff;
 }
@@ -342,9 +339,9 @@
   font: inherit;
   font-size: 1rem;
   padding: 8px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--tt-surface);
+  background: var(--tt-color-surface);
   color: inherit;
 }
 .strip {
@@ -368,7 +365,7 @@
   cursor: pointer;
 }
 .strip-item[aria-current="true"] {
-  border-color: var(--tt-onair);
+  border-color: var(--tt-color-live);
 }
 .strip-item img,
 .strip-wait {
@@ -376,7 +373,7 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  background: var(--tt-body);
+  background: var(--tt-color-ground);
 }
 .strip-num {
   position: absolute;
@@ -468,7 +465,7 @@
 .features td {
   text-align: start;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--tt-border);
+  border-bottom: 1px solid var(--tt-color-line);
 }
 .features tbody th {
   font-weight: 500;
@@ -491,7 +488,7 @@
   min-width: 18px;
   padding: 0 4px;
   border-radius: 9px;
-  background: var(--tt-wait);
+  background: var(--tt-color-degraded);
   color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
@@ -519,11 +516,11 @@
 }
 .question {
   padding: 8px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
 }
 .question[data-question] {
-  border-left: 3px solid var(--tt-wait);
+  border-left: 3px solid var(--tt-color-degraded);
 }
 .question-meta {
   display: flex;
@@ -534,7 +531,7 @@
 .question-tag {
   padding: 0 4px;
   border-radius: 4px;
-  background: var(--tt-wait);
+  background: var(--tt-color-degraded);
   color: #fff;
   font-size: 0.7rem;
 }
@@ -547,7 +544,7 @@
   list-style: none;
   margin: 0 0 4px;
   padding-left: 8px;
-  border-left: 2px solid var(--tt-border);
+  border-left: 2px solid var(--tt-color-line);
 }
 .question-reply {
   display: flex;
@@ -557,9 +554,9 @@
   flex: 1;
   min-width: 0;
   padding: 4px 6px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--tt-surface);
+  background: var(--tt-color-surface);
   color: inherit;
   font: inherit;
 }
@@ -571,9 +568,9 @@
 }
 .small-button {
   padding: 3px 8px;
-  border: 1px solid var(--tt-border);
+  border: 1px solid var(--tt-color-line);
   border-radius: 6px;
-  background: var(--tt-surface);
+  background: var(--tt-color-surface);
   color: inherit;
 }
 .small-button:disabled {
@@ -589,7 +586,7 @@
 }
 .questions .error {
   margin: 4px 0 0;
-  color: var(--tt-onair);
+  color: var(--tt-color-live);
 }
 
 @media (max-width: 1100px) {

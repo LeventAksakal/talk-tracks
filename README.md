@@ -17,39 +17,49 @@ from before the event is in this repository.
 
 ## Meta models used
 
-| Job | Model |
-|---|---|
+| Job                                                   | Model                                       |
+| ----------------------------------------------------- | ------------------------------------------- |
 | Live captions (the source text for every other track) | Muse Voice Transcribe, realtime endpointing |
-| Translation, chapters, glossary, recap | Muse Spark (Standard mode) |
-| Slide description | Muse Spark vision |
+| Translation, chapters, glossary, recap                | Muse Spark (Standard mode)                  |
+| Slide description                                     | Muse Spark vision                           |
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `agents/` | Python agents (captions, translate, describe, chapters), the Meta providers, tests |
-| `web/` | Speaker console and viewer, React 19 + TypeScript with Meta's Astryx design system |
-| `deploy/` | Relay, web server and agents on a single VM |
-| `contracts/` | JSON Schemas of every payload, generated from the Python models |
-| `wiki/` | Product, spec, stack, how-to and decision records ([index](wiki/README.md)) |
-| `tickets/` | Open questions waiting for the owner |
+| Path         | What                                                                               |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `agents/`    | Python agents (captions, translate, describe, chapters), the Meta providers, tests |
+| `web/`       | Speaker console and viewer, React 19 + TypeScript with Meta's Astryx design system |
+| `deploy/`    | Relay, web server and agents on a single VM                                        |
+| `contracts/` | JSON Schemas of every payload, generated from the Python models                    |
+| `wiki/`      | Product, spec, stack, how-to and decision records ([index](wiki/README.md))        |
+| `tickets/`   | Open questions waiting for the owner                                               |
 
 ## Open-source parts
 
 moq-relay and the `@moq/*` browser libraries (MIT or Apache-2.0, by the moq.dev authors), aiomoqt, PyAV, NumPy,
 pydantic, httpx, websockets, React, Vite, Astryx. Licences are checked in `NOTICE`.
 
+Fonts, self-hosted in `web/public/fonts/` with their licences beside them, both under the
+[SIL Open Font License 1.1](https://openfontlicense.org):
+
+- [Cabin Sketch](https://fonts.google.com/specimen/Cabin+Sketch) by The Cabin Project Authors (Pablo Impallari), for
+  titles. The site serves a Latin subset of the Bold; since "Cabin Sketch" is a Reserved Font Name, the subset is
+  renamed "Talk Tracks Title".
+- [Atkinson Hyperlegible Next](https://fonts.google.com/specimen/Atkinson+Hyperlegible+Next) by The Atkinson
+  Hyperlegible Next Project Authors (Braille Institute of America), for the interface, captions and numbers: the
+  Latin subsets of 400, 600 and 700 as Google Fonts publishes them.
+
 ## Demo lectures
 
 The public demo rooms loop four talks from Electromagnetic Field 2026, recorded by the EMF Video Team and C3VOC and
 published on media.ccc.de under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/):
 
-| Room | Talk | Speaker | Part used |
-|---|---|---|---|
-| `virus` | [You Are Part Virus: How Biological Viruses Hack Cells](https://media.ccc.de/v/emf2026-149-1-you-are-part-virus-how-biological-viruses-hack-cells) | Christopher Binny | 0:12.6–17:12.8 of the recording |
-| `dataviz` | [Data Visualisation: The Good, The Bad, The Ugly and the Beautiful](https://media.ccc.de/v/emf2026-241-1-data-visualisation-the-good-the-bad-the-ugly) | Charlotte Rutherford | 0:12.6–19:11.4, the whole talk |
-| `rsa` | [It's the End of RSA as We Know It (And I Feel Fine): An Introduction to Post-Quantum Cryptography](https://media.ccc.de/v/emf2026-242-1-its-the-end-of-rsa-as-we-know-it-and-i-feel-fine) | Lucy Bell | 0:12.6–20:04.8 of the recording |
-| `qrcode` | [A Brief History of the QR Code, and other scannable things](https://media.ccc.de/v/emf2026-234-1-a-brief-history-of-the-qr-code-and-other-scannable-things) | Jon Ginn | 0:12.6–16:22.4, the whole talk |
+| Room      | Talk                                                                                                                                                                                       | Speaker              | Part used                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- | ------------------------------- |
+| `virus`   | [You Are Part Virus: How Biological Viruses Hack Cells](https://media.ccc.de/v/emf2026-149-1-you-are-part-virus-how-biological-viruses-hack-cells)                                         | Christopher Binny    | 0:12.6–17:12.8 of the recording |
+| `dataviz` | [Data Visualisation: The Good, The Bad, The Ugly and the Beautiful](https://media.ccc.de/v/emf2026-241-1-data-visualisation-the-good-the-bad-the-ugly)                                     | Charlotte Rutherford | 0:12.6–19:11.4, the whole talk  |
+| `rsa`     | [It's the End of RSA as We Know It (And I Feel Fine): An Introduction to Post-Quantum Cryptography](https://media.ccc.de/v/emf2026-242-1-its-the-end-of-rsa-as-we-know-it-and-i-feel-fine) | Lucy Bell            | 0:12.6–20:04.8 of the recording |
+| `qrcode`  | [A Brief History of the QR Code, and other scannable things](https://media.ccc.de/v/emf2026-234-1-a-brief-history-of-the-qr-code-and-other-scannable-things)                               | Jon Ginn             | 0:12.6–16:22.4, the whole talk  |
 
 Changes made:
 

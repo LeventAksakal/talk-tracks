@@ -1,5 +1,7 @@
 import "@astryxdesign/core/reset.css";
 import "@astryxdesign/core/astryx.css";
+import "./theme/fonts.css";
+import "./theme/tokens.css";
 import "./app.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

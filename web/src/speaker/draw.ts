@@ -4,6 +4,7 @@
 import { rangeBoxes } from "../annotate/geometry";
 import { HIGHLIGHT_ALPHA } from "../canvas/ink";
 import type { PointerRecord, TextRange, TextRun } from "../contracts/types";
+import { laserColor } from "../theme/ink";
 
 /** A stroke or shape, drawn as the player draws it (canvas/ink.ts). */
 export { drawElement } from "../canvas/ink";
@@ -39,13 +40,14 @@ export function drawLaser(ctx: CanvasRenderingContext2D, p: PointerRecord | unde
   const r = Math.max(5, w * 0.007);
   ctx.save();
   const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
-  glow.addColorStop(0, "rgba(255, 40, 40, 0.55)");
-  glow.addColorStop(1, "rgba(255, 40, 40, 0)");
+  const laser = laserColor();
+  glow.addColorStop(0, `color-mix(in srgb, ${laser} 55%, transparent)`);
+  glow.addColorStop(1, `color-mix(in srgb, ${laser} 0%, transparent)`);
   ctx.fillStyle = glow;
   ctx.beginPath();
   ctx.arc(x, y, r * 3, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#ff2828";
+  ctx.fillStyle = laser;
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();

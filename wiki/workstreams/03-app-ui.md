@@ -2,7 +2,7 @@
 
 > **Scope (owner, 2026-10-30):** desktop only, Chrome first. Phone, iPhone and Safari items in this file are out of scope.
 
-**Status:** not started · **Session:** — · **Due:** Mon Nov 2, 18:00 +03 · **Depends on:** 01 (journeys), 02
+**Status:** in progress · **Session:** App UI lane, branch `lane/app-ui` · **Due:** Mon Nov 2, 18:00 +03 · **Depends on:** 01 (journeys), 02
 (tokens, logo), 05 (room-creation endpoint) · **Feeds:** 06, 07
 
 ## Goal
@@ -76,3 +76,4 @@ Out of scope: drawing tools and the slide canvas (04), backend endpoints (05).
 | When (+03) | Session | Entry |
 |---|---|---|
 | 10-31 12:57 | coordinator | Brief written. |
+| 10-31 22:10 | App UI lane | Slice 1, tokens and fonts: `tokens.css` and `fonts.css` imported after Astryx; Atkinson Hyperlegible Next 400/600/700 and a renamed Cabin Sketch Bold subset ("Talk Tracks Title", printable ASCII, 92 KB: over the 60 KB target) self-hosted in `web/public/fonts/` with their OFL texts, credited in the README; `--tt-*`, `--pl-*` and brand hex colours moved onto the tokens; ink colours in the console, listener tools, laser and offline demo read the chalk box (`theme/ink.ts`). The ink casing is not drawn yet (`canvas/ink.ts` is outside this lane). |

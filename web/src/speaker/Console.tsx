@@ -33,6 +33,7 @@ import { Questions, useQuestionCounts } from "./Questions";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
+import { CHALK_BOX, type InkName, inkColor } from "../theme/ink";
 import "./console.css";
 
 /** What the console runs on; TalkPage gives it the relay, tests give it memory. */
@@ -88,32 +89,13 @@ const TOOLS: { tool: Tool; label: string; key: string }[][] = [
 const WIDTH_NAMES: Record<WidthStep, string> = { 0: "Thin", 1: "Medium", 2: "Bold" };
 const hasWidth = (t: Tool) => t === "pen" || t === "highlighter" || isShapeTool(t);
 
-const SWATCHES: Record<keyof ToolColors, { color: string; name: string }[]> = {
-  pen: [
-    { color: "#e5383b", name: "red" },
-    { color: "#1e6bd6", name: "blue" },
-    { color: "#2a9d4a", name: "green" },
-    { color: "#1c1e21", name: "black" },
-  ],
-  highlighter: [
-    { color: "#ffd400", name: "yellow" },
-    { color: "#7be07b", name: "green" },
-    { color: "#ff8ad0", name: "pink" },
-  ],
-  shape: [
-    { color: "#1e6bd6", name: "blue" },
-    { color: "#e5383b", name: "red" },
-    { color: "#2a9d4a", name: "green" },
-    { color: "#1c1e21", name: "black" },
-  ],
-  underline: [
-    { color: "#e5383b", name: "red" },
-    { color: "#1e6bd6", name: "blue" },
-  ],
-  highlight: [
-    { color: "#ffd400", name: "yellow" },
-    { color: "#7be07b", name: "green" },
-  ],
+/** The chalk box per tool (brand.md §3): every chalk for ink and shapes, the bright ones for the marker and marks. */
+const SWATCHES: Record<keyof ToolColors, InkName[]> = {
+  pen: CHALK_BOX.map((i) => i.name),
+  highlighter: ["sun", "mint", "rose", "sky"],
+  shape: CHALK_BOX.map((i) => i.name),
+  underline: ["coral", "sky", "mint", "sun"],
+  highlight: ["sun", "mint", "rose", "sky"],
 };
 
 const clockText = (ms: number) => {
@@ -365,11 +347,11 @@ function ConsoleView({
   // --- tools ---------------------------------------------------------------------------------------
   const [tool, setTool] = useState<Tool>("none");
   const [colors, setColors] = useState<ToolColors>({
-    pen: "#e5383b",
-    highlighter: "#ffd400",
-    shape: "#1e6bd6",
-    underline: "#e5383b",
-    highlight: "#ffd400",
+    pen: inkColor("coral"),
+    highlighter: inkColor("sun"),
+    shape: inkColor("sky"),
+    underline: inkColor("coral"),
+    highlight: inkColor("sun"),
   });
   const [width, setWidth] = useState<WidthStep>(1);
   const stepWidth = (step: -1 | 1) => setWidth((w) => Math.min(2, Math.max(0, w + step)) as WidthStep);
@@ -377,7 +359,7 @@ function ConsoleView({
     (fn) => publisher.onChange(fn),
     () => `${publisher.canUndo() ? "u" : ""}${publisher.canRedo() ? "r" : ""}`,
   );
-  const inkColor = colorKey(tool);
+  const colorTool = colorKey(tool);
   const pickTool = (t: Tool) => {
     if (t !== "laser") publisher.pointerOff();
     setTool((current) => (current === t ? "none" : t));
@@ -606,11 +588,11 @@ function ConsoleView({
                 onClick={() => publisher.clearSlide()}
               />
             </div>
-            {inkColor ? (
+            {colorTool ? (
               <Swatches
-                tool={inkColor}
-                value={colors[inkColor]}
-                onChange={(c) => setColors((prev) => ({ ...prev, [inkColor]: c }))}
+                tool={colorTool}
+                value={colors[colorTool]}
+                onChange={(c) => setColors((prev) => ({ ...prev, [colorTool]: c }))}
               />
             ) : null}
             {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
@@ -723,18 +705,21 @@ function Swatches({
 }) {
   return (
     <div className="swatches" role="radiogroup" aria-label="Colour">
-      {SWATCHES[tool].map((s) => (
-        <button
-          key={s.color}
-          type="button"
-          role="radio"
-          aria-checked={s.color === value}
-          aria-label={s.name}
-          className="swatch"
-          style={{ background: s.color }}
-          onClick={() => onChange(s.color)}
-        />
-      ))}
+      {SWATCHES[tool].map((name) => {
+        const color = inkColor(name);
+        return (
+          <button
+            key={name}
+            type="button"
+            role="radio"
+            aria-checked={color === value}
+            aria-label={CHALK_BOX.find((i) => i.name === name)!.label}
+            className="swatch"
+            style={{ background: color }}
+            onClick={() => onChange(color)}
+          />
+        );
+      })}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 /* Talk Tracks design tokens: the Chalk direction (wiki/product/brand.md).
    The names are the contract: components use only these, so a restyle is a change of values here.
    Every colour is light-dark(Paper, Blackboard); a subtree picks its theme with color-scheme
-   (the player sets dark, the rest follows the system or data-theme). Not imported yet: the App UI lane
-   wires it in main.tsx when the owner says the values are set. */
+   (the player sets dark, the rest follows the system or data-theme). Imported in main.tsx after Astryx; the fonts are
+   in fonts.css. */
 
 :root {
   color-scheme: light dark;
@@ -53,7 +53,7 @@
   --tt-laser: #ff3b30;
 
   /* Type: hand-drawn chalk for titles; Atkinson Hyperlegible Next for interface, captions and numbers */
-  --tt-font-display: "Cabin Sketch", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --tt-font-display: "Talk Tracks Title", "Cabin Sketch", "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --tt-font-ui: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
   --tt-font-numeric: var(--tt-font-ui);
   --tt-numeric: tabular-nums;
