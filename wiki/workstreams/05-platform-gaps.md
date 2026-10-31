@@ -11,10 +11,10 @@ This is the coordinator's workstream: it briefs, merges, deploys, and owns contr
 
 ### Today (Sat Oct 31)
 
-- [ ] **Save the annotations lane.** The worktree `.claude/worktrees/agent-a4253973…` on `lane/audience-annotations`
+- [x] **Save the annotations lane.** The worktree `.claude/worktrees/agent-a4253973…` on `lane/audience-annotations` Done (merged f9b2e6a).
       has 7 modified files and new UI files that are not committed. Commit and push them, finish or park the lane,
       and merge what is ready.
-- [ ] **Ticket 0020** (shape of audience annotation tracks): owner answers; record the decision; draft decision
+- [x] **Ticket 0020** (shape of audience annotation tracks): owner answers; record the decision; draft decision Done (closed 4efd7ab).
       0024 accepted or changed.
 - [ ] **Hostname.** The live hostname is kept out of the repo (`$TT_HOST` on the VM). `wiki/howto/demo-moments.md`
       names `talk-tracks.org`, which does not resolve: replace it with `<host>`, and confirm the real host with
@@ -24,14 +24,14 @@ This is the coordinator's workstream: it briefs, merges, deploys, and owns contr
 
 ### Sun Nov 1
 
-- [ ] **Room creation endpoint** for J5, as decided in 01: for example `POST /api/rooms` on the room service with
+- [x] **Room creation endpoint** for J5, as decided in 01: for example `POST /api/rooms` on the room service with Done (268e0b9).
       `{name, title, code}` → checks the access code, reserves the room, mints a speaker token capped per room and
       against a batch total (reuse `deploy/mint-judge-tokens.sh` logic and decision 0008), rate-limited. Returns
       the speaker and audience links. Behind the `/api/` proxy that already exists.
 - [ ] **Room metadata** (title, speaker name) in the room catalog, so the lobby and player can show them.
-- [ ] **Contract change for shapes** (from 04): Python model, schemas, TS types, validators, archive check.
+- [x] **Contract change for shapes** (from 04): Python model, schemas, TS types, validators, archive check. Done (261cbc2).
 - [ ] Agent **kill-and-restart** test on every agent (plan, Sun) and record the result.
-- [ ] Decide on **any-language translation** (decision 0019): there is no merged lane; keep tr/es/ar unless it is
+- [x] Decide on **any-language translation** (decision 0019): there is no merged lane; keep tr/es/ar unless it is Done (translate-any on the VM, 268e0b9).
       nearly done.
 - [ ] Merge 03 and 04 work in progress daily; deploy every evening.
 
