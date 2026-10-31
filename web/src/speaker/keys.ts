@@ -1,8 +1,27 @@
 // Slide keys and presenter clickers (ui-design §7). Clickers send PageDown/PageUp (some arrows), "b"
 // or "." for a black screen, and F5 or Shift+F5 to start a slideshow, which would reload the console
-// and end the broadcast, so F5 is swallowed.
+// and end the broadcast, so F5 is swallowed. Drawing keys follow Excalidraw's where ours are free (R, O, A,
+// E, digits in toolbar order, Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); L, D and H stay laser, pen, highlighter.
 
-export type Tool = "none" | "laser" | "pen" | "highlighter" | "underline" | "highlight" | "eraser";
+export type ShapeTool = "rect" | "ellipse" | "arrow" | "line";
+export type Tool = "none" | "laser" | "pen" | "highlighter" | ShapeTool | "underline" | "highlight" | "eraser";
+
+export const SHAPE_TOOLS: readonly ShapeTool[] = ["rect", "ellipse", "arrow", "line"];
+export const isShapeTool = (t: Tool): t is ShapeTool => (SHAPE_TOOLS as readonly Tool[]).includes(t);
+
+/** The toolbar's order; the digit keys 1..9, 0 pick them in this order (as in Excalidraw). */
+export const TOOL_ORDER: readonly Exclude<Tool, "none">[] = [
+  "laser",
+  "pen",
+  "highlighter",
+  "rect",
+  "ellipse",
+  "arrow",
+  "line",
+  "underline",
+  "highlight",
+  "eraser",
+];
 
 export type KeyAction =
   | { kind: "next" }
@@ -11,12 +30,19 @@ export type KeyAction =
   | { kind: "last" }
   | { kind: "blank" }
   | { kind: "tool"; tool: Tool }
+  | { kind: "undo" }
+  | { kind: "redo" }
+  | { kind: "width"; step: -1 | 1 }
   | { kind: "swallow" };
 
 export const TOOL_KEYS: Record<string, Tool> = {
   l: "laser",
   d: "pen",
   h: "highlighter",
+  r: "rect",
+  o: "ellipse",
+  a: "arrow",
+  i: "line",
   u: "underline",
   m: "highlight",
   e: "eraser",
@@ -27,6 +53,7 @@ interface KeyLike {
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
+  shiftKey?: boolean;
   target?: EventTarget | null;
 }
 
@@ -45,6 +72,12 @@ function isButton(target: EventTarget | null | undefined): boolean {
 
 export function keyAction(e: KeyLike): KeyAction | null {
   if (e.key === "F5") return { kind: "swallow" };
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !isTextField(e.target)) {
+    const key = e.key.toLowerCase();
+    if (key === "z") return { kind: e.shiftKey ? "redo" : "undo" };
+    if (key === "y") return { kind: "redo" };
+    return null;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   if (e.key === "PageDown") return { kind: "next" };
   if (e.key === "PageUp") return { kind: "prev" };
@@ -72,6 +105,14 @@ export function keyAction(e: KeyLike): KeyAction | null {
       return { kind: "blank" };
     case "Escape":
       return { kind: "tool", tool: "none" };
+    case "[":
+      return { kind: "width", step: -1 };
+    case "]":
+      return { kind: "width", step: 1 };
+  }
+  if (/^[0-9]$/.test(e.key)) {
+    const tool = TOOL_ORDER[(Number(e.key) + 9) % 10];
+    return tool ? { kind: "tool", tool } : null;
   }
   const tool = TOOL_KEYS[e.key.toLowerCase()];
   return tool ? { kind: "tool", tool } : null;

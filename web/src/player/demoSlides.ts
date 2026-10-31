@@ -29,6 +29,7 @@ import type {
   Region,
   RoomCatalog,
   RoomStateRecord,
+  ShapeKind,
   TextRun,
 } from "../contracts/types";
 import { FakeHistorySource } from "../playback/fakeSource";
@@ -249,6 +250,21 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
     }
     into.push({ m: from + (batches + 1) * 80, data: { kind: "end", stroke: id } });
   };
+  // A shape dragged out: the whole record sent again every 80 ms (same id, the last one wins).
+  const drag = (
+    id: string,
+    from: number,
+    ms: number,
+    start: Point,
+    end: Point,
+    style: { index: number; shape: ShapeKind; color: string; width: number; by: Author },
+  ) => {
+    for (let dt = 0; dt <= ms; dt += 80) {
+      const f = Math.min(1, (dt + 80) / ms);
+      const at = pt(start[0] + (end[0] - start[0]) * f, start[1] + (end[1] - start[1]) * f);
+      s.ink.push({ m: from + dt, data: { kind: "shape", stroke: id, deck: 0, start, end: at, ...style } });
+    }
+  };
   const laser = (from: number, ms: number, at: (f: number) => [number, number]) => {
     for (let dt = 0; dt <= ms; dt += 50) {
       const [x, y] = at(dt / ms);
@@ -346,6 +362,26 @@ export function demoScript(laid: readonly Laid[], images: readonly DeckImage[], 
         },
       });
     s.ink.push({ m: S + 22_000, data: { kind: "erase", strokes: [`sp${n}a`], by: SPEAKER } });
+
+    // A rectangle round the first bullet, then an arrow to it from the corner: undone, and redone.
+    const first = box(b1);
+    const shapeStyle = { ...where, color: "#1e6bd6", width: 0.004 };
+    drag(
+      `sp${n}r`,
+      S + 23_200,
+      500,
+      pt(first.x - 0.015, first.y - 0.015),
+      pt(first.x + first.w + 0.015, first.y + first.h + 0.015),
+      {
+        ...shapeStyle,
+        shape: "rect",
+      },
+    );
+    const head = pt(first.x + first.w + 0.02, first.y + first.h / 2);
+    drag(`sp${n}w`, S + 24_200, 600, pt(0.9, 0.12), head, { ...shapeStyle, shape: "arrow" });
+    const arrow = s.ink.at(-1)!.data;
+    s.ink.push({ m: S + 25_200, data: { kind: "erase", strokes: [`sp${n}w`], by: SPEAKER } });
+    s.ink.push({ m: S + 25_800, data: arrow });
 
     // Before the next slide the speaker clears this one, the listener's annotations too (moderation).
     const end = S + DEMO_SLIDE_MS - 500;

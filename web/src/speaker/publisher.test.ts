@@ -293,3 +293,141 @@ describe("the speaker's slide broadcast", () => {
     expect(sink.closedGroups.has(`${DECK_TRACK}#2`)).toBe(true);
   });
 });
+
+describe("shapes, widths and undo on the speaker's ink track", () => {
+  const RECT = { shape: "rect" as const, color: "#1e6bd6", width: 0.008 };
+  /** What a reader joining at the start of slice k draws: object 0 alone. */
+  const lateJoiner = (sink: MemoryBroadcast, k: number) =>
+    (sink.objects(INK_TRACK, k)[0] as InkRecord[]).map((r) =>
+      r.data.kind === "shape" || r.data.kind === "stroke" ? r.data.stroke : "",
+    );
+
+  it("sends a dragged shape again under one id, and a late joiner draws its last extent", () => {
+    const { sink, clock, pub, deck, live } = setup();
+    live();
+    deck();
+    pub.show(0);
+    pub.startEdit();
+    const id = pub.drawShape(RECT, [0.1, 0.1], [0.2, 0.2])!;
+    clock.t = 10_050;
+    expect(pub.drawShape(RECT, [0.1, 0.1], [0.4, 0.3], id)).toBe(id);
+    pub.endShape(id);
+    pub.endEdit();
+    clock.t = 12_000;
+    pub.tick();
+
+    const sent = records<InkRecord>(sink, INK_TRACK, 2).filter((r) => r.data.kind === "shape");
+    expect(sent).toHaveLength(2);
+    const [carried] = sink.objects(INK_TRACK, 3)[0] as InkRecord[];
+    expect(carried!.data).toMatchObject({ kind: "shape", stroke: id, shape: "rect", end: [0.4, 0.3], width: 0.008 });
+    expect(pub.state().strokes).toHaveLength(1);
+    expectAllValid(sink);
+  });
+
+  it("undo erases the newest element and redo sends it again whole, so the next slice carries what was undone", () => {
+    const { sink, clock, pub, deck, live } = setup();
+    live();
+    deck();
+    pub.show(0);
+    const s = pub.beginStroke({ ...PEN, width: 0.008 }, [0.2, 0.2])!;
+    pub.addPoints(s, [[0.3, 0.3]]);
+    pub.endStroke(s);
+    const r = pub.drawShape(RECT, [0.5, 0.5], [0.7, 0.7])!;
+    pub.endShape(r);
+    expect(pub.state()).toMatchObject({ canUndo: true, canRedo: false });
+
+    clock.t = 10_100;
+    pub.undo(); // the rectangle
+    expect(pub.state().strokes.map((e) => e.data.stroke)).toEqual([s]);
+    expect(records<InkRecord>(sink, INK_TRACK, 2).at(-1)).toMatchObject({
+      m: 10_100,
+      data: { kind: "erase", strokes: [r] },
+    });
+    clock.t = 10_200;
+    pub.undo(); // the stroke
+    expect(pub.state()).toMatchObject({ strokes: [], canUndo: false, canRedo: true });
+    clock.t = 12_000;
+    pub.tick();
+    expect(lateJoiner(sink, 3)).toEqual([]);
+
+    pub.redo(); // the stroke, whole and done, with its width
+    expect(records<InkRecord>(sink, INK_TRACK, 3).at(-1)).toMatchObject({
+      m: 12_000,
+      data: {
+        kind: "stroke",
+        stroke: s,
+        done: true,
+        width: 0.008,
+        points: [
+          [0.2, 0.2],
+          [0.3, 0.3],
+        ],
+      },
+    });
+    pub.redo(); // the rectangle
+    clock.t = 16_000;
+    pub.tick();
+    expect(lateJoiner(sink, 4)).toEqual([s, r]);
+    expectAllValid(sink);
+  });
+
+  it("undoes an eraser drag in one step and a clear whole, marks included", () => {
+    const { sink, clock, pub, deck, live } = setup();
+    live();
+    deck();
+    pub.show(0);
+    const ids = [0, 1, 2].map((i) => {
+      const id = pub.beginStroke(PEN, [0.1 * i, 0.5])!;
+      pub.endStroke(id);
+      return id;
+    });
+    const k = pub.mark("underline", "#e5383b", [{ run: "t0" }])!;
+
+    pub.startEdit(); // one eraser drag over two strokes
+    pub.erase([ids[0]!], []);
+    pub.erase([ids[1]!], []);
+    pub.endEdit();
+    expect(pub.state().strokes.map((e) => e.data.stroke)).toEqual([ids[2]]);
+    clock.t = 10_100;
+    pub.undo();
+    expect(
+      pub
+        .state()
+        .strokes.map((e) => e.data.stroke)
+        .sort(),
+    ).toEqual([...ids].sort());
+
+    clock.t = 10_200;
+    pub.clearSlide();
+    expect(pub.state()).toMatchObject({ strokes: [], marks: [] });
+    clock.t = 10_300;
+    pub.undo();
+    expect(pub.state().strokes).toHaveLength(3);
+    expect(pub.state().marks.map((m) => m.data.id)).toEqual([k]);
+    clock.t = 12_000;
+    pub.tick();
+    expect(lateJoiner(sink, 3).sort()).toEqual([...ids].sort());
+    expect((sink.objects(MARKS_TRACK, 3)[0] as MarkRecord[]).map((r) => r.data.kind)).toEqual(["mark"]);
+    expectAllValid(sink);
+  });
+
+  it("keeps an undo history per slide, and a new step drops the redo", () => {
+    const { clock, pub, deck, live } = setup();
+    live();
+    deck();
+    pub.show(0);
+    const a = pub.beginStroke(PEN, [0.1, 0.1])!;
+    pub.endStroke(a);
+    clock.t = 10_100;
+    pub.show(1);
+    expect(pub.state().canUndo).toBe(false);
+    pub.undo(); // nothing on slide 1: slide 0's stroke stays
+    expect(pub.slideState(pub.deckId!, 0).strokes).toHaveLength(1);
+    pub.show(0);
+    pub.undo();
+    expect(pub.state()).toMatchObject({ strokes: [], canRedo: true });
+    const b = pub.beginStroke(PEN, [0.5, 0.5])!;
+    pub.endStroke(b);
+    expect(pub.state().canRedo).toBe(false);
+  });
+});

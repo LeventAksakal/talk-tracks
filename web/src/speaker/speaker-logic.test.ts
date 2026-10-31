@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Point, ShapeKind } from "../contracts/types";
 import { strokesAt } from "./draw";
 import { keyAction } from "./keys";
 import { rangeBetween, spanBox, textRuns } from "./runs";
@@ -142,5 +143,60 @@ describe("the eraser", () => {
     expect(strokesAt(strokes, [0.3, 0.105], 16 / 9)).toEqual(["a"]);
     expect(strokesAt(strokes, [0.1, 0.805], 16 / 9)).toEqual(["b"]);
     expect(strokesAt(strokes, [0.9, 0.5], 16 / 9)).toEqual([]);
+  });
+});
+
+describe("drawing keys", () => {
+  it("picks shapes by letter and every tool by digit, in toolbar order", () => {
+    expect(keyAction({ key: "r" })).toEqual({ kind: "tool", tool: "rect" });
+    expect(keyAction({ key: "o" })).toEqual({ kind: "tool", tool: "ellipse" });
+    expect(keyAction({ key: "a" })).toEqual({ kind: "tool", tool: "arrow" });
+    expect(keyAction({ key: "i" })).toEqual({ kind: "tool", tool: "line" });
+    expect(keyAction({ key: "1" })).toEqual({ kind: "tool", tool: "laser" });
+    expect(keyAction({ key: "4" })).toEqual({ kind: "tool", tool: "rect" });
+    expect(keyAction({ key: "0" })).toEqual({ kind: "tool", tool: "eraser" });
+  });
+
+  it("undoes with Ctrl+Z (or Cmd+Z), redoes with Ctrl+Y or Ctrl+Shift+Z, and leaves the notes their own undo", () => {
+    expect(keyAction({ key: "z", ctrlKey: true })).toEqual({ kind: "undo" });
+    expect(keyAction({ key: "z", metaKey: true })).toEqual({ kind: "undo" });
+    expect(keyAction({ key: "y", ctrlKey: true })).toEqual({ kind: "redo" });
+    expect(keyAction({ key: "Z", ctrlKey: true, shiftKey: true })).toEqual({ kind: "redo" });
+    const notes = document.createElement("textarea");
+    expect(keyAction({ key: "z", ctrlKey: true, target: notes })).toBeNull();
+    expect(keyAction({ key: "[" })).toEqual({ kind: "width", step: -1 });
+    expect(keyAction({ key: "]" })).toEqual({ kind: "width", step: 1 });
+  });
+});
+
+describe("the eraser on shapes", () => {
+  const by = { id: "speaker", name: "Ada", speaker: true };
+  const shape = (id: string, kind: ShapeKind, start: Point, end: Point) => ({
+    m: 0,
+    data: {
+      kind: "shape" as const,
+      stroke: id,
+      deck: 0,
+      index: 0,
+      shape: kind,
+      start,
+      end,
+      color: "#000000",
+      width: 0.004,
+      by,
+    },
+  });
+
+  it("takes a rectangle or ellipse by its outline, a line or arrow along it, never from inside", () => {
+    const shapes = [
+      shape("r", "rect", [0.1, 0.1], [0.3, 0.3]),
+      shape("e", "ellipse", [0.5, 0.1], [0.9, 0.5]),
+      shape("l", "arrow", [0.1, 0.8], [0.5, 0.8]),
+    ];
+    expect(strokesAt(shapes, [0.3, 0.2], 16 / 9)).toEqual(["r"]);
+    expect(strokesAt(shapes, [0.2, 0.2], 16 / 9)).toEqual([]);
+    expect(strokesAt(shapes, [0.9, 0.3], 16 / 9)).toEqual(["e"]);
+    expect(strokesAt(shapes, [0.7, 0.3], 16 / 9)).toEqual([]);
+    expect(strokesAt(shapes, [0.3, 0.805], 16 / 9)).toEqual(["l"]);
   });
 });

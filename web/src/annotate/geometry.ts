@@ -2,8 +2,8 @@
 // listener tools: text hit tests and ranges on the slide's TextRuns, and what an eraser touches. Positions are
 // fractions of the slide; a part of a run is placed by character count across its box (container-formats §3).
 
-import type { StrokeRecord, TextMarkRecord } from "../contracts/tracks";
-import type { Point, Region, TextRange, TextRun } from "../contracts/types";
+import type { ElementRecord, TextMarkRecord } from "../contracts/tracks";
+import type { InkElement, Point, Region, TextRange, TextRun } from "../contracts/types";
 
 /** The box of characters [start, end) of a run, placed by character count. */
 export function spanBox(run: TextRun, start = 0, end?: number | null): Region {
@@ -99,15 +99,44 @@ function segmentDistance(p: Point, a: Point, b: Point, aspect: number): number {
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
-/** Strokes within `radius` (a fraction of the slide's height) of p. */
-export function strokesAt(strokes: readonly StrokeRecord[], p: Point, aspect: number, radius = 0.015): string[] {
-  return strokes
-    .filter(({ data: s }) => {
-      const reach = radius + (s.width * aspect) / 2;
-      const pts = s.points;
-      if (pts.length === 1) return segmentDistance(p, pts[0]!, pts[0]!, aspect) <= reach;
-      for (let i = 1; i < pts.length; i++) if (segmentDistance(p, pts[i - 1]!, pts[i]!, aspect) <= reach) return true;
-      return false;
+/** The lines an element is drawn along, as polylines in slide fractions (an ellipse as 32 sides). */
+export function elementLines(el: InkElement): Point[][] {
+  if (el.kind === "stroke") return [el.points];
+  const [ax, ay] = el.start;
+  const [bx, by] = el.end;
+  if (el.shape === "rect") {
+    return [
+      [
+        [ax, ay],
+        [bx, ay],
+        [bx, by],
+        [ax, by],
+        [ax, ay],
+      ],
+    ];
+  }
+  if (el.shape === "ellipse") {
+    const [cx, cy, rx, ry] = [(ax + bx) / 2, (ay + by) / 2, Math.abs(bx - ax) / 2, Math.abs(by - ay) / 2];
+    return [
+      Array.from({ length: 33 }, (_, i): Point => {
+        const a = (i / 32) * Math.PI * 2;
+        return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)];
+      }),
+    ];
+  }
+  return [[el.start, el.end]];
+}
+
+/** Strokes and shapes within `radius` (a fraction of the slide's height) of p: what the eraser takes. */
+export function strokesAt(elements: readonly ElementRecord[], p: Point, aspect: number, radius = 0.015): string[] {
+  return elements
+    .filter(({ data: el }) => {
+      const reach = radius + (el.width * aspect) / 2;
+      return elementLines(el).some((pts) => {
+        if (pts.length === 1) return segmentDistance(p, pts[0]!, pts[0]!, aspect) <= reach;
+        for (let i = 1; i < pts.length; i++) if (segmentDistance(p, pts[i - 1]!, pts[i]!, aspect) <= reach) return true;
+        return false;
+      });
     })
     .map((s) => s.data.stroke);
 }

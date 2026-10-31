@@ -1,5 +1,14 @@
 import { AlertDialog, Badge, Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
-import { type ChangeEvent, type DragEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type DragEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { RoomService } from "../annotate/client";
 import { AUDIO_TRACK, HANG_CATALOG_TRACK, teacherPath } from "../contracts/names";
 import type { RoomCatalog } from "../contracts/types";
@@ -13,7 +22,7 @@ import { type ClockState, clockState, roomNowFn, wallNowMs } from "./clock";
 import type { Deck, RenderedSlide } from "./deck";
 import { type Echo, watchEcho } from "./echo";
 import { Invite, watchUrl } from "./Invite";
-import { type Tool, keyAction } from "./keys";
+import { type Tool, isShapeTool, keyAction } from "./keys";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
 import { LevelMeter, SelfView, useLevel } from "./MediaViews";
 import { useNotes } from "./notes";
@@ -21,7 +30,7 @@ import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
 import { Questions, useQuestionCounts } from "./Questions";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
-import { Stage, type ToolColors } from "./Stage";
+import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
 import "./console.css";
 
@@ -53,14 +62,28 @@ const loadName = () => {
   }
 };
 
-const TOOLS: { tool: Tool; label: string; key: string }[] = [
-  { tool: "laser", label: "Laser", key: "L" },
-  { tool: "pen", label: "Pen", key: "D" },
-  { tool: "highlighter", label: "Highlighter", key: "H" },
-  { tool: "underline", label: "Underline text", key: "U" },
-  { tool: "highlight", label: "Highlight text", key: "M" },
-  { tool: "eraser", label: "Eraser", key: "E" },
+/** The toolbar, in groups; the digit keys pick tools in this order (keys.ts TOOL_ORDER). */
+const TOOLS: { tool: Tool; label: string; key: string }[][] = [
+  [
+    { tool: "laser", label: "Laser", key: "L" },
+    { tool: "pen", label: "Pen", key: "D" },
+    { tool: "highlighter", label: "Highlighter", key: "H" },
+  ],
+  [
+    { tool: "rect", label: "Rectangle", key: "R" },
+    { tool: "ellipse", label: "Ellipse", key: "O" },
+    { tool: "arrow", label: "Arrow", key: "A" },
+    { tool: "line", label: "Line", key: "I" },
+  ],
+  [
+    { tool: "underline", label: "Underline text", key: "U" },
+    { tool: "highlight", label: "Highlight text", key: "M" },
+    { tool: "eraser", label: "Eraser", key: "E" },
+  ],
 ];
+
+const WIDTH_NAMES: Record<WidthStep, string> = { 0: "Thin", 1: "Medium", 2: "Bold" };
+const hasWidth = (t: Tool) => t === "pen" || t === "highlighter" || isShapeTool(t);
 
 const SWATCHES: Record<keyof ToolColors, { color: string; name: string }[]> = {
   pen: [
@@ -73,6 +96,12 @@ const SWATCHES: Record<keyof ToolColors, { color: string; name: string }[]> = {
     { color: "#ffd400", name: "yellow" },
     { color: "#7be07b", name: "green" },
     { color: "#ff8ad0", name: "pink" },
+  ],
+  shape: [
+    { color: "#1e6bd6", name: "blue" },
+    { color: "#e5383b", name: "red" },
+    { color: "#2a9d4a", name: "green" },
+    { color: "#1c1e21", name: "black" },
   ],
   underline: [
     { color: "#e5383b", name: "red" },
@@ -335,9 +364,17 @@ function ConsoleView({
   const [colors, setColors] = useState<ToolColors>({
     pen: "#e5383b",
     highlighter: "#ffd400",
+    shape: "#1e6bd6",
     underline: "#e5383b",
     highlight: "#ffd400",
   });
+  const [width, setWidth] = useState<WidthStep>(1);
+  const stepWidth = (step: -1 | 1) => setWidth((w) => Math.min(2, Math.max(0, w + step)) as WidthStep);
+  const history = useSyncExternalStore(
+    (fn) => publisher.onChange(fn),
+    () => `${publisher.canUndo() ? "u" : ""}${publisher.canRedo() ? "r" : ""}`,
+  );
+  const inkColor = colorKey(tool);
   const pickTool = (t: Tool) => {
     if (t !== "laser") publisher.pointerOff();
     setTool((current) => (current === t ? "none" : t));
@@ -356,6 +393,9 @@ function ConsoleView({
       else if (a.kind === "first") void goTo(0);
       else if (a.kind === "last" && deck) void goTo(deck.count - 1);
       else if (a.kind === "blank") toggleBlank();
+      else if (a.kind === "undo") publisher.undo();
+      else if (a.kind === "redo") publisher.redo();
+      else if (a.kind === "width") stepWidth(a.step);
       else if (a.kind === "tool") {
         if (a.tool !== "laser") publisher.pointerOff();
         setTool(a.tool);
@@ -506,6 +546,7 @@ function ConsoleView({
                 aspect={aspect}
                 tool={tool}
                 colors={colors}
+                width={width}
                 hidden={hidden}
                 label={slideLabel}
               />
@@ -518,32 +559,55 @@ function ConsoleView({
             <SelfView track={snap?.cameraTrack} className="stage-camera" />
           </div>
           <div className="toolbar" role="toolbar" aria-label="Drawing tools">
-            {TOOLS.map((t) => (
-              <ToggleButton
-                key={t.tool}
-                label={`${t.label} (${t.key})`}
-                size="sm"
-                isPressed={tool === t.tool}
-                isDisabled={!deck}
-                onPressedChange={() => pickTool(t.tool)}
-              >
-                {t.label}
-              </ToggleButton>
+            {TOOLS.map((group, i) => (
+              <div key={i} className="toolbar-group">
+                {group.map((t) => (
+                  <ToggleButton
+                    key={t.tool}
+                    label={`${t.label} (${t.key})`}
+                    size="sm"
+                    isPressed={tool === t.tool}
+                    isDisabled={!deck}
+                    onPressedChange={() => pickTool(t.tool)}
+                  >
+                    {t.label}
+                  </ToggleButton>
+                ))}
+              </div>
             ))}
-            <Button
-              label="Clear slide"
-              size="sm"
-              variant="secondary"
-              isDisabled={!deck || hidden}
-              onClick={() => publisher.clearSlide()}
-            />
-            {tool in SWATCHES ? (
+            <div className="toolbar-group">
+              <Button
+                label="Undo"
+                tooltip="Undo (Ctrl+Z)"
+                size="sm"
+                variant="secondary"
+                isDisabled={!deck || hidden || !history.includes("u")}
+                onClick={() => publisher.undo()}
+              />
+              <Button
+                label="Redo"
+                tooltip="Redo (Ctrl+Y)"
+                size="sm"
+                variant="secondary"
+                isDisabled={!deck || hidden || !history.includes("r")}
+                onClick={() => publisher.redo()}
+              />
+              <Button
+                label="Clear slide"
+                size="sm"
+                variant="secondary"
+                isDisabled={!deck || hidden}
+                onClick={() => publisher.clearSlide()}
+              />
+            </div>
+            {inkColor ? (
               <Swatches
-                tool={tool as keyof ToolColors}
-                value={colors[tool as keyof ToolColors]}
-                onChange={(c) => setColors((prev) => ({ ...prev, [tool]: c }))}
+                tool={inkColor}
+                value={colors[inkColor]}
+                onChange={(c) => setColors((prev) => ({ ...prev, [inkColor]: c }))}
               />
             ) : null}
+            {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
           </div>
           <nav className="slide-nav" aria-label="Slides">
             <Button label="Previous" size="sm" isDisabled={!deck || index === 0} onClick={() => void goTo(index - 1)} />
@@ -664,6 +728,26 @@ function Swatches({
           style={{ background: s.color }}
           onClick={() => onChange(s.color)}
         />
+      ))}
+    </div>
+  );
+}
+
+function Widths({ value, onChange }: { value: WidthStep; onChange: (w: WidthStep) => void }) {
+  return (
+    <div className="widths" role="radiogroup" aria-label="Stroke width ([ and ])">
+      {([0, 1, 2] as const).map((w) => (
+        <button
+          key={w}
+          type="button"
+          role="radio"
+          aria-checked={w === value}
+          aria-label={WIDTH_NAMES[w]}
+          className="width-option"
+          onClick={() => onChange(w)}
+        >
+          <span style={{ height: `${2 + w * 2}px` }} />
+        </button>
       ))}
     </div>
   );

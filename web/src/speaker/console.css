@@ -210,7 +210,11 @@
   touch-action: none;
 }
 .stage.tool-pen .stage-ink,
-.stage.tool-highlighter .stage-ink {
+.stage.tool-highlighter .stage-ink,
+.stage.tool-rect .stage-ink,
+.stage.tool-ellipse .stage-ink,
+.stage.tool-arrow .stage-ink,
+.stage.tool-line .stage-ink {
   cursor: crosshair;
 }
 .stage.tool-laser .stage-ink {
@@ -287,6 +291,42 @@
 .swatch[aria-checked="true"] {
   outline: 3px solid var(--tt-focus);
   outline-offset: 1px;
+}
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar-group + .toolbar-group {
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--tt-border);
+}
+.widths {
+  display: flex;
+  gap: 4px;
+  margin-inline-start: 8px;
+}
+.width-option {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--tt-border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.width-option[aria-checked="true"] {
+  outline: 3px solid var(--tt-focus);
+  outline-offset: 1px;
+}
+.width-option span {
+  display: block;
+  width: 16px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 /* --- presenter view --- */

@@ -1,11 +1,8 @@
 // Drawing the slide's annotations (decisions 0020, 0021): where a text mark sits from the slide's text runs, and
-// the ink drawer, a pure function of (context, strokes, size) that takes an OffscreenCanvas context too, so it can
-// move into a worker if profiling ever asks for it.
+// the ink drawer (canvas/ink.ts, shared with the console), a pure function of (context, elements, size) that takes
+// an OffscreenCanvas context too, so it can move into a worker if profiling ever asks for it.
 
-import type { InkStroke, Region, TextRange, TextRun } from "../contracts/types";
-
-/** How opaque a highlighter stroke or a highlight mark is over the slide. */
-export const HIGHLIGHT_ALPHA = 0.35;
+import type { Region, TextRange, TextRun } from "../contracts/types";
 
 /**
  * The boxes a text range covers, in fractions of the slide: one per run span, a part of a run placed by character
@@ -39,68 +36,5 @@ export function markBoxes(span: TextRange, runs: readonly TextRun[]): Region[] {
   return out;
 }
 
-type Ctx2D = Pick<
-  CanvasRenderingContext2D,
-  | "clearRect"
-  | "beginPath"
-  | "moveTo"
-  | "lineTo"
-  | "quadraticCurveTo"
-  | "arc"
-  | "stroke"
-  | "fill"
-  | "save"
-  | "restore"
-  | "lineWidth"
-  | "lineCap"
-  | "lineJoin"
-  | "strokeStyle"
-  | "fillStyle"
-  | "globalAlpha"
->;
-
-/**
- * Draw strokes on a canvas of `width` × `height` device pixels, clearing it first. Points are fractions of the
- * slide; a stroke's width is a fraction of the slide's width. A pen draws solid, a highlighter translucent. A
- * stroke still being drawn shows the points so far.
- */
-export function drawInk(ctx: Ctx2D, strokes: readonly InkStroke[], width: number, height: number): void {
-  ctx.clearRect(0, 0, width, height);
-  for (const s of strokes) {
-    const pts = s.points;
-    const first = pts[0];
-    if (!first) continue;
-    const lw = Math.max(1, s.width * width);
-    ctx.save();
-    ctx.globalAlpha = s.tool === "highlighter" ? HIGHLIGHT_ALPHA : 1;
-    ctx.strokeStyle = s.color;
-    ctx.fillStyle = s.color;
-    ctx.lineWidth = lw;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    if (pts.length === 1) {
-      ctx.arc(first[0] * width, first[1] * height, lw / 2, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.moveTo(first[0] * width, first[1] * height);
-      // Through the midpoints, each point a control point: a smooth line that still passes near every sample.
-      for (let i = 1; i < pts.length - 1; i++) {
-        const [x, y] = pts[i]!;
-        const [nx, ny] = pts[i + 1]!;
-        ctx.quadraticCurveTo(x * width, y * height, ((x + nx) / 2) * width, ((y + ny) / 2) * height);
-      }
-      const last = pts[pts.length - 1]!;
-      ctx.lineTo(last[0] * width, last[1] * height);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-}
-
-/** What the ink canvas shows: it is redrawn only when this changes (a point, a stroke, the size). */
-export function inkSignature(strokes: readonly { data: InkStroke }[], width: number, height: number): string {
-  let sig = `${width}x${height}`;
-  for (const { data } of strokes) sig += `|${data.stroke}:${data.points.length}:${data.done ? 1 : 0}`;
-  return sig;
-}
+/** Draw the ink track's strokes and shapes, clearing the canvas first (the shared drawer, canvas/ink.ts). */
+export { drawElements as drawInk, inkSignature } from "../canvas/ink";
