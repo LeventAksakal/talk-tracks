@@ -219,7 +219,9 @@ class SpeakerSlides:
 
     async def start(self) -> None:
         for ns in (slides_path(self._room), history_path(slides_path(self._room))):
-            deck = await self._relay.publish(ns, DECK_TRACK, queue=CATALOG_QUEUE)
+            # The writer's queue holds the whole deck: a smaller one drops its first objects while nobody subscribes
+            # and starts new groups for the rest, so the track's Largest Location ran ahead of the one deck group.
+            deck = await self._relay.publish(ns, DECK_TRACK, queue=len(self.source.deck))
             self._deck.append(ComputedTrack(deck, _Computed(self.source.deck_group)))
             slide = await self._relay.publish(ns, SLIDE_TRACK)
             self._slide.append(ComputedTrack(slide, _Computed(self.source.slide_group, published=True)))
