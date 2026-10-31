@@ -2,7 +2,7 @@
 // composer anchored on the slide (a box or words picked with the comment tool, else the whole slide), replies and
 // hide. Comments made while watching a replay go out now, at the playhead's room time (`at`), on the slide seen.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RoomService } from "../annotate/client";
 import type { Anchor, Author, Comment, CommentRecord } from "../contracts/types";
 import { mayChange } from "../contracts/types";
@@ -33,10 +33,7 @@ export function Discussion() {
   // The room service's index of every thread; without it (not held, not reachable), the comments on this slide
   // from the comments track at the playhead.
   const records: readonly CommentRecord[] = open ? service.threads() : (slides?.commentsAt(at) ?? []);
-  const threads = useMemo(
-    () => threadsAt(records, { t, filter, slide, search, order }),
-    [records, t, filter, slide, search, order],
-  );
+  const threads = threadsAt(records, { t, filter, slide, search, order });
   const me = service?.me();
   const author: Author | undefined = me ? { id: me.id, name: me.name ?? "", speaker: me.speaker } : undefined;
 
@@ -185,7 +182,11 @@ function Composer({
           {t !== undefined ? ` · at ${formatClock(t)} of the talk` : ""}
         </span>
         {anchor ? (
-          <button type="button" className="tt-button tt-secondary tt-small" onClick={() => listening?.set({ anchor: undefined })}>
+          <button
+            type="button"
+            className="tt-button tt-secondary tt-small"
+            onClick={() => listening?.set({ anchor: undefined })}
+          >
             Whole slide
           </button>
         ) : null}
@@ -212,7 +213,12 @@ function Composer({
           <input type="checkbox" checked={question} onChange={(e) => setQuestion(e.target.checked)} /> Question for the
           speaker
         </label>
-        <button type="button" className="tt-button" onClick={() => void post()} disabled={!text.trim() || !target || busy}>
+        <button
+          type="button"
+          className="tt-button"
+          onClick={() => void post()}
+          disabled={!text.trim() || !target || busy}
+        >
           Post
         </button>
       </div>
@@ -272,7 +278,12 @@ function ThreadItem({
         <strong>{c.by.name}</strong>
         {c.by.speaker ? <span className="tt-tag">Speaker</span> : null}
         {c.question ? <span className="tt-tag tt-tag-question">Question</span> : null}
-        <button type="button" className="tt-time-link" onClick={() => seek(c.at)} aria-label={`Play from ${formatClock(c.at)}`}>
+        <button
+          type="button"
+          className="tt-time-link"
+          onClick={() => seek(c.at)}
+          aria-label={`Play from ${formatClock(c.at)}`}
+        >
           {formatClock(c.at)}
         </button>
         <span className="tt-muted">{anchorLabel(c)}</span>
@@ -296,7 +307,12 @@ function ThreadItem({
       {later ? <p className="tt-muted">{later === 1 ? "1 later reply" : `${later} later replies`}</p> : null}
       <div className="tt-row tt-thread-actions">
         {canWrite ? (
-          <button type="button" className="tt-link-button" onClick={() => setReplying(!replying)} aria-expanded={replying}>
+          <button
+            type="button"
+            className="tt-link-button"
+            onClick={() => setReplying(!replying)}
+            aria-expanded={replying}
+          >
             Reply
           </button>
         ) : null}

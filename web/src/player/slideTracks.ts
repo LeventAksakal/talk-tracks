@@ -57,15 +57,7 @@ import { type HistorySource, NotFound } from "../playback/source";
 import type { Closable } from "../transport/types";
 
 export type TrackId =
-  | "deck"
-  | "slide"
-  | "ink"
-  | "marks"
-  | "pointer"
-  | "audience-ink"
-  | "audience-marks"
-  | "comments"
-  | "room";
+  "deck" | "slide" | "ink" | "marks" | "pointer" | "audience-ink" | "audience-marks" | "comments" | "room";
 
 /** What the slides source needs: the speaker's five tracks. */
 export const SPEAKER_TRACKS: readonly TrackId[] = ["deck", "slide", "ink", "marks", "pointer"];

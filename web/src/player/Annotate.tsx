@@ -5,11 +5,19 @@
 
 import { type CSSProperties, type PointerEvent, useRef, useState } from "react";
 import { marksAt, rangeBetween, rangeBoxes, strokesAt } from "../annotate/geometry";
+import { type Thread, threadsAt } from "../annotate/threads";
 import type { Anchor, Author, CommentRecord, Point, Region, ShowSlide, TextRun } from "../contracts/types";
 import { mayChange } from "../contracts/types";
 import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
-import { DRAWING_TOOLS, LISTENER_COLORS, type Listening, type ListenerTool, useListening, useRoomService } from "./listening";
+import {
+  DRAWING_TOOLS,
+  LISTENER_COLORS,
+  type Listening,
+  type ListenerTool,
+  useListening,
+  useRoomService,
+} from "./listening";
 import type { SlideTracks } from "./slideTracks";
 
 /** The Discussion tab's id in the side panel. */
@@ -17,8 +25,6 @@ export const DISCUSSION_TAB = "discussion";
 
 /** A press that moves less than this (a fraction of the slide) is a click. */
 const CLICK = 0.006;
-/** A comment shown on the track but not (yet) in the room service's index: shown this long, then taken as hidden. */
-const INDEX_GRACE_MS = 5_000;
 
 const TOOLS: { tool: ListenerTool; label: string; title: string }[] = [
   { tool: "pen", label: "Pen", title: "Draw on the slide" },
@@ -302,26 +308,28 @@ export function anchorBoxes(anchor: Anchor, runs: readonly TextRun[]): Region[] 
   return [];
 }
 
-/** The comments on the slide at the playhead (the comments track's state), hidden ones left out. */
-export function visibleComments(
-  records: readonly CommentRecord[],
+/**
+ * The threads to mark on the slide on screen at room time t (undefined: live, everything said so far): from the
+ * room service's index when it is connected (hidden ones left out, a replay's comments at their `at`), else the
+ * comments track's state at t.
+ */
+export function slideThreads(
+  on: ShowSlide,
   index: readonly CommentRecord[] | undefined,
-  now: number | undefined,
-): CommentRecord[] {
-  if (!index) return [...records];
-  const known = new Set(index.map((r) => r.data.kind === "comment" || r.data.kind === "reply" ? r.data.id : ""));
-  return records.filter((r) => {
-    const id = r.data.kind === "comment" || r.data.kind === "reply" ? r.data.id : undefined;
-    return !id || known.has(id) || (now !== undefined && now - r.m < INDEX_GRACE_MS);
-  });
+  track: readonly CommentRecord[] | undefined,
+  t: number | undefined,
+): Thread[] | undefined {
+  const records = index ?? track;
+  if (!records) return undefined;
+  return threadsAt(records, { t: index ? t : undefined, filter: "slide", slide: on, order: "oldest" });
 }
 
-const sameComments = (a: CommentRecord[] | undefined, b: CommentRecord[] | undefined) =>
+const sameThreads = (a: Thread[] | undefined, b: Thread[] | undefined) =>
   a === b ||
   (a !== undefined &&
     b !== undefined &&
     a.length === b.length &&
-    a.every((r, i) => r.data === b[i]!.data || JSON.stringify(r.data) === JSON.stringify(b[i]!.data)));
+    a.every((x, i) => x.comment.id === b[i]!.comment.id && x.replies.length === b[i]!.replies.length));
 
 /**
  * The comments anchored on the slide on screen: a box where each points (its region or text range) with the
@@ -341,42 +349,46 @@ export function CommentMarks({
   const { clock, listening, openTab } = usePlayer();
   const state = useListening(listening);
   useRoomService(listening?.service);
-  const records = useFrameValue(clock, (t) => slides.commentsAt(time(t)), sameComments);
-  if (!on || !records) return null;
+  const live = useLive();
   const service = listening?.service;
-  const index = service && service.status() === "open" ? service.threads() : undefined;
-  const shown = visibleComments(records, index, service?.now());
-  const comments = shown.filter((r): r is { m: number; data: Extract<CommentRecord["data"], { kind: "comment" }> } =>
-    r.data.kind === "comment",
+  const index = service?.status() === "open" ? service.threads() : undefined;
+  const threads = useFrameValue(
+    clock,
+    (t) => (on ? slideThreads(on, index, index ? undefined : slides.commentsAt(time(t)), live ? undefined : time(t)) : []),
+    sameThreads,
   );
-  if (comments.length === 0) return null;
-  const replies = (id: string) => shown.filter((r) => r.data.kind === "reply" && r.data.to === id).length;
+  if (!on || !threads?.length) return null;
   const open = (id: string) => {
     listening?.set({ focus: id });
     openTab(DISCUSSION_TAB);
   };
-  const whole = comments.filter((c) => anchorBoxes(c.data.anchor, runs).length === 0);
+  const whole = threads.filter((th) => anchorBoxes(th.comment.anchor, runs).length === 0);
   return (
     <div className="tt-comment-marks">
-      {comments.map(({ data: c }) => {
+      {threads.map(({ comment: c, replies }) => {
         const boxes = anchorBoxes(c.anchor, runs);
         if (boxes.length === 0) return null;
         const first = boxes[0]!;
         const focused = state?.focus === c.id;
         return (
-          <div key={c.id} className="tt-comment-anchor" data-focus={focused || undefined} data-question={c.question || undefined}>
+          <div
+            key={c.id}
+            className="tt-comment-anchor"
+            data-focus={focused || undefined}
+            data-question={c.question || undefined}
+          >
             {boxes.map((b, i) => (
               <span key={i} className="tt-comment-box" style={boxStyle(b)} />
             ))}
             <button
               type="button"
               className="tt-comment-badge"
-              style={{ left: `${(first.x + first.w) * 100}%`, top: `${first.y * 100}%` }}
+              style={{ left: `${Math.min(0.97, first.x + first.w) * 100}%`, top: `${first.y * 100}%` }}
               title={`${c.by.name}: ${c.text}`}
-              aria-label={`Comment by ${c.by.name}, ${replies(c.id)} replies`}
+              aria-label={`Comment by ${c.by.name}: ${c.text} (${replies.length} ${replies.length === 1 ? "reply" : "replies"})`}
               onClick={() => open(c.id)}
             >
-              {1 + replies(c.id)}
+              {1 + replies.length}
             </button>
           </div>
         );
@@ -386,7 +398,7 @@ export function CommentMarks({
           type="button"
           className="tt-comment-badge tt-comment-whole"
           title="Comments on this slide"
-          onClick={() => open(whole[0]!.data.id)}
+          onClick={() => open(whole[0]!.comment.id)}
         >
           {whole.length} on this slide
         </button>

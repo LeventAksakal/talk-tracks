@@ -69,7 +69,7 @@ export class AnnotationWriter {
     };
     this.#drawing = { data, pending: [], sentAt: this.#clock() };
     const { kind: _kind, done: _done, by: _by, ...style } = data;
-    this.#send("ink", { kind: "begin", ...style });
+    this.#send("ink", { kind: "begin", ...style, points: [first] }); // the draft's points grow as it is drawn
     return data;
   }
 

@@ -29,10 +29,7 @@ function WatchRoom({ room }: { room: string }) {
     return new SlideTracks(new MoqHistorySource(transport), room, { catalog: () => media?.catalog() });
   }, [transport, playback, room]);
   // Listeners draw, mark and comment through the room service (decision 0024), never the relay.
-  const roomService = useResource(
-    () => new RoomServiceClient(roomServiceBase(), room, { comments: true }),
-    [room],
-  );
+  const roomService = useResource(() => new RoomServiceClient(roomServiceBase(), room, { comments: true }), [room]);
   if (!playback) return <p className="page-pad">Connecting…</p>;
   return <Player playback={playback} room={room} transport={transport} slides={slides} roomService={roomService} />;
 }

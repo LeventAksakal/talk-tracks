@@ -10,6 +10,18 @@ import type { Comment } from "../contracts/types";
 const noop = () => () => {};
 const zero = () => 0;
 
+/** The open questions per slide of the deck (index → count), for the counts on the console's slide strip. */
+export function useQuestionCounts(service: RoomService | undefined, deck: number | undefined): Map<number, number> {
+  useSyncExternalStore(service?.subscribe ?? noop, service ? service.version : zero);
+  const counts = new Map<number, number>();
+  if (!service || deck === undefined || service.status() !== "open") return counts;
+  for (const t of threadsAt(service.threads(), { filter: "questions" })) {
+    if (t.comment.anchor.deck !== deck) continue;
+    counts.set(t.comment.anchor.index, (counts.get(t.comment.anchor.index) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function Questions({
   service,
   slide,
