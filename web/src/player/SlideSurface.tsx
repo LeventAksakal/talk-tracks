@@ -1,6 +1,7 @@
 import { type CSSProperties, type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
 import type { Region } from "../contracts/types";
 import { dirOf } from "../viewer/lang";
+import { AnnotateBar, AnnotateSurface, CommentMarks } from "./Annotate";
 import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import { drawInk, inkSignature, markBoxes } from "./overlays";
@@ -77,8 +78,13 @@ export function SlideSurface() {
                 <span key={k.id} className={`tt-textmark tt-textmark-${k.style}`} style={markStyle(k)} />
               ))}
             </div>
+            {prefs.annotations === "everyone" ? (
+              <CommentMarks slides={slides} on={on} runs={runs} time={slideTime} />
+            ) : null}
             <InkLayer slides={slides} />
             <LaserPointer slides={slides} />
+            <AnnotateSurface slides={slides} on={on} runs={runs} aspect={aspect} time={slideTime} />
+            <AnnotateBar on={on} />
           </>
         ) : null
       }
@@ -144,7 +150,7 @@ function markStyle(k: Mark): CSSProperties {
  * the playhead loads, the last drawing stays.
  */
 function InkLayer({ slides }: { slides: SlideTracks }) {
-  const { clock } = usePlayer();
+  const { clock, listening } = usePlayer();
   const slideTime = useSlideTime();
   const canvas = useRef<HTMLCanvasElement>(null);
   useDevicePixels(canvas);
@@ -158,8 +164,16 @@ function InkLayer({ slides }: { slides: SlideTracks }) {
     if (!c || !ctx) return;
     let drawn = "";
     const draw = (t: number | undefined) => {
-      const strokes = slides.inkAt(time.current(t));
-      if (!strokes) return;
+      const echoed = slides.inkAt(time.current(t));
+      if (!echoed) return;
+      // This browser's strokes show as drawn here until they come back on the track whole.
+      const drafts = listening?.get().drafts ?? [];
+      let strokes = echoed;
+      if (drafts.length) {
+        listening?.settle(new Set(echoed.filter((s) => s.data.done).map((s) => s.data.stroke)));
+        const own = new Set(drafts.map((d) => d.stroke));
+        strokes = [...echoed.filter((s) => !own.has(s.data.stroke)), ...drafts.map((data) => ({ m: 0, data }))];
+      }
       const sig = inkSignature(strokes, c.width, c.height);
       if (sig === drawn) return;
       drawn = sig;
@@ -172,7 +186,7 @@ function InkLayer({ slides }: { slides: SlideTracks }) {
     };
     draw(clock.now());
     return clock.subscribe(draw);
-  }, [slides, clock]);
+  }, [slides, clock, listening]);
   return <canvas ref={canvas} className="tt-ink" aria-hidden="true" />;
 }
 
