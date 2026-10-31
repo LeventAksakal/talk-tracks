@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-30
 tags: [contracts, annotations, decision-0021]
 ---
@@ -44,4 +44,10 @@ choices in it are defaults the lanes are building on now; change any you disagre
 Keep all three defaults: one shared track per kind; Clear is per author; underline + highlight.
 
 ## Answer
+
+Accepted recommendation: keep all three defaults.
+1. Audience tracks: One shared track per kind (`talk/R/annotations/{ink,marks}`).
+2. Speaker's Clear: Clears only the speaker's own work on that slide.
+3. Text styles: Underline and highlight only.
+
 

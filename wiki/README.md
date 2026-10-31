@@ -10,7 +10,7 @@ What the product does, how it is built, how to use it, and why it is the way it 
 | [howto/](howto/) | Running it locally, deploying, running a demo |
 | [decisions/](decisions/) | Architecture decision records (MADR) |
 
-Open questions for the owner are ticket files in [`../tickets/`](../tickets/). The dated plan is [plan.md](plan.md); agreed but unscheduled work is in [backlog.md](backlog.md).
+Open questions for the owner are ticket files in [`../tickets/`](../tickets/). The dated plan is [plan.md](plan.md); from 2026-10-31 the [roadmap](roadmap.md) and its [workstreams](workstreams/README.md) lead. Agreed but unscheduled work is in [backlog.md](backlog.md).
 
 ## Decisions
 

@@ -25,3 +25,4 @@ sets `status: closed`.
 | [0017](0017-benchmark-scope-and-viewer-placement.md) | Is the benchmark lane's "B+" scope right, and where do the measured viewers sit? | closed |
 | [0018](0018-benchmark-machine.md) | Which machine runs the benchmark's 2.5 hours of measurements? | closed |
 | [0019](0019-moq-publish-timestamp-origin.md) | Should we patch @moq/publish, or ask upstream, so the speaker stamps room time directly? | closed |
+| [0020](0020-shape-of-audience-annotation-tracks.md) | Shape of audience annotation tracks | closed |
