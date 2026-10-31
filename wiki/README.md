@@ -40,3 +40,4 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | The room service serves the past of the speaker's event tracks | [0022](decisions/0022-the-room-service-serves-the-speakers-track-history.md) |
 | The speaker console renders PDF decks in the browser with PDF.js | [0023](decisions/0023-the-console-renders-pdf-decks-in-the-browser-with-pdfjs.md) |
 | Presenters create a room with an access code | [0025](decisions/0025-presenters-create-a-room-with-an-access-code.md) |
+| The look is Chalk, and a panel is a track subscription | [0026](decisions/0026-the-look-is-chalk-and-a-panel-is-a-track-subscription.md) |
