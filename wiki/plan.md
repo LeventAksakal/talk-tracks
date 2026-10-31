@@ -1,5 +1,8 @@
 # Plan to submission
 
+> From 2026-10-31 the dated order is in [roadmap.md](roadmap.md), split into [workstreams](workstreams/README.md).
+> This page stays for its history, risks and running-servers notes.
+
 Target: submit by **Wed Nov 4, 12:00 ET** (the deadline is 9 PM ET). Drafted 2026-10-28 on the owner's answer to
 [ticket 0010](../tickets/0010-plan.md); it changes as tickets are answered.
 

@@ -204,9 +204,23 @@ class MetaLlm:
     async def _post(self, body: dict[str, Any]) -> dict[str, Any]:
         delay = 1.0
         for attempt in range(1, self._attempts + 1):
-            r = await self._client.post(
-                f"{self._base}/chat/completions", json=body, headers={"Authorization": f"Bearer {self._key}"}
-            )
+            try:
+                r = await self._client.post(
+                    f"{self._base}/chat/completions", json=body, headers={"Authorization": f"Bearer {self._key}"}
+                )
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                if attempt < self._attempts:
+                    log.warning(
+                        "HTTP request failed (%s), retrying in %.1fs (attempt %d/%d)...",
+                        exc,
+                        delay,
+                        attempt,
+                        self._attempts,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                    continue
+                raise MetaLlmError(f"network error after {self._attempts} attempts: {exc}") from exc
             if r.status_code == 200:
                 return dict(r.json())
             if r.status_code in (429, 503) and attempt < self._attempts:
