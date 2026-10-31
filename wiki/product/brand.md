@@ -1,6 +1,6 @@
 # Brand and design rules: Chalk (2026-10-31)
 
-**Status:** direction chosen, values drafted, not all confirmed · **Owner:** the owner (workstream 02) ·
+**Status:** direction chosen, palette signed off, ink values not yet confirmed · **Owner:** the owner (workstream 02) ·
 **Tokens:** [`web/src/theme/tokens.css`](../../web/src/theme/tokens.css) · **Working board:** the Reference Canvas
 (link in `CLAUDE.md` § Artifacts).
 
@@ -16,7 +16,7 @@ frame, never decoration on the content.
 | Title type | **Cabin Sketch** 700 for the wordmark and page titles | owner, 10-31: "use cabin skecth for the title fits the theme" |
 | Interface, captions, numbers | **Atkinson Hyperlegible Next**, tabular figures for times and money; its zero is a plain narrow oval | owner, 10-31: "atkinson hyperlegible is fine for nubmers and timecoes ... 0 should not have a dot or corss in it" |
 | Monospace | none; every mono face tried was rejected | same |
-| Palette | Blackboard (dark) and Paper (light), below | drafted, not yet confirmed |
+| Palette | Blackboard (dark) and Paper (light), below | owner, 10-31: "Palette seems OK to me" |
 | Ink | the eight-colour chalk box with a casing | drafted, not yet confirmed |
 | Player theme | always dark; hub and console follow the system, with a toggle | ui-design §9 |
 | Mascot | built in Rive; connector to be added by the owner | owner, 10-31: "Yes I meant rive" |

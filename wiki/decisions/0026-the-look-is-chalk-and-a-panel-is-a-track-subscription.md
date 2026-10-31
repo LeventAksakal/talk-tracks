@@ -26,8 +26,8 @@ way. This record collects what was agreed on 2026-10-31 so lanes build on it wit
 
 * **Chalk** (option B). Blackboard in dark, Paper in light; one blue-chalk accent; red only for live and on air,
   amber only for degraded, each with a word. Values in [`web/src/theme/tokens.css`](../../web/src/theme/tokens.css),
-  rules in [product/brand.md](../product/brand.md). Palette and ink values are drafted and AA-checked; the owner has
-  not signed off the exact hexes.
+  rules in [product/brand.md](../product/brand.md). The owner signed off the palette on 2026-10-31 ("Palette seems
+  OK to me"); the ink colours are AA-checked but not yet confirmed.
 * **Cabin Sketch** for the wordmark and titles (28 px and up only). **Atkinson Hyperlegible Next** for interface,
   captions, times and numbers, with tabular figures; its zero is a plain oval. No monospace face (owner: "0 should
   not have a dot or cross in it").
