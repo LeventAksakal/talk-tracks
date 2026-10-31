@@ -10,7 +10,7 @@
 .playback-ranges {
   position: relative;
   height: 4px;
-  background: var(--tt-border);
+  background: var(--tt-color-line);
   border-radius: 2px;
 }
 .playback-ranges span {
@@ -20,10 +20,10 @@
   border-radius: 2px;
 }
 .playback-ranges.available span {
-  background: #6b8fd6;
+  background: var(--tt-color-accent);
 }
 .playback-ranges.held span {
-  background: #d69a3c;
+  background: var(--tt-color-degraded);
 }
 .playback-times {
   display: flex;
@@ -37,7 +37,7 @@
   gap: 8px;
 }
 .playback-missed {
-  border-top: 1px solid var(--tt-border);
+  border-top: 1px solid var(--tt-color-line);
   padding-top: 8px;
 }
 .playback-transcript {

@@ -8,7 +8,7 @@ import { formatClock } from "../playback/timeline";
 import { formatBehind } from "./timeline";
 
 export type PlayerStateKind =
-  "connecting" | "not-started" | "live" | "behind" | "paused" | "ended" | "reconnecting" | "failed";
+  "connecting" | "not-started" | "live" | "behind" | "paused" | "ended" | "reconnecting" | "failed" | "unknown";
 
 export const PLAYER_STATES: readonly PlayerStateKind[] = [
   "connecting",
@@ -19,6 +19,7 @@ export const PLAYER_STATES: readonly PlayerStateKind[] = [
   "ended",
   "reconnecting",
   "failed",
+  "unknown",
 ];
 
 export interface PlayerStateInput {
@@ -42,6 +43,14 @@ export interface PlayerStateInput {
   speaker?: string;
   /** Where the room's recording starts and ends, room ms: an ended talk shows its length. */
   recording?: { start: number; end: number };
+  /** This page saw the talk on air: an end is "Talk ended", not a recording opened later. */
+  sawLive?: boolean;
+  /** A recorded talk looped as if live (a demo room). */
+  looped?: boolean;
+  /** False once the relay has had time to show the room and nothing of it exists: no such room. */
+  known?: boolean;
+  /** The room name, for the unknown-room card. */
+  roomName?: string;
 }
 
 export interface PlayerState {
@@ -51,7 +60,7 @@ export interface PlayerState {
   /** The pill is a Go live button. */
   canGoLive: boolean;
   /** A card over the canvas, when the state needs one. */
-  card?: { title: string; body: string; retry?: boolean; replay?: boolean; dim?: boolean };
+  card?: { title: string; body: string; retry?: boolean; replay?: boolean; dim?: boolean; hub?: boolean };
   /** An ended talk: the recording's span, for "3:12 / 17:00". */
   recording?: { start: number; end: number };
 }
@@ -74,6 +83,8 @@ export function forcedInput(kind: PlayerStateKind): Partial<PlayerStateInput> {
       return { room: "paused", mode: "live" };
     case "ended":
       return { room: "ended" };
+    case "unknown":
+      return { room: undefined, onAir: undefined, liveEdge: undefined, known: false };
     default:
       return {};
   }
@@ -100,6 +111,17 @@ export function playerState(input: PlayerStateInput): PlayerState {
   }
   if (connection === undefined)
     return { kind: "connecting", pill: "Connecting…", canGoLive: false, card: { title: "Connecting…", body: "" } };
+  if (input.known === false && input.room === undefined && input.onAir !== true && input.liveEdge === undefined)
+    return {
+      kind: "unknown",
+      pill: "No such room",
+      canGoLive: false,
+      card: {
+        title: input.roomName ? `No room called ${input.roomName}` : "No such room",
+        body: "Nothing is on air or recorded here. The link may have a typo; if it is right, the talk shows here as soon as it starts.",
+        hub: true,
+      },
+    };
 
   const ended =
     input.room !== undefined ? input.room === "ended" : input.onAir === false && input.liveEdge !== undefined;
@@ -118,16 +140,25 @@ export function playerState(input: PlayerStateInput): PlayerState {
     // J7: a recorded session with its length, played back from the archive like any rewind.
     const recording = input.recording && input.recording.end > input.recording.start ? input.recording : undefined;
     const length = recording ? formatClock(recording.end - recording.start) : undefined;
-    const base = { kind: "ended", pill: "Recorded", canGoLive: false, recording } as const;
+    // Seen ending here it is "Talk ended"; opened afterwards it is a recording.
+    const base = { kind: "ended", pill: input.sawLive ? "Ended" : "Recorded", canGoLive: false, recording } as const;
     return mode === "rewound"
       ? { ...base, card: pausedThen }
       : {
           ...base,
-          card: {
-            title: "Recorded session",
-            body: `${length ? `${length} long. ` : ""}The talk has ended; play it from the start or seek anywhere.`,
-            replay: true,
-          },
+          card: input.sawLive
+            ? {
+                title: `Talk ended${length ? ` · ${length}` : ""}`,
+                body: "Everything stays: play it from the start or seek anywhere.",
+                replay: true,
+                hub: true,
+              }
+            : {
+                title: "Recorded session",
+                body: `${length ? `${length} long. ` : ""}The talk has ended; play it from the start or seek anywhere.`,
+                replay: true,
+                hub: true,
+              },
         };
   }
   if (input.room === "paused")
@@ -145,7 +176,9 @@ export function playerState(input: PlayerStateInput): PlayerState {
       card: {
         title: "Not started",
         body: `Starts when ${input.speaker ?? "the speaker"} goes on air. You can pick subtitles and features now.`,
+        hub: true,
       },
     };
-  return { kind: "live", pill: input.slowerPath ? "LIVE · WebSocket" : "LIVE", canGoLive: false };
+  const pill = ["LIVE", input.looped ? "looped recording" : "", input.slowerPath ? "WebSocket" : ""];
+  return { kind: "live", pill: pill.filter(Boolean).join(" · "), canGoLive: false };
 }

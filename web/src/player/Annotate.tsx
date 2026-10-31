@@ -12,13 +12,14 @@ import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import {
   DRAWING_TOOLS,
-  LISTENER_COLORS,
+  LISTENER_INKS,
   type Listening,
   type ListenerTool,
   useListening,
   useRoomService,
 } from "./listening";
 import type { SlideTracks } from "./slideTracks";
+import { CHALK_BOX, inkColor } from "../theme/ink";
 
 /** The Discussion tab's id in the side panel. */
 export const DISCUSSION_TAB = "discussion";
@@ -99,18 +100,21 @@ export function AnnotateBar({ on }: { on: ShowSlide | null }) {
         );
       })}
       <span className="tt-annotate-colors" role="radiogroup" aria-label="Colour">
-        {LISTENER_COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            role="radio"
-            aria-checked={state.color === c}
-            aria-label={c}
-            className="tt-annotate-color"
-            style={{ "--swatch": c } as CSSProperties}
-            onClick={() => listening.set({ color: c })}
-          />
-        ))}
+        {LISTENER_INKS.map((name) => {
+          const c = inkColor(name);
+          return (
+            <button
+              key={name}
+              type="button"
+              role="radio"
+              aria-checked={state.color === c}
+              aria-label={CHALK_BOX.find((i) => i.name === name)!.label}
+              className="tt-annotate-color"
+              style={{ "--swatch": c } as CSSProperties}
+              onClick={() => listening.set({ color: c })}
+            />
+          );
+        })}
       </span>
       <button
         type="button"

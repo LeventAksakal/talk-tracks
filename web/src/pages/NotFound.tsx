@@ -6,7 +6,7 @@ export function NotFound({ what = "There is no page here." }: { what?: string })
       <h1>Not found</h1>
       <p>{what}</p>
       <p>
-        <Link href="/">Back to the start</Link>
+        <Link href="/">Back to the hub</Link>
       </p>
     </main>
   );

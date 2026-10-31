@@ -1,13 +1,16 @@
-// Per-device preferences (decision 0020): layout, subtitle language, style and position, the features the
-// viewer turned on. Kept in localStorage, which can be missing or throw (private windows, blocked storage):
-// every read and write is guarded and the player works without it.
+// Per-device preferences (decision 0020): the stage layout, subtitle language, style and position, the sound, the
+// side panel. There are no feature switches (decision 0026): a track is subscribed while what needs it is picked or
+// open (tracks.ts). Kept in localStorage, which can be missing or throw (private windows, blocked storage): every read
+// and write is guarded and the player works without it.
 
 import { useCallback, useEffect, useState } from "react";
 
 export type LayoutKind = "single" | "split" | "pip";
 export type SourceKind = "camera" | "slides";
 export type SubtitlePreset = "default" | "large" | "contrast" | "light";
-export type PanelTab = "transcript" | "chapters" | "glossary" | "notes" | (string & {});
+export type PanelTab = "transcript" | "chapters" | "glossary" | "descriptions" | "notes" | (string & {});
+/** What you hear: the speaker, or the speaker with each new slide's description read aloud. */
+export type SoundKind = "speaker" | "describe";
 
 /** A point as fractions of a box, x from the left, y from the top. */
 export interface Fraction {
@@ -28,7 +31,7 @@ export interface SubtitleStyle {
 }
 
 export interface Prefs {
-  /** Subtitles on. */
+  /** Subtitles on: a language is picked. */
   cc: boolean;
   /** "original", or the BCP 47 tag of a translation. */
   subtitleLang: string;
@@ -37,25 +40,24 @@ export interface Prefs {
   style: SubtitleStyle;
   /** Where the subtitles' bottom centre sits, as fractions of the canvas; undefined: the default spot. */
   subtitlePos: Fraction | undefined;
+  /**
+   * The stage (decision 0026): "pip" is the default, the slides filling it and the camera in a corner tile; "split"
+   * puts them side by side; "single" shows one. With no deck the camera fills the stage whatever this says.
+   */
   layout: LayoutKind;
-  /** Split and picture-in-picture: the camera is the small or left one unless swapped. */
+  /** Split and the corner tile: the camera is the left or small one unless swapped. */
   swap: boolean;
   /** Single layout: which source fills the canvas. */
   single: SourceKind;
   /** Split: the first cell's share of the width. */
   split: number;
-  /** Picture-in-picture: the small window's top-left corner, as fractions of the canvas. */
+  /** The corner tile's top-left corner, as fractions of the canvas; undefined: the bottom-right corner. */
   pipPos: Fraction | undefined;
+  /** The corner tile's width, as a fraction of the canvas. */
+  pipWidth: number;
   panel: boolean;
   tab: PanelTab;
-  /** Chapters, glossary and recap (the outline agent). */
-  chapters: boolean;
-  /** The transcript tab keeps the captions track on even with subtitles off. */
-  transcript: boolean;
-  /** Slide descriptions: off, as text, or read aloud as well. */
-  describe: "off" | "text" | "speak";
-  /** Ink and text marks on the slides: everyone's, or the speaker's only (decision 0021). */
-  annotations: "everyone" | "speaker";
+  sound: SoundKind;
   volume: number;
   muted: boolean;
 }
@@ -67,7 +69,9 @@ export const SUBTITLE_PRESETS: Record<SubtitlePreset, { label: string; size?: nu
   light: { label: "Light box" },
 };
 
-export const DEFAULT_STYLE: SubtitleStyle = { preset: "default", size: 20, background: 0.6, lines: 2, interim: true };
+export const DEFAULT_STYLE: SubtitleStyle = { preset: "default", size: 26, background: 0.85, lines: 2, interim: true };
+
+export const PIP_WIDTH = { min: 0.14, default: 0.24, max: 0.5 } as const;
 
 export const DEFAULT_PREFS: Prefs = {
   cc: false,
@@ -75,22 +79,21 @@ export const DEFAULT_PREFS: Prefs = {
   dual: false,
   style: DEFAULT_STYLE,
   subtitlePos: undefined,
-  layout: "split",
+  layout: "pip",
   swap: false,
   single: "slides",
   split: 0.34,
   pipPos: undefined,
+  pipWidth: PIP_WIDTH.default,
   panel: true,
   tab: "transcript",
-  chapters: false,
-  transcript: false,
-  describe: "off",
-  annotations: "everyone",
+  sound: "speaker",
   volume: 1,
   muted: false,
 };
 
-export const PREFS_KEY = "tt.player.v1";
+/** v2 (2026-10-31): the stage defaults to the corner tile and the feature switches are gone, so v1 is not read. */
+export const PREFS_KEY = "tt.player.v2";
 
 export function readPrefs(storage: Pick<Storage, "getItem"> | undefined = safeStorage()): Prefs {
   try {

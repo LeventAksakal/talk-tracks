@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { RoomServiceClient, roomServiceBase } from "../annotate/client";
 import { isValidRoom } from "../contracts/names";
 import { RoomMedia } from "../playback/media";
@@ -10,6 +11,7 @@ import { useMoqTransport } from "../transport/useTransport";
 import { useResource } from "../useResource";
 import { DEMO_CREDIT, DEMO_NO_ROOM_SERVICE, demoRoom } from "./demoRooms";
 import { NotFound } from "./NotFound";
+import { rememberRoom } from "./recentRooms";
 
 export function WatchPage({ room }: { room: string }) {
   if (!isValidRoom(room)) return <NotFound what={`"${room}" is not a room name.`} />;
@@ -36,6 +38,8 @@ function WatchRoom({ room }: { room: string }) {
     () => (demo ? undefined : new RoomServiceClient(roomServiceBase(), room, { comments: true })),
     [room, demo],
   );
+  // The hub lists it under "Continue watching".
+  useEffect(() => rememberRoom({ room, title: demo?.title, at: Date.now() }), [room, demo]);
   if (!playback) return <p className="page-pad">Connecting…</p>;
   return (
     <Player
@@ -48,6 +52,7 @@ function WatchRoom({ room }: { room: string }) {
       speaker={demo?.speaker}
       credit={demo ? DEMO_CREDIT : undefined}
       noRoomService={demo ? DEMO_NO_ROOM_SERVICE : undefined}
+      looped={demo !== undefined}
     />
   );
 }

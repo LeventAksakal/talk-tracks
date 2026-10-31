@@ -61,6 +61,7 @@ export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; 
           </button>
         ) : (
           <span className={`tt-pill${state.kind === "live" ? " tt-pill-live" : ""}`} role="status">
+            {state.kind === "live" ? <Icon name="live" /> : null}
             {state.pill}
           </span>
         )}

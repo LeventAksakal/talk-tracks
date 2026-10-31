@@ -6,13 +6,15 @@ import { useSyncExternalStore } from "react";
 import { AnnotationWriter } from "../annotate/writer";
 import type { RoomService, WriteError } from "../annotate/client";
 import type { Anchor, InkStroke } from "../contracts/types";
+import { type InkName, inkColor } from "../theme/ink";
 
 export type ListenerTool = "pen" | "highlighter" | "underline" | "highlight" | "eraser" | "comment";
 
 /** Tools that change the slide: only on the live slide (a replay's slide is the past). */
 export const DRAWING_TOOLS: readonly ListenerTool[] = ["pen", "highlighter", "underline", "highlight", "eraser"];
 
-export const LISTENER_COLORS = ["#2f6bff", "#e5383b", "#1f9d55", "#f5b700"] as const;
+/** A listener pencil in the chalk box (brand.md §3); the speaker keeps the full box. */
+export const LISTENER_INKS: readonly InkName[] = ["sky", "rose", "mint", "sun"];
 
 export interface ListeningState {
   /** The tool bar is open on the slide tile. */
@@ -34,7 +36,7 @@ export interface ListeningState {
 const INITIAL: ListeningState = {
   annotating: false,
   tool: "pen",
-  color: LISTENER_COLORS[0],
+  color: inkColor(LISTENER_INKS[0]!),
   anchor: undefined,
   focus: undefined,
   drafts: [],

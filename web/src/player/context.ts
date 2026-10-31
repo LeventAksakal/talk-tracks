@@ -69,6 +69,8 @@ export interface PlayerCtx {
   slides: SlideTracks | undefined;
   /** The slides are on screen in the current layout, so their tracks are subscribed (decision 0010). */
   slidesShown: boolean;
+  /** The audience's ink, marks and comment marks are shown (and subscribed): the Discussion tab or the tools are open. */
+  audienceShown: boolean;
   /** The number of the slide on screen at the playhead (1-based), from the slide track or the descriptions. */
   slideNumber: number | undefined;
   extraTabs: ExtraTab[];
@@ -83,6 +85,8 @@ export interface PlayerCtx {
   seekBy(deltaMs: number): void;
   goLive(): void;
   openTab(tab: PanelTab): void;
+  /** Keep these tracks subscribed (a download gathering them) until the returned release is called. */
+  holdTracks(ids: readonly string[]): () => void;
   togglePlay(): void;
   addBookmark(): void;
   announce(message: string): void;

@@ -5,6 +5,7 @@ import { FakeTransport } from "../transport/fake";
 import { createRoom, speakerPathFrom } from "./createRoom";
 import { DEMO_ROOMS } from "./demoRooms";
 import { LandingPage } from "./LandingPage";
+import { rememberRoom } from "./recentRooms";
 
 const CREATED = {
   room: "quantum-101",
@@ -60,6 +61,36 @@ describe("the lobby", () => {
       [...document.querySelectorAll<HTMLElement>("[data-live]")].map((el, i) => [DEMO_ROOMS[i]!.room, el.dataset.live]),
     );
     expect(live).toEqual({ virus: "false", dataviz: "true", rsa: "false", qrcode: "false" });
+  });
+
+  it("lists the rooms on air now, apart from the demo lectures, and says when nothing is", () => {
+    const { transport } = setup(() => jsonResponse(500, {}));
+    const liveNow = () => screen.getByRole("region", { name: "Live now" });
+    act(() => transport.setStatus("connected"));
+    expect(within(liveNow()).queryAllByRole("link")).toHaveLength(0);
+    expect(within(liveNow()).getByRole("status")).toBeTruthy();
+
+    act(() => {
+      transport.announce("talk/physics-101/teacher");
+      transport.announce("talk/physics-101/slides");
+      transport.announce("talk/virus/teacher");
+    });
+    const links = within(liveNow()).getAllByRole("link");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["/watch/physics-101"]);
+  });
+
+  it("offers the rooms this browser watched lately", () => {
+    localStorage.clear();
+    rememberRoom({ room: "physics-101", at: 1 });
+    rememberRoom({ room: "rsa", at: 2 });
+    setup(() => jsonResponse(500, {}));
+    const recent = screen.getByRole("region", { name: "Continue watching" });
+    expect(
+      within(recent)
+        .getAllByRole("link")
+        .map((l) => l.getAttribute("href")),
+    ).toEqual(["/watch/rsa", "/watch/physics-101"]);
+    localStorage.clear();
   });
 
   it("joins a room by name or by its audience link", () => {

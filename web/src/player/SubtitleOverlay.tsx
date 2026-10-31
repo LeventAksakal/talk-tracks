@@ -1,4 +1,5 @@
-import { type CSSProperties, type PointerEvent, type RefObject, useRef } from "react";
+import { type CSSProperties, type PointerEvent, type RefObject, useRef, useState } from "react";
+import type { TrackView } from "../playback/aiTracks";
 import type { LineItem } from "../playback/wire";
 import { dirOf } from "../viewer/lang";
 import { usePlayer } from "./context";
@@ -37,10 +38,25 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
   const { tracks, prefs, update, clock, view, ui } = usePlayer();
   const live = view.timeline.mode === "live";
   const translating = prefs.subtitleLang !== "original";
+  const trackFor = (lang: string) => (lang === "original" ? tracks.captions : translationFor(tracks, lang));
   const translation = translating ? translationFor(tracks, prefs.subtitleLang) : undefined;
-  const showOriginal = prefs.cc && (!translating || prefs.dual);
+  const primary = trackFor(prefs.subtitleLang);
+  // A track has landed once it has something to show here: a live line, or the slice at the playhead.
+  const landed = (t: TrackView | undefined) =>
+    !!t?.enabled && (live ? t.lastLiveAt !== undefined : t.sliced?.loaded === true);
+  // Switching language keeps the old line up until the new one lands (decision 0026); the old track lingers
+  // subscribed for that (tracks.ts).
+  const [stand, setStand] = useState<string>();
+  const landedNow = prefs.cc && landed(primary);
+  if (landedNow && stand !== prefs.subtitleLang) setStand(prefs.subtitleLang);
+  const standIn =
+    prefs.cc && !landedNow && stand !== undefined && stand !== prefs.subtitleLang && trackFor(stand)?.enabled
+      ? stand
+      : undefined;
+  const showOriginal = prefs.cc && !standIn && (!translating || prefs.dual);
   const original = showOriginal && tracks.captions?.enabled ? (tracks.captions.sliced?.lines ?? []) : [];
-  const translated = prefs.cc && translation?.enabled ? (translation.sliced?.lines ?? []) : [];
+  const shownTrack = standIn ? trackFor(standIn) : translation;
+  const translated = prefs.cc && shownTrack?.enabled ? (shownTrack.sliced?.lines ?? []) : [];
   const max = prefs.style.lines;
   const shown = useFrameValue(
     clock,
@@ -57,17 +73,26 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
 
   const preview = ui.menu === "style";
   const empty = shown.original.length === 0 && shown.translation.length === 0;
+  const starting = standIn
+    ? `${languageName(prefs.subtitleLang)} is starting · ${languageName(standIn)} stays up until it lands`
+    : undefined;
   const status = prefs.cc && empty ? subtitleStatus() : undefined;
   if (!prefs.cc && !preview) return null;
   if (empty && !status && !preview) return null;
 
+  function languageName(lang: string): string {
+    if (lang !== "original") return languageOption(lang).autonym;
+    return `The original (${languageOption(tracks.captions?.lang ?? "en").autonym})`;
+  }
+
   function subtitleStatus(): string | undefined {
+    if (starting) return starting;
     if (translating && !translation)
       return `${languageOption(prefs.subtitleLang).local} subtitles are not offered in this room yet.`;
     const track = translating ? translation : tracks.captions;
     if (!track) return "This room has no subtitles yet.";
     if (!track.enabled) return undefined;
-    if (track.sliced?.capped) return "Subtitles paused: the room's budget is reached.";
+    if (track.sliced?.capped) return "Subtitles are unavailable right now.";
     if (!live && track.sliced && !track.sliced.loaded)
       return translating ? "Translating earlier part…" : "Loading subtitles…";
     if (live && track.lastLiveAt === undefined) return "Subtitles start when the speaker speaks.";
@@ -101,7 +126,7 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
     "--sub-bg": prefs.style.background,
   } as CSSProperties;
   const origLang = tracks.captions?.lang ?? "en";
-  const transLang = translation?.lang ?? prefs.subtitleLang;
+  const transLang = shownTrack?.lang ?? prefs.subtitleLang;
 
   return (
     <div
@@ -139,6 +164,7 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
         </span>
       ))}
       {empty && status ? <span className="tt-sub-status">{status}</span> : null}
+      {!empty && starting ? <span className="tt-sub-status">{starting}</span> : null}
       {empty && !status && preview ? (
         <span className="tt-sub-line">Subtitles look like this while you adjust them.</span>
       ) : null}

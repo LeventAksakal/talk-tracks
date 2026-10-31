@@ -117,6 +117,20 @@ export function CaptionsMenu() {
           {SUBTITLE_PRESETS[prefs.style.preset].label} · {prefs.style.size}px ›
         </span>
       </button>
+      <span className="tt-menu-heading">Sound</span>
+      <Choice checked={prefs.sound === "speaker"} onClick={() => update({ sound: "speaker" })}>
+        Speaker
+      </Choice>
+      <Choice
+        checked={prefs.sound === "describe"}
+        onClick={() => {
+          unlockSpeech();
+          update({ sound: "describe" });
+        }}
+        sub={tracks.describe ? "each new slide read aloud" : "not in this room yet"}
+      >
+        Speaker and slide descriptions
+      </Choice>
     </Menu>
   );
 }
@@ -207,9 +221,9 @@ export function StyleMenu() {
 }
 
 const LAYOUTS: [LayoutKind, string][] = [
-  ["single", "Single"],
-  ["split", "Split: camera and slides"],
-  ["pip", "Picture-in-picture"],
+  ["pip", "Slides, camera in a corner"],
+  ["split", "Side by side"],
+  ["single", "One at a time"],
 ];
 
 export function LayoutMenu() {
@@ -249,64 +263,19 @@ export function LayoutMenu() {
   );
 }
 
+/** Settings opens things; it switches nothing on (decision 0026): the tracks follow what is picked and open. */
 export function SettingsMenu() {
-  const { prefs, update, setUi, ui, tracks } = usePlayer();
+  const { setUi } = usePlayer();
   return (
     <Menu label="Settings" wide>
       <button type="button" className="tt-menu-item" onClick={() => setUi({ menu: "style" })}>
         <span>Subtitle style</span>
         <span className="tt-menu-sub">›</span>
       </button>
-      <Choice
-        checked={prefs.chapters}
-        onClick={() => update({ chapters: !prefs.chapters })}
-        sub={tracks.outline ? "chapters on the bar, recap" : "not in this room yet"}
-      >
-        Chapters and glossary
-      </Choice>
-      <span className="tt-menu-heading">Slide descriptions</span>
-      <div className="tt-segmented" role="group" aria-label="Slide descriptions">
-        {(
-          [
-            ["off", "Off"],
-            ["text", "Text"],
-            ["speak", "Read aloud"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={prefs.describe === value}
-            onClick={() => {
-              if (value === "speak") unlockSpeech();
-              update({ describe: value });
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <span className="tt-menu-heading">Ink and marks on slides</span>
-      <div className="tt-segmented" role="group" aria-label="Ink and marks on slides">
-        {(
-          [
-            ["everyone", "Everyone's"],
-            ["speaker", "Speaker's only"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={prefs.annotations === value}
-            onClick={() => update({ annotations: value })}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <Choice checked={ui.stats} onClick={() => setUi({ stats: !ui.stats, menu: undefined })}>
-        Stats for nerds
-      </Choice>
+      <button type="button" className="tt-menu-item" onClick={() => setUi({ stats: true, menu: undefined })}>
+        <span>Stats for nerds</span>
+        <span className="tt-menu-sub">right-click the stage</span>
+      </button>
       <button type="button" className="tt-menu-item" onClick={() => setUi({ shortcuts: true, menu: undefined })}>
         <span>Keyboard shortcuts</span>
         <span className="tt-menu-sub">?</span>

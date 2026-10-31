@@ -16,6 +16,7 @@ import { Console, type ConsoleDeps } from "./Console";
 import type { Deck, RenderedSlide } from "./deck";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
 import { MemoryBroadcast } from "./sink";
+import { CHALK_BOX, inkColor } from "../theme/ink";
 
 function fakeDeck(count = 3): Deck {
   return {
@@ -193,6 +194,46 @@ describe("the speaker console", () => {
       const parse = PARSE[o.track];
       if (parse) expect(parse(o.payload).ok, `${o.track} ${o.group}/${o.object}`).toBe(true);
     }
+  });
+
+  it("opens a tool's colour and width from the tool, closes them when drawing, and draws in the colour picked", async () => {
+    const { all } = setup();
+    await loadDeck();
+    const canvas = stage();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Pen (D)" })));
+    const options = screen.getByRole("group", { name: "Pen options" });
+    const radios = within(options).getAllByRole("radio");
+    // Every chalk for the pen, and the three widths.
+    expect(radios.length).toBeGreaterThan(3);
+    const picked = within(within(options).getByRole("radiogroup", { name: "Colour" })).getAllByRole("radio")[2]!;
+    fireEvent.click(picked);
+
+    fireEvent.pointerDown(canvas, { clientX: 160, clientY: 450, button: 0, pointerId: 1 });
+    expect(screen.queryByRole("group", { name: "Pen options" })).toBeNull();
+    fireEvent.pointerUp(canvas, { clientX: 160, clientY: 450, pointerId: 1 });
+    const begin = all<InkRecord>(INK_TRACK).find((r) => r.data.kind === "begin")?.data;
+    const chalk = CHALK_BOX.find((i) => i.label === picked.getAttribute("aria-label"))!;
+    expect(begin?.kind === "begin" && begin.color).toBe(inkColor(chalk.name));
+
+    fireEvent.click(screen.getByRole("button", { name: "Pen colour and width" }));
+    expect(screen.getByRole("group", { name: "Pen options" })).toBeTruthy();
+  });
+
+  it("pauses the broadcast and resumes it, keeping the talk going", async () => {
+    const media = fakeMedia();
+    setup({ createMedia: async () => media });
+    await loadDeck();
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await waitFor(() => expect(goLive.hasAttribute("disabled")).toBe(false));
+    await act(async () => fireEvent.click(goLive));
+    expect(media.snapshot().onAir).toBe(true);
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Pause" })));
+    expect(media.snapshot().onAir).toBe(false);
+    expect(media.closed).toBe(false);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Resume" })));
+    expect(media.snapshot().onAir).toBe(true);
+    expect(screen.getByRole("button", { name: "End talk" })).toBeTruthy();
   });
 
   it("shows the invitation with the room's watch link", () => {

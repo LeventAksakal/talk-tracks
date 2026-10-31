@@ -53,13 +53,17 @@ describe("/demo in the player", () => {
     expect(screen.getByText(/You missed/)).toBeTruthy();
   });
 
-  it("shows the speaker's slide with its marks, and a rewind shows an earlier slide as it was then", async () => {
+  it("shows the speaker's slide with its marks, the audience's only with Discussion open, and a rewind as it was then", async () => {
     render(<DemoPage />);
     await advance(300);
     const slide = () => document.querySelector<HTMLImageElement>(".tt-slide-image")?.dataset.slide;
     const marks = () => [...document.querySelectorAll(".tt-textmark")].map((m) => m.classList[1]);
-    // Live at 2:30: the fifth slide, underlined and highlighted by the speaker and a listener.
+    // Live at 2:30: the fifth slide, underlined and highlighted by the speaker.
     expect(slide()).toBe("5");
+    expect(marks()).toEqual(["tt-textmark-underline", "tt-textmark-highlight"]);
+    // A listener's highlight too, once the listener shows the audience's marks (slide comments are supplementary).
+    fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
+    await advance(300);
     expect(marks()).toEqual(["tt-textmark-underline", "tt-textmark-highlight", "tt-textmark-highlight"]);
 
     // Back 40 s, into the fourth slide's showing: its title underlined by then, from that slice alone.
@@ -69,11 +73,11 @@ describe("/demo in the player", () => {
     expect(marks()).toContain("tt-textmark-underline");
   });
 
-  it("turns chapters on from the side panel, puts them on the bar, and seeks from the list", async () => {
+  it("subscribes chapters by opening their tab, puts them on the bar, and seeks from the list", async () => {
     render(<DemoPage />);
     await advance(100);
+    expect(document.querySelectorAll(".tt-seg").length).toBe(1);
     fireEvent.click(screen.getByRole("tab", { name: "Chapters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Turn on chapters" }));
     await advance(2_000);
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getByText("Introduction")).toBeTruthy();
@@ -84,6 +88,32 @@ describe("/demo in the player", () => {
     await advance(300);
     expect(screen.getByRole("button", { name: /Go live/ })).toBeTruthy();
     expect(screen.getByRole("slider", { name: "Position in the talk" }).getAttribute("aria-valuenow")).toBe("61");
+  });
+
+  it("downloads the whole transcript so far, in one language or in all of them", async () => {
+    const saved: Blob[] = [];
+    // Slide pictures are blobs too; the transcript is the text one.
+    const create = vi.fn((b: Blob) => (b.type.startsWith("text/") && saved.push(b), "blob:x"));
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: () => undefined });
+    render(<DemoPage />);
+    await advance(30_000);
+    // The transcript tab is open by default.
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    const popover = screen.getByRole("group", { name: "Download the transcript" });
+    await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /\.txt/ })));
+    await advance(2_000);
+    expect(saved).toHaveLength(1);
+    const text = await saved[0]!.text();
+    expect(text.match(/\(\d+\)/g)!.length).toBeGreaterThan(3);
+
+    fireEvent.change(within(popover).getByRole("combobox", { name: "Language" }), { target: { value: "all" } });
+    await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /\.vtt/ })));
+    // Three languages' history, fetched slice by slice.
+    await advance(15_000);
+    expect(saved).toHaveLength(2);
+    const vtt = await saved[1]!.text();
+    expect(vtt.startsWith("WEBVTT")).toBe(true);
+    expect(vtt).toContain("<lang ar>");
   });
 
   it("keeps a bookmark and a note in the Notes tab", async () => {

@@ -7,7 +7,7 @@ import { playerState, type PlayerStateInput } from "./state";
 import { cuesAt } from "./subtitles";
 import { dragSubtitle } from "./SubtitleOverlay";
 import { chapterAt, chapterSegments, holesIn } from "./timeline";
-import { roomTracks, wantedTracks } from "./tracks";
+import { Linger, openTab, roomTracks, wantedTracks } from "./tracks";
 
 const line = (id: number, startMs: number, final = true): LineItem => ({
   type: "line",
@@ -99,6 +99,24 @@ describe("player states", () => {
     expect(playerState({ ...base, onAir: false }).kind).toBe("ended");
     expect(playerState({ ...base, room: "paused" }).kind).toBe("paused");
   });
+
+  it("tells an unknown room from one not started, a talk seen ending from a recording, and marks a looped room", () => {
+    const nothing = { ...base, onAir: undefined, liveEdge: undefined };
+    expect(playerState({ ...nothing, known: false }).kind).toBe("unknown");
+    expect(playerState({ ...nothing, known: false }).card?.hub).toBe(true);
+    expect(playerState({ ...nothing, known: true }).kind).toBe("not-started");
+    // A room the room service knows is waiting is never unknown.
+    expect(playerState({ ...nothing, known: false, room: "waiting" }).kind).toBe("not-started");
+
+    const seen = playerState({ ...base, onAir: false, sawLive: true });
+    const later = playerState({ ...base, onAir: false });
+    expect([seen.kind, later.kind]).toEqual(["ended", "ended"]);
+    expect(seen.pill).not.toBe(later.pill);
+    expect(seen.card?.replay && later.card?.replay).toBe(true);
+
+    expect(playerState({ ...base, looped: true }).kind).toBe("live");
+    expect(playerState({ ...base, looped: true }).pill).not.toBe(playerState(base).pill);
+  });
 });
 
 describe("subtitle position", () => {
@@ -136,15 +154,42 @@ describe("tracks the player subscribes", () => {
     track("describe/items", "slides"),
   ]);
 
-  it("are none until the viewer turns a feature on (decision 0010)", () => {
-    expect([...wantedTracks(DEFAULT_PREFS, room)]).toEqual([]);
+  it("are none while nothing is picked or open (decisions 0010, 0026)", () => {
+    expect([...wantedTracks(DEFAULT_PREFS, room, undefined)]).toEqual([]);
   });
 
-  it("follow the subtitle language, dual subtitles and features", () => {
-    const on = (p: Partial<typeof DEFAULT_PREFS>) => [...wantedTracks({ ...DEFAULT_PREFS, ...p }, room)].sort();
+  it("follow the subtitle language picked, the tab open and the sound chosen", () => {
+    const on = (p: Partial<typeof DEFAULT_PREFS>, tab?: string) =>
+      [...wantedTracks({ ...DEFAULT_PREFS, ...p }, room, tab)].sort();
     expect(on({ cc: true })).toEqual(["captions/items"]);
     expect(on({ cc: true, subtitleLang: "ar" })).toEqual(["translate-ar/items"]);
     expect(on({ cc: true, subtitleLang: "ar", dual: true })).toEqual(["captions/items", "translate-ar/items"]);
-    expect(on({ chapters: true, describe: "text" })).toEqual(["chapters/outline", "describe/items"]);
+    expect(on({}, "transcript")).toEqual(["captions/items"]);
+    expect(on({}, "chapters")).toEqual(["chapters/outline"]);
+    expect(on({}, "glossary")).toEqual(["chapters/outline"]);
+    expect(on({}, "descriptions")).toEqual(["describe/items"]);
+    expect(on({}, "notes")).toEqual([]);
+    expect(on({ sound: "describe" })).toEqual(["describe/items"]);
+    // A panel tab counts only while the panel is open.
+    expect(openTab({ panel: false, tab: "chapters" })).toBeUndefined();
+  });
+
+  it("stay subscribed for 30 s after nothing needs them, so a quick change back never unsubscribes", () => {
+    const linger = new Linger(30_000);
+    const ids = (s: Set<string>) => [...s].sort();
+    expect(ids(linger.hold(new Set(["captions/items"]), 0).held)).toEqual(["captions/items"]);
+    // Off: still held, and due to go at 30 s.
+    const off = linger.hold(new Set(), 1_000);
+    expect([ids(off.held), off.next]).toEqual([["captions/items"], 31_000]);
+    // Arabic picked 10 s later: both held, the original until its 30 s are up.
+    expect(ids(linger.hold(new Set(["translate-ar/items"]), 11_000).held)).toEqual([
+      "captions/items",
+      "translate-ar/items",
+    ]);
+    expect(ids(linger.hold(new Set(["translate-ar/items"]), 31_000).held)).toEqual(["translate-ar/items"]);
+    // Back to Arabic within the window costs nothing: it was never let go.
+    linger.hold(new Set(), 40_000);
+    expect(ids(linger.hold(new Set(["translate-ar/items"]), 50_000).held)).toEqual(["translate-ar/items"]);
+    expect(linger.hold(new Set(["translate-ar/items"]), 100_000).next).toBeUndefined();
   });
 });

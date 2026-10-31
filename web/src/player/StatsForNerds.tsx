@@ -9,7 +9,9 @@ import { Icon } from "./icons";
 /**
  * Stats for nerds (ui-design §4.8): a translucent panel over the canvas, from Settings or a right-click. Per
  * track: on or off, producing or idle, slices held, FETCHes the agent served as origin (the rest came from
- * the relay's cache), back-fills, spend; the connection; and the frame clock against the playhead.
+ * the relay's cache), back-fills; the connection; and the frame clock against the playhead. No money: cost is the
+ * operator's concern (decision 0026). The room's stats track, with every track in its namespace and its subscriber
+ * counts, goes here once ticket 0022 is answered.
  */
 export function StatsForNerds() {
   const { playback, view, media, transport, setUi, clock, tracks } = usePlayer();
@@ -33,7 +35,6 @@ export function StatsForNerds() {
   const t = view.timeline;
   const frame = clock.now();
   const pos = playback.position();
-  const total = Object.values(catalog?.tt.status ?? {}).reduce((n, s) => n + s.spend_usd, 0);
   const all = view.tracks.tracks;
 
   return (
@@ -84,12 +85,10 @@ export function StatsForNerds() {
                 ? `${held} slice${held === 1 ? "" : "s"} held${track.loading ? " · fetching" : ""}`
                 : undefined,
               s ? `origin ${s.fetches_served} · back-fills ${s.backfills}` : undefined,
-              s ? `$${s.spend_usd.toFixed(3)}` : undefined,
             ].filter(Boolean);
             return <Row key={track.id} k={track.label} v={parts.join(" · ")} />;
           })}
           {all.length === 0 ? <Row k="tracks" v="no agents announced yet" /> : null}
-          {catalog ? <Row k="spend" v={`$${total.toFixed(3)} in this room`} /> : null}
           <Row
             k="subtitles"
             v={tracks.captions?.lastLiveAt ? `last line ${ago(tracks.captions.lastLiveAt)}` : "no live line yet"}

@@ -33,6 +33,8 @@ import { Questions, useQuestionCounts } from "./Questions";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
+import { CHALK_BOX, type InkName, inkColor } from "../theme/ink";
+import { Icon } from "../player/icons";
 import "./console.css";
 
 /** What the console runs on; TalkPage gives it the relay, tests give it memory. */
@@ -54,7 +56,7 @@ export interface ConsoleDeps {
   endRoom?: () => Promise<boolean>;
 }
 
-type Phase = "preflight" | "on-air" | "ended";
+type Phase = "preflight" | "on-air" | "paused" | "ended";
 
 const NAME_KEY = "tt.speaker.name";
 const loadName = () => {
@@ -87,33 +89,15 @@ const TOOLS: { tool: Tool; label: string; key: string }[][] = [
 
 const WIDTH_NAMES: Record<WidthStep, string> = { 0: "Thin", 1: "Medium", 2: "Bold" };
 const hasWidth = (t: Tool) => t === "pen" || t === "highlighter" || isShapeTool(t);
+const hasOptions = (t: Tool) => colorKey(t) !== undefined || hasWidth(t);
 
-const SWATCHES: Record<keyof ToolColors, { color: string; name: string }[]> = {
-  pen: [
-    { color: "#e5383b", name: "red" },
-    { color: "#1e6bd6", name: "blue" },
-    { color: "#2a9d4a", name: "green" },
-    { color: "#1c1e21", name: "black" },
-  ],
-  highlighter: [
-    { color: "#ffd400", name: "yellow" },
-    { color: "#7be07b", name: "green" },
-    { color: "#ff8ad0", name: "pink" },
-  ],
-  shape: [
-    { color: "#1e6bd6", name: "blue" },
-    { color: "#e5383b", name: "red" },
-    { color: "#2a9d4a", name: "green" },
-    { color: "#1c1e21", name: "black" },
-  ],
-  underline: [
-    { color: "#e5383b", name: "red" },
-    { color: "#1e6bd6", name: "blue" },
-  ],
-  highlight: [
-    { color: "#ffd400", name: "yellow" },
-    { color: "#7be07b", name: "green" },
-  ],
+/** The chalk box per tool (brand.md §3): every chalk for ink and shapes, the bright ones for the marker and marks. */
+const SWATCHES: Record<keyof ToolColors, InkName[]> = {
+  pen: CHALK_BOX.map((i) => i.name),
+  highlighter: ["sun", "mint", "rose", "sky"],
+  shape: CHALK_BOX.map((i) => i.name),
+  underline: ["coral", "sky", "mint", "sun"],
+  highlight: ["sun", "mint", "rose", "sky"],
 };
 
 const clockText = (ms: number) => {
@@ -196,6 +180,8 @@ function ConsoleView({
   const otherAudioAt = useRef<number | undefined>(undefined);
   const [audioSeen, setAudioSeen] = useState<{ own?: number; other?: number }>({});
   const [startedAt, setStartedAt] = useState(0);
+  // When the broadcast last went up: on-air proof is timed from here (a resume needs it again).
+  const [resumedAt, setResumedAt] = useState(0);
   useEffect(() => {
     if (!mediaOnAir) return;
     ownAudioAt.current = undefined;
@@ -225,7 +211,7 @@ function ConsoleView({
           publisherError: connection.error,
           ownAudioAgoMs: audioSeen.own === undefined ? undefined : now - audioSeen.own,
           otherSpeaker: audioSeen.other !== undefined && now - audioSeen.other < FRESH_AUDIO_MS,
-          elapsedMs: now - startedAt,
+          elapsedMs: now - resumedAt,
         });
 
   // --- the room clock ------------------------------------------------------------------------------
@@ -365,11 +351,11 @@ function ConsoleView({
   // --- tools ---------------------------------------------------------------------------------------
   const [tool, setTool] = useState<Tool>("none");
   const [colors, setColors] = useState<ToolColors>({
-    pen: "#e5383b",
-    highlighter: "#ffd400",
-    shape: "#1e6bd6",
-    underline: "#e5383b",
-    highlight: "#ffd400",
+    pen: inkColor("coral"),
+    highlighter: inkColor("sun"),
+    shape: inkColor("sky"),
+    underline: inkColor("coral"),
+    highlight: inkColor("sun"),
   });
   const [width, setWidth] = useState<WidthStep>(1);
   const stepWidth = (step: -1 | 1) => setWidth((w) => Math.min(2, Math.max(0, w + step)) as WidthStep);
@@ -377,9 +363,12 @@ function ConsoleView({
     (fn) => publisher.onChange(fn),
     () => `${publisher.canUndo() ? "u" : ""}${publisher.canRedo() ? "r" : ""}`,
   );
-  const inkColor = colorKey(tool);
+  const colorTool = colorKey(tool);
+  // A tool's colour and width open in a popover from the tool when it is picked, and close when you draw.
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const pickTool = (t: Tool) => {
     if (t !== "laser") publisher.pointerOff();
+    setOptionsOpen(tool !== t && hasOptions(t));
     setTool((current) => (current === t ? "none" : t));
   };
 
@@ -401,6 +390,7 @@ function ConsoleView({
       else if (a.kind === "width") stepWidth(a.step);
       else if (a.kind === "tool") {
         if (a.tool !== "laser") publisher.pointerOff();
+        setOptionsOpen(hasOptions(a.tool));
         setTool(a.tool);
       }
     };
@@ -423,6 +413,20 @@ function ConsoleView({
     if (!snap?.micOn) media.setMic(true);
     media.goOnAir();
     setStartedAt(Date.now());
+    setResumedAt(Date.now());
+    setPhase("on-air");
+  };
+  // Pause withdraws the broadcast (the room says "Paused" to viewers) and keeps the devices, slides and drawing;
+  // Resume puts it back on the same room clock.
+  const pause = () => {
+    media?.goOffAir();
+    publisher.pointerOff();
+    setPhase("paused");
+  };
+  const resume = () => {
+    if (!media) return;
+    media.goOnAir();
+    setResumedAt(Date.now());
     setPhase("on-air");
   };
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -459,17 +463,36 @@ function ConsoleView({
           </h1>
         </div>
         <div className="console-actions">
-          <OnAirBadge onAir={onAir} elapsed={phase === "on-air" ? now - startedAt : 0} />
+          <OnAirBadge onAir={onAir} paused={phase === "paused"} elapsed={phase !== "preflight" ? now - startedAt : 0} />
           {phase === "preflight" ? (
             <Button
               label="Go on air"
               variant="primary"
+              icon={<Icon name="live" />}
               isDisabled={!media || !!mediaError}
               tooltip={!media ? "Waiting for the microphone and camera to load" : undefined}
               onClick={goOnAir}
             />
           ) : (
-            <Button label="End talk" variant="destructive" onClick={() => setConfirmEnd(true)} />
+            <>
+              {phase === "paused" ? (
+                <Button label="Resume" variant="primary" icon={<Icon name="play" />} onClick={resume} />
+              ) : (
+                <Button
+                  label="Pause"
+                  variant="secondary"
+                  icon={<Icon name="pause" />}
+                  tooltip="Viewers see that you paused; nothing is lost"
+                  onClick={pause}
+                />
+              )}
+              <Button
+                label="End talk"
+                variant="destructive"
+                icon={<Icon name="stop" />}
+                onClick={() => setConfirmEnd(true)}
+              />
+            </>
           )}
         </div>
       </header>
@@ -483,7 +506,7 @@ function ConsoleView({
         onAction={endTalk}
       />
       {onAir.kind === "refused" || onAir.kind === "error" ? (
-        <Banner status="error" title="Not on air" description={onAir.reason} role="alert" />
+        <Banner status="warning" title="Not on air" description={onAir.reason} role="alert" />
       ) : null}
       {connection.status === "disconnected" && phase === "on-air" ? (
         <Banner
@@ -544,7 +567,7 @@ function ConsoleView({
               <WireStatus live={live} clock={clock} echo={echo} phase={phase} />
             </span>
           </div>
-          <div className="stage-wrap">
+          <div className="stage-wrap" onPointerDownCapture={() => setOptionsOpen(false)}>
             {deck ? (
               <Stage
                 publisher={publisher}
@@ -567,18 +590,49 @@ function ConsoleView({
           <div className="toolbar" role="toolbar" aria-label="Drawing tools">
             {TOOLS.map((group, i) => (
               <div key={i} className="toolbar-group">
-                {group.map((t) => (
-                  <ToggleButton
-                    key={t.tool}
-                    label={`${t.label} (${t.key})`}
-                    size="sm"
-                    isPressed={tool === t.tool}
-                    isDisabled={!deck}
-                    onPressedChange={() => pickTool(t.tool)}
-                  >
-                    {t.label}
-                  </ToggleButton>
-                ))}
+                {group.map((t) => {
+                  const options = tool === t.tool && hasOptions(t.tool);
+                  return (
+                    <span key={t.tool} className="tool-slot">
+                      <ToggleButton
+                        label={`${t.label} (${t.key})`}
+                        size="sm"
+                        isPressed={tool === t.tool}
+                        isDisabled={!deck}
+                        onPressedChange={() => pickTool(t.tool)}
+                      >
+                        {t.label}
+                      </ToggleButton>
+                      {options ? (
+                        <button
+                          type="button"
+                          className="tool-options-toggle"
+                          aria-label={`${t.label} colour and width`}
+                          aria-expanded={optionsOpen}
+                          onClick={() => setOptionsOpen((o) => !o)}
+                        >
+                          <span
+                            className="tool-options-dot"
+                            style={colorTool ? { background: colors[colorTool] } : undefined}
+                          />
+                        </button>
+                      ) : null}
+                      {options && optionsOpen ? (
+                        <div className="tool-popover" role="group" aria-label={`${t.label} options`}>
+                          {colorTool ? (
+                            <Swatches
+                              tool={colorTool}
+                              value={colors[colorTool]}
+                              onChange={(c) => setColors((prev) => ({ ...prev, [colorTool]: c }))}
+                            />
+                          ) : null}
+                          {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
+                          <span className="tool-popover-hint">Closes when you draw</span>
+                        </div>
+                      ) : null}
+                    </span>
+                  );
+                })}
               </div>
             ))}
             <div className="toolbar-group">
@@ -606,14 +660,6 @@ function ConsoleView({
                 onClick={() => publisher.clearSlide()}
               />
             </div>
-            {inkColor ? (
-              <Swatches
-                tool={inkColor}
-                value={colors[inkColor]}
-                onChange={(c) => setColors((prev) => ({ ...prev, [inkColor]: c }))}
-              />
-            ) : null}
-            {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
           </div>
           <nav className="slide-nav" aria-label="Slides">
             <Button label="Previous" size="sm" isDisabled={!deck || index === 0} onClick={() => void goTo(index - 1)} />
@@ -696,17 +742,24 @@ function ConsoleView({
   );
 }
 
-function OnAirBadge({ onAir, elapsed }: { onAir: OnAir; elapsed: number }) {
-  const [variant, label] =
-    onAir.kind === "on-air"
-      ? (["error", `● On air ${clockText(elapsed)}`] as const)
-      : onAir.kind === "confirming" || onAir.kind === "starting"
-        ? (["warning", "Connecting…"] as const)
-        : onAir.kind === "off"
-          ? (["neutral", "Not on air yet"] as const)
-          : (["error", "Not on air"] as const);
+/** The console's state word: the LIVE marker (icon and word in live red, brand §6) and time on air, or the word. */
+function OnAirBadge({ onAir, paused, elapsed }: { onAir: OnAir; paused: boolean; elapsed: number }) {
+  if (onAir.kind === "on-air")
+    return (
+      <span role="status" className="on-air-badge on-air-live" data-state={onAir.kind}>
+        <Icon name="live" />
+        LIVE <span className="on-air-time">{clockText(elapsed)}</span>
+      </span>
+    );
+  const [variant, label] = paused
+    ? (["neutral", `Paused · ${clockText(elapsed)}`] as const)
+    : onAir.kind === "confirming" || onAir.kind === "starting"
+      ? (["warning", "Connecting…"] as const)
+      : onAir.kind === "off"
+        ? (["neutral", "Not on air yet"] as const)
+        : (["warning", "Not on air"] as const);
   return (
-    <span role="status" className="on-air-badge" data-state={onAir.kind}>
+    <span role="status" className="on-air-badge" data-state={paused ? "paused" : onAir.kind}>
       <Badge variant={variant} label={label} />
     </span>
   );
@@ -723,18 +776,21 @@ function Swatches({
 }) {
   return (
     <div className="swatches" role="radiogroup" aria-label="Colour">
-      {SWATCHES[tool].map((s) => (
-        <button
-          key={s.color}
-          type="button"
-          role="radio"
-          aria-checked={s.color === value}
-          aria-label={s.name}
-          className="swatch"
-          style={{ background: s.color }}
-          onClick={() => onChange(s.color)}
-        />
-      ))}
+      {SWATCHES[tool].map((name) => {
+        const color = inkColor(name);
+        return (
+          <button
+            key={name}
+            type="button"
+            role="radio"
+            aria-checked={color === value}
+            aria-label={CHALK_BOX.find((i) => i.name === name)!.label}
+            className="swatch"
+            style={{ background: color }}
+            onClick={() => onChange(color)}
+          />
+        );
+      })}
     </div>
   );
 }

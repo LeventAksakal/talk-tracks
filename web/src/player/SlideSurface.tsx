@@ -40,7 +40,7 @@ interface Mark {
  * state of the tracks at the room time of the frame on screen.
  */
 export function SlideSurface() {
-  const { tracks, prefs, slides, clock } = usePlayer();
+  const { tracks, slides, clock, audienceShown, openTab } = usePlayer();
   const slideTime = useSlideTime();
   useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
   const at = useFrameValue(clock, (t) => slides?.slideAt(slideTime(t)), sameSlide);
@@ -63,7 +63,8 @@ export function SlideSurface() {
       )
     : [];
   const label = on ? `Slide ${on.index + 1}` : "Slides";
-  const description = described && prefs.describe !== "off" ? described.description : undefined;
+  // A slide's description is its picture's text alternative, and stands in for a slide with no picture.
+  const description = described?.description;
 
   return (
     <SourceTile
@@ -78,9 +79,7 @@ export function SlideSurface() {
                 <span key={k.id} className={`tt-textmark tt-textmark-${k.style}`} style={markStyle(k)} />
               ))}
             </div>
-            {prefs.annotations === "everyone" ? (
-              <CommentMarks slides={slides} on={on} runs={runs} time={slideTime} />
-            ) : null}
+            {audienceShown ? <CommentMarks slides={slides} on={on} runs={runs} time={slideTime} /> : null}
             <InkLayer slides={slides} />
             <LaserPointer slides={slides} />
             <AnnotateSurface slides={slides} on={on} runs={runs} aspect={aspect} time={slideTime} />
@@ -108,13 +107,13 @@ export function SlideSurface() {
           ) : (
             <p className="tt-slide-hint">{hint()}</p>
           )}
+          {!description && tracks.describe ? (
+            <button type="button" className="tt-link" onClick={() => openTab("descriptions")}>
+              Follow the slides as text
+            </button>
+          ) : null}
         </div>
       )}
-      {picture && description ? (
-        <p className="tt-slide-caption" lang={lang} dir={dirOf(lang)}>
-          {description}
-        </p>
-      ) : null}
     </SourceTile>
   );
 
@@ -127,8 +126,6 @@ export function SlideSurface() {
   function hint(): string {
     if (on) return "Loading the slide…";
     if (at) return "The speaker is not showing a slide right now.";
-    if (tracks.describe && prefs.describe === "off")
-      return "Turn on slide descriptions in Settings to follow the slides as text.";
     return "The speaker's slides, ink and laser pointer show here.";
   }
 }

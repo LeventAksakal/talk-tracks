@@ -30,8 +30,8 @@ export interface CreateTalkProps {
 }
 
 /**
- * Create talk (J5, decision 0025): title, speaker, room name and access code; the room service mints a capped
- * speaker link. Then the private speaker link, the audience link with its QR, and the way into the console.
+ * Create talk (J5, decision 0025): title, speaker, room name and access code; the room service mints the speaker
+ * link. Its cap is the operator's concern and never shown (decision 0026). Then the private speaker link, the audience link with its QR, and the way into the console.
  */
 export function CreateTalk({ create = createRoom }: CreateTalkProps) {
   const [title, setTitle] = useState("");
@@ -100,7 +100,7 @@ export function CreateTalk({ create = createRoom }: CreateTalkProps) {
       />
       <TextInput
         label="Access code"
-        description="Presenters get one from the organisers. It caps what the room's AI may spend."
+        description="Presenters get one from the organisers. It unlocks a room; watching stays open to everyone."
         type="password"
         value={code}
         onChange={(v) => setCode(v)}
@@ -150,9 +150,6 @@ function Created({ created }: { created: CreatedRoom }) {
         <p className="muted small" role="status">
           {copied === "yes" ? "Speaker link copied." : copied === "no" ? "Could not copy; select the link above." : ""}
         </p>
-        {Number.isFinite(created.cap_usd) ? (
-          <p className="muted small">The room's AI tracks may spend up to ${created.cap_usd.toFixed(2)}.</p>
-        ) : null}
       </div>
       <Invite room={created.room} />
       <Button label="Open console" variant="primary" onClick={() => navigate(created.speaker_path)} />

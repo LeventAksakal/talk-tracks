@@ -48,6 +48,15 @@ const paths = {
   exitFullscreen: <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
   back: <path d="M15 5l-7 7 7 7" />,
+  stop: <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
+  swap: <path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />,
+  download: <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />,
+  live: (
+    <>
+      <path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof paths;
