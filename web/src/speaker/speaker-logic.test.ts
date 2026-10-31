@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { shapeEnd } from "../canvas/ink";
 import type { Point, ShapeKind } from "../contracts/types";
 import { strokesAt } from "./draw";
 import { keyAction } from "./keys";
@@ -198,5 +199,17 @@ describe("the eraser on shapes", () => {
     expect(strokesAt(shapes, [0.9, 0.3], 16 / 9)).toEqual(["e"]);
     expect(strokesAt(shapes, [0.7, 0.3], 16 / 9)).toEqual([]);
     expect(strokesAt(shapes, [0.3, 0.805], 16 / 9)).toEqual(["l"]);
+  });
+});
+
+describe("Shift while dragging a shape", () => {
+  it("makes a square or circle on screen, and lines in 45° steps", () => {
+    const aspect = 16 / 9;
+    const [x, y] = shapeEnd("rect", [0.1, 0.1], [0.4, 0.2], aspect, true);
+    expect((x - 0.1) * aspect).toBeCloseTo(y - 0.1);
+    expect(shapeEnd("ellipse", [0.1, 0.1], [0.4, 0.2], aspect, false)).toEqual([0.4, 0.2]);
+    const [lx, ly] = shapeEnd("line", [0.5, 0.5], [0.8, 0.52], aspect, true);
+    expect(ly).toBeCloseTo(0.5);
+    expect(lx).toBeGreaterThan(0.79);
   });
 });

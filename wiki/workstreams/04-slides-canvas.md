@@ -1,6 +1,6 @@
 # 04 · Slides canvas and tools
 
-**Status:** not started · **Session:** — · **Due:** Mon Nov 2, 18:00 +03 · **Depends on:** 02 (ink palette), a
+**Status:** in review (`lane/slide-tools`) · **Session:** slide tools lane · **Due:** Mon Nov 2, 18:00 +03 · **Depends on:** 02 (ink palette), a
 contract change via 05 · **Feeds:** 06, 07
 
 ## Goal
@@ -82,3 +82,4 @@ Add a `shape` element to the ink track, so shapes are archived, carried in and r
 | When (+03) | Session | Entry |
 |---|---|---|
 | 10-31 12:57 | coordinator | Brief written. |
+| 10-31 | slide tools lane | Contract: `shape` record on the ink track (`rect`, `ellipse`, `line`, `arrow`; `start`, `end`, `color`, `width`, `by`; stroke id space, re-sent while dragged). Undo/redo are `erase` and whole re-sends, no new record; room service accepts a listener's own whole `stroke`/`shape`. Shared drawer `web/src/canvas/ink.ts` (perfect-freehand pen). Console: shape tools R/O/A/I, digits, 3 widths (`[` `]`), Shift for even shapes, Undo/Redo + Ctrl+Z/Y, per-slide history. Verified in a browser: console draw/undo/redo/eraser, `/demo` live and rewound. Open: listener toolbar width/shapes/undo (contract ready), laser trail, marker rename, touch/pen pressure not checked, Shift-constrain only unit-tested. |
