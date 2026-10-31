@@ -21,6 +21,9 @@
 .console[data-phase="on-air"] .console-bar {
   border-bottom: 3px solid var(--tt-color-live);
 }
+.console[data-phase="paused"] .console-bar {
+  border-bottom: 3px solid var(--tt-color-line);
+}
 .console-title {
   display: flex;
   align-items: baseline;
@@ -28,8 +31,8 @@
 }
 .console-title h1 {
   margin: 0;
-  font-size: 1.2rem;
-  font-weight: 500;
+  font-size: var(--tt-text-h3);
+  font-weight: var(--tt-weight-regular);
 }
 .console-room {
   font-weight: 700;
@@ -41,6 +44,33 @@
 }
 .on-air-badge {
   font-variant-numeric: tabular-nums;
+}
+/* The LIVE marker: the Go-live icon and the word in live red, then the time on air. */
+.on-air-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  color: var(--tt-color-live);
+  font-weight: var(--tt-weight-display);
+  letter-spacing: 0.04em;
+}
+.on-air-time {
+  margin-inline-start: var(--tt-space-1);
+  color: var(--tt-color-text);
+  font-weight: var(--tt-weight-strong);
+}
+.console .tt-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.on-air-live .tt-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .console-grid {
@@ -75,7 +105,7 @@
   flex-wrap: wrap;
 }
 .alert {
-  color: var(--tt-color-live);
+  color: var(--tt-color-degraded);
   margin: 0;
 }
 
@@ -108,7 +138,7 @@
   color: var(--tt-color-degraded);
 }
 .check-bad .check-state {
-  color: var(--tt-color-live);
+  color: var(--tt-color-degraded);
 }
 .check-off .check-state {
   color: var(--tt-color-text-muted);
@@ -131,7 +161,7 @@
   font-size: 0.85rem;
   padding: 4px;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   background: var(--tt-color-surface);
   color: inherit;
 }
@@ -144,7 +174,7 @@
   font: inherit;
   padding: 6px 8px;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   background: var(--tt-color-surface);
   color: inherit;
 }
@@ -172,7 +202,7 @@
   aspect-ratio: 16 / 9;
   object-fit: cover;
   background: #000;
-  border-radius: 8px;
+  border-radius: var(--tt-radius-md);
   transform: scaleX(-1);
 }
 
@@ -185,7 +215,7 @@
   width: 100%;
   max-height: calc(100vh - 230px);
   background: #000;
-  border-radius: 8px;
+  border-radius: var(--tt-radius-md);
   overflow: hidden;
   border: 1px solid var(--tt-color-line);
   margin-inline: auto;
@@ -251,7 +281,7 @@
   width: 22%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   border: 2px solid #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   transform: scaleX(-1);
@@ -272,10 +302,57 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
+/* A tool's options: a popover from the active tool (brand §6), closed when you draw. */
+.tool-slot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tool-options-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-color-surface);
+  cursor: pointer;
+}
+.tool-options-toggle[aria-expanded="true"] {
+  border-color: var(--tt-color-accent);
+}
+.tool-options-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tt-color-text-muted);
+  box-shadow: 0 0 0 1px var(--tt-ink-casing);
+}
+.tool-popover {
+  position: absolute;
+  top: calc(100% + var(--tt-space-2));
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-3);
+  width: max-content;
+  padding: var(--tt-space-3);
+  background: var(--tt-color-raised);
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-md);
+  box-shadow: var(--tt-shadow-2);
+}
+.tool-popover-hint {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-micro);
+}
 .swatches {
   display: flex;
-  gap: 4px;
-  margin-inline-start: 8px;
+  gap: var(--tt-space-1);
 }
 .swatch {
   width: 24px;
@@ -330,7 +407,7 @@
 .next-slide {
   width: 100%;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   background: #fff;
 }
 .notes-text {
@@ -340,7 +417,7 @@
   font-size: 1rem;
   padding: 8px;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   background: var(--tt-color-surface);
   color: inherit;
 }
@@ -365,7 +442,7 @@
   cursor: pointer;
 }
 .strip-item[aria-current="true"] {
-  border-color: var(--tt-color-live);
+  border-color: var(--tt-color-accent);
 }
 .strip-item img,
 .strip-wait {
@@ -517,7 +594,7 @@
 .question {
   padding: 8px;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
 }
 .question[data-question] {
   border-left: 3px solid var(--tt-color-degraded);
@@ -555,7 +632,7 @@
   min-width: 0;
   padding: 4px 6px;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   background: var(--tt-color-surface);
   color: inherit;
   font: inherit;
@@ -569,7 +646,7 @@
 .small-button {
   padding: 3px 8px;
   border: 1px solid var(--tt-color-line);
-  border-radius: 6px;
+  border-radius: var(--tt-radius-sm);
   background: var(--tt-color-surface);
   color: inherit;
 }
@@ -586,7 +663,7 @@
 }
 .questions .error {
   margin: 4px 0 0;
-  color: var(--tt-color-live);
+  color: var(--tt-color-degraded);
 }
 
 @media (max-width: 1100px) {
