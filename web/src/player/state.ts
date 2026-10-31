@@ -4,6 +4,7 @@
 import type { Mode } from "../playback/aiTracks";
 import type { ConnectionStatus } from "../transport/types";
 import type { RoomStateKind } from "./slideTracks";
+import { formatClock } from "../playback/timeline";
 import { formatBehind } from "./timeline";
 
 export type PlayerStateKind =
@@ -39,6 +40,8 @@ export interface PlayerStateInput {
   /** Live over WebSocket (the slower path). */
   slowerPath?: boolean;
   speaker?: string;
+  /** Where the room's recording starts and ends, room ms: an ended talk shows its length. */
+  recording?: { start: number; end: number };
 }
 
 export interface PlayerState {
@@ -49,6 +52,8 @@ export interface PlayerState {
   canGoLive: boolean;
   /** A card over the canvas, when the state needs one. */
   card?: { title: string; body: string; retry?: boolean; replay?: boolean; dim?: boolean };
+  /** An ended talk: the recording's span, for "3:12 / 17:00". */
+  recording?: { start: number; end: number };
 }
 
 /**
@@ -109,15 +114,22 @@ export function playerState(input: PlayerStateInput): PlayerState {
       : undefined;
   if (mode === "rewound" && !ended)
     return { kind: "behind", pill: formatBehind(input.behindMs), canGoLive: true, card: pausedThen };
-  if (ended)
+  if (ended) {
+    // J7: a recorded session with its length, played back from the archive like any rewind.
+    const recording = input.recording && input.recording.end > input.recording.start ? input.recording : undefined;
+    const length = recording ? formatClock(recording.end - recording.start) : undefined;
+    const base = { kind: "ended", pill: "Recorded", canGoLive: false, recording } as const;
     return mode === "rewound"
-      ? { kind: "ended", pill: "Ended", canGoLive: false, card: pausedThen }
+      ? { ...base, card: pausedThen }
       : {
-          kind: "ended",
-          pill: "Ended",
-          canGoLive: false,
-          card: { title: "The talk has ended", body: "The whole recording can be replayed.", replay: true },
+          ...base,
+          card: {
+            title: "Recorded session",
+            body: `${length ? `${length} long. ` : ""}The talk has ended; play it from the start or seek anywhere.`,
+            replay: true,
+          },
         };
+  }
   if (input.room === "paused")
     return {
       kind: "paused",

@@ -35,6 +35,9 @@ export interface TrackWriter extends Closable {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
 
+/** What a live connection runs over: WebTransport, or the slower WebSocket fallback. */
+export type Wire = "webtransport" | "websocket";
+
 export interface Transport extends Closable {
   readonly kind: "moq" | "fake";
   /** Paths announced under `prefix`, as they come and go. Current ones are reported first. */
@@ -49,4 +52,6 @@ export interface Transport extends Closable {
   /** Connection status, and a listener for changes. */
   status(): ConnectionStatus;
   onStatus(listener: (status: ConnectionStatus, error?: Error) => void): Closable;
+  /** What the connection runs over now (undefined while down, or for a fake); `onStatus` fires when it changes. */
+  wire?(): Wire | undefined;
 }

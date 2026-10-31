@@ -87,8 +87,9 @@ export function ProgressBar() {
   const previewSlide = preview === undefined ? undefined : slides.findLast((s) => s.atMs <= preview);
   const previewShown = preview !== undefined && deck ? deck.previewAt(preview) : undefined;
   const thumb = previewShown && deck ? deck.picture(previewShown.deck, previewShown.index) : undefined;
-  const valueText =
-    t.mode === "live"
+  const valueText = state.recording
+    ? `${formatClock(shownAt)} of ${formatClock(end)}, recorded`
+    : t.mode === "live"
       ? `${formatClock(end)}, live`
       : `${formatClock(shownAt)}, ${formatBehind(end - shownAt)} behind live`;
 

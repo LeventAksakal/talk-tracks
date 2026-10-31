@@ -368,13 +368,24 @@ export class SlideTracks {
 
   /** The room's state now: the newest group's last record (undefined until the room track is read). */
   roomNow(): RoomStateKind | undefined {
+    return this.#roomGroups()[0]?.at(-1)?.data.state;
+  }
+
+  /** The talk's title and speaker: the newest record of the room track that says each (undefined until one does). */
+  roomInfo(): { title?: string; speaker?: string } {
+    const records = this.#roomGroups().flatMap((g) => [...g].reverse());
+    const said = (key: "title" | "speaker") => records.find((r) => r.data[key])?.data[key] ?? undefined;
+    return { title: said("title"), speaker: said("speaker") };
+  }
+
+  /** The room track's groups held, newest first, each its records oldest first. */
+  #roomGroups(): RoomStateRecord[][] {
     const e = this.#entries.get("room");
-    if (!e?.active) return undefined;
-    const newest = [...e.groups.entries()]
+    if (!e?.active) return [];
+    return [...e.groups.entries()]
       .filter(([, g]) => g.objects[0] !== undefined)
-      .sort(([a], [b]) => b - a)[0]?.[1];
-    if (!newest) return undefined;
-    return (dense(newest).flat().at(-1) as RoomStateRecord | undefined)?.data.state;
+      .sort(([a], [b]) => b - a)
+      .map(([, g]) => dense(g).flat() as RoomStateRecord[]);
   }
 
   /**

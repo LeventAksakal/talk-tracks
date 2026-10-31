@@ -53,6 +53,7 @@ export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; 
         ) : null}
         <span className="tt-time" aria-label="Time in the talk">
           {at === undefined ? "–:––" : formatClock(at)}
+          {state.recording ? ` / ${formatClock(state.recording.end)}` : null}
         </span>
         {state.canGoLive ? (
           <button type="button" className="tt-pill tt-pill-behind" onClick={goLive} title="Go live (G)">

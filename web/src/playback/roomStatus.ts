@@ -4,11 +4,13 @@
 
 import { useEffect, useState } from "react";
 import { ROOT } from "../contracts/names";
-import type { ConnectionStatus, Transport } from "../transport/types";
+import type { ConnectionStatus, Transport, Wire } from "../transport/types";
 import { parseAgentPath } from "./wire";
 
 export interface RoomStatus {
   status: ConnectionStatus;
+  /** What the connection runs over; "websocket" is the slower path (ui-design §5). */
+  wire: Wire | undefined;
   /** talk/<room>/teacher is announced. */
   teacherLive: boolean;
   /** talk/<room>/slides is announced. */
@@ -32,6 +34,7 @@ export function watchRoomStatus(
     }
     onChange({
       status,
+      wire: transport.wire?.(),
       teacherLive: announced.has("teacher"),
       slidesLive: announced.has("slides"),
       agents: agents.sort(),
