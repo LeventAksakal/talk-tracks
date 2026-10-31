@@ -6,6 +6,7 @@ import type { RoomMedia } from "../playback/media";
 import type { Playback, PlaybackView } from "../playback/playback";
 import type { Transport } from "../transport/types";
 import type { FrameClock } from "./frameClock";
+import type { Listening } from "./listening";
 import type { NotesApi } from "./notes";
 import type { PanelTab, Prefs, SourceKind } from "./prefs";
 import type { SlideTracks } from "./slideTracks";
@@ -71,6 +72,8 @@ export interface PlayerCtx {
   /** The number of the slide on screen at the playhead (1-based), from the slide track or the descriptions. */
   slideNumber: number | undefined;
   extraTabs: ExtraTab[];
+  /** The listener's tools and the room service's session (decision 0024); undefined where nobody can write. */
+  listening: Listening | undefined;
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
   seek(ms: number): void;

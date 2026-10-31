@@ -1,9 +1,9 @@
 // Drawing the deck's state on the console's slide (a 2D canvas over the slide image) and finding what
 // the eraser touches. Positions are fractions of the slide; the canvas is in CSS pixels × DPR.
 
-import type { StrokeRecord, TextMarkRecord } from "../contracts/tracks";
-import type { Point, PointerRecord, TextRange, TextRun } from "../contracts/types";
-import { rangeBoxes } from "./runs";
+import { rangeBoxes } from "../annotate/geometry";
+import type { StrokeRecord } from "../contracts/tracks";
+import type { PointerRecord, TextRange, TextRun } from "../contracts/types";
 
 export const HIGHLIGHTER_ALPHA = 0.35;
 
@@ -78,34 +78,4 @@ export function drawLaser(ctx: CanvasRenderingContext2D, p: PointerRecord | unde
   ctx.restore();
 }
 
-/** Distance from p to the segment ab, in slide fractions scaled by the aspect (x by `aspect`). */
-function segmentDistance(p: Point, a: Point, b: Point, aspect: number): number {
-  const [px, py] = [p[0] * aspect, p[1]];
-  const [ax, ay] = [a[0] * aspect, a[1]];
-  const [bx, by] = [b[0] * aspect, b[1]];
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len = dx * dx + dy * dy;
-  const t = len ? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / len)) : 0;
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-/** Strokes within `radius` (a fraction of the slide's height) of p. */
-export function strokesAt(strokes: readonly StrokeRecord[], p: Point, aspect: number, radius = 0.015): string[] {
-  return strokes
-    .filter(({ data: s }) => {
-      const reach = radius + (s.width * aspect) / 2;
-      const pts = s.points;
-      if (pts.length === 1) return segmentDistance(p, pts[0]!, pts[0]!, aspect) <= reach;
-      for (let i = 1; i < pts.length; i++) if (segmentDistance(p, pts[i - 1]!, pts[i]!, aspect) <= reach) return true;
-      return false;
-    })
-    .map((s) => s.data.stroke);
-}
-
-/** Marks whose text boxes contain p. */
-export function marksAt(marks: readonly TextMarkRecord[], runs: readonly TextRun[], [x, y]: Point): string[] {
-  return marks
-    .filter((k) => rangeBoxes(runs, k.data.span).some((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h))
-    .map((k) => k.data.id);
-}
+export { marksAt, strokesAt } from "../annotate/geometry";

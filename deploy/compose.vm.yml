@@ -136,6 +136,8 @@ services:
   # pointer) off the relay, serves the event tracks' past by FETCH on talk/<room>/archive/slides (decision 0022),
   # and publishes talk/<room>/catalog with its room track (its token, $TT_ARCHIVE_TOKEN, may publish
   # talk/*/catalog, talk/*/comments, talk/*/annotations and talk/*/archive/**; wiki/howto/tokens.md).
+  # Listeners write their ink, text marks and comments to it over a WebSocket on :8091, which Caddy proxies from
+  # /api/ (decision 0024); it tells the speaker's token from a listener by the room key's public.jwk.
   # Agents write their own slices into the same folder
   # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
   # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
@@ -146,10 +148,17 @@ services:
     init: true  # SIGTERM closes the open segments
     restart: unless-stopped
     depends_on: [relay]
-    volumes: ["${TT_DATA:?}:/data"]  # the archive, and the spend ledger read for the catalog's capped status
+    volumes:
+      - ${TT_DATA:?}:/data  # the archive, and the spend ledger read for the catalog's capped status
+      - ${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro  # checks the speaker's token at the listener endpoint
     environment:
       TT_RELAY: moqt://relay:443
       TT_TOKEN: ${TT_ARCHIVE_TOKEN:-}
+      TT_LISTEN: 0.0.0.0:8091
+      TT_SPEAKER_KEY: /keys/public.jwk
+      TT_LISTENER_ORIGINS: https://${TT_HOST}
+      TT_PROXIED: "1"
+      TT_LISTENER_SECRET_FILE: /data/room-service.key  # beside the archive, never in the folder Caddy serves
       TT_ARCHIVE_DIR: /data/archive
       TT_LEDGER: /data/ledger.jsonl
       TT_CAPS_DIR: /data/caps

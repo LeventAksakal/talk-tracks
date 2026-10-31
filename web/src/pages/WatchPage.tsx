@@ -1,3 +1,4 @@
+import { RoomServiceClient, roomServiceBase } from "../annotate/client";
 import { isValidRoom } from "../contracts/names";
 import { RoomMedia } from "../playback/media";
 import { MoqHistorySource } from "../playback/moqSource";
@@ -27,6 +28,8 @@ function WatchRoom({ room }: { room: string }) {
     const media = playback.media instanceof RoomMedia ? playback.media : undefined;
     return new SlideTracks(new MoqHistorySource(transport), room, { catalog: () => media?.catalog() });
   }, [transport, playback, room]);
+  // Listeners draw, mark and comment through the room service (decision 0024), never the relay.
+  const roomService = useResource(() => new RoomServiceClient(roomServiceBase(), room, { comments: true }), [room]);
   if (!playback) return <p className="page-pad">Connecting…</p>;
-  return <Player playback={playback} room={room} transport={transport} slides={slides} />;
+  return <Player playback={playback} room={room} transport={transport} slides={slides} roomService={roomService} />;
 }

@@ -7,6 +7,8 @@
 import {
   annotationsPath,
   catalogPath,
+  COMMENTS_TRACK,
+  commentsPath,
   DECK_TRACK,
   INK_TRACK,
   MARKS_TRACK,
@@ -16,8 +18,17 @@ import {
   SLIDE_TRACK,
   slidesPath,
 } from "../contracts/names";
-import { currentSlide, inkCarry, marksCarry, type StrokeRecord, type TextMarkRecord, upTo } from "../contracts/tracks";
+import {
+  commentsCarry,
+  currentSlide,
+  inkCarry,
+  marksCarry,
+  type StrokeRecord,
+  type TextMarkRecord,
+  upTo,
+} from "../contracts/tracks";
 import type {
+  CommentRecord,
   CurrentSlideRecord,
   DeckImage,
   DeckInfo,
@@ -32,6 +43,7 @@ import type {
 } from "../contracts/types";
 import {
   type Parsed,
+  parseCommentsObject,
   parseCurrentSlideObject,
   parseDeckObject,
   parseInkObject,
@@ -44,12 +56,13 @@ import { SLICE_MS, sliceOf } from "../playback/slices";
 import { type HistorySource, NotFound } from "../playback/source";
 import type { Closable } from "../transport/types";
 
-export type TrackId = "deck" | "slide" | "ink" | "marks" | "pointer" | "audience-ink" | "audience-marks" | "room";
+export type TrackId =
+  "deck" | "slide" | "ink" | "marks" | "pointer" | "audience-ink" | "audience-marks" | "comments" | "room";
 
 /** What the slides source needs: the speaker's five tracks. */
 export const SPEAKER_TRACKS: readonly TrackId[] = ["deck", "slide", "ink", "marks", "pointer"];
-/** Everyone else's ink and text marks, from the room service. */
-export const AUDIENCE_TRACKS: readonly TrackId[] = ["audience-ink", "audience-marks"];
+/** Everyone else's ink and text marks, and the comments anchored on the slides, from the room service. */
+export const AUDIENCE_TRACKS: readonly TrackId[] = ["audience-ink", "audience-marks", "comments"];
 
 export type RoomStateKind = RoomState["state"];
 
@@ -82,7 +95,16 @@ interface Spec {
 /** History always goes after live (design §5.11). */
 const FETCH_PRIORITY = 32;
 /** The order a seek fetches in: what is on screen first, the laser last. */
-const FETCH_ORDER: readonly TrackId[] = ["slide", "room", "ink", "marks", "audience-ink", "audience-marks", "pointer"];
+const FETCH_ORDER: readonly TrackId[] = [
+  "slide",
+  "room",
+  "ink",
+  "marks",
+  "audience-ink",
+  "audience-marks",
+  "comments",
+  "pointer",
+];
 /** A new subscription's first group is on its way: no FETCH of the slice before this. */
 const JOIN_GRACE_MS = 1_500;
 /** While rewound, the next slice is fetched this close to the end of the current one. */
@@ -118,6 +140,7 @@ function specs(room: string): Record<TrackId, Spec> {
     pointer: speaker("pointer", POINTER_TRACK, 200, parsePointerObject),
     "audience-ink": own("audience-ink", annotationsPath(room), INK_TRACK, 150, parseInkObject),
     "audience-marks": own("audience-marks", annotationsPath(room), MARKS_TRACK, 140, parseMarksObject),
+    comments: own("comments", commentsPath(room), COMMENTS_TRACK, 130, parseCommentsObject),
     room: own("room", catalogPath(room), ROOM_TRACK, 96, parseRoomStateObject),
   };
 }
@@ -319,6 +342,16 @@ export class SlideTracks {
       ...this.#reduced("audience-ink", t, shown, (r) => inkCarry(r as readonly InkRecord[], shown)),
       ...this.#reduced("ink", t, shown, (r) => inkCarry(r as readonly InkRecord[], shown)),
     ];
+  }
+
+  /**
+   * The comments anchored on the slide on screen at t and their replies, edits applied and hidden ones left out,
+   * in the order they were made (the comments track's state at t); undefined while the slide loads.
+   */
+  commentsAt(t: number | undefined): CommentRecord[] | undefined {
+    const shown = this.#slide(t);
+    if (shown === undefined) return undefined;
+    return this.#reduced("comments", t, shown, (r) => commentsCarry(r as readonly CommentRecord[], shown));
   }
 
   /**

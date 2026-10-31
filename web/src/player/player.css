@@ -325,6 +325,150 @@
   box-shadow: 0 0 12px 4px #ff3b3088;
 }
 
+/* --- listener tools on the slide and the comments anchored there (decision 0024) --- */
+.tt-annotate-surface {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+.tt-annotate-surface[data-tool="underline"],
+.tt-annotate-surface[data-tool="highlight"] {
+  cursor: text;
+}
+.tt-annotate-surface[data-tool="eraser"] {
+  cursor: cell;
+}
+.tt-annotate-range,
+.tt-annotate-region {
+  position: absolute;
+  pointer-events: none;
+}
+.tt-annotate-range {
+  background: #2f6bff44;
+}
+.tt-annotate-region {
+  border: 2px dashed var(--pl-accent);
+  background: #86a3ff1a;
+}
+.tt-annotate-bar {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #15181fe6;
+  color: var(--pl-fg);
+  font: 12px var(--pl-font);
+  pointer-events: auto;
+}
+.tt-annotate-bar:not([data-open]) {
+  background: none;
+  padding: 0;
+}
+.tt-annotate-open,
+.tt-annotate-tool {
+  padding: 4px 8px;
+  border: 1px solid var(--pl-line);
+  border-radius: 6px;
+  background: #15181fe6;
+  color: var(--pl-fg);
+  font: 500 12px var(--pl-font);
+  cursor: pointer;
+}
+.tt-annotate-tool[aria-pressed="true"] {
+  border-color: var(--pl-accent);
+  background: #86a3ff33;
+}
+.tt-annotate-tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tt-annotate-colors {
+  display: inline-flex;
+  gap: 3px;
+  padding: 0 4px;
+}
+.tt-annotate-color {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+}
+.tt-annotate-color[aria-checked="true"] {
+  border-color: var(--pl-fg);
+}
+.tt-annotate-note {
+  padding: 0 6px;
+  color: var(--pl-muted);
+}
+.tt-annotate-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-basis: 100%;
+}
+.tt-annotate-name label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tt-annotate-name input {
+  padding: 3px 6px;
+  border: 1px solid var(--pl-line);
+  border-radius: 6px;
+  background: var(--pl-bg);
+  color: var(--pl-fg);
+  font: inherit;
+}
+.tt-comment-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.tt-comment-box {
+  position: absolute;
+  border-radius: 3px;
+  background: #f5b70033;
+  box-shadow: inset 0 0 0 1px #f5b700aa;
+}
+.tt-comment-anchor[data-focus] .tt-comment-box {
+  background: #f5b70066;
+  box-shadow: inset 0 0 0 2px #f5b700;
+}
+.tt-comment-badge {
+  position: absolute;
+  translate: -50% -60%;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 10px;
+  background: #f5b700;
+  color: #1b1f27;
+  font: 700 11px var(--pl-font);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.tt-comment-anchor[data-question] .tt-comment-badge {
+  background: var(--pl-accent);
+}
+.tt-comment-whole {
+  right: 8px;
+  top: 8px;
+  translate: none;
+}
+
 /* --- subtitles: dragged anywhere, bottom centre anchored at (x, y) --- */
 .tt-subs {
   --sub-size: 20px;
@@ -1259,6 +1403,131 @@
 }
 .tt-fullscreen.tt-idle .tt-stage {
   cursor: none;
+}
+
+/* --- the Discussion tab (decision 0024) --- */
+.tt-discussion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.tt-discussion-composer,
+.tt-discussion-name {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pl-line);
+}
+.tt-discussion-name .tt-input {
+  flex: 1;
+  width: auto;
+}
+.tt-discussion-anchor {
+  align-items: center;
+  justify-content: space-between;
+}
+.tt-discussion-composer textarea {
+  resize: vertical;
+}
+.tt-discussion-composer .tt-row,
+.tt-discussion-filters {
+  align-items: center;
+  justify-content: space-between;
+}
+.tt-discussion-filters .tt-segmented {
+  padding: 0;
+  flex: 1;
+}
+.tt-discussion-error {
+  margin: 0;
+  color: var(--pl-live);
+  font-size: 12px;
+}
+.tt-button.tt-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.tt-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--pl-muted);
+}
+.tt-thread-list,
+.tt-replies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tt-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.tt-thread {
+  padding: 8px 10px;
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  color: var(--pl-fg);
+}
+.tt-thread[data-question] {
+  border-left: 3px solid var(--pl-accent);
+}
+.tt-thread[data-focus] {
+  background: #f5b70014;
+}
+.tt-thread-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+.tt-thread-text {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tt-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--pl-line);
+  font-size: 13px;
+}
+.tt-reply[data-speaker] {
+  color: var(--pl-fg);
+}
+.tt-tag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #86a3ff33;
+  color: var(--pl-accent);
+  font-size: 11px;
+}
+.tt-tag-question {
+  background: #f5b70033;
+  color: #f5b700;
+}
+.tt-link-button {
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--pl-accent);
+  font: 500 12px var(--pl-font);
+  cursor: pointer;
+}
+.tt-reply-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {

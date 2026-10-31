@@ -6,9 +6,13 @@ import { formatClock } from "../playback/timeline";
 import { usePlaybackView } from "../playback/usePlayback";
 import { Link } from "../router";
 import type { Transport } from "../transport/types";
+import type { RoomService } from "../annotate/client";
+import { DISCUSSION_TAB } from "./Annotate";
 import { type ExtraTab, INITIAL_UI, type PlayerCtx, PlayerContext, type UiState } from "./context";
 import { ControlBar } from "./ControlBar";
+import { Discussion } from "./Discussion";
 import { FrameClock } from "./frameClock";
+import { Listening } from "./listening";
 import { useNotes } from "./notes";
 import "./player.css";
 import { type PanelTab, type SourceKind, usePrefs } from "./prefs";
@@ -38,6 +42,8 @@ export interface PlayerProps {
   forceState?: PlayerStateKind;
   /** The room's slide, annotation and room tracks (deck, slide, ink, marks, laser; the room's state). */
   slides?: SlideTracks;
+  /** The room service's endpoint for listeners: annotation tools and the Discussion tab (decision 0024). */
+  roomService?: RoomService;
 }
 
 const noop = () => () => {};
@@ -72,6 +78,15 @@ export function Player(props: PlayerProps) {
   const [everConnected, setEverConnected] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const title = props.title ?? `Room ${room}`;
+  const roomService = props.roomService;
+  const listening = useMemo(() => (roomService ? new Listening(roomService) : undefined), [roomService]);
+  const extraTabs = useMemo<ExtraTab[]>(
+    () => [
+      ...(roomService ? [{ id: DISCUSSION_TAB, label: "Discussion", content: <Discussion /> }] : []),
+      ...(props.extraTabs ?? []),
+    ],
+    [roomService, props.extraTabs],
+  );
 
   if (status?.status === "connected" && !everConnected) setEverConnected(true);
 
@@ -251,7 +266,8 @@ export function Player(props: PlayerProps) {
           slides,
           slidesShown,
           slideNumber,
-          extraTabs: props.extraTabs ?? [],
+          extraTabs,
+          listening,
           at,
           seek: (ms) => seekWith(() => playback.seek(ms)),
           seekBy: (ms) => seekWith(() => playback.seekBy(ms)),

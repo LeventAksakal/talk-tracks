@@ -7,6 +7,12 @@
 }
 
 {$TT_HOST} {
+	# Listeners' writes (decision 0024): a WebSocket per listener to the room service. A path matcher, so it is
+	# tried before the relay's WebSocket fallback below.
+	handle /api/* {
+		reverse_proxy archive:8091
+	}
+
 	@ws header Connection *Upgrade*
 	handle @ws {
 		reverse_proxy https://relay:8443 {

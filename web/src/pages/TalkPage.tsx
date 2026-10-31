@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { RoomServiceClient, roomServiceBase } from "../annotate/client";
 import { isValidRoom, slidesPath } from "../contracts/names";
 import { useLocation } from "../router";
 import { localEpoch } from "../speaker/clock";
@@ -39,9 +40,13 @@ function LiveConsole({ room, token, localClock }: { room: string; token: string 
             openDeck: openPdf,
             createMedia: () => createSpeakerMedia(publisher, room),
             localEpochMs: epoch,
+            // The speaker's session proves itself with the relay token; a local relay needs none, and the local
+            // room service (TT_OPEN_SPEAKER) takes any, so the console still gets the speaker's rights there.
+            makeRoomService: (name) =>
+              new RoomServiceClient(roomServiceBase(), room, { token: token ?? "local", name, comments: true }),
           }
         : undefined,
-    [publisher, watcher, room, epoch],
+    [publisher, watcher, room, epoch, token],
   );
   if (!deps) return <p className="page-pad muted">Connecting to the relay…</p>;
   return <Console room={room} token={token} deps={deps} />;

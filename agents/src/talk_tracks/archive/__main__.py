@@ -8,6 +8,13 @@ TT_ARCHIVE_SKIP (patterns to skip, such as a looped demo room, whose looper publ
 TT_ARCHIVE_BUCKET (the Cloud Storage bucket to copy to, ``gs://name[/folder]``, folder default ``archive``; unset: no
 copy). The catalog marks paid agents ``capped`` from the agents' spend ledger: TT_LEDGER (default data/ledger.jsonl),
 TT_CAPS_DIR (default data/caps), TT_ROOM_CAP_USD (default 2) and TT_SPEND_CEILING_USD (default 100).
+
+Listeners write through it (decision 0024): ``--listen HOST:PORT`` (TT_LISTEN) serves the WebSocket endpoint on
+``/api/rooms/<room>``. TT_SPEAKER_KEY is the room key's ``public.jwk``, which tells the speaker's token from a
+listener's; TT_OPEN_SPEAKER=1 skips that check (development only). TT_LISTENER_ORIGINS lists the allowed page origins
+(comma-separated, default any), TT_PROXIED=1 reads the client's address from X-Forwarded-For (behind Caddy), and
+TT_LISTENER_SECRET_FILE (default room-service.key beside the archive folder, never in it) keeps the secret that
+listener ids are proven with.
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--bucket", default=os.environ.get("TT_ARCHIVE_BUCKET") or None, help="Cloud Storage bucket")
     p.add_argument("--no-catalog", action="store_true", help="record only; do not publish the room catalogs")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
+    p.add_argument("--listen", default=os.environ.get("TT_LISTEN") or None, help="HOST:PORT of the listener endpoint")
     args = p.parse_args(argv)
     if not args.relay:
         p.error("--relay is required (or TT_RELAY)")
@@ -43,6 +51,7 @@ async def main_async(args: argparse.Namespace) -> None:
     from ..moq import connect, until_closed
     from .bucket import GcsBucket, Uploader
     from .catalog import Budget
+    from .listeners import EndpointConfig
     from .relay import archive_rooms
     from .slices import SliceWatcher
     from .store import Archive, RoomFilter
@@ -55,6 +64,19 @@ async def main_async(args: argparse.Namespace) -> None:
         args.out,
         f"copying to gs://{bucket.name}/{bucket.folder}" if bucket else "no bucket copy",
     )
+    listeners = None
+    if args.listen:
+        host, port = EndpointConfig.parse_listen(args.listen)
+        key = os.environ.get("TT_SPEAKER_KEY") or None
+        listeners = EndpointConfig(
+            host,
+            port,
+            secret_file=Path(os.environ.get("TT_LISTENER_SECRET_FILE") or args.out.parent / "room-service.key"),
+            speaker_key=Path(key) if key else None,
+            open_speaker=os.environ.get("TT_OPEN_SPEAKER") == "1",
+            origins=tuple(o.strip() for o in os.environ.get("TT_LISTENER_ORIGINS", "").split(",") if o.strip()),
+            proxied=os.environ.get("TT_PROXIED") == "1",
+        )
     background = [asyncio.create_task(uploader.run()), asyncio.create_task(uploader.sync())]
     try:
         async with connect(args.relay, token=args.token, insecure=args.insecure) as relay:
@@ -78,6 +100,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 on_tick=copy_slices,
                 publish_catalog=not args.no_catalog,
                 capped=budget.capped,
+                listeners=listeners,
             )
             await until_closed(relay, work)
     finally:

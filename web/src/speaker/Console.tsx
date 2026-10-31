@@ -1,5 +1,6 @@
 import { AlertDialog, Badge, Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { RoomService } from "../annotate/client";
 import { AUDIO_TRACK, HANG_CATALOG_TRACK, teacherPath } from "../contracts/names";
 import type { RoomCatalog } from "../contracts/types";
 import { type HangClock, hangClockOfPayload } from "../playback/roomClock";
@@ -18,6 +19,7 @@ import { LevelMeter, SelfView, useLevel } from "./MediaViews";
 import { useNotes } from "./notes";
 import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
+import { Questions, useQuestionCounts } from "./Questions";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
@@ -36,6 +38,8 @@ export interface ConsoleDeps {
   createMedia?: () => Promise<SpeakerMedia>;
   /** Development without a room service: E chosen locally, slides go out at once. */
   localEpochMs?: number;
+  /** The room service's endpoint as the speaker (decision 0024): the audience's questions, reply and hide. */
+  makeRoomService?: (name: string) => RoomService;
 }
 
 type Phase = "preflight" | "on-air" | "ended";
@@ -245,6 +249,13 @@ function ConsoleView({
   const fileInput = useRef<HTMLInputElement>(null);
   const [notes, setNote] = useNotes(deck?.fingerprint);
   useEffect(() => () => deck?.close(), [deck]);
+
+  // --- the audience's questions (decision 0024): the console's session at the room service is the speaker's -----
+  const roomService = useResource(() => deps.makeRoomService?.(loadName()), [deps]);
+  useEffect(() => {
+    if (roomService && name.trim()) roomService.setName(name);
+  }, [roomService, name]);
+  const questionCounts = useQuestionCounts(roomService, publisher.deckId);
 
   const sendFrame = useCallback(
     (s: RenderedSlide | undefined) => {
@@ -577,6 +588,11 @@ function ConsoleView({
               placeholder="Only you see these. They stay in this browser and are never sent."
             />
           </section>
+          <Questions
+            service={roomService}
+            slide={deck && publisher.deckId !== undefined ? { deck: publisher.deckId, index } : undefined}
+            onSlide={(i) => void goTo(i)}
+          />
           {deck ? (
             <section className="panel">
               <h2 className="panel-title">All slides</h2>
@@ -588,10 +604,15 @@ function ConsoleView({
                       className="strip-item"
                       aria-current={i === index ? "true" : undefined}
                       onClick={() => void goTo(i)}
-                      aria-label={`Show slide ${i + 1}`}
+                      aria-label={`Show slide ${i + 1}${questionCounts.get(i) ? `, ${questionCounts.get(i)} questions` : ""}`}
                     >
                       {slides[i] ? <img src={slides[i].url} alt="" /> : <span className="strip-wait" />}
                       <span className="strip-num">{i + 1}</span>
+                      {questionCounts.get(i) ? (
+                        <span className="strip-questions" aria-hidden="true">
+                          {questionCounts.get(i)}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 ))}

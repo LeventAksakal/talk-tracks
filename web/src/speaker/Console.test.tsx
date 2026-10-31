@@ -9,6 +9,7 @@ import {
   parseMarksObject,
   parsePointerObject,
 } from "../contracts/validate";
+import { FakeRoomService } from "../annotate/fake";
 import { FakeTransport } from "../transport/fake";
 import { localEpoch } from "./clock";
 import { Console, type ConsoleDeps } from "./Console";
@@ -216,5 +217,50 @@ describe("the speaker console", () => {
     await screen.findByText("What is kept");
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);
+  });
+  it("lists the audience's questions, counts them per slide, and replies to or hides one as the speaker", async () => {
+    const ada = { id: "u1", name: "Ada" };
+    const service = new FakeRoomService({
+      me: { id: "speaker", name: "Speaker", speaker: true },
+      now: 60_000,
+      records: [
+        {
+          m: 50_000,
+          data: {
+            kind: "comment",
+            id: "c1",
+            at: 50_000,
+            text: "Is RNA a virus?",
+            by: ada,
+            question: true,
+            anchor: { deck: 0, index: 1 },
+          },
+        },
+        {
+          m: 55_000,
+          data: { kind: "comment", id: "c2", at: 55_000, text: "Nice slide", by: ada, anchor: { deck: 0, index: 1 } },
+        },
+      ],
+    });
+    setup({ makeRoomService: () => service });
+    await loadDeck();
+    const list = screen.getByRole("region", { name: "Questions from the audience" });
+    expect(within(list).getByText("Is RNA a virus?")).toBeTruthy();
+    expect(within(list).queryByText("Nice slide")).toBeNull(); // a comment, not a question
+    expect(screen.getByRole("button", { name: "Show slide 2, 1 questions" })).toBeTruthy();
+
+    fireEvent.change(within(list).getByRole("textbox", { name: "Reply to Ada" }), {
+      target: { value: "It carries one" },
+    });
+    await act(async () => fireEvent.click(within(list).getByRole("button", { name: "Reply" })));
+    expect(service.writes.at(-1)).toEqual({
+      track: "comments",
+      data: { kind: "reply", to: "c1", text: "It carries one" },
+    });
+    expect(within(list).getByText(/It carries one/)).toBeTruthy();
+
+    await act(async () => fireEvent.click(within(list).getByRole("button", { name: "Hide" })));
+    expect(service.writes.at(-1)).toEqual({ track: "comments", data: { kind: "hide", id: "c1" } });
+    expect(within(list).queryByText("Is RNA a virus?")).toBeNull();
   });
 });
