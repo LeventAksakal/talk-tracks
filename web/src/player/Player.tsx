@@ -241,6 +241,8 @@ export function Player(props: PlayerProps) {
       : timeline.position
     : undefined;
 
+  const talkClock = (ms: number) => formatClock(media ? media.talkTime(ms) : ms);
+
   const togglePlay = useCallback(() => {
     if (!media) return;
     if (ui.playing) media.stop();
@@ -265,8 +267,8 @@ export function Player(props: PlayerProps) {
   const addBookmark = useCallback(() => {
     if (at === undefined) return;
     notes.add({ at, text: "", slide: slideNumber });
-    announce(`Bookmark at ${formatClock(at)}`);
-  }, [at, slideNumber, notes, announce]);
+    announce(`Bookmark at ${formatClock(media ? media.talkTime(at) : at)}`);
+  }, [at, slideNumber, notes, announce, media]);
 
   useReadAloud(prefs.describe === "speak", tracks.describe?.sliced?.slide, timeline?.mode === "live");
 
@@ -295,6 +297,7 @@ export function Player(props: PlayerProps) {
           // Listener tools only while the room service can take writes (or is still connecting).
           listening: toolsOff ? undefined : listening,
           at,
+          talkClock,
           seek: (ms) => seekWith(() => playback.seek(ms)),
           seekBy: (ms) => seekWith(() => playback.seekBy(ms)),
           goLive: () => playback.goLive(),

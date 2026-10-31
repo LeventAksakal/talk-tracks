@@ -1,4 +1,3 @@
-import { formatClock } from "../playback/timeline";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { CaptionsMenu, LayoutMenu, SettingsMenu, StyleMenu } from "./menus";
@@ -10,7 +9,8 @@ import { chapterAt } from "./timeline";
  * layout, side panel, settings, fullscreen).
  */
 export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; onFullscreen: () => void }) {
-  const { media, ui, setUi, prefs, update, state, at, goLive, togglePlay, openTab, tracks, sources } = usePlayer();
+  const { media, ui, setUi, prefs, update, state, at, talkClock, goLive, togglePlay, openTab, tracks, sources } =
+    usePlayer();
   const chapters = tracks.outline?.enabled ? (tracks.outline.outline?.chapters ?? []) : [];
   const chapter = chapterAt(chapters, at);
   const toggleMenu = (menu: NonNullable<typeof ui.menu>) =>
@@ -52,8 +52,8 @@ export function ControlBar({ fullscreen, onFullscreen }: { fullscreen: boolean; 
           </div>
         ) : null}
         <span className="tt-time" aria-label="Time in the talk">
-          {at === undefined ? "–:––" : formatClock(at)}
-          {state.recording ? ` / ${formatClock(state.recording.end)}` : null}
+          {at === undefined ? "–:––" : talkClock(at)}
+          {state.recording ? ` / ${talkClock(state.recording.end)}` : null}
         </span>
         {state.canGoLive ? (
           <button type="button" className="tt-pill tt-pill-behind" onClick={goLive} title="Go live (G)">

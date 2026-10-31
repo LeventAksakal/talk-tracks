@@ -1,5 +1,4 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { formatClock } from "../playback/timeline";
 import type { LineItem } from "../playback/wire";
 import { dirOf } from "../viewer/lang";
 import { usePlayer } from "./context";
@@ -86,10 +85,10 @@ function TurnOn({ text, label, onClick }: { text: string; label: string; onClick
 }
 
 function Seek({ ms, children }: { ms: number; children?: ReactNode }) {
-  const { seek } = usePlayer();
+  const { seek, talkClock } = usePlayer();
   return (
-    <button type="button" className="tt-time-link" onClick={() => seek(ms)} aria-label={`Play from ${formatClock(ms)}`}>
-      {children ?? formatClock(ms)}
+    <button type="button" className="tt-time-link" onClick={() => seek(ms)} aria-label={`Play from ${talkClock(ms)}`}>
+      {children ?? talkClock(ms)}
     </button>
   );
 }
@@ -291,7 +290,7 @@ function Glossary() {
 // --- notes -----------------------------------------------------------------------------------------
 
 function Notes() {
-  const { notes, at, ui, title, addBookmark, slideNumber } = usePlayer();
+  const { notes, at, talkClock, ui, title, addBookmark, slideNumber } = usePlayer();
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -303,7 +302,7 @@ function Notes() {
     setText("");
   };
   const exportMarkdown = () => {
-    const blob = new Blob([notesMarkdown(title, notes.notes)], { type: "text/markdown" });
+    const blob = new Blob([notesMarkdown(title, notes.notes, talkClock)], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -314,7 +313,7 @@ function Notes() {
   return (
     <div className="tt-notes">
       <label className="tt-menu-heading" htmlFor="tt-note">
-        Note at {at === undefined ? "–" : formatClock(at)}
+        Note at {at === undefined ? "–" : talkClock(at)}
       </label>
       <textarea
         id="tt-note"
@@ -354,7 +353,7 @@ function Notes() {
               <button
                 type="button"
                 className="tt-icon-button tt-small"
-                aria-label={`Delete note at ${formatClock(n.at)}`}
+                aria-label={`Delete note at ${talkClock(n.at)}`}
                 onClick={() => notes.remove(n.id)}
               >
                 <Icon name="close" />
