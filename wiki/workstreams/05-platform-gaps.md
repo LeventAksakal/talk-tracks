@@ -1,6 +1,6 @@
 # 05 · Platform gaps and integration (coordinator)
 
-**Status:** not started · **Session:** coordinator · **Due:** Mon Nov 2, 20:00 +03 · **Feeds:** every workstream
+**Status:** in progress · **Session:** coordinator · **Due:** Mon Nov 2, 20:00 +03 · **Feeds:** every workstream
 
 ## Goal
 
@@ -55,3 +55,5 @@ This is the coordinator's workstream: it briefs, merges, deploys, and owns contr
 | When (+03) | Session | Entry |
 |---|---|---|
 | 10-31 12:57 | coordinator | Brief written. Found: no self-serve room creation (tokens minted by script on the VM); `talk-tracks.org` in demo-moments.md does not resolve; annotations lane has uncommitted work. |
+| 10-31 13:36 | coordinator | Annotations lane: WIP UI was saved as a5e5293 before the crash; backend endpoint (dd606f3, 99d2691) done. Old worktree pruned; a fresh lane is finishing endpoint + listener tools + Discussion + console Questions on `lane/audience-annotations` (owner chose "finish now"). Ticket 0020 closed by owner (defaults kept). |
+| 10-31 13:36 | coordinator | Owner asked (10-31): "setup cloudflare pages deploy so <host> is auto deployed from main; also put the application behind CF_ACCESS Google IdP login with a whitelisted allow policy." **Dropped by owner the same day** after learning the constraint: Pages and Access need the host proxied, but the relay needs QUIC on UDP 443 unproxied on that host. Nothing was changed in Cloudflare. Revisit only with a separate relay hostname. |

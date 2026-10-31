@@ -80,6 +80,6 @@ Every session updates its row and its own log.
 | 02 | not started | — | — | — |
 | 03 | not started | — | — | waits on 01 for journeys, 02 for tokens |
 | 04 | not started | — | — | contract change via 05/coordinator |
-| 05 | not started | — | — | ticket 0020 answer; hostname from owner |
+| 05 | in progress | coordinator | 10-31 13:36 | hostname confirmed (stays DNS-only on the VM); annotations lane finishing |
 | 06 | not started | — | — | waits on 03, 04 |
 | 07 | not started | — | — | waits on 06 |
