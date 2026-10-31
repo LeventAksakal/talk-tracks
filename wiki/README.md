@@ -39,3 +39,4 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | The deck and its annotations are shared state: three tools, every mutation an event | [0021](decisions/0021-deck-annotations-are-shared-state-on-event-tracks.md) |
 | The room service serves the past of the speaker's event tracks | [0022](decisions/0022-the-room-service-serves-the-speakers-track-history.md) |
 | The speaker console renders PDF decks in the browser with PDF.js | [0023](decisions/0023-the-console-renders-pdf-decks-in-the-browser-with-pdfjs.md) |
+| Presenters create a room with an access code | [0025](decisions/0025-presenters-create-a-room-with-an-access-code.md) |

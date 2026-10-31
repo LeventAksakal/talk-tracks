@@ -1,5 +1,7 @@
 # 03 · App UI
 
+> **Scope (owner, 2026-10-30):** desktop only, Chrome first. Phone, iPhone and Safari items in this file are out of scope.
+
 **Status:** not started · **Session:** — · **Due:** Mon Nov 2, 18:00 +03 · **Depends on:** 01 (journeys), 02
 (tokens, logo), 05 (room-creation endpoint) · **Feeds:** 06, 07
 

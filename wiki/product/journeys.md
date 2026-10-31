@@ -1,17 +1,17 @@
 # Talk Tracks: Core User Journeys
 
-**Status:** approved draft · **Date:** 2026-10-31 · **Decisions incorporated:** 0017–0023, Ticket 0020, and Presenter decisions (optional deck, screen share with canvas/laser overlay, unified console, Cloudflare Access).
+**Status:** approved draft · **Date:** 2026-10-31 · **Decisions incorporated:** 0017–0025, Ticket 0020, and Presenter decisions (optional deck, unified console).
+
+> **Scope (owner, 2026-10-30/31):** desktop only, Chrome first; phone, iPhone and Safari items below are out of scope.
+> Cloudflare Access was dropped (the relay host must stay DNS-only). Screen share is a stretch goal: built only if the
+> core journeys are done with days to spare (owner: "if we finish with some days remianing definetly built in").
 
 ---
 
-## 1. Security & Pre-Submission Access Boundary
+## 1. Access
 
-> [!IMPORTANT]
-> **Cloudflare Access (CF_ACCESS) Guardrail**
-> To prevent web crawlers, search indexers, and unauthorized discovery before hackathon submission:
-> - The web application and public endpoints are placed behind **Cloudflare Access** with **Google IdP**.
-> - Access is restricted strictly to an email whitelist (team & designated judges).
-> - Public WebSocket and WebTransport endpoints authenticate through signed tokens (Decision 0005) or the Access tunnel.
+The site is public. Publishing needs a signed, capped token (decision 0005); presenters get one with an access code
+(decision 0025). Listener writes go through the room service (decision 0024).
 
 ---
 
@@ -70,9 +70,8 @@ flowchart TD
 
 * **Entry point:** Desktop browser navigating to `https://<host>/`.
 * **Steps:**
-  1. Authenticates through Google IdP via Cloudflare Access.
-  2. Lands on the Lobby: views cards for 4 CC BY-SA 4.0 demo lectures (`virus`, `dataviz`, `rsa`, `qrcode`) or enters room slug.
-  3. Enters `/watch/<room>`: connected to MoQ relay, subscribes to speaker audio/video and active slide/screen track.
+  1. Lands on the Lobby: views cards for 4 CC BY-SA 4.0 demo lectures (`virus`, `dataviz`, `rsa`, `qrcode`) or enters room slug.
+  2. Enters `/watch/<room>`: connected to MoQ relay, subscribes to speaker audio/video and active slide/screen track.
 * **Acceptance Criteria:**
   - [ ] Lobby loads cleanly with no layout shift (CLS < 0.1).
   - [ ] Switching to `/watch/<room>` preserves audio/video playback state.
@@ -126,7 +125,7 @@ flowchart TD
 > I want to create a talk room with a title and access code,  
 > **So that** I get an authorized speaker URL with an allocated spend budget and an audience invitation link.
 
-* **Entry point:** Lobby "Create Talk" modal or direct API.
+* **Entry point:** Lobby "Create talk" form (decision 0025). Fallback: "Paste your speaker link".
 * **Steps:**
   1. Enters Talk Title (e.g., "Intro to Quantum Cryptography"), Room slug (`quantum-101`), and Presenter Passcode.
   2. Backend room service validates code, initializes room catalog (`talk/quantum-101/catalog`), and mints a capped publishing token (e.g., $2.00 room cap).
@@ -196,7 +195,7 @@ flowchart TD
 > **So that** I can evaluate innovation, technical execution, and user experience within 3 minutes.
 
 * **Steps:**
-  1. Opens site behind Cloudflare Access (using judge credentials).
+  1. Opens the site; uses the judge access code from the submission text to start a live room.
   2. Sees 4 CC BY-SA 4.0 EMF 2026 demo lectures looping with full 6-track AI generation.
   3. Tests **Four Architecture Moments** ([demo-moments.md](../howto/demo-moments.md)):
      - *Moment 1:* Instant track opt-in (subscribing to Arabic causes zero disruption to video).

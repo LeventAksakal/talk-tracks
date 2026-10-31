@@ -1,5 +1,7 @@
 # Roadmap to submission (from 2026-10-31)
 
+> **Scope (owner, 2026-10-30):** desktop only, Chrome first. Phone, iPhone and Safari items in this file are out of scope.
+
 Replaces the dated tables in [plan.md](plan.md) from Sat Oct 31 on. Target: **submit by Wed Nov 4, 12:00 ET (20:00
 +03)**; the hard deadline is 9 PM ET. `main` freezes **Tue Nov 3, 18:00 +03**.
 
@@ -69,6 +71,9 @@ flowchart LR
 3. Any-language translation (keep tr/es/ar).
 4. Camera in the console.
 5. Self-serve room creation falls back to links minted on the VM, shown as "Paste your speaker link".
+
+Stretch (owner, 10-31): **screen share** with ink and laser over it, built only once the core journeys are done with
+days to spare.
 
 ## Status board
 

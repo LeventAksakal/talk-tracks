@@ -1,5 +1,7 @@
 # 06 · QA and performance
 
+> **Scope (owner, 2026-10-30):** desktop only, Chrome first. Phone, iPhone and Safari items in this file are out of scope.
+
 **Status:** not started · **Session:** — · **Window:** Mon Nov 2, 12:00 → Tue Nov 3, 16:00 +03 · **Depends on:** 01
 (acceptance criteria), 03 and 04 merged and deployed · **Feeds:** 07
 
