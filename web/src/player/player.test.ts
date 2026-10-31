@@ -99,6 +99,24 @@ describe("player states", () => {
     expect(playerState({ ...base, onAir: false }).kind).toBe("ended");
     expect(playerState({ ...base, room: "paused" }).kind).toBe("paused");
   });
+
+  it("tells an unknown room from one not started, a talk seen ending from a recording, and marks a looped room", () => {
+    const nothing = { ...base, onAir: undefined, liveEdge: undefined };
+    expect(playerState({ ...nothing, known: false }).kind).toBe("unknown");
+    expect(playerState({ ...nothing, known: false }).card?.hub).toBe(true);
+    expect(playerState({ ...nothing, known: true }).kind).toBe("not-started");
+    // A room the room service knows is waiting is never unknown.
+    expect(playerState({ ...nothing, known: false, room: "waiting" }).kind).toBe("not-started");
+
+    const seen = playerState({ ...base, onAir: false, sawLive: true });
+    const later = playerState({ ...base, onAir: false });
+    expect([seen.kind, later.kind]).toEqual(["ended", "ended"]);
+    expect(seen.pill).not.toBe(later.pill);
+    expect(seen.card?.replay && later.card?.replay).toBe(true);
+
+    expect(playerState({ ...base, looped: true }).kind).toBe("live");
+    expect(playerState({ ...base, looped: true }).pill).not.toBe(playerState(base).pill);
+  });
 });
 
 describe("subtitle position", () => {

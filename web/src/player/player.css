@@ -65,13 +65,22 @@
   min-width: 0;
 }
 .tt-notice {
-  margin-left: auto;
   flex: none;
   font-size: 12px;
   color: var(--tt-color-text-muted);
   border: 1px solid var(--tt-color-line);
   border-radius: 999px;
   padding: 2px 10px;
+}
+
+.tt-notices {
+  display: flex;
+  gap: var(--tt-space-2);
+  margin-left: auto;
+}
+.tt-notice-degraded {
+  color: var(--tt-color-degraded);
+  border-color: currentColor;
 }
 
 /* --- main column: canvas over the chrome --- */
@@ -606,8 +615,7 @@
   background: #000d;
 }
 .tt-state-card strong {
-  font-size: 18px;
-  font-weight: 600;
+  font: var(--tt-weight-display) var(--tt-text-h2) / var(--tt-leading-tight) var(--tt-font-display);
 }
 .tt-state-card span {
   color: var(--tt-color-text-muted);
@@ -916,13 +924,17 @@
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
+/* The LIVE marker (brand §6): the Go-live icon and the word, both in live red; no dot. */
 .tt-pill-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
   background: none;
-  color: var(--tt-color-text);
-}
-.tt-pill-live::before {
-  content: "● ";
   color: var(--tt-color-live);
+}
+.tt-pill-live .tt-icon {
+  width: 16px;
+  height: 16px;
 }
 .tt-pill-behind {
   cursor: pointer;

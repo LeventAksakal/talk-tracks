@@ -52,18 +52,92 @@ body {
   display: none;
 }
 
-/* --- landing --- */
-.landing {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 48px var(--tt-space-4);
+/* --- the hub --- */
+.hub-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--tt-space-3) var(--tt-space-6);
+  background: color-mix(in srgb, var(--tt-color-ground) 92%, transparent);
+  border-bottom: 1px solid var(--tt-color-line);
 }
-.landing-title {
-  font-size: 2.5rem;
-  margin: 0 0 8px;
+.hub-brand {
+  font-weight: var(--tt-weight-strong);
+}
+.hub-create {
+  padding: var(--tt-space-2) var(--tt-space-4);
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-color-accent);
+  color: var(--tt-color-on-accent);
+  font-weight: var(--tt-weight-strong);
+  text-decoration: none;
+}
+.hub-main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--tt-space-10) var(--tt-space-6) var(--tt-space-12);
+}
+.hub-hero {
+  max-width: 760px;
+}
+.hub-title {
+  margin: 0 0 var(--tt-space-3);
+  font: var(--tt-weight-display) var(--tt-text-display) / var(--tt-leading-tight) var(--tt-font-display);
 }
 .lead {
   font-size: 1.15rem;
+}
+.hub-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  padding: 2px var(--tt-space-2);
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-color-live-fill);
+  color: var(--tt-color-on-live);
+  font-size: var(--tt-text-micro);
+  font-weight: var(--tt-weight-display);
+  letter-spacing: 0.04em;
+}
+.hub-live-badge .tt-icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.hub-off-air {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.hub-live-card {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tt-space-3);
+}
+.hub-recent {
+  list-style: none;
+  padding: 0;
+  margin: var(--tt-space-3) 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2) var(--tt-space-4);
+}
+.hub-recent-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-color-surface);
+}
+.hub-give h2 {
+  scroll-margin-top: 72px;
 }
 .join-form {
   display: flex;

@@ -49,10 +49,15 @@ export interface PlayerProps {
    * discussion, and the annotation tools stay hidden.
    */
   noRoomService?: string;
+  /** A recorded talk looped as if live (a demo room): its live state says so. */
+  looped?: boolean;
 }
 
 const noop = () => () => {};
 const zero = () => 0;
+
+/** A connected relay that shows nothing of a room for this long means there is no such room. */
+const UNKNOWN_AFTER_MS = 6_000;
 
 /** Controls hide after this long without the pointer moving, in full screen while playing. */
 const IDLE_MS = 3_000;
@@ -91,6 +96,8 @@ export function Player(props: PlayerProps) {
   const listening = useMemo(() => (roomService ? new Listening(roomService) : undefined), [roomService]);
   useRoomService(roomService);
   const toolsOff = listenerToolsOff(roomService?.status(), props.noRoomService);
+  // The room service is down (drawing, marks and comments wait for it); the talk itself plays on.
+  const serviceDown = roomService?.status() === "waiting" || roomService?.status() === "closed";
   const extraTabs = useMemo<ExtraTab[]>(
     () => [
       ...(roomService || toolsOff
@@ -230,6 +237,22 @@ export function Player(props: PlayerProps) {
 
   const timeline = view?.timeline;
   const onAir = media?.onAir?.() ?? (status ? status.teacherLive || undefined : undefined);
+  const roomNow = slides?.roomNow();
+  // Seen on air here, an end reads "Talk ended"; opened after it, "Recorded session".
+  const [sawLive, setSawLive] = useState(false);
+  if (!sawLive && (roomNow === "on_air" || (roomNow === undefined && onAir === true))) setSawLive(true);
+  // Nothing of the room on a connected relay for a while: no speaker, slides, agents, room catalog, room state or
+  // archive. A room created but not started has its catalog from the room service, so it reads "Not started".
+  const nothing =
+    status?.status === "connected" &&
+    !status.teacherLive &&
+    !status.slidesLive &&
+    status.agents.length === 0 &&
+    roomNow === undefined &&
+    info === undefined &&
+    media?.catalog() === undefined &&
+    timeline?.liveEdge === undefined;
+  const unknown = useHeldFor(nothing, UNKNOWN_AFTER_MS);
   const real = {
     connection: status?.status,
     everConnected: everConnected || status?.status === "connected",
@@ -240,8 +263,12 @@ export function Player(props: PlayerProps) {
     slowerPath: status?.wire === "websocket",
     speaker,
     recording: timeline ? recordingSpan(timeline) : undefined,
-    room: slides?.roomNow(),
+    room: roomNow,
     roomAt: timeline?.mode === "rewound" ? slides?.roomAt(timeline.position) : undefined,
+    sawLive,
+    looped: props.looped,
+    known: !unknown,
+    roomName: room,
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
   const at = timeline
@@ -340,7 +367,14 @@ export function Player(props: PlayerProps) {
           {speaker || props.credit ? (
             <span className="tt-credit">{[speaker, props.credit].filter(Boolean).join(" · ")}</span>
           ) : null}
-          {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
+          <span className="tt-notices">
+            {serviceDown ? (
+              <span className="tt-notice tt-notice-degraded" role="status" title={toolsOff}>
+                Room service unreachable
+              </span>
+            ) : null}
+            {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
+          </span>
         </header>
         <div className="tt-main">
           <Stage />
@@ -473,6 +507,18 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [toggleFullscreen]);
+}
+
+/** True once `on` has held for `ms` without a break; false again as soon as it breaks. */
+function useHeldFor(on: boolean, ms: number): boolean {
+  const [over, setOver] = useState(false);
+  if (!on && over) setOver(false);
+  useEffect(() => {
+    if (!on) return;
+    const timer = setTimeout(() => setOver(true), ms);
+    return () => clearTimeout(timer);
+  }, [on, ms]);
+  return on && over;
 }
 
 /**

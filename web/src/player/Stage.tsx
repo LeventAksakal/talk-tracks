@@ -1,5 +1,6 @@
 import { type CSSProperties, type KeyboardEvent, type PointerEvent, type RefObject, useRef } from "react";
 import { formatClock } from "../playback/timeline";
+import { Link } from "../router";
 import { CameraSurface } from "./CameraSurface";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
@@ -143,6 +144,11 @@ export function Stage() {
             <button type="button" className="tt-button" onClick={() => seek(view.timeline.start)}>
               Replay from the start
             </button>
+          ) : null}
+          {card.hub ? (
+            <Link href="/" className="tt-link">
+              Back to the hub
+            </Link>
           ) : null}
         </div>
       ) : null}
