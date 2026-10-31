@@ -146,6 +146,16 @@ def test_only_a_token_signed_by_the_room_key_for_the_rooms_slides_makes_the_spea
     assert covers("talk/**", f"talk/{ROOM}/slides") and not covers("talk/*", f"talk/{ROOM}/slides")
 
 
+def test_the_room_key_is_read_as_moq_auth_writes_it_or_as_plain_json(tmp_path: Path) -> None:
+    d, jwk = keypair()
+    speaker = token(d, {"put": [f"talk/{ROOM}/slides"]})
+    wrapped, plain = tmp_path / "public.jwk", tmp_path / "plain.jwk"
+    wrapped.write_text(b64(json.dumps({**jwk, "alg": "ES256", "kid": "k1"}).encode()), encoding="utf-8")
+    plain.write_text(json.dumps(jwk), encoding="utf-8")
+    assert SpeakerKey.read(wrapped).is_speaker(speaker, ROOM)
+    assert SpeakerKey.read(plain).is_speaker(speaker, ROOM)
+
+
 # --- a room with its endpoint ---------------------------------------------------------------------------------------
 
 
