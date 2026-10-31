@@ -1,7 +1,8 @@
 # The public VM (decision 0004, wiki/howto/deploy.md): Caddy, the relay behind the token auth server, the looping
 # demo room and, once the Meta key is on the box, live agents. Settings come from deploy/.env on the VM (not in git):
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
-#   TT_KEYS          folder with public.jwk (the signing key never leaves the VM)
+#   TT_KEYS          folder with public.jwk and private.jwk (the signing key never leaves the VM; only the room
+#                    service reads it, to sign the speaker token of a room created by access code)
 #   TT_DATA          folder with demo/<lecture>/ recordings and the agents' state, the spend ledger and archive/
 #   TT_LOOPER_TOKEN  signed for the demo rooms virus, dataviz, rsa and qrcode; TT_AGENT_TOKEN signed for the agents of every room
 #                    they serve
@@ -138,6 +139,9 @@ services:
   # talk/*/catalog, talk/*/comments, talk/*/annotations and talk/*/archive/**; wiki/howto/tokens.md).
   # Listeners write their ink, text marks and comments to it over a WebSocket on :8091, which Caddy proxies from
   # /api/ (decision 0024); it tells the speaker's token from a listener by the room key's public.jwk.
+  # Presenters create rooms on :8092 (POST /api/rooms, decision 0025): it checks the access code in
+  # $TT_DATA/room-codes.json (never in git; wiki/howto/tokens.md), records the room under the code's caps batch in
+  # $TT_DATA/caps/, and signs the speaker token with private.jwk.
   # Agents write their own slices into the same folder
   # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
   # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
@@ -151,10 +155,17 @@ services:
     volumes:
       - ${TT_DATA:?}:/data  # the archive, and the spend ledger read for the catalog's capped status
       - ${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro  # checks the speaker's token at the listener endpoint
+      - ${TT_KEYS:?}/private.jwk:/keys/private.jwk:ro  # signs the speaker token of a created room
     environment:
       TT_RELAY: moqt://relay:443
       TT_TOKEN: ${TT_ARCHIVE_TOKEN:-}
       TT_LISTEN: 0.0.0.0:8091
+      TT_CREATE_LISTEN: 0.0.0.0:8092
+      TT_ROOM_CODES: /data/room-codes.json  # access codes, beside the archive, never in the folder Caddy serves
+      TT_SIGNING_KEY: /keys/private.jwk
+      TT_ROOMS_DIR: /data/rooms  # each created room's title and speaker
+      TT_ROOM_TOKEN_HOURS: ${TT_ROOM_TOKEN_HOURS:-48}
+      TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # never created by code
       TT_SPEAKER_KEY: /keys/public.jwk
       TT_LISTENER_ORIGINS: https://${TT_HOST}
       TT_PROXIED: "1"
@@ -181,6 +192,22 @@ services:
   translate-ar:
     <<: *live
     command: ["translate", "--lang", "ar", "--insecure"]
+  # Any other language a listener picks (decision 0019): one lazy track per supported language in each room, which
+  # spends only while someone subscribes, against the room's cap. tr, es and ar stay with the agents above (and the
+  # demo rooms' pre-made tracks), so no track has two publishers. Unlike the others it also serves the demo rooms,
+  # where another language is translated live against that room's cap; TT_ANY_LANG_SKIP_ROOMS lists rooms it skips.
+  translate-any:
+    <<: *live
+    environment:
+      <<: *agent-env
+      TT_ROOMS: ${TT_LIVE_ROOMS:-*}
+      TT_ROOMS_EXCLUDE: ${TT_ANY_LANG_SKIP_ROOMS:-}
+      TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # their tr, es, ar are pre-made; no back-fill
+      TT_LANG_EXCLUDE: tr,es,ar
+      TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
+      TT_CAPS_DIR: /data/caps
+      TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
+    command: ["translate", "--lang", "any", "--insecure"]
   describe:
     <<: *live
     command: ["describe", "--insecure"]

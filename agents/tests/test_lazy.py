@@ -9,14 +9,14 @@ import pytest
 from numpy.typing import NDArray
 
 from talk_tracks.asr.base import AsrEvent, AsrFinal, AsrSession
-from talk_tracks.contracts import Cue
+from talk_tracks.contracts import Cue, RoomState, RoomStateRecord
 from talk_tracks.cores.captions import CaptionsCore
 from talk_tracks.cores.translate import TranslateCore
 from talk_tracks.demand import Demand, Gate, gated
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import BudgetExceededError, RoomCap, SpendLedger, room_cap
-from talk_tracks.records import cues_of
-from talk_tracks.rooms import RoomPolicy, serve_rooms
+from talk_tracks.records import cues_of, encode
+from talk_tracks.rooms import RoomPolicy, room_ended, serve_rooms
 from talk_tracks.runtime import CaptionsObject, run_captions, run_translate
 
 from .slicekit import sliced
@@ -361,6 +361,68 @@ async def test_rooms_are_served_while_their_speaker_is_on_air() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert sorted(stopped) == ["a", "a", "b"]
+
+
+def room_object(*states: tuple[int, str]) -> bytes:
+    return encode([RoomStateRecord(m=m, data=RoomState.model_validate({"state": s})) for m, s in states])
+
+
+async def test_the_end_of_a_talk_is_read_from_the_room_track_but_not_from_a_carry_in() -> None:
+    seen: list[tuple[int, int]] = []
+
+    async def joined(namespace: str, track: str) -> AsyncIterator[tuple[int, int, bytes]]:
+        assert (namespace, track) == ("talk/a/catalog", "room")
+        for group, object_id, payload in [
+            (3, 0, room_object((1_000, "ended"))),  # the talk before ended; this slice starts it again
+            (3, 1, room_object((12_000, "on_air"))),
+            (4, 0, room_object((12_000, "on_air"))),
+            (4, 1, b"not json"),
+            (4, 2, room_object((17_000, "ended"))),
+            (5, 0, room_object((17_000, "ended"))),
+        ]:
+            seen.append((group, object_id))
+            yield group, object_id, payload
+        await asyncio.Event().wait()
+
+    await asyncio.wait_for(room_ended(joined, "a"), 1)
+    assert seen[-1] == (4, 2)
+
+
+async def test_an_ended_talk_stops_its_agents_once_the_speaker_has_left_without_the_linger() -> None:
+    events: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
+    over: dict[str, asyncio.Event] = {"a": asyncio.Event(), "b": asyncio.Event()}
+    watching: list[str] = []
+    stopped: list[str] = []
+
+    async def on_air() -> AsyncIterator[tuple[str, bool]]:
+        while True:
+            yield await events.get()
+
+    async def serve(room: str) -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.append(room)
+
+    async def ended(room: str) -> None:
+        watching.append(room)
+        await over[room].wait()
+
+    task = asyncio.create_task(serve_rooms(on_air(), RoomPolicy("*"), serve, linger_s=30, ended=ended))
+    for event in [("a", True), ("b", True)]:
+        events.put_nowait(event)
+    await asyncio.sleep(0.02)
+    over["a"].set()  # a's speaker pressed End talk while still on air: nothing stops yet
+    await asyncio.sleep(0.02)
+    assert watching == [] and stopped == []
+    events.put_nowait(("a", False))  # then their broadcast went away
+    events.put_nowait(("b", False))  # b's speaker just left (a reload, or a break): b lingers
+    await asyncio.sleep(0.05)
+    assert watching == ["a", "b"] and stopped == ["a"]
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert stopped == ["a", "b"]
 
 
 async def test_a_failing_room_stops_the_process() -> None:

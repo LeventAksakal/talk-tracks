@@ -7,10 +7,17 @@
 }
 
 {$TT_HOST} {
-	# Listeners' writes (decision 0024): a WebSocket per listener to the room service. A path matcher, so it is
-	# tried before the relay's WebSocket fallback below.
+	# The room service's API, a path matcher, so it is tried before the relay's WebSocket fallback below:
+	# POST /api/rooms creates a room by access code (decision 0025) on :8092; every other /api/ path is a
+	# listener's WebSocket on /api/rooms/<room> (decision 0024) on :8091.
 	handle /api/* {
-		reverse_proxy archive:8091
+		@create path /api/rooms /api/rooms/
+		handle @create {
+			reverse_proxy archive:8092
+		}
+		handle {
+			reverse_proxy archive:8091
+		}
 	}
 
 	@ws header Connection *Upgrade*

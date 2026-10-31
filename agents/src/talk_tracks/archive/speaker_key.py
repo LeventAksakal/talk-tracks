@@ -112,6 +112,15 @@ def publish_paths(claims: dict[str, Any]) -> list[str]:
     return [f"{root}/{p.lstrip('/')}" if root else p for p in paths]
 
 
+def read_jwk(path: Path) -> dict[str, Any]:
+    """A JWK file: plain JSON, or the base64url of the JSON, which is what ``moq auth generate`` writes."""
+    text = path.read_text(encoding="utf-8").strip()
+    value: object = json.loads(text if text.startswith("{") else b64url(text))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.name} is not a JWK")
+    return cast(dict[str, Any], value)
+
+
 @dataclass(frozen=True)
 class SpeakerKey:
     """The room key's public half (``public.jwk``, EC P-256)."""
@@ -129,7 +138,7 @@ class SpeakerKey:
 
     @classmethod
     def read(cls, path: Path) -> SpeakerKey:
-        return cls.from_jwk(json.loads(path.read_text(encoding="utf-8")))
+        return cls.from_jwk(read_jwk(path))
 
     def claims(self, token: str, now_s: float | None = None) -> dict[str, Any] | None:
         """The claims of a token this key signed (ES256) that has not expired; None for any other."""

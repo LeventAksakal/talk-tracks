@@ -21,6 +21,7 @@ import { Audience } from "./Audience";
 import { type ClockState, clockState, roomNowFn, wallNowMs } from "./clock";
 import type { Deck, RenderedSlide } from "./deck";
 import { type Echo, watchEcho } from "./echo";
+import { endRoom } from "./endRoom";
 import { Invite, watchUrl } from "./Invite";
 import { type Tool, isShapeTool, keyAction } from "./keys";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
@@ -49,6 +50,8 @@ export interface ConsoleDeps {
   localEpochMs?: number;
   /** The room service's endpoint as the speaker (decision 0024): the audience's questions, reply and hide. */
   makeRoomService?: (name: string) => RoomService;
+  /** Tell the room service the talk ended (its state says "ended"); default: `endRoom` when there is a room service. */
+  endRoom?: () => Promise<boolean>;
 }
 
 type Phase = "preflight" | "on-air" | "ended";
@@ -424,6 +427,9 @@ function ConsoleView({
   };
   const [confirmEnd, setConfirmEnd] = useState(false);
   const endTalk = () => {
+    // Said first, so the room service hears "ended" before it sees the broadcast go; never waited on.
+    const end = deps.endRoom ?? (deps.makeRoomService ? () => endRoom(room, token ?? "local") : undefined);
+    void end?.();
     publisher.pointerOff();
     publisher.stop();
     media?.close();

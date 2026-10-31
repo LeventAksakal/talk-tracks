@@ -18,6 +18,7 @@ suites.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
@@ -993,7 +994,10 @@ def slice_of(room_time_ms: int) -> int:
     return max(0, room_time_ms) // SLICE_MS
 
 
+ROOM_NAME = re.compile(r"[a-z0-9-]{3,40}")  # the room-name rule, as web/src/contracts/names.ts has it
+
+
 def parse_room(room: str) -> str:
-    if not (3 <= len(room) <= 32 and all(c.islower() or c.isdigit() or c == "-" for c in room)):
-        raise ValueError(f"room must be 3-32 chars of a-z, 0-9 and '-': {room!r}")
+    if not ROOM_NAME.fullmatch(room):
+        raise ValueError(f"room must be 3-40 chars of a-z, 0-9 and '-': {room!r}")
     return room

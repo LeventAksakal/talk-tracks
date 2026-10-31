@@ -379,3 +379,17 @@ async def test_translation_agent_imports_resolve_before_it_connects(monkeypatch:
     args = cli.parse(["translate", "--relay", "moqt://127.0.0.1:4443", "--room", "room-1", "--lang", "de", "--fake"])
     with pytest.raises(ConnectionRefusedError, match="no relay"):
         await cli.serve_translate_room(args, "room-1")
+
+
+def test_any_language_skips_the_languages_a_dedicated_agent_or_a_demo_room_already_has(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On the VM, translate-any runs beside translate-tr/es/ar (TT_LANG_EXCLUDE), so no track has two publishers."""
+    monkeypatch.setenv("TT_DEMO_ROOMS", "virus,demo")
+    monkeypatch.setenv("TT_LANG_EXCLUDE", "tr, es,ar")
+    live = cli.open_languages("judge-a")
+    assert {"tr", "es", "ar"}.isdisjoint(live) and {"de", "fr", "ja"} <= set(live)
+    monkeypatch.delenv("TT_LANG_EXCLUDE")
+    assert {"tr", "es", "ar"} <= set(cli.open_languages("judge-a"))  # alone, it serves them too
+    assert {"tr", "es", "ar"}.isdisjoint(cli.open_languages("virus"))  # the demo room's are pre-made
+    assert "de" in cli.open_languages("virus")
