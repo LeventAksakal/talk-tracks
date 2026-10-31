@@ -58,7 +58,11 @@ lecture the same way when the looper starts (about a minute, before the room goe
 and sends them as the speaker's tracks ([decision 0022](../decisions/0022-the-room-service-serves-the-speakers-track-history.md)),
 `agents/src/talk_tracks/demo_slides.py`:
 
-- `deck`: one group, 0, for the room's life: its `DeckInfo`, then one JPEG `DeckImage` per slide.
+- `deck`: one group, 0, for the room's life: its `DeckInfo`, then one JPEG `DeckImage` per slide. It reaches a player
+  on the live subscription: the relay's joining FETCH for a new subscriber asks for the track's largest group, which
+  is the deck. The writer's queue holds the whole deck, written once at start while nobody subscribes; a smaller one
+  (it was 2) dropped the deck's first objects and moved the rest to groups 1, 2, …, so the joining FETCH asked for a
+  group that does not exist and the slide pane said "Loading the slide…" for good.
 - `slide`: 4 s slices; each opens with the slide on screen (the previous loop's last one at a loop's start), then a
   `show` for each slide at its time in the loop.
 - Both are on `talk/<room>/slides` and, for FETCH, on `talk/<room>/archive/slides`, where a player fetches the past
@@ -404,6 +408,13 @@ room time too: the manifest's `room_origin_ms` is the room time of the lecture's
   a first subscription that starts mid-group gets that group's tail relabelled as the next group, after which the
   real next group is dropped. The looper starts every new subscription at the next group (a first viewer waits up
   to 4 s; the slice in progress is reachable by a Joining FETCH).
+* A browser's FETCH of a group the relay has not cached (moq-lite FETCH, served upstream by a SUBSCRIBE and a FETCH
+  to the looper) fails when the group takes more than a few ms to send: the relay cancels its upstream subscription
+  at once, which resets the FETCH stream (seen 2026-10-31 on a 7-slide deck of 1.4 MB: 1 in 8 came through). Small
+  slices are unaffected; the deck must come on the live subscription (above), not by FETCH from
+  `talk/<room>/archive/slides`.
+* A looped room's room clock starts at 2026-10-01 and runs on across loops, so the player's clock shows the time
+  within the current loop (`RoomMedia.talkTime`), not room time.
 * `record` writes a new snapshot per object (an interim or a cue revision is a whole caption state), so a recording
   of the records is larger than one of the old full-state envelopes; the loop diffs it back into the same items.
 * The looper builds one loop's slices in memory at start (a few MB for a 20-minute lecture) and reads the lecture
