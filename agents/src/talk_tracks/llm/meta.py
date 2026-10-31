@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from talk_tracks.contracts import CaptionLine, Chapter, GlossaryTerm, Usage
+from talk_tracks.languages import language_name
 
 from .base import OutlineDraft
 from .ledger import SPARK_STANDARD, Prices, SpendLedger
@@ -27,8 +28,6 @@ log = logging.getLogger("talk_tracks")
 BASE_URL = "https://api.meta.ai/v1"
 MODEL = "muse-spark-1.3"  # Standard mode. Never a "-contributor" id.
 # Output caps, reasoning included (seen live on 2026-10-27: describe cut at 900, chapters at 3000). At $4.25 per
-from ..languages import LANGUAGE_NAMES, SUPPORTED_LANGUAGES, is_supported_language, language_name
-
 # million output tokens the retry caps cost at most $0.034 and $0.068 a call.
 DESCRIBE_TOKENS, DESCRIBE_RETRY_TOKENS = 2500, 8000
 OUTLINE_TOKENS, OUTLINE_RETRY_TOKENS = 6000, 16000

@@ -36,17 +36,17 @@ import os
 import signal
 import sys
 import time
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .archive.slices import Status, TrackArchive, TrackInfo
 from .contracts import CARRY_CUES, ITEMS_TRACK, OUTLINE_TRACK, AgentInfo, Usage, agent_path, parse_room
-from .live_slices import payloads
+from .languages import language_name
+from .live_slices import Produce, payloads
 from .llm.base import Llm
 from .llm.ledger import ROOM_CAP_USD, SpendLedger, room_cap
-from .languages import SUPPORTED_LANGUAGES, is_supported_language, language_name
 from .llm.queued import Priority, QueuedLlm, add_usage
 
 AGENTS = ("captions", "translate", "describe", "chapters")
@@ -205,17 +205,7 @@ def build(args: argparse.Namespace, room: str) -> Agent:
         if demo_room(room):
             return None
         queued = QueuedLlm(backfill_llm, priority, live=False)
-
-        async def produce(k: int) -> Any:
-            source = await io.relay.fetch_group(agent_path(room, "captions"), ITEMS_TRACK, k)
-            if not source:
-                raise LookupError(f"captions slice {k} is empty")
-            before = track.archive.read_local(k - 1) if k > 0 else None
-            tail = [c for p in payloads(before) for c in cues_of(p)[1]][-CARRY_CUES:] if before else []
-            async with priority.backfill():
-                return await runtime.backfill_translate(queued, lang, source, tail)
-
-        return produce
+        return translation_backfill(io.relay, room, lang, track.archive, queued, priority)
 
     async def describe(io: RoomIo, track: Any, gate: Any) -> None:
         core = SlidesCore(lang)
@@ -273,6 +263,26 @@ def build(args: argparse.Namespace, room: str) -> Agent:
     )
 
 
+def translation_backfill(
+    relay: Any, room: str, lang: str, archive: TrackArchive, llm: Llm, priority: Priority
+) -> Produce:
+    """Back-fill one translation slice ``k`` (design §5.7): translate the captions slice fetched through the relay,
+    carrying in the end of this track's slice before when the archive has it, one at a time behind live calls."""
+    from . import runtime
+    from .records import cues_of
+
+    async def produce(k: int) -> Any:
+        source = await relay.fetch_group(agent_path(room, "captions"), ITEMS_TRACK, k)
+        if not source:
+            raise LookupError(f"captions slice {k} is empty")
+        before = archive.read_local(k - 1) if k > 0 else None
+        tail = [c for p in payloads(before) for c in cues_of(p)[1]][-CARRY_CUES:] if before else []
+        async with priority.backfill():
+            return await runtime.backfill_translate(llm, lang, source, tail)
+
+    return produce
+
+
 DEMO_PREMADE_LANGUAGES = frozenset({"tr", "es", "ar"})
 
 
@@ -292,7 +302,7 @@ async def serve_translate_room(
     from .languages import SUPPORTED_LANGUAGES, is_supported_language, language_name
     from .live_slices import SlicedTrack, Watermark
     from .llm.queued import Priority, QueuedLlm, add_usage
-    from .records import cues_of, payloads
+    from .records import cues_of
     from .rooms import TALK_OVER
     from .roomtime import RoomTime
 
@@ -304,10 +314,10 @@ async def serve_translate_room(
     if languages is not None:
         target_langs = list(languages)
     elif args.lang and args.lang not in ("*", "all", "any"):
-        target_langs = [l.strip() for l in args.lang.split(",") if l.strip()]
+        target_langs = [tag.strip() for tag in args.lang.split(",") if tag.strip()]
     else:
         # Open subtitle list: in demo rooms, pre-made tr, es, ar stay; other languages run live.
-        target_langs = [l for l in SUPPORTED_LANGUAGES if not (is_demo and l in DEMO_PREMADE_LANGUAGES)]
+        target_langs = [tag for tag in SUPPORTED_LANGUAGES if not (is_demo and tag in DEMO_PREMADE_LANGUAGES)]
 
     log = logging.getLogger("talk_tracks")
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
@@ -344,20 +354,10 @@ async def serve_translate_room(
             out = await relay.publish_sliced(agent_path(room, name), ITEMS_TRACK)
             sliced = SlicedTrack(agent_info, out, archive, list, clock=clock, marks_from=False)
 
-            if is_demo:
-                produce = None
-            else:
+            produce: Produce | None = None  # never back-filled in a demo room
+            if not is_demo:
                 queued = QueuedLlm(backfill_llm, priority, live=False)
-
-                async def produce(k: int) -> Any:
-                    source = await relay.fetch_group(agent_path(room, "captions"), ITEMS_TRACK, k)
-                    if not source:
-                        raise LookupError(f"captions slice {k} is empty")
-                    before = archive.read_local(k - 1) if k > 0 else None
-                    tail = [c for p in payloads(before) for c in cues_of(p)[1]][-CARRY_CUES:] if before else []
-                    async with priority.backfill():
-                        return await runtime.backfill_translate(queued, lang, source, tail)
-
+                produce = translation_backfill(relay, room, lang, archive, queued, priority)
             out.serve(lambda k: sliced.slice(k, produce), sliced.stats, sliced.current_slice)
             gate = Gate(out.demand, grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S))
             core = TranslateCore(lang, done=seeded_cues(sliced))

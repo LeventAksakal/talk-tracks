@@ -56,6 +56,7 @@ ROOM = "talk1"
 NS = f"talk/{ROOM}/slides"
 E = 1_761_650_000_000
 
+
 class Timed(Protocol):
     @property
     def m(self) -> int: ...

@@ -7,7 +7,6 @@ Muse Spark supports translation into major world languages. Subtitle languages u
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 
 # The 50 languages supported by the Muse model for subtitle translation (decision 0019, ui-design §4.2).
 SUPPORTED_LANGUAGES: tuple[str, ...] = (
