@@ -37,6 +37,7 @@ from .contracts import (
     HANG_CATALOG_TRACK,
     INK_EVENT,
     INK_TRACK,
+    ITEMS_TRACK,
     MARKS_EVENT,
     MARKS_TRACK,
     OUTLINE_EVENT,
@@ -51,6 +52,7 @@ from .contracts import (
     Source,
     TrackStatus,
     TrackTt,
+    agent_path,
     annotations_path,
     comments_path,
     slice_template,
@@ -60,6 +62,7 @@ from .contracts import (
 from .contracts import CatalogTrack as MsfTrack
 from .contracts import RoomCatalog as MsfRoomCatalog
 from .contracts import catalog_path as catalog_path
+from .languages import language_name
 
 __all__ = [
     "CATALOG_TRACK",
@@ -70,6 +73,8 @@ __all__ = [
     "room_service_tracks",
     "speaker_sources",
     "speaker_tracks",
+    "translation_track",
+    "translation_tracks",
 ]
 
 AgentKind = Literal["captions", "translation", "slides", "outline"]
@@ -222,3 +227,38 @@ def depends_on(room: str, kind: Kind, captions: Sequence[str]) -> tuple[str, ...
     if kind in ("translation", "outline"):
         return tuple(captions)
     return ()
+
+
+def translation_track(
+    room: str,
+    lang: str,
+    captions: Sequence[str] = (),
+    *,
+    cost: Cost = "paid",
+    lateness_ms: int = 15_000,
+) -> CatalogTrack:
+    """The catalog entry for a translation track on talk/<room>/agents/translate-<lang> (decision 0019)."""
+    ns = agent_path(room, f"translate-{lang}")
+    label = f"{language_name(lang)} translation"
+    return CatalogTrack(
+        namespace=ns,
+        name=ITEMS_TRACK,
+        kind="translation",
+        lang=lang,
+        label=label,
+        lateness_ms=lateness_ms,
+        cost=cost,
+        depends_on=depends_on(room, "translation", captions),
+    )
+
+
+def translation_tracks(
+    room: str,
+    languages: Sequence[str],
+    captions: Sequence[str] = (),
+    *,
+    cost: Cost = "paid",
+    lateness_ms: int = 15_000,
+) -> tuple[CatalogTrack, ...]:
+    """Catalog entries for translation tracks in any supported languages."""
+    return tuple(translation_track(room, lang, captions, cost=cost, lateness_ms=lateness_ms) for lang in languages)

@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from talk_tracks.contracts import CARRY_CUES, Cue
+from talk_tracks.languages import is_supported_language
 from talk_tracks.records import cue_number
 
 WINDOW = 40
@@ -23,6 +24,11 @@ class TranslateCore:
     @property
     def lang(self) -> str:
         return self._lang
+
+    @property
+    def is_supported(self) -> bool:
+        """Whether this core's BCP 47 language tag is supported by Muse LLM (decision 0019)."""
+        return is_supported_language(self._lang)
 
     def pending(self, cues: Sequence[Cue]) -> list[Cue]:
         """Final caption cues newer than any translated or already requested; each one is asked for once."""

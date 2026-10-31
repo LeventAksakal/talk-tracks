@@ -46,7 +46,7 @@ from .contracts import CARRY_CUES, ITEMS_TRACK, OUTLINE_TRACK, AgentInfo, Usage,
 from .live_slices import payloads
 from .llm.base import Llm
 from .llm.ledger import ROOM_CAP_USD, SpendLedger, room_cap
-from .llm.meta import language_name
+from .languages import SUPPORTED_LANGUAGES, is_supported_language, language_name
 from .llm.queued import Priority, QueuedLlm, add_usage
 
 AGENTS = ("captions", "translate", "describe", "chapters")
@@ -153,7 +153,7 @@ def build(args: argparse.Namespace, room: str) -> Agent:
     def seeded_cues(track: Any) -> list[Any]:
         return [cue for payload in track.seed_objects() for cue in cues_of(payload)[1]]
 
-    lang: str = args.lang
+    lang: str = args.lang or "tr"
     if args.agent == "captions":
         if args.fake:
             from .asr.scripted import ScriptedAsr, demo_script
@@ -273,9 +273,164 @@ def build(args: argparse.Namespace, room: str) -> Agent:
     )
 
 
+DEMO_PREMADE_LANGUAGES = frozenset({"tr", "es", "ar"})
+
+
+async def serve_translate_room(
+    args: argparse.Namespace,
+    room: str,
+    *,
+    languages: Sequence[str] | None = None,
+) -> None:
+    """Translation agent for ``room``: serves translation tracks on demand for any supported
+    BCP 47 language tag (decision 0019). Each track is lazy and only consumes spend when subscribed.
+    In a demo room, pre-made tr, es, ar stay while other languages translate live against room cap."""
+    from . import moq, runtime
+    from .archive.slices import TrackArchive, archive_bucket
+    from .cores.translate import TranslateCore
+    from .demand import IDLE_GRACE_S, Gate, gated
+    from .languages import SUPPORTED_LANGUAGES, is_supported_language, language_name
+    from .live_slices import SlicedTrack, Watermark
+    from .llm.queued import Priority, QueuedLlm, add_usage
+    from .records import cues_of, payloads
+    from .rooms import TALK_OVER
+    from .roomtime import RoomTime
+
+    priority = Priority()
+    live_llm = make_llm(args.fake, room)
+    backfill_llm = make_llm(args.fake, room, backfill=True)
+    is_demo = demo_room(room)
+
+    if languages is not None:
+        target_langs = list(languages)
+    elif args.lang and args.lang not in ("*", "all", "any"):
+        target_langs = [l.strip() for l in args.lang.split(",") if l.strip()]
+    else:
+        # Open subtitle list: in demo rooms, pre-made tr, es, ar stay; other languages run live.
+        target_langs = [l for l in SUPPORTED_LANGUAGES if not (is_demo and l in DEMO_PREMADE_LANGUAGES)]
+
+    log = logging.getLogger("talk_tracks")
+    async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
+        room_time = RoomTime()
+        io = RoomIo(relay, room_time, moq.TeacherFeed(relay, room, room_time))
+        clock = Watermark(edge=lambda: room_time.edge)
+
+        def captions() -> AsyncGenerator[Any]:
+            return moq.follow_captions(relay, room)
+
+        tracks: dict[str, SlicedTrack] = {}
+        runners: list[asyncio.Task[None]] = []
+
+        def seeded_cues(track: SlicedTrack) -> list[Any]:
+            return [cue for payload in track.seed_objects() for cue in cues_of(payload)[1]]
+
+        async def start_language(lang: str) -> SlicedTrack | None:
+            if lang in tracks:
+                return tracks[lang]
+            if not is_supported_language(lang):
+                log.warning("unsupported translation language %r for room %s", lang, room)
+                return None
+            name = f"translate-{lang}"
+            label = f"{language_name(lang)} translation"
+            track_info = TrackInfo(
+                kind="translation",
+                label=label,
+                lang=lang,
+                depends=["captions/items"],
+                lateness_ms=TRANSLATION_LATE_MS,
+            )
+            agent_info = AgentInfo(name=name, label=label, model=live_llm.model)
+            archive = TrackArchive(room, name, ITEMS_TRACK, bucket=archive_bucket(), info=track_info)
+            out = await relay.publish_sliced(agent_path(room, name), ITEMS_TRACK)
+            sliced = SlicedTrack(agent_info, out, archive, list, clock=clock, marks_from=False)
+
+            if is_demo:
+                produce = None
+            else:
+                queued = QueuedLlm(backfill_llm, priority, live=False)
+
+                async def produce(k: int) -> Any:
+                    source = await relay.fetch_group(agent_path(room, "captions"), ITEMS_TRACK, k)
+                    if not source:
+                        raise LookupError(f"captions slice {k} is empty")
+                    before = archive.read_local(k - 1) if k > 0 else None
+                    tail = [c for p in payloads(before) for c in cues_of(p)[1]][-CARRY_CUES:] if before else []
+                    async with priority.backfill():
+                        return await runtime.backfill_translate(queued, lang, source, tail)
+
+            out.serve(lambda k: sliced.slice(k, produce), sliced.stats, sliced.current_slice)
+            gate = Gate(out.demand, grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S))
+            core = TranslateCore(lang, done=seeded_cues(sliced))
+            sliced.carry = core.carry
+
+            async def run_lang() -> None:
+                cues = gated(gate, captions, f"translate-{lang} {room}", sliced.finish)
+                llm = QueuedLlm(live_llm, priority, live=True)
+                async with contextlib.aclosing(cues) as a:
+                    await runtime.run_translate(a, llm, sliced, core)
+                await asyncio.Event().wait()  # stopped at spend cap: the track stays up and says so
+
+            def state() -> TrackState:
+                capped = sliced.capped
+                producing = not sliced.paused
+                status_str: Status = "capped" if capped else "live" if producing else "idle"
+                stats = sliced.stats
+                cost = round(add_usage(live_llm.usage, backfill_llm.usage).cost_usd, 6)
+                return status_str, producing, stats.fetches_served, stats.backfills, cost
+
+            async def status() -> None:
+                last: TrackState | None = None
+                since = 0.0
+                while True:
+                    now = state()
+                    if now != last or time.monotonic() - since >= REPORT_EVERY_S:
+                        report(archive, now)
+                        last, since = now, time.monotonic()
+                    await asyncio.sleep(0.5)
+
+            runners.append(asyncio.create_task(run_lang()))
+            runners.append(asyncio.create_task(status()))
+            runners.append(asyncio.create_task(sliced.run_clock()))
+            tracks[lang] = sliced
+            log.info("translate-%s active in room %s (lazy)", lang, room)
+            return sliced
+
+        for lang in target_langs:
+            await start_language(lang)
+
+        background = [
+            asyncio.create_task(moq.room_catalog(relay, room, room_time)),
+            asyncio.create_task(io.feed.run()),
+        ]
+
+        async def serve() -> None:
+            await asyncio.gather(*runners)
+
+        try:
+            await moq.until_closed(relay, serve())
+        except asyncio.CancelledError as exc:
+            if TALK_OVER in exc.args:
+                for sliced in tracks.values():
+                    log.info("%s: room %s is closed: End of Track", sliced.info.name, room)
+                    with contextlib.suppress(Exception):
+                        await sliced.end()
+            raise
+        finally:
+            for task in [*background, *runners]:
+                task.cancel()
+            for sliced in tracks.values():
+                with contextlib.suppress(Exception):
+                    await sliced.pause()
+                sliced.archive.close()
+
+
 async def serve_room(args: argparse.Namespace, room: str) -> None:
     """One room's agent on a connection of its own, under its stable name: its track stays published, idle until
     subscribed, and answers FETCH for its history from the archive (back-filling slices never produced)."""
+    if args.agent == "translate":
+        await serve_translate_room(args, room)
+        return
+
     from . import moq
     from .archive.slices import TrackArchive, archive_bucket
     from .demand import IDLE_GRACE_S, Gate
@@ -511,7 +666,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     args = p.parse_args(argv)
     if args.agent not in AGENTS:
         args.rooms = None
-    if args.agent not in REVISE and args.lang is None:
+    if args.agent not in REVISE and args.lang is None and args.agent != "translate":
         args.lang = "en"
     need_relay = args.agent not in REVISE
     need_room = args.agent != "resplit"
