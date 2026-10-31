@@ -5,20 +5,26 @@ import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { fold, languageOption } from "./languages";
 import { notesMarkdown } from "./notes";
+import type { TrackView } from "../playback/aiTracks";
 import type { PanelTab } from "./prefs";
 import { chapterAt } from "./timeline";
 import { translationFor } from "./tracks";
 
+// Chat (ticket 0021) goes first in this list once the owner settles how it is published; it is a panel like the
+// others, subscribed while open. Comments on a replay join the Discussion tab.
 const TABS: [PanelTab, string][] = [
   ["transcript", "Transcript"],
   ["chapters", "Chapters"],
   ["glossary", "Glossary"],
+  ["descriptions", "Slides"],
   ["notes", "Notes"],
 ];
 
 /**
  * The side panel (ui-design §4.6), beside the player, never over it: Transcript, Chapters (So far on top),
- * Glossary and Notes, plus any extra tab a later lane adds (Discussion).
+ * Glossary, Slides (each slide's description) and Notes, plus any extra tab a later lane adds (Discussion). A tab
+ * is a subscription (decision 0026): its track is subscribed while it is open, so each says when it is starting
+ * from now or loading what came before.
  */
 export function SidePanel() {
   const { prefs, update, extraTabs } = usePlayer();
@@ -66,6 +72,7 @@ export function SidePanel() {
         {current === "transcript" ? <Transcript /> : null}
         {current === "chapters" ? <Chapters /> : null}
         {current === "glossary" ? <Glossary /> : null}
+        {current === "descriptions" ? <Descriptions /> : null}
         {current === "notes" ? <Notes /> : null}
         {extra ? extra.content : null}
       </div>
@@ -73,15 +80,29 @@ export function SidePanel() {
   );
 }
 
-function TurnOn({ text, label, onClick }: { text: string; label: string; onClick: () => void }) {
-  return (
-    <div className="tt-empty">
-      <p>{text}</p>
-      <button type="button" className="tt-button" onClick={onClick}>
-        {label}
-      </button>
-    </div>
-  );
+/**
+ * Where a tab's track stands (decision 0026: a panel is a subscription): subscribing, loading what came before the
+ * playhead, or starting from now and filling as the talk goes. Nothing once it has something to show.
+ */
+function TrackStatus({ track, what, empty }: { track: TrackView; what: string; empty: boolean }) {
+  const { view } = usePlayer();
+  const live = view.timeline.mode === "live";
+  const text = !track.enabled
+    ? `Subscribing to the ${what}…`
+    : track.sliced?.capped
+      ? `The ${what} is unavailable right now.`
+      : track.loading || (track.sliced && !track.sliced.loaded)
+        ? `Loading the ${what} so far…`
+        : empty && live
+          ? `Starting from now: the ${what} fills in as the talk goes.`
+          : empty
+            ? `Nothing in the ${what} up to here.`
+            : undefined;
+  return text ? (
+    <p className="tt-muted tt-track-status" role="status">
+      {text}
+    </p>
+  ) : null;
 }
 
 function Seek({ ms, children }: { ms: number; children?: ReactNode }) {
@@ -96,7 +117,7 @@ function Seek({ ms, children }: { ms: number; children?: ReactNode }) {
 // --- transcript ------------------------------------------------------------------------------------
 
 function Transcript() {
-  const { tracks, prefs, update, ui, setUi } = usePlayer();
+  const { tracks, prefs, ui, setUi } = usePlayer();
   const captions = tracks.captions;
   const search = useRef<HTMLInputElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -122,18 +143,11 @@ function Transcript() {
   }, [following, last?.id, last?.text, shown.length]);
 
   if (!captions) return <p className="tt-empty">This room has no transcript yet.</p>;
-  if (!captions.enabled)
-    return (
-      <TurnOn
-        text="The transcript is the captions track, line by line."
-        label="Show the transcript"
-        onClick={() => update({ transcript: true })}
-      />
-    );
 
   const transLang = translation?.lang ?? prefs.subtitleLang;
   return (
     <div className="tt-transcript">
+      <TrackStatus track={captions} what="transcript" empty={lines.length === 0} />
       <input
         ref={search}
         className="tt-input"
@@ -160,9 +174,7 @@ function Transcript() {
           setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
         }}
       >
-        {shown.length === 0 ? (
-          <p className="tt-muted">{query ? "No line matches." : "Lines appear here as the speaker talks."}</p>
-        ) : null}
+        {shown.length === 0 && query ? <p className="tt-muted">No line matches.</p> : null}
         {shown.map((l) => (
           <TranscriptLine
             key={l.id}
@@ -214,19 +226,11 @@ function TranscriptLine({
 // --- chapters --------------------------------------------------------------------------------------
 
 function Chapters() {
-  const { tracks, prefs, update, at, view } = usePlayer();
+  const { tracks, at, view } = usePlayer();
   const outline = tracks.outline;
   if (!outline) return <p className="tt-empty">This room has no chapters yet.</p>;
-  if (!prefs.chapters || !outline.enabled)
-    return (
-      <TurnOn
-        text="Chapters, a recap so far and a glossary, written as the talk goes."
-        label="Turn on chapters"
-        onClick={() => update({ chapters: true })}
-      />
-    );
-  const o = outline.outline;
-  if (!o) return <p className="tt-muted">Waiting for the first chapter…</p>;
+  const o = outline.enabled ? outline.outline : undefined;
+  if (!o || o.chapters.length === 0) return <TrackStatus track={outline} what="chapters" empty />;
   const current = chapterAt(o.chapters, at);
   const lang = outline.lang ?? "en";
   const live = view.timeline.mode === "live";
@@ -261,19 +265,13 @@ function Chapters() {
 // --- glossary --------------------------------------------------------------------------------------
 
 function Glossary() {
-  const { tracks, prefs, update } = usePlayer();
+  const { tracks } = usePlayer();
   const outline = tracks.outline;
   if (!outline) return <p className="tt-empty">This room has no glossary yet.</p>;
-  if (!prefs.chapters || !outline.enabled)
-    return (
-      <TurnOn
-        text="Terms from the talk with their definitions, A to Z."
-        label="Turn on chapters and glossary"
-        onClick={() => update({ chapters: true })}
-      />
-    );
-  const terms = [...(outline.outline?.glossary ?? [])].sort((a, b) => a.term.localeCompare(b.term));
-  if (terms.length === 0) return <p className="tt-muted">No terms yet.</p>;
+  const terms = outline.enabled
+    ? [...(outline.outline?.glossary ?? [])].sort((a, b) => a.term.localeCompare(b.term))
+    : [];
+  if (terms.length === 0) return <TrackStatus track={outline} what="glossary" empty />;
   const lang = outline.lang ?? "en";
   return (
     <dl className="tt-glossary" lang={lang} dir={dirOf(lang)}>
@@ -284,6 +282,32 @@ function Glossary() {
         </div>
       ))}
     </dl>
+  );
+}
+
+// --- slide descriptions ----------------------------------------------------------------------------
+
+/** Each slide's description up to the playhead, the one on screen first: the slides as text. */
+function Descriptions() {
+  const { tracks } = usePlayer();
+  const describe = tracks.describe;
+  if (!describe) return <p className="tt-empty">This room has no slide descriptions yet.</p>;
+  const slides = describe.enabled ? (describe.sliced?.slides ?? []) : [];
+  const current = describe.enabled ? describe.sliced?.slide : undefined;
+  const lang = describe.lang ?? "en";
+  if (slides.length === 0) return <TrackStatus track={describe} what="slide descriptions" empty />;
+  return (
+    <ol className="tt-chapter-list tt-descriptions" lang={lang} dir={dirOf(lang)} aria-label="Slide descriptions">
+      {[...slides].reverse().map((s) => (
+        <li key={`${s.id}:${s.atMs}`} aria-current={current?.id === s.id && current.atMs === s.atMs}>
+          <Seek ms={s.atMs} />
+          <div>
+            <strong>Slide {s.id + 1}</strong>
+            <p>{s.description}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

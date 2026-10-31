@@ -3,14 +3,10 @@ import { formatClock } from "../playback/timeline";
 import { CameraSurface } from "./CameraSurface";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
-import { clamp, type Fraction, type LayoutKind, type Prefs, type SourceKind } from "./prefs";
+import { clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
 import { SlideSurface } from "./SlideSurface";
 import { StatsForNerds } from "./StatsForNerds";
 import { SubtitleOverlay } from "./SubtitleOverlay";
-
-/** Default corner of the picture-in-picture window (top-left, fractions of the canvas). */
-const PIP_DEFAULT: Fraction = { x: 0.71, y: 0.68 };
-const PIP_WIDTH = 0.27;
 
 /** The layout actually shown: one source means single, whatever the preference. */
 export function effectiveLayout(layout: LayoutKind, sources: readonly SourceKind[]): LayoutKind {
@@ -29,32 +25,41 @@ export function sourceShown(
 }
 
 /**
- * The canvas (ui-design §3.1–§3.2): the sources in the chosen layout (single, split with a draggable divider,
- * picture-in-picture with a draggable window, swap), and over them the subtitles, "What you missed", Stats for
- * nerds and the state cards of §5. Both source tiles stay mounted in one place in every layout (CSS moves
- * them), so the live canvas is never re-created.
+ * The canvas (ui-design §3.1–§3.2, decision 0026): by default the slides fill it and the camera sits in a corner
+ * tile the listener can drag, resize or swap; with no deck the camera fills it; side by side (a draggable divider)
+ * and one at a time are options. Over them the subtitles, "What you missed", Stats for nerds and the state cards of
+ * §5. Both source tiles stay mounted in one place in every layout (CSS moves them), so the live canvas is never
+ * re-created.
  */
 export function Stage() {
-  const { prefs, update, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
+  const { prefs, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
   const stage = useRef<HTMLDivElement>(null);
   const layout = effectiveLayout(prefs.layout, sources);
   const hasCamera = sources.includes("camera");
   const hasSlides = sources.includes("slides");
-  // Which source is "first": the left one in split, the small one in picture-in-picture.
+  // Which source is "first": the left one in split, the corner tile in the default layout.
   const first: SourceKind = prefs.swap ? "slides" : "camera";
   const shown = (kind: SourceKind) => sourceShown(kind, prefs, sources);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 
-  const pip = prefs.pipPos ?? PIP_DEFAULT;
-  const style = { "--split": prefs.split, "--pip-x": pip.x, "--pip-y": pip.y, "--pip-w": PIP_WIDTH } as CSSProperties;
+  const pip = prefs.pipPos;
+  const style = {
+    "--split": prefs.split,
+    "--pip-w": prefs.pipWidth,
+    ...(pip ? { "--pip-x": pip.x, "--pip-y": pip.y } : {}),
+  } as CSSProperties;
   const card = state.card;
   const needsGesture = media !== undefined && !ui.playing && view.timeline.mode === "live" && !card;
+  const corner = (kind: SourceKind) =>
+    layout === "pip" && role(kind) === "small" ? <CornerTools stageRef={stage} kind={kind} /> : null;
 
   return (
     <div
       ref={stage}
-      className={`tt-stage tt-layout-${layout}${prefs.swap ? " tt-swapped" : ""}${card?.dim ? " tt-dimmed" : ""}`}
+      className={`tt-stage tt-layout-${layout}${prefs.swap ? " tt-swapped" : ""}${pip ? " tt-pip-placed" : ""}${
+        card?.dim ? " tt-dimmed" : ""
+      }`}
       style={style}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -63,14 +68,14 @@ export function Stage() {
     >
       {hasCamera ? (
         <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
-          {layout === "pip" && role("camera") === "small" ? <PipHandle stageRef={stage} /> : null}
+          {corner("camera")}
           <CameraSurface />
         </div>
       ) : null}
       {layout === "split" ? <SplitDivider stageRef={stage} /> : null}
       {hasSlides ? (
         <div className={`tt-cell tt-cell-slides tt-cell-${role("slides")}${shown("slides") ? "" : " tt-hidden"}`}>
-          {layout === "pip" && role("slides") === "small" ? <PipHandle stageRef={stage} /> : null}
+          {corner("slides")}
           <SlideSurface />
         </div>
       ) : null}
@@ -89,18 +94,16 @@ export function Stage() {
             type="button"
             className="tt-link"
             onClick={() => {
-              update({ chapters: true });
               openTab("chapters");
               playback.dismissMissed();
             }}
           >
-            Show
+            Chapters
           </button>
           <button
             type="button"
             className="tt-link"
             onClick={() => {
-              update({ transcript: true });
               openTab("transcript");
               playback.dismissMissed();
             }}
@@ -194,35 +197,87 @@ function SplitDivider({ stageRef }: { stageRef: RefObject<HTMLDivElement | null>
   );
 }
 
-/** Drag the picture-in-picture window anywhere on the canvas; it is kept inside. */
-function PipHandle({ stageRef }: { stageRef: RefObject<HTMLDivElement | null> }) {
+/** The corner tile's box as fractions of the stage, read from where it is drawn (its default place is CSS's). */
+function tileBox(tile: Element | null | undefined, rect: DOMRect): { x: number; y: number; w: number; h: number } {
+  const t = tile?.getBoundingClientRect();
+  if (!t || rect.width === 0 || rect.height === 0) return { x: 0, y: 0, w: 0, h: 0 };
+  return {
+    x: (t.left - rect.left) / rect.width,
+    y: (t.top - rect.top) / rect.height,
+    w: t.width / rect.width,
+    h: t.height / rect.height,
+  };
+}
+
+/**
+ * The corner tile's tools (decision 0026): drag it anywhere on the stage, drag its grip to resize it (the opposite
+ * corner stays put), swap it with the main picture (the button, or a double click). It is kept inside the stage.
+ */
+function CornerTools({ stageRef, kind }: { stageRef: RefObject<HTMLDivElement | null>; kind: SourceKind }) {
   const { prefs, update } = usePlayer();
-  const drag = useRef<{ x: number; y: number; from: Fraction } | undefined>(undefined);
-  const from = prefs.pipPos ?? PIP_DEFAULT;
+  const drag = useRef<
+    { mode: "move" | "size"; x: number; y: number; box: { x: number; y: number; w: number; h: number } } | undefined
+  >(undefined);
+  const start = (mode: "move" | "size", e: PointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { mode, x: e.clientX, y: e.clientY, box: tileBox(e.currentTarget.closest(".tt-cell"), rect) };
+  };
+  const move = (e: PointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!d || !rect || rect.width === 0 || rect.height === 0 || d.box.w === 0) return;
+    const dx = (e.clientX - d.x) / rect.width;
+    const dy = (e.clientY - d.y) / rect.height;
+    const ratio = d.box.h / d.box.w;
+    if (d.mode === "move") {
+      update({
+        pipPos: { x: clamp(d.box.x + dx, 0, 1 - d.box.w), y: clamp(d.box.y + dy, 0, Math.max(0, 1 - d.box.h)) },
+      });
+      return;
+    }
+    // The grip is the top-left corner: dragging it out grows the tile, its bottom-right corner fixed.
+    const right = d.box.x + d.box.w;
+    const bottom = d.box.y + d.box.h;
+    const grow = Math.max(-dx, -dy / ratio);
+    const w = clamp(d.box.w + grow, PIP_WIDTH.min, Math.min(PIP_WIDTH.max, right, bottom / ratio));
+    update({ pipWidth: w, pipPos: { x: right - w, y: bottom - w * ratio } });
+  };
+  const end = () => (drag.current = undefined);
+  const swap = () => update({ swap: !prefs.swap });
+  const other = kind === "camera" ? "slides" : "camera";
   return (
-    <div
-      className="tt-pip-handle"
-      title="Drag to move"
-      aria-hidden="true"
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        drag.current = { x: e.clientX, y: e.clientY, from };
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current;
-        const rect = stageRef.current?.getBoundingClientRect();
-        if (!d || !rect || rect.width === 0 || rect.height === 0) return;
-        const smallH = (PIP_WIDTH * rect.width * 9) / 16 / rect.height;
-        update({
-          pipPos: {
-            x: clamp(d.from.x + (e.clientX - d.x) / rect.width, 0, 1 - PIP_WIDTH),
-            y: clamp(d.from.y + (e.clientY - d.y) / rect.height, 0, Math.max(0, 1 - smallH)),
-          },
-        });
-      }}
-      onPointerUp={() => (drag.current = undefined)}
-      onPointerCancel={() => (drag.current = undefined)}
-    />
+    <>
+      <div
+        className="tt-pip-handle"
+        title="Drag to move · double-click to swap"
+        aria-hidden="true"
+        onPointerDown={(e) => start("move", e)}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onDoubleClick={swap}
+      />
+      <span
+        className="tt-pip-grip"
+        title="Drag to resize"
+        aria-hidden="true"
+        onPointerDown={(e) => start("size", e)}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+      />
+      <button
+        type="button"
+        className="tt-icon-button tt-small tt-pip-swap"
+        aria-label={`Swap: ${other} in the corner`}
+        onClick={swap}
+      >
+        <Icon name="swap" />
+      </button>
+    </>
   );
 }

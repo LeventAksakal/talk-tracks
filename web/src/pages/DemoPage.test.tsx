@@ -53,13 +53,17 @@ describe("/demo in the player", () => {
     expect(screen.getByText(/You missed/)).toBeTruthy();
   });
 
-  it("shows the speaker's slide with its marks, and a rewind shows an earlier slide as it was then", async () => {
+  it("shows the speaker's slide with its marks, the audience's only with Discussion open, and a rewind as it was then", async () => {
     render(<DemoPage />);
     await advance(300);
     const slide = () => document.querySelector<HTMLImageElement>(".tt-slide-image")?.dataset.slide;
     const marks = () => [...document.querySelectorAll(".tt-textmark")].map((m) => m.classList[1]);
-    // Live at 2:30: the fifth slide, underlined and highlighted by the speaker and a listener.
+    // Live at 2:30: the fifth slide, underlined and highlighted by the speaker.
     expect(slide()).toBe("5");
+    expect(marks()).toEqual(["tt-textmark-underline", "tt-textmark-highlight"]);
+    // A listener's highlight too, once the listener shows the audience's marks (slide comments are supplementary).
+    fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
+    await advance(300);
     expect(marks()).toEqual(["tt-textmark-underline", "tt-textmark-highlight", "tt-textmark-highlight"]);
 
     // Back 40 s, into the fourth slide's showing: its title underlined by then, from that slice alone.
@@ -69,11 +73,11 @@ describe("/demo in the player", () => {
     expect(marks()).toContain("tt-textmark-underline");
   });
 
-  it("turns chapters on from the side panel, puts them on the bar, and seeks from the list", async () => {
+  it("subscribes chapters by opening their tab, puts them on the bar, and seeks from the list", async () => {
     render(<DemoPage />);
     await advance(100);
+    expect(document.querySelectorAll(".tt-seg").length).toBe(1);
     fireEvent.click(screen.getByRole("tab", { name: "Chapters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Turn on chapters" }));
     await advance(2_000);
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getByText("Introduction")).toBeTruthy();

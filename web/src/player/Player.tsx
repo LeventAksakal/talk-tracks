@@ -12,7 +12,7 @@ import { type ExtraTab, INITIAL_UI, type PlayerCtx, PlayerContext, type UiState 
 import { ControlBar } from "./ControlBar";
 import { Discussion } from "./Discussion";
 import { FrameClock } from "./frameClock";
-import { Listening, useRoomService } from "./listening";
+import { Listening, useListening, useRoomService } from "./listening";
 import { useNotes } from "./notes";
 import "./player.css";
 import { type PanelTab, type SourceKind, usePrefs } from "./prefs";
@@ -22,7 +22,7 @@ import { SidePanel } from "./SidePanel";
 import type { SlideTracks } from "./slideTracks";
 import { sourceShown, Stage } from "./Stage";
 import { forcedInput, playerState, type PlayerStateKind } from "./state";
-import { roomTracks, wantedSlideTracks, wantedTracks } from "./tracks";
+import { Linger, roomTracks, openTab as shownTab, wantedSlideTracks, wantedTracks } from "./tracks";
 
 export interface PlayerProps {
   playback: Playback;
@@ -60,8 +60,8 @@ const IDLE_MS = 3_000;
 /**
  * The media player (ui-design §3–§4.8, decision 0020): title bar, the canvas with its sources and overlays,
  * the progress bar and control bar, the side panel. It shows the room's state at the playhead from all its
- * tracks, live or rewound, through the playback layer; every AI feature is a player feature the viewer turns
- * on, remembered on this device.
+ * tracks, live or rewound, through the playback layer. Every AI feature is a player feature with no switch: a
+ * subtitle language picked, a panel open or a sound chosen subscribes its track (decision 0026).
  */
 export function Player(props: PlayerProps) {
   const { playback, room, transport, forceState, slides } = props;
@@ -126,13 +126,22 @@ export function Player(props: PlayerProps) {
     // The catalog arrives with media changes, which re-render through the view.
   }, [props.sources, media, status?.slidesLive, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The tracks the viewer's features need are exactly the ones subscribed (decision 0010). The slides count as
-  // on while the layout shows them; the room's state is always read.
-  const wanted = useMemo(() => wantedTracks(prefs, tracks), [prefs, tracks]);
+  // What is picked and open decides what is subscribed (decisions 0010, 0026), and a track let go lingers 30 s.
+  // The slides count as on while the layout shows them; the audience's ink and marks while the listener shows
+  // them (the Discussion tab or their own tools); the room's state is always read.
+  const tab = shownTab(prefs);
+  const wanted = useMemo(
+    () => wantedTracks(prefs, tracks, tab),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the fields wantedTracks reads
+    [prefs.cc, prefs.subtitleLang, prefs.dual, prefs.sound, tracks, tab],
+  );
+  const held = useLingered(wanted);
   const slidesShown = sourceShown("slides", prefs, sources);
+  const annotating = useListening(listening)?.annotating ?? false;
+  const audienceShown = tab === DISCUSSION_TAB || annotating;
   useEffect(() => {
-    slides?.setWanted(wantedSlideTracks(slidesShown, prefs));
-  }, [slides, slidesShown, prefs]);
+    slides?.setWanted(wantedSlideTracks(slidesShown, audienceShown));
+  }, [slides, slidesShown, audienceShown]);
   // The slide tracks follow the frame on screen (the playhead while rewound media opens).
   useEffect(() => {
     if (!slides) return;
@@ -157,10 +166,10 @@ export function Player(props: PlayerProps) {
   const trackIds = (view?.tracks.tracks ?? []).map((t) => `${t.id}:${t.enabled}`).join(",");
   useEffect(() => {
     for (const t of playback.tracks.getSnapshot().tracks) {
-      const want = wanted.has(t.id);
+      const want = held.has(t.id);
       if (t.enabled !== want) playback.tracks.setEnabled(t.id, want);
     }
-  }, [playback, wanted, trackIds]);
+  }, [playback, held, trackIds]);
 
   const announce = useCallback(
     (message: string) => {
@@ -270,7 +279,7 @@ export function Player(props: PlayerProps) {
     announce(`Bookmark at ${formatClock(media ? media.talkTime(at) : at)}`);
   }, [at, slideNumber, notes, announce, media]);
 
-  useReadAloud(prefs.describe === "speak", tracks.describe?.sliced?.slide, timeline?.mode === "live");
+  useReadAloud(prefs.sound === "describe", tracks.describe?.sliced?.slide, timeline?.mode === "live");
 
   const ctx: PlayerCtx | undefined =
     view && timeline
@@ -292,6 +301,7 @@ export function Player(props: PlayerProps) {
           sources,
           slides,
           slidesShown,
+          audienceShown,
           slideNumber,
           extraTabs,
           // Listener tools only while the room service can take writes (or is still connecting).
@@ -446,7 +456,7 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
           setUi((u) => ({ focusNote: u.focusNote + 1 }));
           break;
         case "/":
-          update({ panel: true, tab: "transcript", transcript: true });
+          update({ panel: true, tab: "transcript" });
           setUi((u) => ({ focusSearch: u.focusSearch + 1 }));
           break;
         case "?":
@@ -465,7 +475,29 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
   }, [toggleFullscreen]);
 }
 
-/** Settings → Slide descriptions → Read aloud: each new slide's description, live, in the browser's voice. */
+/**
+ * The tracks to keep subscribed: the wanted ones and those let go less than LINGER_MS ago (tracks.ts), re-read when
+ * the next one is due to go.
+ */
+function useLingered(wanted: Set<string>): Set<string> {
+  const [linger] = useState(() => new Linger());
+  const [held, setHeld] = useState(() => new Set(wanted));
+  const key = [...wanted].sort().join("\n");
+  useEffect(() => {
+    const want = new Set(key ? key.split("\n") : []);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = () => {
+      const { held: now, next } = linger.hold(want, Date.now());
+      setHeld((prev) => (prev.size === now.size && [...now].every((id) => prev.has(id)) ? prev : now));
+      if (next !== undefined) timer = setTimeout(run, Math.max(0, next - Date.now()) + 10);
+    };
+    timer = setTimeout(run, 0);
+    return () => clearTimeout(timer);
+  }, [linger, key]);
+  return held;
+}
+
+/** Sound → Speaker and slide descriptions: each new slide's description, live, read aloud in the browser's voice. */
 function useReadAloud(on: boolean, slide: { id: number; description: string } | undefined, live: boolean): void {
   const spoken = useRef<number | undefined>(undefined);
   useEffect(() => {

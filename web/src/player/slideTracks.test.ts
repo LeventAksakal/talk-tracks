@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { catalogPath, ROOM_TRACK, slidesPath } from "../contracts/names";
 import type { InkElement, InkStroke, Point, RoomStateRecord, TextRun } from "../contracts/types";
 import { FakeHistorySource } from "../playback/fakeSource";
-import { DEFAULT_PREFS } from "./prefs";
 import { DemoSlides } from "./demoSlides";
 import { drawInk, markBoxes } from "./overlays";
 import { historyPath, SlideTracks } from "./slideTracks";
@@ -10,7 +9,7 @@ import { playerState } from "./state";
 import { wantedSlideTracks } from "./tracks";
 
 const ROOM = "r1";
-const ALL = wantedSlideTracks(true, DEFAULT_PREFS);
+const ALL = wantedSlideTracks(true, true);
 /** Showing n of the demo starts at S(n); slide index n mod 8. */
 const S = (n: number) => 2_000 + 30_000 * n;
 
@@ -130,12 +129,12 @@ describe("slides, ink, marks and laser at a time t", () => {
   it("subscribes nothing of the slides until they are on screen, and the audience's only when wanted", () => {
     const { slides, source } = demoRoom(60_000);
     const subscribed = () => source.subscriptions.map((s) => `${s.path.split("/").slice(2).join("/")}/${s.track}`);
-    slides.setWanted(wantedSlideTracks(false, DEFAULT_PREFS));
+    slides.setWanted(wantedSlideTracks(false, false));
     expect(subscribed()).toEqual(["catalog/room"]);
-    slides.setWanted(wantedSlideTracks(true, { annotations: "speaker" }));
+    slides.setWanted(wantedSlideTracks(true, false));
     expect(subscribed()).not.toContain("annotations/ink");
     expect(subscribed()).toContain("slides/ink");
-    slides.setWanted(wantedSlideTracks(false, DEFAULT_PREFS));
+    slides.setWanted(wantedSlideTracks(false, false));
     expect(source.subscriberCount(slidesPath(ROOM), "ink")).toBe(0);
   });
 

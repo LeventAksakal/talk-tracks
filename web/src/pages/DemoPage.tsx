@@ -72,6 +72,7 @@ export function DemoPage() {
       }
       sources={["camera", "slides"]}
       forceState={forceState}
+      noRoomService="This is the offline demo, with no room service, so you cannot draw, mark or comment here. A scripted listener's marks show on the slides while this tab is open."
     />
   );
 }

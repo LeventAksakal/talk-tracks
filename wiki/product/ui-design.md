@@ -41,7 +41,7 @@ extra work.
 | S1 | Prepare | Know I will be heard and seen before going live. |
 | S2 | Invite | Get the audience in (projected QR, link). |
 | S3 | Deliver | Talk, show slides, draw on them, point, share my screen, with little attention on the tool. |
-| S4 | Know it works | Who is watching, which features they use, cost against the cap, failures. |
+| S4 | Know it works | Who is watching, which features they use, failures. |
 | S5 | Finish | End cleanly, never by accident. |
 
 ### Evaluator (judge)
@@ -173,7 +173,7 @@ Default, Large, High contrast (yellow on black), Light box. Remembered per brows
 show lighter than final ones; an option hides interim words for listeners who find them distracting.
 
 **States:** off; starting (about 1 s); live; behind (`4 s`); nothing said yet ("Subtitles start when the speaker
-speaks"); stale (no output for 30 s); capped ("Subtitles paused: the room's budget is reached").
+speaks"); stale (no output for 30 s); capped ("Subtitles are unavailable right now"; money is never shown, decision 0026).
 
 ### 4.2 Subtitle language (translation)
 
@@ -185,8 +185,7 @@ Translation is a subtitle language, nothing more.
 - **Right-to-left** languages render in their own block with `dir="rtl"` and their `lang`; the player UI stays as it is.
 - **In the demo:** Arabic, or any language the judge picks.
 - **States** as subtitles, plus: "Translating earlier part…" when you rewind past where you turned it on (the agent
-  back-fills, [moq-track-system §5.7](../design/moq-track-system.md)); "Earlier translation not available: room
-  budget reached".
+  back-fills, [moq-track-system §5.7](../design/moq-track-system.md)); "Earlier translation unavailable right now".
 
 Architecture consequence: see [§10](#10-what-this-changes-outside-the-ui) (any target language means a translation
 track per requested language, created on demand).
@@ -248,7 +247,7 @@ Keyboard shortcuts · **Stats for nerds**.
 
 A translucent panel over the canvas, the way video players show playback stats, opened from Settings or a
 right-click on the player. Per track: producing or idle, subscribers, delay, FETCHes served by the agent vs by the
-relay cache, back-fills, spend against the cap; plus the connection (WebTransport or WebSocket fallback, round-trip
+relay cache, back-fills (no money: decision 0026); plus the connection (WebTransport or WebSocket fallback, round-trip
 time). In demo rooms it can carry the four moments as a short checklist ([demo-moments.md](../howto/demo-moments.md)).
 
 ### 4.9 Comments on slides (polish layer, after the foundation)
@@ -321,7 +320,7 @@ control reachable without a pointer.
 │ [Copy link] [Show full screen]│                                                           │
 ├───────────────────────────────┴───────────────────────────────────────────────────────────┤
 │ Audience 42 · Subtitles 31 · Arabic 6 · Turkish 2 · Audio description 2 · Chapters 12      │
-│ Spend $0.42 of $5.00 ▓▓░░░░░░░░                                       alerts only when due │
+│                                                                       alerts only when due │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -343,8 +342,8 @@ control reachable without a pointer.
 - **Presenter view:** current slide, next slide and the speaker's own notes, which never leave the console. The
   speaker can jump anywhere in the deck; listeners see only the slide shown.
 - **Invite (S2):** room name large, QR, copy link, **Show full screen** to project.
-- **Audience (S4):** counts per feature, spend against the cap, alerts only when something needs action (a feature
-  stopped, 80 % of cap, connection dropped).
+- **Audience (S4):** counts per feature, alerts only when something needs action (a feature unavailable right now,
+  connection dropped). No money (decision 0026).
 - **End (S5):** Go off air pauses; End talk asks once, then shows what is kept and the room link.
 
 ## 8. Lobby
@@ -424,7 +423,7 @@ showing case material). Kept only where the stated reason holds here.
 | Title returns with the controls in fullscreen | VLC (vlc-10) | people look at the top for the title | which talk and speaker, without leaving fullscreen |
 | Side panel beside the player, never over it | VLC settings as a right sidebar (vlc-19); YouTube chat panel in fullscreen (youtube-29) | the video stays visible; no leaving fullscreen | a live talk can't pause for reading |
 | Stats for nerds as an opt-in overlay | Minecraft optional HUD info instead of the debug screen (mc-27) | the dense screen is too much for the everyday need | students never need it; judges get it one step away |
-| Each automatic feature has its own on/off | Spotify DJ gets its own controls and off (spotify-46) | it needs its own controls | AI outputs are automatic and cost money while on |
+| No switches: a feature runs while it is picked or open (decision 0026) | Spotify DJ gets its own controls and off (spotify-46) | it needs its own controls | a language pick, an open panel or a chosen sound is the control; toggle rows were dropped |
 | Phone has every feature; layout its own | parity moves (discord-13, youtube-41); separate layouts, unified style (mc-49) | the other platform has it / not stated | iPhone is a main path (WebSocket), not an edge case |
 | QR to open the room on a phone | Realtime Colors QR tab (rcv2-14) | see it on other devices quickly | the audience joins from a projected screen |
 | Comments as threads that open and close; the speaker's reply shown first | YouTube threads (youtube-23); creator's first reply under the comment (youtube-24) | follow who replies to whom; the reply is easier to find than a marker | a question and the speaker's answer are what a student scans for |
