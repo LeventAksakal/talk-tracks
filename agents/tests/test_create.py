@@ -72,7 +72,7 @@ def creation(tmp: Path, *, taken: set[str] | None = None, **over: Any) -> tuple[
         Registry(tmp / "caps", tmp / "rooms"),
         key=over.pop("key", key),
         taken=lambda room: room in held,
-        on_created=lambda *a: created.append(a),
+        on_created=lambda room, title, speaker: created.append((room, title, speaker)),
         clock=clock,
         wall=lambda: NOW,
         **over,
