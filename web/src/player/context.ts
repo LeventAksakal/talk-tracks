@@ -85,6 +85,8 @@ export interface PlayerCtx {
   seekBy(deltaMs: number): void;
   goLive(): void;
   openTab(tab: PanelTab): void;
+  /** Keep these tracks subscribed (a download gathering them) until the returned release is called. */
+  holdTracks(ids: readonly string[]): () => void;
   togglePlay(): void;
   addBookmark(): void;
   announce(message: string): void;

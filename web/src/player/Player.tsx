@@ -137,10 +137,16 @@ export function Player(props: PlayerProps) {
   // The slides count as on while the layout shows them; the audience's ink and marks while the listener shows
   // them (the Discussion tab or their own tools); the room's state is always read.
   const tab = shownTab(prefs);
+  // Tracks held for something in progress (a transcript download), on top of what is picked and open.
+  const [holds, setHolds] = useState<readonly (readonly string[])[]>([]);
+  const holdTracks = useCallback((ids: readonly string[]) => {
+    setHolds((h) => [...h, ids]);
+    return () => setHolds((h) => h.filter((x) => x !== ids));
+  }, []);
   const wanted = useMemo(
-    () => wantedTracks(prefs, tracks, tab),
+    () => new Set([...wantedTracks(prefs, tracks, tab), ...holds.flat()]),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the fields wantedTracks reads
-    [prefs.cc, prefs.subtitleLang, prefs.dual, prefs.sound, tracks, tab],
+    [prefs.cc, prefs.subtitleLang, prefs.dual, prefs.sound, tracks, tab, holds],
   );
   const held = useLingered(wanted);
   const slidesShown = sourceShown("slides", prefs, sources);
@@ -339,6 +345,7 @@ export function Player(props: PlayerProps) {
           seekBy: (ms) => seekWith(() => playback.seekBy(ms)),
           goLive: () => playback.goLive(),
           openTab,
+          holdTracks,
           togglePlay,
           addBookmark,
           announce,

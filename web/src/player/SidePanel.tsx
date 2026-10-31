@@ -9,6 +9,7 @@ import type { TrackView } from "../playback/aiTracks";
 import type { PanelTab } from "./prefs";
 import { chapterAt } from "./timeline";
 import { translationFor } from "./tracks";
+import { TranscriptDownload } from "./TranscriptDownload";
 
 // Chat (ticket 0021) goes first in this list once the owner settles how it is published; it is a panel like the
 // others, subscribed while open. Comments on a replay join the Discussion tab.
@@ -148,19 +149,22 @@ function Transcript() {
   return (
     <div className="tt-transcript">
       <TrackStatus track={captions} what="transcript" empty={lines.length === 0} />
-      <input
-        ref={search}
-        className="tt-input"
-        type="search"
-        placeholder="Search the transcript (/)"
-        aria-label="Search the transcript"
-        value={ui.search}
-        onChange={(e) => setUi({ search: e.target.value })}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setUi({ search: "" });
-          e.stopPropagation();
-        }}
-      />
+      <div className="tt-transcript-tools">
+        <input
+          ref={search}
+          className="tt-input"
+          type="search"
+          placeholder="Search the transcript (/)"
+          aria-label="Search the transcript"
+          value={ui.search}
+          onChange={(e) => setUi({ search: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setUi({ search: "" });
+            e.stopPropagation();
+          }}
+        />
+        <TranscriptDownload />
+      </div>
       {query.length >= 2 ? (
         <p className="tt-muted" role="status">
           {shown.length} line{shown.length === 1 ? "" : "s"} match, marked on the progress bar.

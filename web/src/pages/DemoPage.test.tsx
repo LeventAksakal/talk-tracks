@@ -90,6 +90,32 @@ describe("/demo in the player", () => {
     expect(screen.getByRole("slider", { name: "Position in the talk" }).getAttribute("aria-valuenow")).toBe("61");
   });
 
+  it("downloads the whole transcript so far, in one language or in all of them", async () => {
+    const saved: Blob[] = [];
+    // Slide pictures are blobs too; the transcript is the text one.
+    const create = vi.fn((b: Blob) => (b.type.startsWith("text/") && saved.push(b), "blob:x"));
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: () => undefined });
+    render(<DemoPage />);
+    await advance(30_000);
+    // The transcript tab is open by default.
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    const popover = screen.getByRole("group", { name: "Download the transcript" });
+    await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /\.txt/ })));
+    await advance(2_000);
+    expect(saved).toHaveLength(1);
+    const text = await saved[0]!.text();
+    expect(text.match(/\(\d+\)/g)!.length).toBeGreaterThan(3);
+
+    fireEvent.change(within(popover).getByRole("combobox", { name: "Language" }), { target: { value: "all" } });
+    await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /\.vtt/ })));
+    // Three languages' history, fetched slice by slice.
+    await advance(15_000);
+    expect(saved).toHaveLength(2);
+    const vtt = await saved[1]!.text();
+    expect(vtt.startsWith("WEBVTT")).toBe(true);
+    expect(vtt).toContain("<lang ar>");
+  });
+
   it("keeps a bookmark and a note in the Notes tab", async () => {
     render(<DemoPage />);
     await advance(100);
