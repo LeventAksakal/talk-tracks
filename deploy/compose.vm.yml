@@ -192,6 +192,22 @@ services:
   translate-ar:
     <<: *live
     command: ["translate", "--lang", "ar", "--insecure"]
+  # Any other language a listener picks (decision 0019): one lazy track per supported language in each room, which
+  # spends only while someone subscribes, against the room's cap. tr, es and ar stay with the agents above (and the
+  # demo rooms' pre-made tracks), so no track has two publishers. Unlike the others it also serves the demo rooms,
+  # where another language is translated live against that room's cap; TT_ANY_LANG_SKIP_ROOMS lists rooms it skips.
+  translate-any:
+    <<: *live
+    environment:
+      <<: *agent-env
+      TT_ROOMS: ${TT_LIVE_ROOMS:-*}
+      TT_ROOMS_EXCLUDE: ${TT_ANY_LANG_SKIP_ROOMS:-}
+      TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # their tr, es, ar are pre-made; no back-fill
+      TT_LANG_EXCLUDE: tr,es,ar
+      TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
+      TT_CAPS_DIR: /data/caps
+      TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
+    command: ["translate", "--lang", "any", "--insecure"]
   describe:
     <<: *live
     command: ["describe", "--insecure"]

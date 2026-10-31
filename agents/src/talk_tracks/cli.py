@@ -286,6 +286,19 @@ def translation_backfill(
 DEMO_PREMADE_LANGUAGES = frozenset({"tr", "es", "ar"})
 
 
+def open_languages(room: str, exclude: str | None = None) -> list[str]:
+    """The languages ``--lang any`` serves in ``room``: every supported one, but not the demo rooms' pre-made tr, es
+    and ar, nor those in ``exclude`` (default ``TT_LANG_EXCLUDE``, comma-separated: the languages a dedicated agent
+    serves, so no track has two publishers)."""
+    from .languages import SUPPORTED_LANGUAGES
+
+    raw = os.environ.get("TT_LANG_EXCLUDE", "") if exclude is None else exclude
+    skip = {tag.strip() for tag in raw.split(",") if tag.strip()}
+    if demo_room(room):
+        skip |= DEMO_PREMADE_LANGUAGES
+    return [tag for tag in SUPPORTED_LANGUAGES if tag not in skip]
+
+
 async def serve_translate_room(
     args: argparse.Namespace,
     room: str,
@@ -299,7 +312,7 @@ async def serve_translate_room(
     from .archive.slices import TrackArchive, archive_bucket
     from .cores.translate import TranslateCore
     from .demand import IDLE_GRACE_S, Gate, gated
-    from .languages import SUPPORTED_LANGUAGES, is_supported_language, language_name
+    from .languages import is_supported_language, language_name
     from .live_slices import SlicedTrack, Watermark
     from .llm.queued import Priority, QueuedLlm, add_usage
     from .records import cues_of
@@ -317,7 +330,7 @@ async def serve_translate_room(
         target_langs = [tag.strip() for tag in args.lang.split(",") if tag.strip()]
     else:
         # Open subtitle list: in demo rooms, pre-made tr, es, ar stay; other languages run live.
-        target_langs = [tag for tag in SUPPORTED_LANGUAGES if not (is_demo and tag in DEMO_PREMADE_LANGUAGES)]
+        target_langs = open_languages(room)
 
     log = logging.getLogger("talk_tracks")
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
