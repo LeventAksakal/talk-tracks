@@ -202,7 +202,7 @@ flowchart TD
      - *Moment 2:* MoQ Relay cache hit (seeking back loads from relay cache with 0ms LLM spend).
      - *Moment 3:* Hard spend ceiling & agent failover.
      - *Moment 4:* Replay of interactive ink and slide descriptions.
-  4. Opens **Stats for Nerds** overlay: inspects active MoQ tracks, WebTransport vs WebSocket fallback, relay cache hit ratio, and live ledger spend ($4.65 spent against $100 cap).
+  4. Opens **Stats for Nerds** overlay: inspects active MoQ tracks, WebTransport vs WebSocket fallback, relay cache hit ratio and lazy agent activation. Spend is not in the product (owner, 10-31: no money in the product); the spend ledger against the $100 cap is shown from the VM for moment 3.
 * **Acceptance Criteria:**
   - [ ] Stats for Nerds overlay displays live track subscriptions and spend ledger accurately.
   - [ ] Demo room loops reset cleanly without broken subscriptions.
@@ -226,4 +226,4 @@ flowchart TD
 1. **0:00 – 0:30 (The Hook & Concept):** Lobby overview; explain Talk Tracks core concept: "A speaker talks, and AI agents publish live tracks over Media over QUIC."
 2. **0:30 – 1:15 (The Listener & Multitrack Power):** Jump into demo room `dataviz`; switch subtitles to Arabic; inspect real-time glossary; scrub back 5 minutes to show instant DVR replay with synchronized drawings.
 3. **1:15 – 2:15 (The Presenter in Action):** Open `/talk/demo-live`; show unified console; share screen and PDF deck; use the laser pointer and draw shapes on both; show how audience sees it instantly.
-4. **2:15 – 3:00 (Architecture & Judge Proof):** Pop up "Stats for Nerds"; show MoQ track fanout, WebTransport connection, lazy agent activation, and the $4.65 spend ledger against the $100 hackathon cap. End card.
+4. **2:15 – 3:00 (Architecture & Judge Proof):** Pop up "Stats for Nerds"; show MoQ track fanout, WebTransport connection, lazy agent activation; then the VM's spend ledger against the $100 hackathon cap, outside the product. End card.
