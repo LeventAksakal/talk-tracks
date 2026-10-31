@@ -185,6 +185,9 @@ After `up -d relay auth`, `restart relay` was run on its own as a test.
 
 ## Watch out
 
+- Caddy mounts `deploy/Caddyfile` as a single file. `git pull` replaces the file, and the container keeps the old
+  copy, so `caddy reload` reloads the old config. After a release that changes the Caddyfile, run
+  `docker compose -f deploy/compose.vm.yml restart caddy` and check with `exec -T caddy cat /etc/caddy/Caddyfile`.
 - The relay reads the certificate when it starts. Caddy renews it about 30 days before it expires; restart the relay
   after that (`docker compose -f deploy/compose.vm.yml restart relay`).
 - The relay asks `auth` over a unix socket in the volume `auth_sock`, not over a shared network namespace, so either
