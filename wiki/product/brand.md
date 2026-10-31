@@ -20,7 +20,8 @@ frame, never decoration on the content.
 | Ink | the eight-colour chalk box with a casing | drafted, not yet confirmed |
 | Player theme | always dark; hub and console follow the system, with a toggle | ui-design §9 |
 | Mascot | built in Rive; connector to be added by the owner | owner, 10-31: "Yes I meant rive" |
-| Name | open; finalists in §7 | owner, 10-31 |
+| Name | keep **Talk Tracks** for now; finalists in §7 | owner, 10-31: "lets retain talk tracks for now always can change it in the future" |
+| Record | [decision 0026](../decisions/0026-the-look-is-chalk-and-a-panel-is-a-track-subscription.md) | |
 
 ## 2. Colour
 
@@ -99,6 +100,7 @@ Rules:
   unsubscribes. The slide-comments layer is subscribed only while it is shown. Panels need "starting from now" and
   "loading history" states.
 - **Slide comments are supplementary:** off by default, can be shown, hidden or docked; not always on the slide.
+- **Comments on a replay:** a stretch goal ("could be a slick feature"), built only if time allows.
 - **Chat:** a feature. No accounts in the demo (a real deployment would use the organisation's SAML or SSO). A listener
   gets a random name they can change in an optional name dialog, as in Gartic Phone. Moderation (removing messages)
   is out of scope: on an append-only track it means rewriting the past. How chat is published (one track from a chat
@@ -111,12 +113,12 @@ Rules:
   content visible and secondary views beside or over it, not instead of it (vlc-19, vlc-31), and don't let a
   secondary view take half the page (youtube-48).
 
-## 7. Name (open)
+## 7. Name: Talk Tracks for now
 
-Brainstormed by a fast model (60 names), narrowed by a second with web checks for clashing products. Top finalists:
+Kept on 2026-10-31; it can change later. The shortlist stays on the canvas's Names board. Brainstormed by a fast model (60 names), narrowed by a second with web checks for clashing products. Top finalists:
 Chalktrack, Chalkcast, Talk Tracks (baseline), Lectrack, Stemcast. Dropped for clashes: Lectio (a Danish school
 platform), Overdub (Descript), Earshot (a captioning app), Glossa (a subtitle add-on), Kreda (a bank). Trademark
-and domain checks still to do before the logo.
+and domain checks are needed only if the name changes.
 
 ## 8. For the App UI lane (workstream 03)
 
