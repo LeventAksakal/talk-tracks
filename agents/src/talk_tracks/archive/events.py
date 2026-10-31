@@ -613,6 +613,10 @@ class RoomEvents:
             log.info("%s: the speaker ended the talk at room time %d ms", self.room, at)
             return at
 
+    def describe(self, title: str | None, speaker: str | None) -> None:
+        """The talk's title and speaker name (from room creation, decision 0025): every state record carries them."""
+        self._meta = (title, speaker)
+
     def _state(self, kind: Literal["waiting", "on_air", "paused", "ended"]) -> RoomState:
         """A room state record's data, with the talk's title and speaker as the room was created with."""
         title, speaker = self.meta

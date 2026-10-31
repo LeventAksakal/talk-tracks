@@ -15,6 +15,12 @@ listener's; TT_OPEN_SPEAKER=1 skips that check (development only). TT_LISTENER_O
 (comma-separated, default any), TT_PROXIED=1 reads the client's address from X-Forwarded-For (behind Caddy), and
 TT_LISTENER_SECRET_FILE (default room-service.key beside the archive folder, never in it) keeps the secret that
 listener ids are proven with.
+
+Presenters create rooms through it (decision 0025): ``--create HOST:PORT`` (TT_CREATE_LISTEN) serves
+``POST /api/rooms`` (``archive.create``). TT_ROOM_CODES is the access codes file, TT_SIGNING_KEY the room key's
+``private.jwk`` that signs speaker tokens (valid TT_ROOM_TOKEN_HOURS, default 48), TT_ROOMS_DIR (default rooms/ beside
+the archive folder) keeps each created room's title and speaker, and each code's rooms go into TT_CAPS_DIR as a caps
+batch. TT_DEMO_ROOMS are never created. TT_OPEN_SPEAKER=1 accepts any code (development only).
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--no-catalog", action="store_true", help="record only; do not publish the room catalogs")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
     p.add_argument("--listen", default=os.environ.get("TT_LISTEN") or None, help="HOST:PORT of the listener endpoint")
+    p.add_argument("--create", default=os.environ.get("TT_CREATE_LISTEN") or None, help="HOST:PORT of room creation")
     args = p.parse_args(argv)
     if not args.relay:
         p.error("--relay is required (or TT_RELAY)")
@@ -51,6 +58,7 @@ async def main_async(args: argparse.Namespace) -> None:
     from ..moq import connect, until_closed
     from .bucket import GcsBucket, Uploader
     from .catalog import Budget
+    from .create import CreateConfig
     from .listeners import EndpointConfig
     from .relay import archive_rooms
     from .slices import SliceWatcher
@@ -77,6 +85,7 @@ async def main_async(args: argparse.Namespace) -> None:
             origins=tuple(o.strip() for o in os.environ.get("TT_LISTENER_ORIGINS", "").split(",") if o.strip()),
             proxied=os.environ.get("TT_PROXIED") == "1",
         )
+    creation = CreateConfig.from_env(args.create, args.out) if args.create else None
     background = [asyncio.create_task(uploader.run()), asyncio.create_task(uploader.sync())]
     try:
         async with connect(args.relay, token=args.token, insecure=args.insecure) as relay:
@@ -101,6 +110,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 publish_catalog=not args.no_catalog,
                 capped=budget.capped,
                 listeners=listeners,
+                creation=creation,
             )
             await until_closed(relay, work)
     finally:

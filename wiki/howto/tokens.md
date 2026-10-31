@@ -69,6 +69,44 @@ The worst case is known in advance: the batch's total cap (at most rooms × room
 ceiling. To end a batch early, set its `total_usd` in the caps file to 0 and restart the live agents (they read
 caps when a room opens).
 
+## Access codes: presenters create their own room
+
+Decision 0025: the lobby's Create talk form sends `POST /api/rooms` with `{"code", "room", "title", "speaker"}` to
+the room service (`archive.create`, Caddy proxies `/api/rooms` to `archive:8092`). For a valid code it reserves the
+room, signs a speaker token with `private.jwk` exactly as the mint script does (publish `talk/<room>/teacher` and
+`talk/<room>/slides`, subscribe `talk/<room>/**`, expiring after `TT_ROOM_TOKEN_HOURS`, default 48, or at the code's
+own expiry if sooner) and answers `201 {"room", "speaker_path": "/talk/<room>?token=<jwt>", "watch_path":
+"/watch/<room>", "cap_usd", "expires"}`. The same code asking for its own room again gets a fresh link (a lost one).
+Errors, decided by status: `400` a room name that is not 3 to 40 of `a-z0-9-` or is a demo room, or a bad title or
+name; `403` an unknown, expired or used-up code; `409` a room another code (or a judge batch, or an earlier talk)
+holds; `429` too many tries from one address (5, then one per 20 s) or with one code (10, then one per 10 s); `503`
+no signing key on the server.
+
+The codes live in one file on the VM, `$TT_DATA/room-codes.json` (`TT_ROOM_CODES` in the room service), mode 600,
+never in the repo. The room service reads it again whenever it changes, so adding or ending a code needs no restart:
+
+```json
+{
+  "codes": [
+    {"code": "<at least 8 random characters>", "label": "judges", "room_usd": 2, "total_usd": 20, "max_rooms": 10,
+     "expires": 1794700000}
+  ]
+}
+```
+
+* `label` (1 to 40 of `a-z0-9-`) names the code's caps batch, `$TT_DATA/caps/code-<label>.json`, which the room
+  service keeps in the mint script's format (`group`, `room_usd`, `total_usd`, `rooms`). The spend ledger then holds
+  every room of the code to `room_usd` and all of them together to `total_usd`, as for a minted batch.
+* `max_rooms` (default 20) is how many rooms the code may create; `expires` (unix time, optional) ends the code and
+  caps its tokens' expiry. To end a code early, delete its entry; its rooms' tokens run to their expiry, and setting
+  `total_usd` to 0 in its caps file stops their spend (agents read caps when a room opens).
+* Make a code with `openssl rand -base64 12` and give it to judges in the submission notes, never in git.
+* Each created room's title and speaker name are kept in `$TT_DATA/rooms/<room>.json`; the room's `room` state track
+  carries them from the moment the speaker goes on air.
+
+Locally (`deploy/compose.local.yml`, `TT_OPEN_SPEAKER=1`) any code is accepted, and with no `TT_SIGNING_KEY` the
+speaker link has no token (a local relay needs none).
+
 ## Run with tokens locally
 
 ```bash

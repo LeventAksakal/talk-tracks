@@ -38,11 +38,14 @@ services:
   archive:
     <<: *agent
     volumes: ["../data/archive:/data/archive"]
-    ports: ["${TT_LISTEN_PORT:-8091}:8091/tcp"]
+    ports: ["${TT_LISTEN_PORT:-8091}:8091/tcp", "${TT_CREATE_PORT:-8092}:8092/tcp"]
     environment:
       TT_RELAY: moqt://relay:4443
       TT_ARCHIVE_DIR: /data/archive
       TT_LISTEN: 0.0.0.0:8091
+      TT_CREATE_LISTEN: 0.0.0.0:8092  # POST /api/rooms (decision 0025): any code, links without a token locally
+      TT_CAPS_DIR: /data/caps
+      TT_ROOMS_DIR: /data/rooms
       TT_OPEN_SPEAKER: "1"
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}

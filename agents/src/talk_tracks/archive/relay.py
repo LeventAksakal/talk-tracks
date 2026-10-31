@@ -35,6 +35,7 @@ from ..room_catalog import catalog_path, speaker_sources
 from ..runtime import now_ms
 from .audience import Audience
 from .catalog import REFRESH_S, CatalogFeed
+from .create import CreateConfig
 from .events import RoomEvents
 from .listeners import EndpointConfig
 from .store import Archive, RoomArchive, RoomFilter
@@ -65,9 +66,11 @@ class Archiver:
         on_tick: Callable[[], None] | None = None,
         publish_catalog: bool = True,
         capped: Callable[[str], bool] | None = None,
+        described: Callable[[str], tuple[str | None, str | None] | None] | None = None,
     ) -> None:
         self.relay, self.archive, self.wanted = relay, archive, rooms
         self.on_tick, self.publish_catalog, self.capped = on_tick, publish_catalog, capped
+        self.described = described  # a created room's title and speaker (decision 0025)
         self.rooms: dict[str, _Room] = {}
         self._wake = asyncio.Event()  # a room's clock changed: publish without waiting for the tick
 
@@ -131,6 +134,8 @@ class Archiver:
                 room_now=lambda: room_now(self.archive.room(room), now_ms()),
             )
             state = self.rooms[room] = _Room(catalog, events)
+            if self.described is not None and (meta := self.described(room)) is not None:
+                events.describe(*meta)
         return state
 
     async def audience(self, room: str) -> Audience | None:
@@ -140,6 +145,15 @@ class Archiver:
         if state is None or not self.wanted(room):
             return None
         return await state.events.audience_tracks()
+
+    def holds(self, room: str) -> bool:
+        """The room is in use: a speaker opened it or the archive keeps it (room creation's ``taken``)."""
+        return room in self.rooms or room in self.archive.known_rooms()
+
+    def created(self, room: str, title: str, speaker: str | None) -> None:
+        """A room was created (or re-issued) with this title and speaker: its state track carries them."""
+        if self.wanted(room):
+            self._room(room).events.describe(title, speaker)
 
     async def end(self, room: str) -> int | None:
         """The speaker ended the room's talk (the endpoint's ``end``): its room track says ``ended``."""
@@ -255,6 +269,11 @@ def room_now(archived: RoomArchive, wall_ms: int) -> int | None:
     return max(0, run.clock_ms + max(0, wall_ms - run.index.last_wall_ms))
 
 
+def _log_failure(task: asyncio.Task[None]) -> None:
+    if not task.cancelled() and task.exception() is not None:
+        log.error("%s stopped", task.get_name(), exc_info=task.exception())
+
+
 async def archive_rooms(
     relay: Relay,
     archive: Archive,
@@ -264,13 +283,28 @@ async def archive_rooms(
     publish_catalog: bool = True,
     capped: Callable[[str], bool] | None = None,
     listeners: EndpointConfig | None = None,
+    creation: CreateConfig | None = None,
 ) -> None:
-    archiver = Archiver(relay, archive, rooms, on_tick=on_tick, publish_catalog=publish_catalog, capped=capped)
-    endpoint = asyncio.create_task(listeners.run(archiver.audience, archiver.end)) if listeners is not None else None
+    registry = creation.registry() if creation is not None else None
+
+    def described(room: str) -> tuple[str | None, str | None] | None:
+        found = registry.created(room) if registry is not None else None
+        return (found.title, found.speaker) if found is not None else None
+
+    archiver = Archiver(
+        relay, archive, rooms, on_tick=on_tick, publish_catalog=publish_catalog, capped=capped, described=described
+    )
+    servers: list[asyncio.Task[None]] = []
+    if listeners is not None:
+        servers.append(asyncio.create_task(listeners.run(archiver.audience, archiver.end)))
+    if creation is not None:
+        servers.append(asyncio.create_task(creation.run(archiver.holds, archiver.created)))
+    for server in servers:
+        server.add_done_callback(_log_failure)
     try:
         await archiver.run()
     finally:
-        if endpoint is not None:
-            endpoint.cancel()
+        for server in servers:
+            server.cancel()
         with contextlib.suppress(Exception):
             archive.close()
