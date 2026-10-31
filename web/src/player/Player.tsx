@@ -6,13 +6,13 @@ import { formatClock } from "../playback/timeline";
 import { usePlaybackView } from "../playback/usePlayback";
 import { Link } from "../router";
 import type { Transport } from "../transport/types";
-import type { RoomService } from "../annotate/client";
+import type { RoomService, ServiceStatus } from "../annotate/client";
 import { DISCUSSION_TAB } from "./Annotate";
 import { type ExtraTab, INITIAL_UI, type PlayerCtx, PlayerContext, type UiState } from "./context";
 import { ControlBar } from "./ControlBar";
 import { Discussion } from "./Discussion";
 import { FrameClock } from "./frameClock";
-import { Listening } from "./listening";
+import { Listening, useRoomService } from "./listening";
 import { useNotes } from "./notes";
 import "./player.css";
 import { type PanelTab, type SourceKind, usePrefs } from "./prefs";
@@ -44,6 +44,11 @@ export interface PlayerProps {
   slides?: SlideTracks;
   /** The room service's endpoint for listeners: annotation tools and the Discussion tab (decision 0024). */
   roomService?: RoomService;
+  /**
+   * Why this room has no room service (a looped demo room): the Discussion tab says so in place of the
+   * discussion, and the annotation tools stay hidden.
+   */
+  noRoomService?: string;
 }
 
 const noop = () => () => {};
@@ -77,15 +82,35 @@ export function Player(props: PlayerProps) {
   const [idle, setIdle] = useState(false);
   const [everConnected, setEverConnected] = useState(false);
   const [announcement, setAnnouncement] = useState("");
-  const title = props.title ?? `Room ${room}`;
+  useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
+  // What the room service says about the talk comes first, then what the page knows (a demo lecture's credits).
+  const info = slides?.roomInfo();
+  const title = info?.title ?? props.title ?? `Room ${room}`;
+  const speaker = info?.speaker ?? props.speaker;
   const roomService = props.roomService;
   const listening = useMemo(() => (roomService ? new Listening(roomService) : undefined), [roomService]);
+  useRoomService(roomService);
+  const toolsOff = listenerToolsOff(roomService?.status(), props.noRoomService);
   const extraTabs = useMemo<ExtraTab[]>(
     () => [
-      ...(roomService ? [{ id: DISCUSSION_TAB, label: "Discussion", content: <Discussion /> }] : []),
+      ...(roomService || toolsOff
+        ? [
+            {
+              id: DISCUSSION_TAB,
+              label: "Discussion",
+              content: toolsOff ? (
+                <p className="tt-muted tt-tools-off" role="status">
+                  {toolsOff}
+                </p>
+              ) : (
+                <Discussion />
+              ),
+            },
+          ]
+        : []),
       ...(props.extraTabs ?? []),
     ],
-    [roomService, props.extraTabs],
+    [roomService, toolsOff, props.extraTabs],
   );
 
   if (status?.status === "connected" && !everConnected) setEverConnected(true);
@@ -108,7 +133,6 @@ export function Player(props: PlayerProps) {
   useEffect(() => {
     slides?.setWanted(wantedSlideTracks(slidesShown, prefs));
   }, [slides, slidesShown, prefs]);
-  useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
   // The slide tracks follow the frame on screen (the playhead while rewound media opens).
   useEffect(() => {
     if (!slides) return;
@@ -204,8 +228,9 @@ export function Player(props: PlayerProps) {
     mode: timeline?.mode ?? "live",
     liveEdge: timeline?.liveEdge,
     behindMs: timeline?.behindMs ?? 0,
-    slowerPath: false,
-    speaker: props.speaker,
+    slowerPath: status?.wire === "websocket",
+    speaker,
+    recording: timeline ? recordingSpan(timeline) : undefined,
     room: slides?.roomNow(),
     roomAt: timeline?.mode === "rewound" ? slides?.roomAt(timeline.position) : undefined,
   } as const;
@@ -267,7 +292,8 @@ export function Player(props: PlayerProps) {
           slidesShown,
           slideNumber,
           extraTabs,
-          listening,
+          // Listener tools only while the room service can take writes (or is still connecting).
+          listening: toolsOff ? undefined : listening,
           at,
           seek: (ms) => seekWith(() => playback.seek(ms)),
           seekBy: (ms) => seekWith(() => playback.seekBy(ms)),
@@ -298,8 +324,8 @@ export function Player(props: PlayerProps) {
             Talk Tracks
           </Link>
           <h1 className="tt-title">{title}</h1>
-          {props.speaker || props.credit ? (
-            <span className="tt-credit">{[props.speaker, props.credit].filter(Boolean).join(" · ")}</span>
+          {speaker || props.credit ? (
+            <span className="tt-credit">{[speaker, props.credit].filter(Boolean).join(" · ")}</span>
           ) : null}
           {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
         </header>
@@ -318,6 +344,29 @@ export function Player(props: PlayerProps) {
       </div>
     </PlayerContext.Provider>
   );
+}
+
+/** The recorded span: archived media first to last, else the scrubber's start to the live edge. */
+function recordingSpan(t: { start: number; available: { end: number }[]; liveEdge: number | undefined }) {
+  const end = t.available.at(-1)?.end ?? t.liveEdge;
+  return end === undefined ? undefined : { start: t.start, end };
+}
+
+/**
+ * Why listeners cannot draw, mark or comment here, or undefined when they can (or the room service is still being
+ * reached). Drawing, marks and comments all go through the room service (decision 0024).
+ */
+export function listenerToolsOff(status: ServiceStatus | undefined, noService: string | undefined): string | undefined {
+  if (status === undefined) return noService;
+  switch (status) {
+    case "open":
+    case "connecting":
+      return undefined;
+    case "refused":
+      return "Drawing, marking and comments are not available in this room.";
+    default:
+      return "Drawing, marking and comments need the room's service, which cannot be reached now (the talk may not have started). Trying again…";
+  }
 }
 
 /** Keyboard shortcuts of ui-design §4.10, on the whole page (the player is the page). */

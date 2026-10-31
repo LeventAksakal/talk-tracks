@@ -7,6 +7,7 @@ import type {
   TrackObject,
   TrackWriter,
   Transport,
+  Wire,
 } from "./types";
 
 const RESUBSCRIBE_MS = 1_000;
@@ -146,14 +147,21 @@ export class MoqTransport implements Transport {
     return this.connection.status.peek();
   }
 
+  /** WebTransport, or the WebSocket fallback @moq/net falls back to when WebTransport is missing or slower. */
+  wire(): Wire | undefined {
+    return this.connection.transport.peek();
+  }
+
   onStatus(listener: (status: ConnectionStatus, error?: Error) => void): Closable {
     const emit = () => listener(this.status(), this.connection.error.peek());
     const a = this.connection.status.subscribe(emit);
     const b = this.connection.error.subscribe(emit);
+    const c = this.connection.transport.subscribe(emit);
     return {
       close: () => {
         a();
         b();
+        c();
       },
     };
   }
