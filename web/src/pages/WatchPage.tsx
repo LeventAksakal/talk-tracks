@@ -8,6 +8,7 @@ import { SlideTracks } from "../player/slideTracks";
 import { MoqTransport } from "../transport/moq";
 import { useMoqTransport } from "../transport/useTransport";
 import { useResource } from "../useResource";
+import { DEMO_CREDIT, DEMO_NO_ROOM_SERVICE, demoRoom } from "./demoRooms";
 import { NotFound } from "./NotFound";
 
 export function WatchPage({ room }: { room: string }) {
@@ -28,8 +29,25 @@ function WatchRoom({ room }: { room: string }) {
     const media = playback.media instanceof RoomMedia ? playback.media : undefined;
     return new SlideTracks(new MoqHistorySource(transport), room, { catalog: () => media?.catalog() });
   }, [transport, playback, room]);
-  // Listeners draw, mark and comment through the room service (decision 0024), never the relay.
-  const roomService = useResource(() => new RoomServiceClient(roomServiceBase(), room, { comments: true }), [room]);
+  // Listeners draw, mark and comment through the room service (decision 0024), never the relay. A looped demo room
+  // has none, so it is not dialled there.
+  const demo = demoRoom(room);
+  const roomService = useResource(
+    () => (demo ? undefined : new RoomServiceClient(roomServiceBase(), room, { comments: true })),
+    [room, demo],
+  );
   if (!playback) return <p className="page-pad">Connecting…</p>;
-  return <Player playback={playback} room={room} transport={transport} slides={slides} roomService={roomService} />;
+  return (
+    <Player
+      playback={playback}
+      room={room}
+      transport={transport}
+      slides={slides}
+      roomService={roomService}
+      title={demo?.title}
+      speaker={demo?.speaker}
+      credit={demo ? DEMO_CREDIT : undefined}
+      noRoomService={demo ? DEMO_NO_ROOM_SERVICE : undefined}
+    />
+  );
 }

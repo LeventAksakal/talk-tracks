@@ -147,6 +147,27 @@ describe("the room's state", () => {
     await vi.waitFor(() => expect(slides.roomNow()).toBe("ended"));
   });
 
+  it("tells the talk's title and speaker from the room track, the newest that says them", async () => {
+    const source = new FakeHistorySource();
+    const path = catalogPath(ROOM);
+    source.announce(path);
+    const slides = new SlideTracks(source, ROOM, { catalog: () => undefined });
+    open.push(slides);
+    slides.setWanted(["room"]);
+    expect(slides.roomInfo()).toEqual({ title: undefined, speaker: undefined });
+    const said = { kind: "state", state: "on_air", title: "Quantum 101", speaker: "Ada" };
+    source.publish(
+      path,
+      ROOM_TRACK,
+      0,
+      json([
+        { m: 0, data: said },
+        { m: 9_000, data: { kind: "state", state: "paused" } },
+      ]),
+    );
+    await vi.waitFor(() => expect(slides.roomInfo()).toEqual({ title: "Quantum 101", speaker: "Ada" }));
+  });
+
   it("decides paused, ended and not started over the media's own guess", () => {
     const base = { connection: "connected", everConnected: true, mode: "live", liveEdge: 60_000, behindMs: 0 } as const;
     expect(playerState({ ...base, onAir: false, room: "on_air" }).kind).toBe("live");
