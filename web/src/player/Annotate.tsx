@@ -354,7 +354,8 @@ export function CommentMarks({
   const index = service?.status() === "open" ? service.threads() : undefined;
   const threads = useFrameValue(
     clock,
-    (t) => (on ? slideThreads(on, index, index ? undefined : slides.commentsAt(time(t)), live ? undefined : time(t)) : []),
+    (t) =>
+      on ? slideThreads(on, index, index ? undefined : slides.commentsAt(time(t)), live ? undefined : time(t)) : [],
     sameThreads,
   );
   if (!on || !threads?.length) return null;

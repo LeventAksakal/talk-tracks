@@ -148,7 +148,11 @@ describe("a listener's annotations as writes", () => {
     const service = new FakeRoomService({ me: { id: "u7", name: "Ada", speaker: false } });
     let clock = 0;
     const errors: WriteError[] = [];
-    const w = new AnnotationWriter(service, (e) => errors.push(e), () => clock);
+    const w = new AnnotationWriter(
+      service,
+      (e) => errors.push(e),
+      () => clock,
+    );
     return { service, w, errors, tick: (ms: number) => (clock += ms) };
   }
 

@@ -73,7 +73,7 @@ export class FakeRoomService implements RoomService {
     if (track !== "comments") return Promise.resolve({ m });
     const by: Author = { id: me.id, name: me.name, ...(me.speaker ? { speaker: true } : {}) };
     const posted = fields.kind === "comment" || fields.kind === "reply";
-    const id = posted ? `c${++this.#ids}` : undefined;
+    const id = posted ? `fake${++this.#ids}` : undefined;
     const record = {
       m,
       data: { ...fields, by, ...(posted ? { id, at: at === undefined ? m : Math.min(at, m) } : {}) } as CommentData,
