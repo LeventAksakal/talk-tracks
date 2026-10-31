@@ -6,7 +6,6 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { formatClock } from "../playback/timeline";
 import { usePlayer } from "./context";
 import { clamp } from "./prefs";
 import { chapterAt, chapterSegments, formatBehind, holesIn } from "./timeline";
@@ -22,7 +21,7 @@ const zero = () => 0;
  * the room's history; the keyboard moves it too.
  */
 export function ProgressBar() {
-  const { view, tracks, notes, ui, at, seek, goLive, state, slides: slideTracks, slidesShown } = usePlayer();
+  const { view, tracks, notes, ui, at, talkClock, seek, goLive, state, slides: slideTracks, slidesShown } = usePlayer();
   // Thumbnails come from the slide track and the deck while the slides are on (decision 0010).
   const deck = slidesShown ? slideTracks : undefined;
   useSyncExternalStore(deck?.subscribe ?? noop, deck?.getVersion ?? zero);
@@ -88,10 +87,10 @@ export function ProgressBar() {
   const previewShown = preview !== undefined && deck ? deck.previewAt(preview) : undefined;
   const thumb = previewShown && deck ? deck.picture(previewShown.deck, previewShown.index) : undefined;
   const valueText = state.recording
-    ? `${formatClock(shownAt)} of ${formatClock(end)}, recorded`
+    ? `${talkClock(shownAt)} of ${talkClock(end)}, recorded`
     : t.mode === "live"
-      ? `${formatClock(end)}, live`
-      : `${formatClock(shownAt)}, ${formatBehind(end - shownAt)} behind live`;
+      ? `${talkClock(end)}, live`
+      : `${talkClock(shownAt)}, ${formatBehind(end - shownAt)} behind live`;
 
   return (
     <div
@@ -161,7 +160,7 @@ export function ProgressBar() {
                 <span className="tt-preview-blank" />
               )}
             </div>
-            <span className="tt-preview-time">{formatClock(preview)}</span>
+            <span className="tt-preview-time">{talkClock(preview)}</span>
             {previewChapter ? <span className="tt-preview-chapter">{previewChapter.title}</span> : null}
           </div>
         ) : null}

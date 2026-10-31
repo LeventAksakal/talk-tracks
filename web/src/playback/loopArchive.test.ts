@@ -164,6 +164,31 @@ describe("RoomMedia in a looped room", () => {
     expect(media.available()).toEqual([{ start: 2_449_500_000 - 1_024_000, end: 2_449_500_000 }]);
     media.close();
   });
+
+  it("tells the time within the loop, not the room clock that runs on across loops", () => {
+    const transport = new FakeTransport();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "virus", { now: () => EPOCH + 2_449_500_000 });
+    transport.emitJson(catalogPath("virus"), CATALOG_TRACK, {
+      tracks: [],
+      tt: { E: EPOCH, shift: { [String(teacherCatalog.clock.wall)]: 0 } },
+    });
+    transport.emitJson(teacherPath("virus"), HANG_CATALOG_TRACK, teacherCatalog);
+    // Loop 2392 starts at room time 2392 × 1024 s; the playhead 92 s into it reads 1:32.
+    expect(media.talkTime(2_449_408_000 + 92_000)).toBe(92_000);
+    expect(media.talkTime(2_449_408_000 - 1)).toBe(1_023_999); // the end of the loop before
+    media.close();
+  });
+
+  it("tells a live room's time as its room time", () => {
+    const transport = new FakeTransport();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "lecture", {
+      fetchFn: vi.fn(async () => new Response("", { status: 404 })) as unknown as typeof fetch,
+    });
+    transport.emitJson(catalogPath("lecture"), CATALOG_TRACK, { tracks: [], tt: { E: EPOCH, shift: {} } });
+    transport.emitJson(teacherPath("lecture"), HANG_CATALOG_TRACK, { clock: teacherCatalog.clock, audio: {} });
+    expect(media.talkTime(754_000)).toBe(754_000);
+    media.close();
+  });
 });
 
 describe("RoomMedia: the HLS archive probe waits for the teacher catalog", () => {

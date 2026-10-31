@@ -7,7 +7,7 @@ import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
 import { type ArchivePlayback, type ArchiveState, archiveState, hlsUrl, openArchive } from "./hlsArchive";
-import { type LoopInfo, loopInfo, loopOf, LoopPlayback, loopUrl } from "./loopArchive";
+import { type LoopInfo, loopInfo, loopOf, LoopPlayback, loopPlace, loopUrl } from "./loopArchive";
 import { type RoomCatalog, STATUS_FRESH_MS, watchRoomCatalog } from "./roomCatalog";
 import { HANG_CATALOG_TRACK, type HangClock, hangClockOf, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
 import { type Range, sliceOf } from "./slices";
@@ -390,6 +390,17 @@ export class RoomMedia implements SpeakerMedia {
   #rangesToRoom(ranges: Range[]): Range[] {
     const e = this.#catalog?.tt.E;
     return e === undefined ? [] : ranges.map((r) => ({ start: r.start - e, end: r.end - e }));
+  }
+
+  /**
+   * The time in the talk to show for room time `ms`. A looped demo room's room clock runs on across loops (it
+   * starts at 2026-10-01, so it reads hundreds of hours); each loop is the lecture again, so it shows the time
+   * within the loop. Any other room: `ms`, its time since the talk began.
+   */
+  talkTime(ms: number): number {
+    const loop = this.#loopInfo();
+    const e = this.#catalog?.tt.E;
+    return loop && e !== undefined ? loopPlace(loop, ms + e).fileMs : ms;
   }
 
   /** The loop on the wall clock, the broadcast's shift included; undefined when the room does not loop. */

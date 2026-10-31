@@ -76,6 +76,8 @@ export interface PlayerCtx {
   listening: Listening | undefined;
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
+  /** A room time as the talk's clock shows it ("12:34"); in a looped demo room, the time within the loop. */
+  talkClock(ms: number): string;
   seek(ms: number): void;
   /** Move by `deltaMs` from the playhead (negative: back). */
   seekBy(deltaMs: number): void;

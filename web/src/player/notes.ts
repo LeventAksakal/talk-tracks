@@ -51,10 +51,10 @@ export function useNotes(room: string): NotesApi {
   return { notes, add, remove };
 }
 
-export function notesMarkdown(title: string, notes: readonly Note[]): string {
+export function notesMarkdown(title: string, notes: readonly Note[], clock = formatClock): string {
   const lines = [`# ${title}`, ""];
   for (const n of notes) {
-    const where = `${formatClock(n.at)}${n.slide ? ` · slide ${n.slide}` : ""}`;
+    const where = `${clock(n.at)}${n.slide ? ` · slide ${n.slide}` : ""}`;
     lines.push(n.text ? `- **${where}** ${n.text}` : `- **${where}** ★ Bookmark`);
   }
   return `${lines.join("\n")}\n`;
