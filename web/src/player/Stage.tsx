@@ -35,7 +35,7 @@ export function sourceShown(
  * them), so the live canvas is never re-created.
  */
 export function Stage() {
-  const { prefs, update, sources, ui, setUi, state, view, playback, media, togglePlay, openTab } = usePlayer();
+  const { prefs, update, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
   const stage = useRef<HTMLDivElement>(null);
   const layout = effectiveLayout(prefs.layout, sources);
   const hasCamera = sources.includes("camera");
@@ -137,7 +137,7 @@ export function Stage() {
             </button>
           ) : null}
           {card.replay ? (
-            <button type="button" className="tt-button" onClick={() => playback.seek(view.timeline.start)}>
+            <button type="button" className="tt-button" onClick={() => seek(view.timeline.start)}>
               Replay from the start
             </button>
           ) : null}
