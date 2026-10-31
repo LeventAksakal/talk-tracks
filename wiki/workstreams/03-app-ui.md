@@ -76,3 +76,4 @@ Out of scope: drawing tools and the slide canvas (04), backend endpoints (05).
 | When (+03) | Session | Entry |
 |---|---|---|
 | 10-31 12:57 | coordinator | Brief written. |
+| 10-31 21:38 | coordinator | Owner (10-31): "Yes, merge and start". Lane started on `lane/app-ui`. Slices: 1 tokens and fonts, 2 no switches, no money, default stage, 3 hub and room states, 4 console popovers, 5 transcript download, 6 PiP (stretch). Out of scope until answered: chat (ticket 0021), stats track (0022), lecture package (0023). Target: each slice merged and deployed for the nightly QA build. Status: in progress. Check: owner QA on the VM, journeys J1–J8. |
