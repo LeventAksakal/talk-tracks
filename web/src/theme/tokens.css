@@ -1,0 +1,142 @@
+/* Talk Tracks design tokens: the Chalk direction (wiki/product/brand.md).
+   The names are the contract: components use only these, so a restyle is a change of values here.
+   Every colour is light-dark(Paper, Blackboard); a subtree picks its theme with color-scheme
+   (the player sets dark, the rest follows the system or data-theme). Not imported yet: the App UI lane
+   wires it in main.tsx when the owner says the values are set. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces: page ground, panels and cards, menus and hover, dividers, input and switch edges (3:1) */
+  --tt-color-ground: light-dark(#f5f2ea, #1b2420);
+  --tt-color-surface: light-dark(#fffdf8, #222d28);
+  --tt-color-raised: light-dark(#ece7db, #2a3631);
+  --tt-color-line: light-dark(#dcd5c5, #3a4842);
+  --tt-color-field: light-dark(#8a8272, #6d7d76);
+  --tt-color-scrim: rgb(16 22 19 / 0.55);
+
+  /* Text: every pair passes 4.5:1 on ground, surface and raised */
+  --tt-color-text: light-dark(#1b2420, #f1ede2);
+  --tt-color-text-muted: light-dark(#5b645e, #aab5ae);
+
+  /* The one accent (blue chalk): primary actions, selection, focus */
+  --tt-color-accent: light-dark(#2d5f8b, #9cc7ea);
+  --tt-color-on-accent: light-dark(#ffffff, #10202b);
+  --tt-color-accent-soft: light-dark(rgb(45 95 139 / 0.12), rgb(156 199 234 / 0.16));
+  --tt-color-focus: var(--tt-color-accent);
+
+  /* States. Red only means live or on air; amber only means degraded; each also shows a word. */
+  --tt-color-live: light-dark(#b42f27, #ff6a5c);
+  --tt-color-live-fill: #c8352b;
+  --tt-color-on-live: #ffffff;
+  --tt-color-degraded: light-dark(#8c5200, #f4b544);
+  --tt-color-ready: light-dark(#226b3c, #86d39b);
+
+  /* Captions over any slide */
+  --tt-caption-bg: rgb(0 0 0 / 0.85);
+  --tt-caption-text: #ffffff;
+  --tt-caption-size: 1.625rem;
+
+  /* The chalk box: the speaker's ink, shapes and text. Strokes carry a casing so pale chalk reads on white slides. */
+  --tt-ink-chalk: #f7f4ea;
+  --tt-ink-sun: #ffd84a;
+  --tt-ink-mint: #5fd68a;
+  --tt-ink-apricot: #ff9a3c;
+  --tt-ink-sky: #5fb3ff;
+  --tt-ink-rose: #ff6fae;
+  --tt-ink-coral: #ff5f57;
+  --tt-ink-lilac: #b79cff;
+  --tt-ink-casing: #1b2420;
+  --tt-ink-casing-opacity: 0.7;
+  --tt-ink-casing-width: 2px;
+  --tt-ink-marker-opacity: 0.35;
+  --tt-laser: #ff3b30;
+
+  /* Type: hand-drawn chalk for titles; Atkinson Hyperlegible Next for interface, captions and numbers */
+  --tt-font-display: "Cabin Sketch", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --tt-font-ui: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --tt-font-numeric: var(--tt-font-ui);
+  --tt-numeric: tabular-nums;
+  --tt-weight-regular: 400;
+  --tt-weight-strong: 600;
+  --tt-weight-display: 700;
+  --tt-text-display: 4.5rem;
+  --tt-text-h1: 2.5rem;
+  --tt-text-h2: 1.75rem;
+  --tt-text-h3: 1.125rem;
+  --tt-text-body: 0.9375rem;
+  --tt-text-small: 0.8125rem;
+  --tt-text-micro: 0.75rem;
+  --tt-leading-tight: 1.1;
+  --tt-leading-body: 1.5;
+
+  /* Space: 4 px steps */
+  --tt-space-1: 4px;
+  --tt-space-2: 8px;
+  --tt-space-3: 12px;
+  --tt-space-4: 16px;
+  --tt-space-5: 20px;
+  --tt-space-6: 24px;
+  --tt-space-8: 32px;
+  --tt-space-10: 40px;
+  --tt-space-12: 48px;
+
+  /* Shape and depth */
+  --tt-radius-sm: 6px;
+  --tt-radius-md: 10px;
+  --tt-radius-lg: 14px;
+  --tt-radius-full: 9999px;
+  --tt-shadow-1: 0 1px 2px rgb(0 0 0 / 0.18);
+  --tt-shadow-2: 0 6px 18px rgb(0 0 0 / 0.28);
+  --tt-shadow-3: 0 20px 60px rgb(0 0 0 / 0.4);
+
+  /* Motion: only for cause; off under reduced motion */
+  --tt-duration-fast: 120ms;
+  --tt-duration-medium: 240ms;
+  --tt-duration-slow: 400ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Layout */
+  --tt-panel-width: 360px;
+  --tt-target-min: 32px;
+
+  /* Astryx reads its own names; point them at ours so standard controls follow the theme */
+  --color-background-body: var(--tt-color-ground);
+  --color-background-surface: var(--tt-color-surface);
+  --color-background-card: var(--tt-color-surface);
+  --color-background-popover: var(--tt-color-raised);
+  --color-border: var(--tt-color-line);
+  --color-border-emphasized: var(--tt-color-field);
+  --color-text-primary: var(--tt-color-text);
+  --color-text-secondary: var(--tt-color-text-muted);
+  --color-accent: var(--tt-color-accent);
+  --color-on-accent: var(--tt-color-on-accent);
+  --color-text-accent: var(--tt-color-accent);
+  --color-success: var(--tt-color-ready);
+  --color-warning: var(--tt-color-degraded);
+  --focus-outline-color: var(--tt-color-focus);
+  --font-family-body: var(--tt-font-ui);
+  --font-family-heading: var(--tt-font-ui);
+  --radius-element: var(--tt-radius-md);
+  --radius-container: var(--tt-radius-lg);
+  --radius-inner: var(--tt-radius-sm);
+  --duration-fast: var(--tt-duration-fast);
+  --duration-medium: var(--tt-duration-medium);
+  --ease-standard: var(--tt-ease-standard);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --tt-duration-fast: 0ms;
+    --tt-duration-medium: 0ms;
+    --tt-duration-slow: 0ms;
+  }
+}
