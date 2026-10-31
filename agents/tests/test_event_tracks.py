@@ -176,6 +176,32 @@ def test_carry_ins_show_what_is_on_the_slide_on_screen() -> None:
     assert ink_carry(INK, None) == [] and comments_carry(COMMENTS, None) == [] and marks_carry(MARKS, None) == []
 
 
+def test_shapes_and_undo_are_records_so_a_seek_shows_what_the_room_saw() -> None:
+    on = current_slide(slices_before(SLIDES, 3))
+
+    def at(t: int) -> list[tuple[str, str]]:
+        return [(r.data.kind, ids([r])[0]) for r in ink_carry([r for r in INK if r.m <= t], on)]
+
+    assert at(11_300) == [("stroke", "s1"), ("stroke", "s3"), ("shape", "s5"), ("shape", "s6")]
+    assert at(11_360) == [("stroke", "s1"), ("stroke", "s3"), ("shape", "s5")]  # the arrow undone
+    assert at(11_380) == [("stroke", "s1"), ("stroke", "s3"), ("shape", "s5"), ("shape", "s6")]  # and redone
+    assert at(11_600)[-1] == ("shape", "s7") and ("shape", "s7") not in at(11_650)
+    # a dragged shape keeps its last extent; the carry-in of the next slice is enough to draw it
+    [rect] = [r.data for r in ink_carry(slices_before(INK, 3), on) if r.data.kind == "shape" and r.data.stroke == "s5"]
+    assert rect.kind == "shape" and rect.shape == "rect" and rect.end == (0.8, 0.3)
+    # erase and clear take shapes like strokes: slide 1 shown again carries them, slide 0's clear left nothing
+    assert ids(ink_carry(INK, on)) == ["s1", "s3", "s5", "s6"]
+    assert ink_carry(INK, current_slide(SLIDES[:3])) == []
+
+
+def test_a_recording_from_before_shapes_still_reads() -> None:
+    """Backward compatible: an ink object with only strokes (the old records) decodes and reduces as before."""
+    old = [r for r in INK if r.data.kind != "shape" and r.m != 11_350 and r.m != 11_650]
+    on = current_slide(slices_before(SLIDES, 4))
+    again = InkObject.model_validate_json(encode(old)).root
+    assert ids(ink_carry(again, on)) == ["s1", "s3"]
+
+
 def ids(records: list[Any]) -> list[str]:
     return [getattr(r.data, "stroke", None) or r.data.id for r in records]
 

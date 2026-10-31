@@ -8,17 +8,23 @@
 // as they happen. A slide shown re-sends its strokes and marks (m = that moment), so one group is
 // always enough to draw it. Before the room clock is known nothing is written; what the speaker does
 // meanwhile is kept and goes out as the first carry-in.
+//
+// Undo and redo (per slide) keep a history here, but what they do goes out as ordinary records
+// (container-formats §3): undoing a new element erases it, redoing it or undoing an erase or a clear
+// re-sends the elements whole, so a replay or a late joiner sees exactly what the room saw.
 
 import { DECK_TRACK, FRAMES_TRACK, INK_TRACK, MARKS_TRACK, POINTER_TRACK, SLIDE_TRACK } from "../contracts/names";
 import { currentSlide, inkCarry, inkStrokes, marksCarry, textMarks } from "../contracts/tracks";
-import type { StrokeRecord, TextMarkRecord } from "../contracts/tracks";
+import type { ElementRecord, TextMarkRecord } from "../contracts/tracks";
 import {
   sliceOf,
   type Author,
   type CurrentSlideRecord,
   type DeckImage,
   type DeckInfo,
+  type InkElement,
   type InkRecord,
+  type InkShape,
   type InkTool,
   type MarkRecord,
   type Point,
@@ -34,6 +40,8 @@ import type { BroadcastSink, GroupSink, TrackSink } from "./sink";
 export const SLICE_RETAIN_MS = 30_000;
 /** A deck group is read by id for the whole talk. */
 export const DECK_RETAIN_MS = 12 * 3_600_000;
+/** Undo steps kept per slide. */
+export const UNDO_DEPTH = 100;
 
 type Sliced = "slide" | "ink" | "marks" | "pointer";
 const SLICED: Record<Sliced, string> = {
@@ -60,13 +68,37 @@ export interface StrokeStyle {
   width: number;
 }
 
+export interface ShapeStyle {
+  shape: InkShape["shape"];
+  color: string;
+  /** Fraction of the slide's width. */
+  width: number;
+}
+
+/** One step of a slide's undo history: what it added and what it removed (elements and marks, whole). */
+interface Edit {
+  added: { elements: InkElement[]; marks: TextMark[] };
+  removed: { elements: InkElement[]; marks: TextMark[] };
+}
+
+const emptyEdit = (): Edit => ({ added: { elements: [], marks: [] }, removed: { elements: [], marks: [] } });
+const isEmpty = (e: Edit) =>
+  !e.added.elements.length && !e.added.marks.length && !e.removed.elements.length && !e.removed.marks.length;
+const slideKey = (deck: number, index: number) => `${deck}:${index}`;
+/** An element as it is re-sent: a stroke whole and done, a shape as it is. */
+const whole = (el: InkElement): InkElement => (el.kind === "stroke" ? { ...el, done: true } : el);
+
 /** What the console shows of the deck's state. */
 export interface SlideState {
   deck: number | undefined;
   shown: ShowSlide | null;
-  strokes: StrokeRecord[];
+  /** The strokes and shapes on the slide shown, oldest first. */
+  strokes: ElementRecord[];
   marks: TextMarkRecord[];
   pointer: PointerRecord | undefined;
+  /** Whether the slide shown has something to undo, or to redo. */
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export class SlidesPublisher {
@@ -81,9 +113,13 @@ export class SlidesPublisher {
 
   #deck: { id: number; info: DeckInfo; images: Map<number, DeckImage> } | undefined;
   #slide: CurrentSlideRecord | undefined;
-  #ink = new Map<string, StrokeRecord>();
+  #ink = new Map<string, ElementRecord>();
   #marks = new Map<string, TextMarkRecord>();
   #pointer: PointerRecord | undefined;
+  /** Per slide: the undo and redo stacks, newest last. */
+  #history = new Map<string, { undo: Edit[]; redo: Edit[] }>();
+  /** The edit a gesture (a drag of the eraser, say) is collecting: one undo step. */
+  #pending: Edit | undefined;
 
   #tracks: (Record<Sliced, TrackSink> & { deck: TrackSink; frames: TrackSink }) | undefined;
   #open: number | undefined;
@@ -130,11 +166,25 @@ export class SlidesPublisher {
       strokes: inkCarry(this.#ink.values(), shown),
       marks: marksCarry(this.#marks.values(), shown),
       pointer: this.#pointer,
+      canUndo: this.canUndo(),
+      canRedo: this.canRedo(),
     };
   }
 
+  /** The slide shown has a step to undo. */
+  canUndo(): boolean {
+    const on = this.#shown();
+    return !!on && !!this.#stacks(on, false)?.undo.length;
+  }
+
+  /** The slide shown has a step to redo. */
+  canRedo(): boolean {
+    const on = this.#shown();
+    return !!on && !!this.#stacks(on, false)?.redo.length;
+  }
+
   /** The strokes and marks kept on one slide (for thumbnails and the eraser). */
-  slideState(deck: number, index: number): { strokes: StrokeRecord[]; marks: TextMarkRecord[] } {
+  slideState(deck: number, index: number): { strokes: ElementRecord[]; marks: TextMarkRecord[] } {
     const on: ShowSlide = { kind: "show", deck, index };
     return { strokes: inkCarry(this.#ink.values(), on), marks: marksCarry(this.#marks.values(), on) };
   }
@@ -195,6 +245,7 @@ export class SlidesPublisher {
       // Nothing of a deck loaded before going on air was published: replace it whole.
       this.#ink.clear();
       this.#marks.clear();
+      this.#history.clear();
       this.#slide = undefined;
     }
     const id = this.live ? Math.max(sliceOf(m), previous + 1) : previous + 1;
@@ -226,7 +277,7 @@ export class SlidesPublisher {
     this.#slide = { m, data };
     this.#write("slide", [this.#slide]);
     const { strokes, marks } = this.slideState(deck.id, index);
-    const strokeRecords = strokes.map((s) => ({ m, data: { ...s.data, done: true } }));
+    const strokeRecords = strokes.map((s) => ({ m, data: whole(s.data) }));
     const markRecords = marks.map((k) => ({ m, data: k.data }));
     this.#applyInk(strokeRecords);
     this.#applyMarks(markRecords);
@@ -294,11 +345,67 @@ export class SlidesPublisher {
     const r: InkRecord = { m: this.#stamp(), data: { kind: "end", stroke } };
     this.#applyInk([r]);
     this.#write("ink", [r]);
+    const done = this.#ink.get(stroke)?.data;
+    if (done) this.#record({ ...emptyEdit(), added: { elements: [done], marks: [] } });
     this.#changed();
   }
 
-  /** Remove strokes and marks (the eraser). */
+  /**
+   * Draw a shape on the slide shown, or move the end of one being dragged (`id` from the first call): a
+   * whole `shape` record each time, the last one wins. Its id, or undefined with no slide on screen.
+   */
+  drawShape(style: ShapeStyle, start: Point, end: Point, id?: string): string | undefined {
+    const on = this.#shown();
+    if (!on) return undefined;
+    const seen = id === undefined ? undefined : this.#ink.get(id)?.data;
+    if (id !== undefined && seen?.kind !== "shape") return undefined;
+    const stroke = id ?? this.#id("s");
+    const r: InkRecord = {
+      m: this.#stamp(),
+      data: {
+        kind: "shape",
+        stroke,
+        deck: seen?.deck ?? on.deck,
+        index: seen?.index ?? on.index,
+        shape: style.shape,
+        start: point(start),
+        end: point(end),
+        color: style.color,
+        width: Math.min(1, Math.max(0.0005, style.width)),
+        by: this.#author,
+      },
+    };
+    this.#applyInk([r]);
+    this.#write("ink", [r]);
+    this.#changed();
+    return stroke;
+  }
+
+  /** The shape's drag is over: it becomes one undo step. */
+  endShape(id: string): void {
+    const el = this.#ink.get(id)?.data;
+    if (el?.kind === "shape") this.#record({ ...emptyEdit(), added: { elements: [el], marks: [] } });
+    this.#changed();
+  }
+
+  /** Remove strokes, shapes and marks (the eraser). */
   erase(strokes: string[], marks: string[]): void {
+    const s = strokes.filter((id) => this.#ink.has(id));
+    const k = marks.filter((id) => this.#marks.has(id));
+    if (!s.length && !k.length) return;
+    this.#record({
+      ...emptyEdit(),
+      removed: {
+        elements: s.map((id) => whole(this.#ink.get(id)!.data)),
+        marks: k.map((id) => this.#marks.get(id)!.data),
+      },
+    });
+    this.#remove(s, k);
+    this.#changed();
+  }
+
+  /** Erase and unmark what is still there of these ids. */
+  #remove(strokes: string[], marks: string[]): void {
     const s = strokes.filter((id) => this.#ink.has(id));
     const k = marks.filter((id) => this.#marks.has(id));
     if (!s.length && !k.length) return;
@@ -313,13 +420,17 @@ export class SlidesPublisher {
       this.#applyMarks([r]);
       this.#write("marks", [r]);
     }
-    this.#changed();
   }
 
-  /** Clear the slide on screen: its strokes and its text marks. */
+  /** Clear the slide on screen: its strokes, shapes and text marks. */
   clearSlide(): void {
     const on = this.#shown();
     if (!on) return;
+    const kept = this.slideState(on.deck, on.index);
+    this.#record({
+      ...emptyEdit(),
+      removed: { elements: kept.strokes.map((s) => whole(s.data)), marks: kept.marks.map((k) => k.data) },
+    });
     const m = this.#stamp();
     const where = { deck: on.deck, index: on.index, by: this.#author };
     const ink: InkRecord = { m, data: { kind: "clear", ...where } };
@@ -344,8 +455,90 @@ export class SlidesPublisher {
     };
     this.#applyMarks([r]);
     this.#write("marks", [r]);
+    this.#record({ ...emptyEdit(), added: { elements: [], marks: [r.data as TextMark] } });
     this.#changed();
     return id;
+  }
+
+  // --- undo and redo -----------------------------------------------------------------------------
+
+  /** Collect what follows into one undo step (an eraser drag), until endEdit. */
+  startEdit(): void {
+    this.#pending ??= emptyEdit();
+  }
+
+  endEdit(): void {
+    const edit = this.#pending;
+    this.#pending = undefined;
+    if (edit && !isEmpty(edit)) this.#push(edit);
+    this.#changed();
+  }
+
+  /** Undo the newest step on the slide shown: erase what it added, re-send what it removed. */
+  undo(): void {
+    const on = this.#shown();
+    const stacks = on ? this.#stacks(on, false) : undefined;
+    const edit = stacks?.undo.pop();
+    if (!stacks || !edit) return;
+    this.#apply(edit.removed, edit.added);
+    stacks.redo.push(edit);
+    this.#changed();
+  }
+
+  /** Redo the step undone last on the slide shown. */
+  redo(): void {
+    const on = this.#shown();
+    const stacks = on ? this.#stacks(on, false) : undefined;
+    const edit = stacks?.redo.pop();
+    if (!stacks || !edit) return;
+    this.#apply(edit.added, edit.removed);
+    stacks.undo.push(edit);
+    this.#changed();
+  }
+
+  /** Re-send `restore` whole (m = now) and erase `drop`: the records an undo or a redo publishes. */
+  #apply(restore: Edit["added"], drop: Edit["added"]): void {
+    this.#remove(
+      drop.elements.map((e) => e.stroke),
+      drop.marks.map((k) => k.id),
+    );
+    if (!restore.elements.length && !restore.marks.length) return;
+    const m = this.#stamp();
+    const ink: InkRecord[] = restore.elements.map((data) => ({ m, data: whole(data) }));
+    const marks: MarkRecord[] = restore.marks.map((data) => ({ m, data }));
+    if (ink.length) {
+      this.#applyInk(ink);
+      this.#write("ink", ink);
+    }
+    if (marks.length) {
+      this.#applyMarks(marks);
+      this.#write("marks", marks);
+    }
+  }
+
+  /** A new step: into the gesture's edit, or onto the slide's stack (which drops its redo). */
+  #record(edit: Edit): void {
+    if (!this.#pending) return this.#push(edit);
+    this.#pending.added.elements.push(...edit.added.elements);
+    this.#pending.added.marks.push(...edit.added.marks);
+    this.#pending.removed.elements.push(...edit.removed.elements);
+    this.#pending.removed.marks.push(...edit.removed.marks);
+  }
+
+  #push(edit: Edit): void {
+    const on = this.#shown();
+    if (!on || isEmpty(edit)) return;
+    const stacks = this.#stacks(on, true)!;
+    stacks.undo.push(edit);
+    if (stacks.undo.length > UNDO_DEPTH) stacks.undo.shift();
+    stacks.redo = [];
+  }
+
+  #stacks(on: ShowSlide, create: boolean): { undo: Edit[]; redo: Edit[] } | undefined {
+    const key = slideKey(on.deck, on.index);
+    let stacks = this.#history.get(key);
+    if (!stacks && create) this.#history.set(key, (stacks = { undo: [], redo: [] }));
+    return stacks;
   }
 
   // --- the laser (pointer) -----------------------------------------------------------------------
@@ -433,6 +626,8 @@ export class SlidesPublisher {
   #rekey(from: number, to: number): void {
     if (!this.#deck || from === to) return;
     this.#deck = { ...this.#deck, id: to };
+    // The history names the old id; what was drawn before going on air is not undone across it.
+    this.#history.clear();
     if (this.#slide?.data.kind === "show" && this.#slide.data.deck === from) {
       this.#slide = { ...this.#slide, data: { ...this.#slide.data, deck: to } };
     }

@@ -2,37 +2,11 @@
 // the eraser touches. Positions are fractions of the slide; the canvas is in CSS pixels × DPR.
 
 import { rangeBoxes } from "../annotate/geometry";
-import type { StrokeRecord } from "../contracts/tracks";
+import { HIGHLIGHT_ALPHA } from "../canvas/ink";
 import type { PointerRecord, TextRange, TextRun } from "../contracts/types";
 
-export const HIGHLIGHTER_ALPHA = 0.35;
-
-export function drawStroke(ctx: CanvasRenderingContext2D, s: StrokeRecord["data"], w: number, h: number): void {
-  const pts = s.points;
-  if (!pts.length) return;
-  ctx.save();
-  ctx.strokeStyle = s.color;
-  ctx.fillStyle = s.color;
-  ctx.lineWidth = Math.max(1, s.width * w);
-  ctx.lineCap = s.tool === "highlighter" ? "butt" : "round";
-  ctx.lineJoin = "round";
-  if (s.tool === "highlighter") {
-    ctx.globalAlpha = HIGHLIGHTER_ALPHA;
-    ctx.globalCompositeOperation = "multiply";
-  }
-  if (pts.length === 1) {
-    const [x, y] = pts[0]!;
-    ctx.beginPath();
-    ctx.arc(x * w, y * h, ctx.lineWidth / 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(pts[0]![0] * w, pts[0]![1] * h);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]![0] * w, pts[i]![1] * h);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
+/** A stroke or shape, drawn as the player draws it (canvas/ink.ts). */
+export { drawElement } from "../canvas/ink";
 
 export function drawRange(
   ctx: CanvasRenderingContext2D,
@@ -47,7 +21,7 @@ export function drawRange(
   ctx.fillStyle = color;
   for (const b of rangeBoxes(runs, range)) {
     if (style === "highlight") {
-      ctx.globalAlpha = HIGHLIGHTER_ALPHA;
+      ctx.globalAlpha = HIGHLIGHT_ALPHA;
       ctx.globalCompositeOperation = "multiply";
       ctx.fillRect(b.x * w, b.y * h, b.w * w, b.h * h);
     } else {

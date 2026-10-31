@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { catalogPath, ROOM_TRACK, slidesPath } from "../contracts/names";
-import type { RoomStateRecord, TextRun } from "../contracts/types";
+import type { InkElement, InkStroke, Point, RoomStateRecord, TextRun } from "../contracts/types";
 import { FakeHistorySource } from "../playback/fakeSource";
 import { DEFAULT_PREFS } from "./prefs";
 import { DemoSlides } from "./demoSlides";
@@ -13,6 +13,11 @@ const ROOM = "r1";
 const ALL = wantedSlideTracks(true, DEFAULT_PREFS);
 /** Showing n of the demo starts at S(n); slide index n mod 8. */
 const S = (n: number) => 2_000 + 30_000 * n;
+
+function asStroke(e: InkElement): InkStroke {
+  if (e.kind !== "stroke") throw new Error(`${e.stroke} is a ${e.kind}`);
+  return e;
+}
 
 let open: SlideTracks[] = [];
 afterEach(() => {
@@ -64,16 +69,37 @@ describe("slides, ink, marks and laser at a time t", () => {
     const begun = S(2) + 5_000;
     await seek(slides, begun + 100, 300_000);
     await vi.waitFor(() => expect(slides.inkAt(begun + 100)).toHaveLength(1));
-    const early = slides.inkAt(begun + 100)![0]!.data;
-    const later = slides.inkAt(begun + 700)![0]!.data;
+    const early = asStroke(slides.inkAt(begun + 100)![0]!.data);
+    const later = asStroke(slides.inkAt(begun + 700)![0]!.data);
     expect(early.stroke).toBe("sp2a");
     expect(early.done).toBe(false);
     expect(later.points.length).toBeGreaterThan(early.points.length);
-    await vi.waitFor(() => expect(slides.inkAt(begun + 1_400)?.[0]?.data.done).toBe(true));
+    await vi.waitFor(() => expect(slides.inkAt(begun + 1_400)?.[0]?.data).toMatchObject({ done: true }));
 
     const erased = S(2) + 22_100;
     await seek(slides, erased, 300_000);
     await vi.waitFor(() => expect(slides.inkAt(erased)?.map((s) => s.data.stroke)).not.toContain("sp2a"));
+  });
+
+  it("draws shapes and applies undo and redo after a seek, as the room saw them", async () => {
+    const { slides } = demoRoom(300_000);
+    slides.setWanted(ALL);
+    const ids = (t: number) => slides.inkAt(t)?.map((e) => e.data.stroke);
+    // Showing 2: a rectangle dragged out at S+23.2 s, an arrow at S+24.2 s, undone at S+25.2 s, redone at S+25.8 s.
+    const dragging = S(2) + 23_300;
+    await seek(slides, dragging, 300_000);
+    await vi.waitFor(() => expect(ids(dragging)).toContain("sp2r"));
+    const early = slides.inkAt(dragging)!.find((e) => e.data.stroke === "sp2r")!.data;
+    const done = slides.inkAt(S(2) + 23_800)!.find((e) => e.data.stroke === "sp2r")!.data;
+    expect(early.kind === "shape" && done.kind === "shape" && done.end[0] > early.end[0]).toBe(true);
+
+    expect(ids(S(2) + 25_000)).toContain("sp2w");
+    expect(ids(S(2) + 25_500)).not.toContain("sp2w");
+    expect(ids(S(2) + 25_900)).toContain("sp2w");
+    // A late joiner at the next slice reads its object 0 alone: both shapes, the arrow where it was redone.
+    const late = S(2) + 26_500;
+    await seek(slides, late, 300_000);
+    await vi.waitFor(() => expect(ids(late)).toEqual(expect.arrayContaining(["sp2r", "sp2w"])));
   });
 
   it("moves the laser while it is held and hides it after off", async () => {
@@ -94,9 +120,9 @@ describe("slides, ink, marks and laser at a time t", () => {
     slides.setWanted(ALL);
     slides.setTime(begun + 50, "live", begun + 50);
     await vi.waitFor(() => expect(slides.inkAt(begun + 50)).toHaveLength(1));
-    const first = slides.inkAt(begun + 50)![0]!.data.points.length;
+    const first = asStroke(slides.inkAt(begun + 50)![0]!.data).points.length;
     demo.advanceTo(begun + 600);
-    await vi.waitFor(() => expect(slides.inkAt(begun + 600)![0]!.data.points.length).toBeGreaterThan(first));
+    await vi.waitFor(() => expect(asStroke(slides.inkAt(begun + 600)![0]!.data).points.length).toBeGreaterThan(first));
     expect(slides.slideAt(begun + 600)?.slide?.index).toBe(2);
     expect(source.fetches.filter((f) => f.track !== "deck")).toEqual([]);
   });
@@ -208,15 +234,34 @@ describe("text marks and ink on the slide", () => {
     expect(markBoxes([{ run: "t2" }, { run: "t3" }], runs)).toHaveLength(2);
   });
 
-  it("draws each stroke at its fractions of the canvas, a dot for a single point", () => {
-    const calls: string[] = [];
+  it("draws each element at its fractions of the canvas: a dot for a single point, a stroke along its points, shapes in their box", () => {
+    const calls: { name: string; args: number[] }[] = [];
     const ctx = new Proxy({} as CanvasRenderingContext2D, {
       get:
         (_, name: string) =>
         (...args: number[]) =>
-          calls.push(`${name}(${args.join(",")})`),
+          calls.push({ name, args }),
       set: () => true,
     });
+    /** Where the drawing calls in [from, to) put ink: the box of their x, y arguments. */
+    const extent = (from: number, to: number) => {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const c of calls.slice(from, to)) {
+        if (["moveTo", "lineTo", "arc", "ellipse"].includes(c.name)) {
+          xs.push(c.args[0]!);
+          ys.push(c.args[1]!);
+        } else if (c.name === "quadraticCurveTo") {
+          xs.push(c.args[2]!);
+          ys.push(c.args[3]!);
+        } else if (c.name === "rect") {
+          xs.push(c.args[0]!, c.args[0]! + c.args[2]!);
+          ys.push(c.args[1]!, c.args[1]! + c.args[3]!);
+        }
+      }
+      return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+    };
+    const starts = () => calls.flatMap((c, i) => (c.name === "save" ? [i] : []));
     const style = {
       deck: 0,
       index: 0,
@@ -244,8 +289,40 @@ describe("text marks and ink on the slide", () => {
       1_000,
       500,
     );
-    expect(calls).toContain("arc(500,250,5,0,6.283185307179586)");
-    expect(calls).toContain("moveTo(100,50)");
-    expect(calls).toContain("lineTo(300,150)");
+    const [dot, line] = starts();
+    const d = extent(dot!, line!);
+    expect([d.x0, d.y0]).toEqual([500, 250]);
+    const l = extent(line!, calls.length);
+    // A stroke still being drawn: perfect-freehand's outline round 100,50 → 300,150, give or take its width.
+    expect(l.x0).toBeGreaterThan(80);
+    expect(l.x0).toBeLessThan(110);
+    expect(l.x1).toBeGreaterThan(290);
+    expect(l.x1).toBeLessThan(320);
+
+    calls.length = 0;
+    const { tool: _tool, ...colour } = style;
+    const shape = {
+      ...colour,
+      kind: "shape" as const,
+      stroke: "x",
+      start: [0.1, 0.2] as Point,
+      end: [0.3, 0.6] as Point,
+    };
+    drawInk(
+      ctx,
+      [
+        { ...shape, shape: "rect" },
+        { ...shape, shape: "ellipse" },
+        { ...shape, shape: "arrow" },
+      ],
+      1_000,
+      500,
+    );
+    const [rect, ellipse, arrow] = starts();
+    expect(extent(rect!, ellipse!)).toEqual({ x0: 100, x1: 300, y0: 100, y1: 300 });
+    expect(extent(ellipse!, arrow!)).toMatchObject({ x0: 200, y0: 200 }); // its centre
+    const a = extent(arrow!, calls.length);
+    expect([a.x0, a.y0]).toEqual([100, 100]);
+    expect([a.x1, a.y1]).toEqual([300, 300]); // the head ends at the end point
   });
 });

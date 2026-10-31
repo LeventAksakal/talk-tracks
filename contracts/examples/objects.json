@@ -494,6 +494,159 @@
             "name": "Levent",
             "speaker": true
           },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.7,
+            0.2
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "rect",
+          "start": [
+            0.6,
+            0.1
+          ],
+          "stroke": "s5",
+          "width": 0.003
+        },
+        "m": 11200
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.8,
+            0.3
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "rect",
+          "start": [
+            0.6,
+            0.1
+          ],
+          "stroke": "s5",
+          "width": 0.003
+        },
+        "m": 11250
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.4,
+            0.7
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "arrow",
+          "start": [
+            0.2,
+            0.9
+          ],
+          "stroke": "s6",
+          "width": 0.003
+        },
+        "m": 11300
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "kind": "erase",
+          "strokes": [
+            "s6"
+          ]
+        },
+        "m": 11350
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.4,
+            0.7
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "arrow",
+          "start": [
+            0.2,
+            0.9
+          ],
+          "stroke": "s6",
+          "width": 0.003
+        },
+        "m": 11380
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.5,
+            0.45
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "ellipse",
+          "start": [
+            0.3,
+            0.3
+          ],
+          "stroke": "s7",
+          "width": 0.003
+        },
+        "m": 11600
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "kind": "erase",
+          "strokes": [
+            "s7"
+          ]
+        },
+        "m": 11650
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
           "color": "#e53935",
           "deck": 2,
           "index": 0,
@@ -594,6 +747,56 @@
           "stroke": "s3",
           "tool": "pen",
           "width": 0.004
+        },
+        "m": 15500
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.8,
+            0.3
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "rect",
+          "start": [
+            0.6,
+            0.1
+          ],
+          "stroke": "s5",
+          "width": 0.003
+        },
+        "m": 15500
+      },
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "color": "#1e88e5",
+          "deck": 2,
+          "end": [
+            0.4,
+            0.7
+          ],
+          "index": 1,
+          "kind": "shape",
+          "shape": "arrow",
+          "start": [
+            0.2,
+            0.9
+          ],
+          "stroke": "s6",
+          "width": 0.003
         },
         "m": 15500
       }

@@ -28,11 +28,11 @@ from ..contracts import (
     CommentEdit,
     CommentRecord,
     InkBegin,
-    InkClear,
     InkEnd,
     InkErase,
     InkPoints,
     InkRecord,
+    InkShape,
     InkStroke,
     MarkRecord,
     MarksClear,
@@ -43,7 +43,7 @@ from ..contracts import (
     Wire,
     may_change,
 )
-from ..records import comment_threads, comments_carry, ink_carry, ink_strokes, marks_carry, text_marks
+from ..records import comment_threads, comments_carry, element, ink_carry, ink_strokes, marks_carry, text_marks
 
 log = logging.getLogger("talk_tracks.archive.audience")
 
@@ -158,8 +158,8 @@ class Audience:
 
     async def _ink(self, by: Author, data: dict[str, Any], m: int) -> Done:
         kind = data.get("kind")
-        if kind not in ("begin", "points", "end", "erase", "clear"):
-            raise Refusal("invalid", "Ink is begin, points, end, erase or clear")
+        if kind not in ("begin", "points", "end", "stroke", "shape", "erase", "clear"):
+            raise Refusal("invalid", "Ink is begin, points, end, stroke, shape, erase or clear")
         stamped = data if kind in ("points", "end") else {**data, "by": by.model_dump()}
         record = _valid(InkRecord, m, stamped)
         d = record.data
@@ -184,15 +184,25 @@ class Audience:
                 self._drawing[d.stroke] = (drawing[0], count, *drawing[2:])
             else:
                 del self._drawing[d.stroke]
+        elif isinstance(d, InkStroke | InkShape):
+            # A whole element of one's own: a shape (sent again while dragged), or a redo or undone erase restoring it.
+            _own(by, d.stroke, d.kind)
+            if d.stroke in self._drawing:
+                raise Refusal("invalid", "That stroke is still being drawn")
+            if isinstance(d, InkStroke) and not d.done:
+                raise Refusal("invalid", "A whole stroke is done; draw one with begin, points and end")
+            if isinstance(d, InkStroke) and len(d.points) > MAX_POINTS:
+                raise Refusal("limit", "That stroke is too long")
+            self._taken.add(d.stroke)
         elif isinstance(d, InkErase):
             strokes = ink_strokes(self.ink.records)
-            allowed = [s for s in d.strokes if (r := strokes.get(s)) is not None and may_change(by, _stroke(r).by)]
+            allowed = [s for s in d.strokes if (r := strokes.get(s)) is not None and may_change(by, element(r).by)]
             if not allowed:
                 raise Refusal("forbidden", "Nothing there you may erase")
             record = InkRecord(m=m, data=d.model_copy(update={"strokes": allowed}))
             for s in allowed:
                 self._drawing.pop(s, None)
-        elif isinstance(d, InkClear):
+        else:
             for s, (who, _, deck, index) in list(self._drawing.items()):
                 if (deck, index) == (d.deck, d.index) and (by.speaker or who == by.id):
                     del self._drawing[s]
@@ -277,11 +287,6 @@ class Audience:
         if sent:
             self._last_m = m
         return sent
-
-
-def _stroke(r: InkRecord) -> InkStroke:
-    assert isinstance(r.data, InkStroke)  # ink_strokes keeps whole strokes only
-    return r.data
 
 
 def _mark(r: MarkRecord) -> TextMark:

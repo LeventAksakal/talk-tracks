@@ -188,6 +188,7 @@
           "type": "string"
         },
         "strokes": {
+          "description": "Ids of strokes or shapes",
           "items": {
             "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
             "minLength": 1,
@@ -262,6 +263,7 @@
               "end": "#/$defs/InkEnd",
               "erase": "#/$defs/InkErase",
               "points": "#/$defs/InkPoints",
+              "shape": "#/$defs/InkShape",
               "stroke": "#/$defs/InkStroke"
             },
             "propertyName": "kind"
@@ -278,6 +280,9 @@
             },
             {
               "$ref": "#/$defs/InkStroke"
+            },
+            {
+              "$ref": "#/$defs/InkShape"
             },
             {
               "$ref": "#/$defs/InkErase"
@@ -300,6 +305,113 @@
         "data"
       ],
       "title": "InkRecord",
+      "type": "object"
+    },
+    "InkShape": {
+      "additionalProperties": false,
+      "description": "A shape, whole: a rectangle or ellipse in the box from ``start`` to ``end``, or a line or arrow from ``start``\nto ``end`` (the arrow's head).",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
+        "color": {
+          "description": "#rrggbb",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Color",
+          "type": "string"
+        },
+        "deck": {
+          "description": "The deck track's group that holds the deck",
+          "minimum": 0,
+          "title": "Deck",
+          "type": "integer"
+        },
+        "end": {
+          "description": "Where it ended: the opposite corner, or the arrow's head",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          ],
+          "title": "End",
+          "type": "array"
+        },
+        "index": {
+          "description": "The slide's 0-based position in its deck",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "shape",
+          "default": "shape",
+          "title": "Kind",
+          "type": "string"
+        },
+        "shape": {
+          "enum": [
+            "rect",
+            "ellipse",
+            "line",
+            "arrow"
+          ],
+          "title": "Shape",
+          "type": "string"
+        },
+        "start": {
+          "description": "Where the drag began",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          ],
+          "title": "Start",
+          "type": "array"
+        },
+        "stroke": {
+          "description": "Unique in the room, stable across re-sends; the room service prefixes a listener's with their id",
+          "minLength": 1,
+          "title": "Stroke",
+          "type": "string"
+        },
+        "width": {
+          "description": "Line width as a fraction of the slide's width",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": [
+        "stroke",
+        "deck",
+        "index",
+        "shape",
+        "start",
+        "end",
+        "color",
+        "width",
+        "by"
+      ],
+      "title": "InkShape",
       "type": "object"
     },
     "InkStroke": {

@@ -146,8 +146,8 @@ function markStyle(k: Mark): CSSProperties {
 
 /**
  * The ink canvas (decision 0020): its backing store in device pixels, redrawn on the frame loop only when the
- * strokes visible at the frame's time change (a point, a stroke, an erase) or the size does. While the group at
- * the playhead loads, the last drawing stays.
+ * elements visible at the frame's time change (a point, a stroke, a shape, an erase or an undo) or the size does.
+ * While the group at the playhead loads, the last drawing stays.
  */
 function InkLayer({ slides }: { slides: SlideTracks }) {
   const { clock, listening } = usePlayer();
@@ -170,7 +170,9 @@ function InkLayer({ slides }: { slides: SlideTracks }) {
       const drafts = listening?.get().drafts ?? [];
       let strokes = echoed;
       if (drafts.length) {
-        listening?.settle(new Set(echoed.filter((s) => s.data.done).map((s) => s.data.stroke)));
+        listening?.settle(
+          new Set(echoed.filter((s) => s.data.kind === "shape" || s.data.done).map((s) => s.data.stroke)),
+        );
         const own = new Set(drafts.map((d) => d.stroke));
         strokes = [...echoed.filter((s) => !own.has(s.data.stroke)), ...drafts.map((data) => ({ m: 0, data }))];
       }
