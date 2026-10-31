@@ -14,12 +14,14 @@ frame, never decoration on the content.
 |---|---|---|
 | Direction | **Chalk**, picked from three (Lanes, Chalk, Signal) | owner, 10-31: "I like the Chalk direction" |
 | Title type | **Cabin Sketch** 700 for the wordmark and page titles | owner, 10-31: "use cabin skecth for the title fits the theme" |
-| Interface, captions, numbers | **Atkinson Hyperlegible Next**, tabular figures for times and money; its zero is a plain narrow oval | owner, 10-31: "atkinson hyperlegible is fine for nubmers and timecoes ... 0 should not have a dot or corss in it" |
+| Interface, captions, numbers | **Atkinson Hyperlegible Next**, tabular figures for times and counts; its zero is a plain narrow oval | owner, 10-31: "atkinson hyperlegible is fine for nubmers and timecoes ... 0 should not have a dot or corss in it" |
 | Monospace | none; every mono face tried was rejected | same |
 | Palette | Blackboard (dark) and Paper (light), below | owner, 10-31: "Palette seems OK to me" |
 | Ink | the eight-colour chalk box with a casing | drafted, not yet confirmed |
 | Player theme | always dark; hub and console follow the system, with a toggle | ui-design §9 |
-| Mascot | built in Rive; connector to be added by the owner | owner, 10-31: "Yes I meant rive" |
+| Mascot | **Chalky v2**, a stick of chalk rigged like a 3D character: bones with pivots, 11 faces, 11 cycles, a turnaround from front to back; built in Rive on the same rig | owner, 10-31: "Yes I meant rive"; "think of a 3d modeller; the skeleton and rigging of each of its components" |
+| LIVE marker | the **Go-live icon with the word LIVE, in live red**; no red dot | owner, 10-31: "use this instead of the red dot use it with "LIVE" and make it red too" |
+| Money | **never shown** to a listener or speaker; a capped track reads "unavailable right now" | owner, 10-31: "No app displays such stuff. we are building the app for actual users" |
 | Name | keep **Talk Tracks** for now; finalists in §7 | owner, 10-31: "lets retain talk tracks for now always can change it in the future" |
 | Record | [decision 0026](../decisions/0026-the-look-is-chalk-and-a-panel-is-a-track-subscription.md) | |
 
@@ -38,7 +40,7 @@ and Raised.
 | `--tt-color-text` | `#1b2420` | `#f1ede2` | text | 14.2 / 13.6 |
 | `--tt-color-text-muted` | `#5b645e` | `#aab5ae` | secondary text | 5.5 / 7.5 |
 | `--tt-color-accent` | `#2d5f8b` | `#9cc7ea` | primary action, selection, focus | 6.0 / 8.9 |
-| `--tt-color-live` | `#b42f27` | `#ff6a5c` | LIVE dot, live edge, on air: only these | 5.6 / 5.7 |
+| `--tt-color-live` | `#b42f27` | `#ff6a5c` | LIVE marker (icon and word), live edge, on air: only these | 5.6 / 5.7 |
 | `--tt-color-live-fill` | `#c8352b` | `#c8352b` | LIVE badge fill, white text 5.3 | — |
 | `--tt-color-degraded` | `#8c5200` | `#f4b544` | behind, stale, capped, failed | 5.7 / 8.7 |
 | `--tt-color-ready` | `#226b3c` | `#86d39b` | connected, mic ok, saved | 5.8 / 8.9 |
@@ -99,6 +101,19 @@ Rules:
 - **Everything is a track, and a panel is a subscription.** Opening the chat drawer subscribes to chat; closing it
   unsubscribes. The slide-comments layer is subscribed only while it is shown. Panels need "starting from now" and
   "loading history" states.
+- **No switches.** Tracks follow what the listener opens or picks: a language pick subscribes, Off unsubscribes, a
+  panel subscribes while open. No toggle rows, no first-visit sheet of switches ("turning stuff on/off is a shit UI";
+  "tracks sub/unsub should be smooth natural operations"). Switching must feel instant: warm only tracks that are
+  already running (the room's stats track says which), subscribe from the latest group and draw only the newest cue,
+  keep the old line up until the new one lands, and linger 30 s after Off so a quick change back is free.
+- **No money in the product.** Cost (agent workers calling the Meta API, relay compute) is the operator's concern.
+  Machinery, subscriber counts included, lives only in Stats for nerds, which lists every track in the room's
+  namespace from a stats track the room service publishes (MoQT itself reports no subscriber counts).
+- **Tool options are popovers.** Ink colours and widths open from the active tool and close when you draw; no
+  dedicated colour bar. Pause and End talk carry icons; End talk is the only solid red button.
+- **Downloads:** the side panel offers the transcript (.txt, .vtt, .md, one language or all) and a **lecture
+  package** (.zip: manifest, transcripts, chapters, slides with ink, glossary, the listener's notes) meant to be
+  handed to an AI assistant. The package format is still to be defined.
 - **Slide comments are supplementary:** off by default, can be shown, hidden or docked; not always on the slide.
 - **Comments on a replay:** a stretch goal ("could be a slick feature"), built only if time allows.
 - **Chat:** a feature. No accounts in the demo (a real deployment would use the organisation's SAML or SSO). A listener
