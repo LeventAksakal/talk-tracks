@@ -261,7 +261,7 @@ function lectureMarkdown(input: PackageInput, stem: (s: PackageSlide) => string)
   const slideEvents: Event[] = firstShown.map(({ s, at }) => {
     const again = s.shown.slice(1).map((x) => clock(x.fromMs));
     const head = `**Slide ${s.number}** (shown at ${clock(at)}${again.length ? `, again at ${again.join(", ")}` : ""}; ${
-      s.png ? `picture with the speaker's ink: slides/${stem(s)}.png` : "no picture"
+      s.png ? `picture${s.ink || s.marks ? " with the speaker's ink" : ""}: slides/${stem(s)}.png` : "no picture"
     })`;
     return { at, text: quote([head, "", s.text || "(no text layer)"].join("\n")) };
   });
