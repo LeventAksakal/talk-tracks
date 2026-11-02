@@ -92,4 +92,19 @@ describe("the shared screen in the player", () => {
     expect(sourceShown("camera", single, [...all])).toBe(false);
     expect(sourceShown("slides", single, ["camera", "slides"])).toBe(true);
   });
+
+  it("gives the main picture back to the slides when the listener picks them, while the screen is shared", () => {
+    const all = ["camera", "slides", "screen"] as const;
+    expect(stageSources([...all], "slides")).toEqual(["camera", "slides"]);
+    const pip = { ...DEFAULT_PREFS, layout: "pip" as const, board: "slides" as const };
+    expect(sourceShown("slides", pip, [...all])).toBe(true);
+    expect(sourceShown("screen", pip, [...all])).toBe(false);
+    const single = { ...pip, layout: "single" as const, single: "slides" as const };
+    expect(sourceShown("slides", single, [...all])).toBe(true);
+    expect(sourceShown("screen", single, [...all])).toBe(false);
+    // A pick of the slides with nothing shared, or of the screen with no deck, falls back to what there is.
+    expect(stageSources(["camera", "screen"], "slides")).toEqual(["camera", "screen"]);
+    // With no camera, the other of slides and screen takes the corner.
+    expect(stageSources(["slides", "screen"])).toEqual(["slides", "screen"]);
+  });
 });

@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 export type LayoutKind = "single" | "split" | "pip";
 /** A picture on the stage. A shared screen takes the slides' place while it is shared (Stage.stageSources). */
 export type SourceKind = "camera" | "slides" | "screen";
+/** The main picture's two candidates: the slides, or a shared screen. */
+export type BoardKind = "slides" | "screen";
 export type SubtitlePreset = "default" | "large" | "contrast" | "light";
 export type PanelTab = "transcript" | "chapters" | "glossary" | "descriptions" | "notes" | (string & {});
 /** What you hear: the speaker, or the speaker with each new slide's description read aloud. */
@@ -48,8 +50,13 @@ export interface Prefs {
   layout: LayoutKind;
   /** Split and the corner tile: the camera is the left or small one unless swapped. */
   swap: boolean;
-  /** Single layout: which source fills the canvas. */
+  /** Single layout: the camera, or the main picture ("slides" or "screen" both mean the main picture). */
   single: SourceKind;
+  /**
+   * While a screen is shared, which of it and the slides is the main picture (Stage.mainPicture). The screen unless
+   * the listener picks the slides; with only one of them, that one, whatever this says.
+   */
+  board: BoardKind;
   /** Split: the first cell's share of the width. */
   split: number;
   /** The corner tile's top-left corner, as fractions of the canvas; undefined: the bottom-right corner. */
@@ -83,6 +90,7 @@ export const DEFAULT_PREFS: Prefs = {
   layout: "pip",
   swap: false,
   single: "slides",
+  board: "screen",
   split: 0.34,
   pipPos: undefined,
   pipWidth: PIP_WIDTH.default,
