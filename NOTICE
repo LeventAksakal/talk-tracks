@@ -1,0 +1,130 @@
+Talk Tracks
+Copyright 2026 Levent Aksakal
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It uses the third-party software, fonts and media listed below, each under its own licence. The lists come from the
+lockfiles (web/package-lock.json, agents/uv.lock, qa/ and bench/ package-lock.json files) and the Dockerfiles in
+deploy/ and agents/, as of 2026-11-02. Each package's own licence file, with its copyright holders, ships inside the
+package; the source of each is at the address given.
+
+==============================================================================
+1. Web app (web/): shipped to the browser
+==============================================================================
+
+Direct dependencies
+- media-chrome 4.19.3 ............ MIT ................ https://github.com/muxinc/media-chrome (Mux, Inc.)
+- hls.js 1.7.3 ................... Apache-2.0 ......... https://github.com/video-dev/hls.js
+- @moq/hang 0.5.4, @moq/net 0.4.5, @moq/publish 0.5.3, @moq/watch 0.6.6
+                                 MIT OR Apache-2.0 .. https://github.com/moq-dev/moq (the moq.dev authors)
+- react 19.3.0, react-dom 19.3.0 . MIT ................ https://github.com/facebook/react (Meta Platforms, Inc.)
+- @astryxdesign/core 0.7.0 ....... MIT ................ https://github.com/facebook/astryx (Meta Platforms, Inc.)
+- @stylexjs/stylex 0.19.1 ........ MIT ................ https://github.com/facebook/stylex (Meta Platforms, Inc.)
+- pdfjs-dist 6.4.299 ............. Apache-2.0 ......... https://github.com/mozilla/pdf.js (Mozilla)
+- perfect-freehand 1.2.3 ......... MIT ................ https://github.com/steveruizok/perfect-freehand
+- ajv 8.20.0 ..................... MIT ................ https://github.com/ajv-validator/ajv
+- uqr 0.1.3 ...................... MIT ................ https://github.com/unjs/uqr
+
+Pulled in by the above
+- @moq/flate 0.1.3, @moq/json 0.4.3, @moq/loc 0.2.4, @moq/msf 0.3.1, @moq/pattern 0.2.1, @moq/qmux 0.3.4,
+  @moq/signals 0.2.6, @moq/web-socket-stream 0.1.1 ................. MIT OR Apache-2.0
+- @libav.js/variant-opus-af 6.10.9, @libav.js/types 6.10.9 ......... LGPL-2.1
+    (the Opus codec polyfill @moq/hang uses in browsers without a WebCodecs Opus codec; FFmpeg and Opus compiled to
+    WebAssembly; source: https://github.com/Yahweasel/libav.js; used unmodified)
+- mediabunny 1.62.1 .............................................. MPL-2.0
+    (used by @moq/publish; source: https://github.com/Vanilagy/mediabunny; used unmodified)
+- @kixelated/libavjs-webcodecs-polyfill 0.5.6, tslib 2.8.1 ........ 0BSD
+- @svta/cml-iso-bmff 1.0.7, @svta/cml-utils 1.7.0 .................. Apache-2.0
+- ce-la-react 0.3.2, fast-uri 3.1.9, intl-messageformat 11.2.15 ... BSD-3-Clause
+- css-mediaquery 0.1.2 ............................................ BSD
+- @ungap/global-this 0.4.4 ........................................ ISC
+- pako 3.0.3 ....................................................... MIT AND Zlib
+- MIT: @formatjs/fast-memoize 3.1.7, @formatjs/icu-messageformat-parser 3.5.18,
+  @formatjs/icu-skeleton-parser 2.1.11, @types/dom-mediacapture-transform 0.1.12, @types/dom-webcodecs 0.1.13,
+  @zod/mini 4.6.7, zod 4.6.7, async-mutex 0.5.0, bowser 2.15.0, fast-deep-equal 3.1.3, invariant 2.2.4,
+  js-tokens 4.0.0, json-schema-traverse 1.0.0, loose-envify 1.4.0, media-captions 0.0.18, require-from-string 2.0.2,
+  scheduler 0.28.0, styleq 0.2.1
+- @napi-rs/canvas 1.1.0 (MIT) is an optional Node.js dependency of pdfjs-dist; it is installed for builds and tests
+  only and never reaches the browser.
+
+Build and test tools (not shipped): TypeScript, Vite, Vitest, ESLint, Prettier, happy-dom, Testing Library, each MIT
+(Apache-2.0 for TypeScript), as listed in web/package.json.
+
+==============================================================================
+2. Agents and room service (agents/): the container image
+==============================================================================
+
+- aiomoqt 0.13.1 ...... MIT ............... https://github.com/gmarzot/aiomoqt
+- aiopquic 0.6.1 ...... MIT ............... https://github.com/gmarzot/aiopquic
+- av (PyAV) 19.0.2 .... BSD-3-Clause ...... https://github.com/PyAV-Org/PyAV
+    (its binary wheels bundle FFmpeg libraries under the LGPL; see the licence files inside the wheel)
+- numpy 2.5.4 ......... BSD-3-Clause AND 0BSD AND MIT AND Zlib AND others listed by NumPy
+                                            https://github.com/numpy/numpy
+- pydantic 2.14.1, pydantic-core 2.50.1, annotated-types 0.8.0, typing-inspection 0.4.4 .... MIT
+- httpx 0.28.1, httpcore 1.0.9, idna 3.20, websockets 17.3 ................................ BSD-3-Clause
+- anyio 4.15.1, h11 0.16.0 ................................................................ MIT
+- certifi 2026.10.23 ...................................................................... MPL-2.0
+- sortedcontainers 2.4.0 .................................................................. Apache-2.0
+- typing-extensions 4.16.0 ................................................................ PSF-2.0
+- Base image python:3.13-slim-bookworm (Python: PSF-2.0; Debian packages under their own licences); uv 0.9.26 from
+  ghcr.io/astral-sh/uv (MIT OR Apache-2.0), used to install the above.
+
+Development tools (not in the image): pytest (MIT), pytest-asyncio (Apache-2.0), ruff (MIT), pyright (MIT),
+jsonschema (MIT) and their dependencies, as listed in agents/uv.lock.
+
+==============================================================================
+3. Servers (deploy/)
+==============================================================================
+
+- moq-relay 0.17.8 ......... MIT OR Apache-2.0 .. https://github.com/moq-dev/moq (built from crates.io, unmodified)
+- moq-cli 0.14.8 ........... MIT OR Apache-2.0 .. https://github.com/moq-dev/moq (its `moq auth serve`, unmodified)
+- Caddy 2.10.2 ............. Apache-2.0 ......... https://github.com/caddyserver/caddy (the caddy:2.10.2 image)
+- FFmpeg (Debian bookworm package, in the media tools image used on the VM to prepare the demo lectures; not
+  distributed) ............. LGPL-2.1+ / GPL-2.0+ https://ffmpeg.org
+- Base images debian:bookworm-slim, rust:1.95-bookworm, node:22-bookworm-slim: their packages under their own licences.
+
+==============================================================================
+4. QA harness (qa/) and benchmark (bench/): run locally, not distributed
+==============================================================================
+
+- Playwright 1.64.0 and its image mcr.microsoft.com/playwright:v1.64.0-noble ... Apache-2.0
+- Lighthouse 13.5.0, chrome-launcher 1.2.2 ...................................... Apache-2.0
+- MediaMTX 1.21.3 (bluenviron/mediamtx image, benchmark baseline only) .......... MIT
+- The benchmark's viewer pages use @moq/net, @moq/watch and hls.js as in section 1.
+
+==============================================================================
+5. Fonts (web/public/fonts/, licences beside the files)
+==============================================================================
+
+- Atkinson Hyperlegible Next, 400, 600 and 700, Latin subsets as Google Fonts publishes them.
+  Copyright The Atkinson Hyperlegible Next Project Authors (Braille Institute of America).
+  SIL Open Font License 1.1: web/public/fonts/OFL-atkinson-hyperlegible-next.txt
+- Cabin Sketch Bold, as a Latin subset renamed "Talk Tracks Title" (because "Cabin Sketch" is a Reserved Font Name).
+  Copyright The Cabin Project Authors (Pablo Impallari). It is the source of the wordmark outlines in
+  web/public/brand/*.svg and web/scripts/brand/wordmark.json.
+  SIL Open Font License 1.1: web/public/fonts/OFL-cabin-sketch.txt
+
+The icons, logo, card art, social card and video cards are drawn by code in this repository
+(web/scripts/brand/build.ts, web/src/pages/hub/) and are covered by this project's licence. No third-party images and
+no Meta logos or marks are used.
+
+==============================================================================
+6. Demo lectures (served by the live site; not in this repository)
+==============================================================================
+
+Four talks from Electromagnetic Field 2026, recorded by the EMF Video Team and C3VOC, published on media.ccc.de under
+the Creative Commons Attribution-ShareAlike 4.0 International licence (https://creativecommons.org/licenses/by-sa/4.0/):
+
+- "You Are Part Virus: How Biological Viruses Hack Cells", Christopher Binny
+  https://media.ccc.de/v/emf2026-149-1-you-are-part-virus-how-biological-viruses-hack-cells
+- "Data Visualisation: The Good, The Bad, The Ugly and the Beautiful", Charlotte Rutherford
+  https://media.ccc.de/v/emf2026-241-1-data-visualisation-the-good-the-bad-the-ugly
+- "It's the End of RSA as We Know It (And I Feel Fine): An Introduction to Post-Quantum Cryptography", Lucy Bell
+  https://media.ccc.de/v/emf2026-242-1-its-the-end-of-rsa-as-we-know-it-and-i-feel-fine
+- "A Brief History of the QR Code, and other scannable things", Jon Ginn
+  https://media.ccc.de/v/emf2026-234-1-a-brief-history-of-the-qr-code-and-other-scannable-things
+
+Changes: trimmed (title card, sponsor logos, jingle and closing licence card cut; two talks end at a section break),
+re-encoded for streaming (720p H.264, mono Opus), and AI tracks added (captions, translations, slide descriptions,
+chapters, glossary, recap) by this project's agents with Meta models. The trimmed videos and the derived tracks are
+shared under CC BY-SA 4.0. The cuts are in deploy/media/demo-lectures.sh.
