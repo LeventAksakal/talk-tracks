@@ -43,8 +43,14 @@ qa/out/<run>/
   trace/watch-trace.json.gz          load it in the DevTools Performance panel
 ```
 
-`<run>` defaults to `<yyyymmdd-hhmm>-local` or `-deployed`. Every text output is redacted of the deployed host
-(`<TT_BASE_URL>`, `<host>`), so a run can be shared; the screenshots carry no URL bar.
+`<run>` defaults to `<yyyymmdd-hhmm>-local` or `-deployed`. Every text output (report, summary, Lighthouse, trace)
+is redacted of the deployed origin, host and site (`<TT_BASE_URL>`, `<host>`, `<site>`). The screenshots are not:
+the console's Invite panel shows the audience link with the host. A run is 50 to 150 MB, so `qa/out/` stays out of
+git (`.gitignore`); share a run by hand, not by committing it.
+
+The report records the build the site served (its hashed entry script) per browser and before Lighthouse and the
+trace, and warns when the site was redeployed during the run: compare builds before reading a difference between
+browsers as a browser difference.
 
 ## Journeys
 

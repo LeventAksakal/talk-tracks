@@ -121,23 +121,49 @@ export async function captureJourneys({ runDir, browsers, themes, journeyIds, op
       log(`  ${name}: not installed, skipped`);
       continue;
     }
-    let browser;
-    try {
-      browser = await spec.type.launch({ headless: true, ...spec.launch });
-    } catch (e) {
-      record.browsers.push({ name, status: `launch failed: ${String(e.message).split("\n")[0]}` });
-      log(`  ${name}: launch failed`);
-      continue;
-    }
-    const build = await buildId(opts.base);
-    record.browsers.push({ name, status: "ran", version: browser.version(), build });
+    // Firefox loses Playwright's colorScheme emulation on a cross-origin-isolated page (the deployed site sends
+    // COOP/COEP; measured 11-02: prefers-color-scheme: dark read false there, true on a data: URL), so its "dark"
+    // frames came out light. It is launched once per theme with the theme forced by a pref instead.
+    const launch = (theme) =>
+      spec.type.launch({
+        headless: true,
+        ...spec.launch,
+        ...(name === "firefox"
+          ? {
+              firefoxUserPrefs: {
+                ...spec.launch.firefoxUserPrefs,
+                "layout.css.prefers-color-scheme.content-override": theme === "dark" ? 0 : 1,
+                "ui.systemUsesDarkTheme": theme === "dark" ? 1 : 0,
+              },
+            }
+          : {}),
+      });
     const outDir = ensureDir(join(runDir, name));
+    let browser;
+    let entry;
     for (const theme of themes) {
+      if (!browser) {
+        try {
+          browser = await launch(theme);
+        } catch (e) {
+          record.browsers.push({ name, status: `launch failed: ${String(e.message).split("\n")[0]}` });
+          log(`  ${name}: launch failed`);
+          break;
+        }
+      }
+      if (!entry) {
+        entry = { name, status: "ran", version: browser.version(), build: await buildId(opts.base) };
+        record.browsers.push(entry);
+      }
       log(`  ${name} ${theme}: ${journeys.map((j) => j.id).join(", ")}`);
       await runTheme({ name, browser, theme, journeys, opts, outDir, record });
+      if (name === "firefox") {
+        await browser.close();
+        browser = undefined;
+      }
     }
-    await browser.close();
-    record.browsers.at(-1).buildEnd = await buildId(opts.base);
+    await browser?.close();
+    if (entry) entry.buildEnd = await buildId(opts.base);
   }
   return record;
 }

@@ -56,7 +56,12 @@ export function makeRedactor(base) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const reOrigin = new RegExp(esc(origin), "g");
   const reHost = new RegExp(esc(host), "g");
-  return (s) => String(s).replace(reOrigin, "<TT_BASE_URL>").replace(reHost, "<host>");
+  // Chrome's traces name the site too (scheme + registrable domain, e.g. a process lock "https://example.com/"):
+  // the last two labels, which is the registrable domain for the hosts this project uses.
+  const site = host.split(".").slice(-2).join(".");
+  const reSite = new RegExp(esc(site), "g");
+  return (s) =>
+    String(s).replace(reOrigin, "<TT_BASE_URL>").replace(reHost, "<host>").replace(reSite, "<site>");
 }
 
 /** Rewrite a file already on disk through the redactor (Lighthouse writes its own files). */
