@@ -7,7 +7,8 @@
 import { commentThreads } from "../contracts/tracks";
 import type { CommentRecord } from "../contracts/types";
 
-export type WriteTrack = "ink" | "marks" | "comments";
+/** chat: a message `{text}` for talk/<room>/chat (ticket 0021), read back from that track, not this socket. */
+export type WriteTrack = "ink" | "marks" | "comments" | "chat";
 
 /** Who this browser is in the room: an id the room service gave it (or "speaker"), a display name. */
 export interface Me {

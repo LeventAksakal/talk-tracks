@@ -16,8 +16,10 @@
 // draw both. A record changes only its own track, and only what its author may change (mayChange).
 
 import {
+  CHAT_CARRY,
   mayChange,
   type Anchor,
+  type ChatRecord,
   type Comment,
   type CommentRecord,
   type CurrentSlideRecord,
@@ -172,6 +174,18 @@ export function commentsCarry(records: Iterable<CommentRecord>, on: ShowSlide | 
       .map((r) => r.data.id),
   );
   return threads.filter((r) => anchored.has(r.data.id) || anchored.has(replyTo(r) ?? ""));
+}
+
+/** Every chat message once (a carry-in repeats earlier ones), in room-time order. */
+export function chatMessages(records: Iterable<ChatRecord>): ChatRecord[] {
+  const seen = new Map<string, ChatRecord>();
+  for (const r of records) if (!seen.has(r.data.id)) seen.set(r.data.id, r);
+  return [...seen.values()].sort((a, b) => a.m - b.m);
+}
+
+/** Carry-in of the chat track: the last `n` messages, oldest first. */
+export function chatCarry(records: Iterable<ChatRecord>, n = CHAT_CARRY): ChatRecord[] {
+  return n > 0 ? chatMessages(records).slice(-n) : [];
 }
 
 const replyTo = (r: CommentRecord) => (r.data.kind === "reply" ? r.data.to : undefined);

@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "TrackStats": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "As the catalog says (captions, translation, ink, chat, ...), or audio and video",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lang"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "The track's broadcast, talk/<room>/...",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "state": {
+          "description": "running: published now (an agent producing, the speaker sending, the room service); on_demand: listed, but its agent works only once someone subscribes",
+          "enum": [
+            "running",
+            "on_demand"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "subscribers": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sessions subscribed to its broadcast at the relay; None without relay stats",
+          "title": "Subscribers"
+        }
+      },
+      "required": [
+        "namespace",
+        "name",
+        "kind",
+        "state"
+      ],
+      "title": "TrackStats",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The object of each group of ``talk/<room>/stats``.",
+  "properties": {
+    "at": {
+      "description": "Unix ms of the snapshot",
+      "minimum": 0,
+      "title": "At",
+      "type": "integer"
+    },
+    "listeners": {
+      "description": "Browsers connected to the room service for this room (WebSocket)",
+      "minimum": 0,
+      "title": "Listeners",
+      "type": "integer"
+    },
+    "relay": {
+      "description": "The relay's stats feed is read: subscriber counts are known",
+      "title": "Relay",
+      "type": "boolean"
+    },
+    "tracks": {
+      "items": {
+        "$ref": "#/$defs/TrackStats"
+      },
+      "title": "Tracks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "at",
+    "relay",
+    "listeners",
+    "tracks"
+  ],
+  "title": "RoomStats",
+  "type": "object"
+}

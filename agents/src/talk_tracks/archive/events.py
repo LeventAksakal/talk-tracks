@@ -9,10 +9,10 @@ deck); see ``wiki/design/lane-briefs.md`` §"Namespaces". The room service keeps
   object numbers, byte for byte. It answers FETCH for them on ``history_path`` (``talk/<room>/archive/slides``: the
   same track names, group numbers and payloads). Live stays on the speaker's track.
 * **Owned:** the tracks the room service publishes itself (``room_catalog.room_service_tracks``: the room's state,
-  the comments and everyone else's ink and text marks, written through the listeners' endpoint, ``archive.audience``
-  and decision 0024). Like an agent's track, each object goes live and into the archive byte for byte, and a FETCH on
-  the same name is answered from the archive. The audience tracks' carry-ins and their re-send when a slide is shown
-  need the slide on screen, which the mirrored ``slide`` track supplies.
+  the comments, the chat and everyone else's ink and text marks, written through the listeners' endpoint,
+  ``archive.audience`` and decision 0024). Like an agent's track, each object goes live and into the archive byte
+  for byte, and a FETCH on the same name is answered from the archive. The audience tracks' carry-ins and their
+  re-send when a slide is shown need the slide on screen, which the mirrored ``slide`` track supplies.
 
 Which tracks are kept comes from ``room_catalog``'s lists, not from names here, so a track added there is mirrored
 or can be owned without a change in this module. Archive folders follow the MoQ names: ``talk/<room>/<rest>`` track
@@ -33,6 +33,7 @@ from typing import Any, Literal, Protocol, cast
 from pydantic import ValidationError
 
 from ..contracts import (
+    CHAT_TRACK,
     COMMENTS_TRACK,
     INK_TRACK,
     MARKS_TRACK,
@@ -40,6 +41,8 @@ from ..contracts import (
     ROOT,
     SLICE_MS,
     SLIDE_TRACK,
+    ChatObject,
+    ChatRecord,
     CommentRecord,
     CommentsObject,
     CurrentSlideObject,
@@ -54,11 +57,13 @@ from ..contracts import (
     ShowSlide,
     Wire,
     annotations_path,
+    chat_path,
     comments_path,
     slice_of,
 )
 from ..live_slices import LiveOut, Refused, Stats
 from ..records import (
+    chat_carry,
     comment_threads,
     comments_carry,
     current_slide,
@@ -334,6 +339,10 @@ def comment_records(payload: bytes) -> list[CommentRecord]:
     return list(CommentsObject.model_validate_json(payload).root)
 
 
+def chat_records(payload: bytes) -> list[ChatRecord]:
+    return list(ChatObject.model_validate_json(payload).root)
+
+
 SLIDES_KEPT = 64  # slide records kept for the audience tracks' carry-ins: the slide at a recent slice start
 
 
@@ -397,7 +406,7 @@ class RoomEvents:
             archive = self._archive(track)
             if archive.latest_group() is not None:
                 await self._mirror(key, track)
-        if any(self._archive(t).latest_group() is not None for t in self._audience_specs()):
+        if any(self._archive(t).latest_group() is not None for t in (*self._audience_specs(), self._chat_spec())):
             await self.audience_tracks()
 
     def announced(self, namespace: str, active: bool) -> None:
@@ -500,6 +509,9 @@ class RoomEvents:
             self.owned_tracks[(ns, MARKS_TRACK)],
         )
 
+    def _chat_spec(self) -> CatalogTrack:
+        return self.owned_tracks[(chat_path(self.room), CHAT_TRACK)]
+
     def slide_at(self, t: int) -> ShowSlide | None:
         """The slide on screen just before room time ``t`` (a carry-in's slide), from the speaker's slide records."""
         return current_slide(r for r in self.slides if r.m < t)
@@ -548,8 +560,9 @@ class RoomEvents:
             comments = await self._service_track(
                 comments_spec, lambda rs, k: comments_carry(rs, on(k)), comment_records, comment_threads
             )
-            self.audience = Audience(ink, marks, comments, now=self.room_now)
-            log.info("%s: publishing the audience's ink, marks and comments", self.room)
+            chat = await self._service_track(self._chat_spec(), lambda rs, _: chat_carry(rs), chat_records, chat_carry)
+            self.audience = Audience(ink, marks, comments, chat, now=self.room_now)
+            log.info("%s: publishing the audience's ink, marks, comments and chat", self.room)
             return self.audience
 
     def _archived_slides(self) -> list[CurrentSlideRecord]:

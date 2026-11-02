@@ -438,6 +438,54 @@ export const POINTER_EVENT = "com.talktracks.pointer";
 export const COMMENTS_EVENT = "com.talktracks.comments";
 export const ROOM_EVENT = "com.talktracks.room";
 
+/**
+ * The room's chat (ticket 0021): one track published by the room service, talk/<room>/chat `chat`. A group is a 4 s
+ * slice; object 0 holds the last CHAT_CARRY messages before it, objects 1.. one message each. Append-only.
+ */
+export interface ChatMessage {
+  kind: "message";
+  /** Given by the room service, unique in the room. */
+  id: string;
+  /** Stamped by the room service from the writer's session. */
+  by: Author;
+  /** 1 to CHAT_MAX characters. */
+  text: string;
+}
+export interface ChatRecord {
+  /** Room ms the room service stamped it. */
+  m: number;
+  data: ChatMessage;
+}
+/** One object of the `chat` track (eventType com.talktracks.chat). */
+export type ChatObject = ChatRecord[];
+export const CHAT_CARRY = 50;
+export const CHAT_MAX = 500;
+export const CHAT_EVENT = "com.talktracks.chat";
+
+/** One track of the room as Stats for nerds lists it (ticket 0022). */
+export interface TrackStats {
+  namespace: string;
+  name: string;
+  /** As the catalog says (captions, translation, ink, chat, …), or audio and video for the speaker's media. */
+  kind: string;
+  /** running: published now; on_demand: listed, but its agent works only once someone subscribes. */
+  state: "running" | "on_demand";
+  /** Sessions subscribed to its broadcast at the relay (per broadcast, not per track); null without relay stats. */
+  subscribers?: number | null;
+  lang?: string | null;
+}
+/** The object of each group of talk/<room>/stats `stats`, a new group every 5 s. */
+export interface RoomStats {
+  /** Unix ms of the snapshot. */
+  at: number;
+  /** The relay's stats feed is read: subscriber counts are known. */
+  relay: boolean;
+  /** Browsers connected to the room service for this room. */
+  listeners: number;
+  tracks: TrackStats[];
+}
+export const STATS_EVENT = "com.talktracks.stats";
+
 // --- the room catalog (design §5.10), track `catalog` in talk/<room>/catalog ----------------------
 
 /** One agent's state; older than 15 s (updated_ms) means stale. */

@@ -207,6 +207,8 @@ objects (deltas) mean, and how a reader rebuilds the state at `t`: [container-fo
 | `talk/R/comments` | `comments` | room service | `CommentsObject` | `com.talktracks.comments` | 4 s slices | threads on the slide on screen |
 | `talk/R/catalog` | `room` | room service | `RoomStateObject` | `com.talktracks.room` | 4 s slices | the last record |
 | `talk/R/catalog` | `catalog` | room service | `RoomCatalog` (now with `tt.sources`) | — | one per change | — |
+| `talk/R/chat` **new** | `chat` | room service (ticket 0021) | `ChatObject` | `com.talktracks.chat` | 4 s slices | the last 50 messages |
+| `talk/R/stats` **new** | `stats` | room service (ticket 0022) | `RoomStats` | `com.talktracks.stats` | one per snapshot (5 s) | — (each group is the whole snapshot) |
 
 Tokens: the room service also publishes `talk/R/comments` and **`talk/R/annotations`** (the `room` track sits in
 `talk/R/catalog`, which it already holds). The speaker's `talk/R/slides` grant covers deck, slide, ink, marks and

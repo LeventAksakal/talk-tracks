@@ -1,4 +1,5 @@
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020";
+import chatObjectSchema from "../../../contracts/chat-object.schema.json";
 import commentsObjectSchema from "../../../contracts/comments-object.schema.json";
 import cueObjectSchema from "../../../contracts/cue-object.schema.json";
 import currentSlideObjectSchema from "../../../contracts/current-slide-object.schema.json";
@@ -9,11 +10,13 @@ import outlineObjectSchema from "../../../contracts/outline-object.schema.json";
 import pointerObjectSchema from "../../../contracts/pointer-object.schema.json";
 import roomCatalogSchema from "../../../contracts/room-catalog.schema.json";
 import roomStateObjectSchema from "../../../contracts/room-state-object.schema.json";
+import roomStatsSchema from "../../../contracts/room-stats.schema.json";
 import slideFrameSchema from "../../../contracts/slide-frame.schema.json";
 import slideObjectSchema from "../../../contracts/slide-object.schema.json";
 import legacyEnvelopeSchema from "./legacy-envelope.schema.json";
 import {
   isCarryRecord,
+  type ChatObject,
   type CommentsObject,
   type CueObject,
   type CurrentSlideObject,
@@ -26,6 +29,7 @@ import {
   type RoomCatalog,
   type RunSpan,
   type RoomStateObject,
+  type RoomStats,
   type SlideFrame,
   type SlideObject,
 } from "./types";
@@ -48,6 +52,8 @@ const marksObjectValidator: ValidateFunction<MarksObject> = ajv.compile<MarksObj
 const pointerObjectValidator: ValidateFunction<PointerObject> = ajv.compile<PointerObject>(pointerObjectSchema);
 const commentsObjectValidator: ValidateFunction<CommentsObject> = ajv.compile<CommentsObject>(commentsObjectSchema);
 const roomStateObjectValidator: ValidateFunction<RoomStateObject> = ajv.compile<RoomStateObject>(roomStateObjectSchema);
+const chatObjectValidator: ValidateFunction<ChatObject> = ajv.compile<ChatObject>(chatObjectSchema);
+const roomStatsValidator: ValidateFunction<RoomStats> = ajv.compile<RoomStats>(roomStatsSchema);
 const roomCatalogValidator: ValidateFunction<RoomCatalog> = ajv.compile<RoomCatalog>(roomCatalogSchema);
 const slideFrameValidator: ValidateFunction<SlideFrame> = ajv.compile<SlideFrame>(slideFrameSchema);
 const legacyValidator: ValidateFunction<LegacyEnvelope> = ajv.compile<LegacyEnvelope>(legacyEnvelopeSchema);
@@ -171,6 +177,16 @@ export function parseCommentsObject(payload: Uint8Array | string): Parsed<Commen
 /** An object of talk/<room>/catalog track `room`. */
 export function parseRoomStateObject(payload: Uint8Array | string): Parsed<RoomStateObject> {
   return parse(roomStateObjectValidator, payload);
+}
+
+/** An object of talk/<room>/chat track `chat`. */
+export function parseChatObject(payload: Uint8Array | string): Parsed<ChatObject> {
+  return parse(chatObjectValidator, payload);
+}
+
+/** The object of a group of talk/<room>/stats track `stats`. */
+export function parseRoomStats(payload: Uint8Array | string): Parsed<RoomStats> {
+  return parse(roomStatsValidator, payload);
 }
 
 /** Object 0 of a group of talk/<room>/catalog. */

@@ -34,6 +34,16 @@ export const commentsPath = (room: string) => `${ROOT}/${room}/comments`;
 /** CommentsObject, sliced. */
 export const COMMENTS_TRACK = "comments";
 
+/** The room's chat, published by the room service (ticket 0021). */
+export const chatPath = (room: string) => `${ROOT}/${room}/chat`;
+/** ChatObject, sliced. */
+export const CHAT_TRACK = "chat";
+
+/** Stats for nerds: every track of the room, its subscribers, running or on demand (ticket 0022). */
+export const statsPath = (room: string) => `${ROOT}/${room}/stats`;
+/** RoomStats, one group per snapshot, every 5 s. */
+export const STATS_TRACK = "stats";
+
 /**
  * Everyone else's annotations of the deck, tracks INK_TRACK and MARKS_TRACK (the same objects as the
  * speaker's), published by the room service (decision 0021).

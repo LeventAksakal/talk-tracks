@@ -1,4 +1,75 @@
 {
+  "chat-object.schema.json": [
+    [
+      {
+        "data": {
+          "by": {
+            "id": "u-ada",
+            "name": "Ada",
+            "speaker": false
+          },
+          "id": "m1",
+          "kind": "message",
+          "text": "Hello from Lisbon"
+        },
+        "m": 9100
+      },
+      {
+        "data": {
+          "by": {
+            "id": "u-grace",
+            "name": "Grace",
+            "speaker": false
+          },
+          "id": "m2",
+          "kind": "message",
+          "text": "Is the deck shared after?"
+        },
+        "m": 9900
+      }
+    ],
+    [
+      {
+        "data": {
+          "by": {
+            "id": "speaker",
+            "name": "Levent",
+            "speaker": true
+          },
+          "id": "m3",
+          "kind": "message",
+          "text": "Yes, in the lecture package."
+        },
+        "m": 10300
+      },
+      {
+        "data": {
+          "by": {
+            "id": "u-alan",
+            "name": "Alan",
+            "speaker": false
+          },
+          "id": "m4",
+          "kind": "message",
+          "text": "Merhaba!"
+        },
+        "m": 12000
+      },
+      {
+        "data": {
+          "by": {
+            "id": "u-ada",
+            "name": "Ada",
+            "speaker": false
+          },
+          "id": "m5",
+          "kind": "message",
+          "text": "Rewind to 0:09 for the slicing bit"
+        },
+        "m": 15200
+      }
+    ]
+  ],
   "comments-object.schema.json": [
     [
       {

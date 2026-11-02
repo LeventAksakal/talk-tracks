@@ -395,7 +395,7 @@ async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_pat
     doc = json.loads(cat.changed() or b"")
     MsfRoomCatalog.model_validate(doc)
     names = [(t["namespace"], t["name"]) for t in doc["tracks"]]
-    # slides on air: the audience may draw on them and comment, so its tracks are published and listed too
+    # slides on air: the audience may draw on them, comment and chat, so its tracks are published and listed too
     assert names == [
         (NS, "deck"),
         (NS, "slide"),
@@ -406,6 +406,7 @@ async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_pat
         (f"talk/{ROOM}/comments", "comments"),
         (f"talk/{ROOM}/annotations", "ink"),
         (f"talk/{ROOM}/annotations", "marks"),
+        (f"talk/{ROOM}/chat", "chat"),
     ]
     assert [s["kind"] for s in doc["tt"]["sources"]] == ["audio", "camera", "slides"]
     await events.close()
