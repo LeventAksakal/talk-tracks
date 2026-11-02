@@ -33,6 +33,7 @@ import { Questions, useQuestionCounts } from "./Questions";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
+import { PasteSpeakerLink } from "../pages/CreateTalk";
 import { CHALK_BOX, type InkName, inkColor } from "../theme/ink";
 import { Icon } from "../player/icons";
 import "./console.css";
@@ -61,6 +62,11 @@ export interface ConsoleDeps {
   endRetryMs?: number;
   /** The talk's end is settled at the room service (or there is none): the speaker link is no longer kept. */
   onEnded?: () => void;
+  /**
+   * The relay refuses a broadcast without a valid speaker token (the public relay, `relayNeedsToken`): Go on air
+   * waits for one. Default false: a local relay, and tests.
+   */
+  tokenRequired?: boolean;
 }
 
 /** End talk at the room service: being said, said (or nothing to end), or refused. */
@@ -157,6 +163,8 @@ function ConsoleView({
     return () => sub?.close();
   }, [deps.publisherStatus]);
   const tokenCheck = checkToken(token, room, now);
+  const tokenRequired = deps.tokenRequired ?? false;
+  const canPublish = !tokenRequired || tokenCheck.kind === "ok";
 
   // --- microphone and camera -----------------------------------------------------------------------
   const [media, setMedia] = useState<SpeakerMedia>();
@@ -500,8 +508,14 @@ function ConsoleView({
               label="Go on air"
               variant="primary"
               icon={<Icon name="live" />}
-              isDisabled={!media || !!mediaError}
-              tooltip={!media ? "Waiting for the microphone and camera to load" : undefined}
+              isDisabled={!media || !!mediaError || !canPublish}
+              tooltip={
+                !canPublish
+                  ? "Needs your speaker link: see Speaker token"
+                  : !media
+                    ? "Waiting for the microphone and camera to load"
+                    : undefined
+              }
               onClick={goOnAir}
             />
           ) : (
@@ -564,6 +578,7 @@ function ConsoleView({
             rendered={slides.filter(Boolean).length}
             pickFile={() => fileInput.current?.click()}
             tokenCheck={tokenCheck}
+            tokenRequired={tokenRequired}
             connection={connection.status}
             clock={clock}
           />
@@ -893,13 +908,15 @@ function Check({
   );
 }
 
-function tokenText(t: TokenCheck): [state: "ok" | "wait" | "bad", text: string] {
+function tokenText(t: TokenCheck, required: boolean): [state: "ok" | "off" | "bad", text: string] {
   switch (t.kind) {
     case "none":
-      return [
-        "wait",
-        "No speaker token in this link. A local relay works without one; on the public relay, ask for a speaker link.",
-      ];
+      return required
+        ? [
+            "bad",
+            "This link has no speaker token, so you can't go on air: the relay takes a talk only from a speaker link. Paste yours below, or ask the organiser for one.",
+          ]
+        : ["off", "No speaker token in this link. This local relay needs none."];
     case "unreadable":
       return ["bad", "The token in this link is damaged. Ask for a new speaker link."];
     case "expired":
@@ -925,11 +942,12 @@ function Sources(props: {
   rendered: number;
   pickFile: () => void;
   tokenCheck: TokenCheck;
+  tokenRequired: boolean;
   connection: ConnectionStatus;
   clock: ClockState;
 }) {
   const { media, snap, deck } = props;
-  const [tokenState, tokenMessage] = tokenText(props.tokenCheck);
+  const [tokenState, tokenMessage] = tokenText(props.tokenCheck, props.tokenRequired);
   // Once this microphone has been heard it stays ready: speech has pauses.
   const [heard, setHeard] = useState<MediaStreamTrack>();
   const micTrack = snap?.micTrack;
@@ -1017,6 +1035,9 @@ function Sources(props: {
         </Check>
         <Check state={tokenState} title="Speaker token">
           <p className="small">{tokenMessage}</p>
+          {props.tokenRequired && props.tokenCheck.kind !== "ok" && props.phase === "preflight" ? (
+            <PasteSpeakerLink />
+          ) : null}
         </Check>
         <Check
           state={props.connection === "connected" ? "ok" : props.connection === "failed" ? "bad" : "wait"}
