@@ -26,8 +26,9 @@ export default defineConfig({
       ...(archive ? { "/archive": { target: archive, rewrite: (p: string) => p.replace(/^\/archive/, "") } } : {}),
     },
   },
-  // Astryx ships one barrel module, so the app chunk is about 0.9 MB (0.26 MB gzipped).
-  build: { chunkSizeWarningLimit: 1200 },
+  // Routes are split (App.tsx, routes.ts): the hub's entry is about 250 KB (80 KB gzipped). The largest chunk is
+  // hls.js (575 KB), already a chunk of its own; warn if anything grows past it.
+  build: { chunkSizeWarningLimit: 600 },
   test: {
     environment: "happy-dom",
     setupFiles: ["src/test/setup.ts"],

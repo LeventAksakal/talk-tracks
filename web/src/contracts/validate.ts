@@ -41,22 +41,28 @@ import {
 const ajv = new Ajv2020({ allErrors: false, strict: true });
 ajv.addKeyword({ keyword: "discriminator", schemaType: "object" });
 
-const cueObjectValidator: ValidateFunction<CueObject> = ajv.compile<CueObject>(cueObjectSchema);
-const slideObjectValidator: ValidateFunction<SlideObject> = ajv.compile<SlideObject>(slideObjectSchema);
-const outlineObjectValidator: ValidateFunction<OutlineObject> = ajv.compile<OutlineObject>(outlineObjectSchema);
-const deckObjectValidator: ValidateFunction<DeckObject> = ajv.compile<DeckObject>(deckObjectSchema);
-const currentSlideObjectValidator: ValidateFunction<CurrentSlideObject> =
-  ajv.compile<CurrentSlideObject>(currentSlideObjectSchema);
-const inkObjectValidator: ValidateFunction<InkObject> = ajv.compile<InkObject>(inkObjectSchema);
-const marksObjectValidator: ValidateFunction<MarksObject> = ajv.compile<MarksObject>(marksObjectSchema);
-const pointerObjectValidator: ValidateFunction<PointerObject> = ajv.compile<PointerObject>(pointerObjectSchema);
-const commentsObjectValidator: ValidateFunction<CommentsObject> = ajv.compile<CommentsObject>(commentsObjectSchema);
-const roomStateObjectValidator: ValidateFunction<RoomStateObject> = ajv.compile<RoomStateObject>(roomStateObjectSchema);
-const chatObjectValidator: ValidateFunction<ChatObject> = ajv.compile<ChatObject>(chatObjectSchema);
-const roomStatsValidator: ValidateFunction<RoomStats> = ajv.compile<RoomStats>(roomStatsSchema);
-const roomCatalogValidator: ValidateFunction<RoomCatalog> = ajv.compile<RoomCatalog>(roomCatalogSchema);
-const slideFrameValidator: ValidateFunction<SlideFrame> = ajv.compile<SlideFrame>(slideFrameSchema);
-const legacyValidator: ValidateFunction<LegacyEnvelope> = ajv.compile<LegacyEnvelope>(legacyEnvelopeSchema);
+// Compiling a schema generates code, about 15 ms each: compiling all of them on import was one 250 ms task on every
+// player page's load (workstream 06). Each is compiled on its first use instead.
+function lazy<T>(schema: object): () => ValidateFunction<T> {
+  let validator: ValidateFunction<T> | undefined;
+  return () => (validator ??= ajv.compile<T>(schema));
+}
+
+const cueObjectValidator = lazy<CueObject>(cueObjectSchema);
+const slideObjectValidator = lazy<SlideObject>(slideObjectSchema);
+const outlineObjectValidator = lazy<OutlineObject>(outlineObjectSchema);
+const deckObjectValidator = lazy<DeckObject>(deckObjectSchema);
+const currentSlideObjectValidator = lazy<CurrentSlideObject>(currentSlideObjectSchema);
+const inkObjectValidator = lazy<InkObject>(inkObjectSchema);
+const marksObjectValidator = lazy<MarksObject>(marksObjectSchema);
+const pointerObjectValidator = lazy<PointerObject>(pointerObjectSchema);
+const commentsObjectValidator = lazy<CommentsObject>(commentsObjectSchema);
+const roomStateObjectValidator = lazy<RoomStateObject>(roomStateObjectSchema);
+const chatObjectValidator = lazy<ChatObject>(chatObjectSchema);
+const roomStatsValidator = lazy<RoomStats>(roomStatsSchema);
+const roomCatalogValidator = lazy<RoomCatalog>(roomCatalogSchema);
+const slideFrameValidator = lazy<SlideFrame>(slideFrameSchema);
+const legacyValidator = lazy<LegacyEnvelope>(legacyEnvelopeSchema);
 
 // The agents check these too (pydantic model validators); JSON Schema cannot express them.
 function timelineConsistent(records: (CueObject | SlideObject)[number][]): string | null {
@@ -113,7 +119,7 @@ const decoder = new TextDecoder();
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 function parse<T>(
-  validator: ValidateFunction<T>,
+  compiled: () => ValidateFunction<T>,
   payload: Uint8Array | string,
   check?: (v: T) => string | null,
 ): Parsed<T> {
@@ -123,6 +129,7 @@ function parse<T>(
   } catch (e) {
     return { ok: false, error: `not JSON: ${String(e)}` };
   }
+  const validator = compiled();
   if (!validator(json)) return { ok: false, error: ajv.errorsText(validator.errors) };
   const wrong = check?.(json);
   if (wrong) return { ok: false, error: wrong };
@@ -199,7 +206,7 @@ export function parseSlideFrame(payload: Uint8Array | string): Parsed<SlideFrame
 }
 
 export function isSlideFrame(value: unknown): value is SlideFrame {
-  return slideFrameValidator(value);
+  return slideFrameValidator()(value);
 }
 
 /** @deprecated v1, for the room store and demo script until they move to the event-timeline records. */
@@ -209,5 +216,5 @@ export function parseLegacyEnvelope(payload: Uint8Array | string): Parsed<Legacy
 
 /** @deprecated v1, for the room store and demo script until they move to the event-timeline records. */
 export function isLegacyEnvelope(value: unknown): value is LegacyEnvelope {
-  return legacyValidator(value);
+  return legacyValidator()(value);
 }

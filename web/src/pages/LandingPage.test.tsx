@@ -7,6 +7,9 @@ import { DEMO_ROOMS } from "./demoRooms";
 import { LandingPage } from "./LandingPage";
 import { rememberRoom } from "./recentRooms";
 
+const preloadWatch = vi.hoisted(() => vi.fn());
+vi.mock("../routes", () => ({ preloadWatch }));
+
 const CREATED = {
   room: "quantum-101",
   speaker_path: "/talk/quantum-101?token=t0k",
@@ -61,6 +64,15 @@ describe("the lobby", () => {
       [...document.querySelectorAll<HTMLElement>("[data-live]")].map((el, i) => [DEMO_ROOMS[i]!.room, el.dataset.live]),
     );
     expect(live).toEqual({ virus: "false", dataviz: "true", rsa: "false", qrcode: "false" });
+  });
+
+  it("starts loading the watch page when a room card is hovered or focused, before it is opened", () => {
+    setup(() => jsonResponse(500, {}));
+    preloadWatch.mockClear();
+    const link = screen.getByRole("link", { name: DEMO_ROOMS[0]!.title });
+    fireEvent.mouseEnter(link);
+    fireEvent.focus(screen.getByRole("link", { name: DEMO_ROOMS[1]!.title }));
+    expect(preloadWatch).toHaveBeenCalledTimes(2);
   });
 
   it("lists the rooms on air now, apart from the demo lectures, and says when nothing is", () => {
