@@ -116,6 +116,25 @@ describe("the player shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Swap: screen in the corner" }));
     expect(screen.getByRole("button", { name: "Swap: camera in the corner" })).toBeTruthy();
   });
+
+  it("lets the listener pick the slides as the main picture while a screen is shared, and the screen back", async () => {
+    const room = setup({ sources: ["camera", "slides", "screen"] });
+    close = room.close;
+    await advance(300);
+    fireEvent.click(screen.getByRole("button", { name: "Layout" }));
+    let menu = screen.getByRole("dialog", { name: "Layout" });
+    // The layouts name the shared screen, the main picture now.
+    expect(within(menu).getByRole("button", { name: /screen.*camera in a corner/i })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole("button", { name: "Slides" }));
+    await advance(300);
+    // The slides are the main picture: the corner tile (the camera) swaps with them now.
+    expect(screen.getByRole("button", { name: "Swap: slides in the corner" })).toBeTruthy();
+    expect(within(menu).getByRole("button", { name: /slides.*camera in a corner/i })).toBeTruthy();
+
+    menu = screen.getByRole("dialog", { name: "Layout" });
+    fireEvent.click(within(menu).getByRole("button", { name: "Screen" }));
+    expect(screen.getByRole("button", { name: "Swap: screen in the corner" })).toBeTruthy();
+  });
 });
 
 describe("the slower path", () => {

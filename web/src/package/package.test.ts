@@ -8,7 +8,7 @@ import type { LineItem, Outline } from "../playback/wire";
 import { DemoSlides } from "../player/demoSlides";
 import { historyPath } from "../player/slideTracks";
 import { buildLecturePackage } from "./build";
-import { gatherableTranslations } from "./languages";
+import { gatherableTranslations, whyFree } from "./languages";
 import { gatherSlides } from "./slides";
 import { readStoredZip, zipParts } from "./zip";
 
@@ -99,6 +99,23 @@ describe("the talk's slides, read by FETCH", () => {
     // And the slide on screen at the end is the one the script shows then.
     const last = currentSlide(demo.script.slide.filter((r) => r.m < to));
     expect(got.slides.find((s) => s.index === last?.index)?.shown.at(-1)?.toMs).toBe(to);
+  });
+
+  it("reads the listener's own ink and marks from the audience track, and nobody else's", async () => {
+    // Showing 6 (slide 7) starts at S(6); the demo's listener Ada highlights at +15 s and ticks at +17 s.
+    const demo = new DemoSlides(ROOM, 600_000);
+    const to = S(6) + 20_000;
+    demo.start(to);
+    const ada = await gatherSlides({ source: demo.source, room: ROOM, fromMs: 0, toMs: to, mine: "u-ada" });
+    const seventh = ada.slides.find((s) => s.index === 6)!;
+    expect(seventh.mine.marks.map((k) => k.id)).toEqual(["u-ada-6m"]);
+    expect(seventh.mine.ink.map((e) => e.stroke)).toEqual(["u-ada-6k"]);
+    // The speaker cleared every earlier slide, Ada's annotations too, before moving on.
+    for (const s of ada.slides) if (s.index !== 6) expect(s.mine).toEqual({ ink: [], marks: [] });
+    // Someone else, or nobody asked: no annotations of the audience at all.
+    const other = await gatherSlides({ source: demo.source, room: ROOM, fromMs: 0, toMs: to, mine: "u-bob" });
+    const none = await gatherSlides({ source: demo.source, room: ROOM, fromMs: 0, toMs: to });
+    for (const got of [other, none]) for (const s of got.slides) expect(s.mine).toEqual({ ink: [], marks: [] });
   });
 
   it("reads the newest slices on the live name when the archive does not have them yet", async () => {
@@ -209,6 +226,67 @@ describe("the lecture package", () => {
     expect(lecture).toContain("Ask about oxbow lakes");
   });
 
+  it("adds a second picture of each slide the listener annotated, and the slide descriptions when given", async () => {
+    const demo = new DemoSlides(ROOM, 600_000);
+    const to = S(6) + 20_000;
+    demo.start(to);
+    const input = {
+      source: demo.source,
+      room: ROOM,
+      title: "How rivers shape the land",
+      speaker: undefined,
+      live: true,
+      fromMs: 0,
+      toMs: to,
+      talkMs: (ms: number) => ms,
+      languages: [],
+      outline: undefined,
+      notes: [],
+      leftOut: [],
+      render: async ({ ink, marks }: { ink: readonly unknown[]; marks: readonly unknown[] }) =>
+        new Uint8Array([137, 80, 78, 71, ink.length, marks.length]),
+    };
+    const built = await buildLecturePackage({
+      ...input,
+      mine: "u-ada",
+      descriptions: [
+        { type: "slide", id: 2, atMs: S(2) + 3_000, description: "A river bends through a valley." },
+        { type: "slide", id: 6, atMs: S(6) + 2_000, description: "A delta fans into the sea." },
+      ],
+    });
+    const files = await unzip(built.blob);
+    type Slide = { number: number; image: string; mine: { image: string; ink: number; marks: number } | null };
+    const manifest = JSON.parse(text(files.get("manifest.json"))) as {
+      version: number;
+      descriptions: number | null;
+      slides: (Slide & { description?: string | null })[];
+      files: { path: string; role: string }[];
+    };
+    // Only slide 7 still carries Ada's highlight and tick: its second picture has them over the speaker's.
+    expect([...files.keys()].filter((p) => p.endsWith(".mine.png"))).toEqual(["slides/07.mine.png"]);
+    const seventh = manifest.slides.find((s) => s.number === 7)!;
+    expect(seventh.mine).toEqual({ image: "slides/07.mine.png", ink: 1, marks: 1 });
+    // The fake renderer writes the counts of ink and marks it drew as the last two bytes.
+    const drawn = (p: string) => [...files.get(p)!.slice(-2)];
+    const [ink, marks] = drawn("slides/07.png");
+    expect(drawn("slides/07.mine.png")).toEqual([ink! + 1, marks! + 1]);
+    expect(manifest.slides.filter((s) => s.mine)).toHaveLength(1);
+    expect(manifest.files.find((f) => f.path === "slides/07.mine.png")?.role).toBe("slide-image-mine");
+    // The descriptions sit with their slides.
+    expect(manifest.descriptions).toBe(2);
+    expect(manifest.slides.find((s) => s.number === 3)?.description).toBe("A river bends through a valley.");
+    expect(text(files.get("slides/07.md"))).toContain("A delta fans into the sea.");
+    expect(text(files.get("lecture.md"))).toContain("A delta fans into the sea.");
+    expect(text(files.get("README.md"))).toContain("slides/NN.mine.png");
+
+    // Without descriptions (the describe agent was not running) the manifest says so, and nothing else changes.
+    const plain = await unzip((await buildLecturePackage({ ...input, mine: "u-ada" })).blob);
+    const bare = JSON.parse(text(plain.get("manifest.json"))) as typeof manifest;
+    expect(bare.descriptions).toBeNull();
+    expect(bare.slides.every((s) => !("description" in s))).toBe(true);
+    expect(text(plain.get("README.md"))).not.toContain("Slide descriptions");
+  });
+
   it("still makes a package for a room with no slides or captions", async () => {
     const built = await buildLecturePackage({
       source: new FakeHistorySource(),
@@ -261,6 +339,23 @@ describe("the cost guard", () => {
     },
   });
   const tracks = [view("translate-es"), view("translate-tr", true), view("translate-ar")];
+
+  it("reads the slide descriptions only while the describe agent runs or was recorded", () => {
+    const describe = { ...view("describe"), kind: "slides", lang: "en" } as TrackView;
+    const guard = (cost: "paid" | "free", status: Record<string, "idle" | "live">) => {
+      const c = catalog(cost, status);
+      c.tracks.push({
+        name: ITEMS_TRACK,
+        namespace: agentPath(ROOM, "describe"),
+        packaging: "eventtimeline",
+        tt: { cost },
+      });
+      return { catalog: c, room: ROOM, offline: false, now };
+    };
+    expect(whyFree(describe, guard("paid", { describe: "idle" }))).toBeUndefined();
+    expect(whyFree(describe, guard("paid", { describe: "live" }))).toBe("running");
+    expect(whyFree(describe, guard("free", {}))).toBe("free");
+  });
 
   it("gathers only translations that are subscribed, running or recorded, never one that would wake an agent", () => {
     const live = gatherableTranslations(tracks, {

@@ -6,8 +6,8 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { languageOption, searchLanguages, SUPPORTED_LANGUAGES } from "./languages";
-import { DEFAULT_STYLE, type LayoutKind, type SubtitlePreset, SUBTITLE_PRESETS } from "./prefs";
-import { effectiveLayout } from "./Stage";
+import { type BoardKind, DEFAULT_STYLE, type LayoutKind, type SubtitlePreset, SUBTITLE_PRESETS } from "./prefs";
+import { effectiveLayout, stageSources } from "./Stage";
 import { translationFor } from "./tracks";
 
 function Menu({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -220,19 +220,29 @@ export function StyleMenu() {
   );
 }
 
-const LAYOUTS: [LayoutKind, string][] = [
-  ["pip", "Slides, camera in a corner"],
-  ["split", "Side by side"],
-  ["single", "One at a time"],
-];
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/**
+ * The stage's layout. The labels name the pictures there are: the slides, a shared screen, the camera. While a screen
+ * is shared the slides stay on offer, and the listener picks which of the two is the main picture.
+ */
 export function LayoutMenu() {
   const { prefs, update, sources, setUi } = usePlayer();
-  const layout = effectiveLayout(prefs.layout, sources);
+  const placed = stageSources(sources, prefs.board);
+  const layout = effectiveLayout(prefs.layout, placed);
+  const main = placed.at(-1) ?? "slides";
+  const corner = placed.length > 1 ? placed[0]! : "camera";
+  const boards = (["screen", "slides"] as const).filter((k) => sources.includes(k));
   const close = () => setUi({ menu: undefined });
+  const layouts: [LayoutKind, string][] = [
+    ["pip", `${capital(main)}, ${corner} in a corner`],
+    ["split", "Side by side"],
+    ["single", "One at a time"],
+  ];
+  const pickBoard = (board: BoardKind) => update({ board, single: board });
   return (
     <Menu label="Layout">
-      {LAYOUTS.map(([value, label]) => (
+      {layouts.map(([value, label]) => (
         <Choice
           key={value}
           checked={layout === value}
@@ -247,17 +257,33 @@ export function LayoutMenu() {
       {layout === "single" ? (
         <>
           <span className="tt-menu-heading">Show</span>
-          <Choice checked={prefs.single === "slides"} onClick={() => update({ single: "slides" })}>
-            Slides
-          </Choice>
-          <Choice checked={prefs.single === "camera"} onClick={() => update({ single: "camera" })}>
-            Camera
-          </Choice>
+          {boards.map((k) => (
+            <Choice key={k} checked={prefs.single !== "camera" && main === k} onClick={() => pickBoard(k)}>
+              {capital(k)}
+            </Choice>
+          ))}
+          {sources.includes("camera") ? (
+            <Choice checked={prefs.single === "camera"} onClick={() => update({ single: "camera" })}>
+              Camera
+            </Choice>
+          ) : null}
         </>
       ) : (
-        <button type="button" className="tt-menu-item" onClick={() => update({ swap: !prefs.swap })}>
-          Swap camera and slides
-        </button>
+        <>
+          {boards.length > 1 ? (
+            <>
+              <span className="tt-menu-heading">Main picture</span>
+              {boards.map((k) => (
+                <Choice key={k} checked={main === k} onClick={() => pickBoard(k)}>
+                  {capital(k)}
+                </Choice>
+              ))}
+            </>
+          ) : null}
+          <button type="button" className="tt-menu-item" onClick={() => update({ swap: !prefs.swap })}>
+            Swap {corner} and {main}
+          </button>
+        </>
       )}
     </Menu>
   );

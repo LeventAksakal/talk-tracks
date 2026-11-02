@@ -15,6 +15,7 @@ import {
   parseAgentPath,
   parseObject,
   PRIORITY,
+  type SlideItem,
   type TrackKind,
   type TrackRef,
   tracksOf,
@@ -212,8 +213,19 @@ export class AiTracks {
    * newest ones.
    */
   async transcript(id: string, fromMs: number, toMs: number, maxSlices = 75): Promise<LineItem[]> {
+    const view = await this.#history(id, fromMs, toMs, maxSlices);
+    return (view?.lines ?? []).filter((l) => l.startMs >= fromMs && l.startMs < toMs);
+  }
+
+  /** The slide descriptions of a track over [fromMs, toMs), read like `transcript` (the lecture package). */
+  async descriptions(id: string, fromMs: number, toMs: number, maxSlices = 75): Promise<SlideItem[]> {
+    const view = await this.#history(id, fromMs, toMs, maxSlices);
+    return (view?.slides ?? []).filter((s) => s.atMs < toMs);
+  }
+
+  async #history(id: string, fromMs: number, toMs: number, maxSlices: number): Promise<SlicedView | undefined> {
     const entry = this.#entries.get(id);
-    if (!entry || !entry.ref.sliced || toMs <= fromMs) return [];
+    if (!entry || !entry.ref.sliced || toMs <= fromMs) return undefined;
     const into = new SliceLog();
     const first = Math.max(sliceOf(fromMs), sliceOf(toMs - 1) - maxSlices + 1);
     const done: Promise<void>[] = [];
@@ -225,7 +237,7 @@ export class AiTracks {
     }
     this.#pump();
     await Promise.all(done);
-    return into.view(undefined).lines.filter((l) => l.startMs >= fromMs && l.startMs < toMs);
+    return into.view(undefined);
   }
 
   close(): void {

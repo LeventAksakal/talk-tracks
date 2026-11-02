@@ -11,12 +11,13 @@ const E = 1_800_000_000_000;
 const ROOM = "physics-101";
 
 /** The speaker's media as the screen reads it: its mode, the frame shown (room ms) and the room catalog's E. */
-function fakeMedia(state: { mode: Mode; at: number | undefined }): RoomMedia {
+function fakeMedia(state: { mode: Mode; at: number | undefined; looping?: boolean }): RoomMedia {
   return {
     mode: () => state.mode,
     frameTime: () => state.at,
     status: () => "playing",
     catalog: () => ({ tt: { E } }),
+    looping: async () => state.looping === true,
   } as unknown as RoomMedia;
 }
 
@@ -70,6 +71,17 @@ describe("the shared screen in the player", () => {
     screen.close();
   });
 
+  it("never asks a looped room's archive for a screen playlist (it has none)", async () => {
+    const urls: string[] = [];
+    const fetchFn = (async (url: string) => (urls.push(url), new Response(PLAYLIST))) as unknown as typeof fetch;
+    const state = { mode: "rewound" as Mode, at: 10_000, looping: true };
+    const screen = new ScreenMedia(undefined, ROOM, fakeMedia(state), { fetchFn, tickMs: 0 });
+    await screen.refresh();
+    expect(urls).toEqual([]);
+    expect(screen.shown()).toBe(false);
+    screen.close();
+  });
+
   it("reads a screen only from the screen rendition of the hang catalog", () => {
     expect(hangHasScreen(JSON.parse(hang(["video", "screen"])))).toBe(true);
     expect(hangHasScreen(JSON.parse(hang(["video"])))).toBe(false);
@@ -91,5 +103,20 @@ describe("the shared screen in the player", () => {
     expect(sourceShown("screen", single, [...all])).toBe(true);
     expect(sourceShown("camera", single, [...all])).toBe(false);
     expect(sourceShown("slides", single, ["camera", "slides"])).toBe(true);
+  });
+
+  it("gives the main picture back to the slides when the listener picks them, while the screen is shared", () => {
+    const all = ["camera", "slides", "screen"] as const;
+    expect(stageSources([...all], "slides")).toEqual(["camera", "slides"]);
+    const pip = { ...DEFAULT_PREFS, layout: "pip" as const, board: "slides" as const };
+    expect(sourceShown("slides", pip, [...all])).toBe(true);
+    expect(sourceShown("screen", pip, [...all])).toBe(false);
+    const single = { ...pip, layout: "single" as const, single: "slides" as const };
+    expect(sourceShown("slides", single, [...all])).toBe(true);
+    expect(sourceShown("screen", single, [...all])).toBe(false);
+    // A pick of the slides with nothing shared, or of the screen with no deck, falls back to what there is.
+    expect(stageSources(["camera", "screen"], "slides")).toEqual(["camera", "screen"]);
+    // With no camera, the other of slides and screen takes the corner.
+    expect(stageSources(["slides", "screen"])).toEqual(["slides", "screen"]);
   });
 });

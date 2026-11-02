@@ -5,7 +5,7 @@
 import { SLICE_MS } from "../contracts/types";
 import type { TrackView } from "../playback/aiTracks";
 import type { Playback, PlaybackView } from "../playback/playback";
-import type { Outline } from "../playback/wire";
+import type { Outline, SlideItem } from "../playback/wire";
 import type { PlayerCtx } from "../player/context";
 import { languageOption } from "../player/languages";
 import type { TranscriptLanguage } from "../player/transcriptExport";
@@ -58,6 +58,15 @@ export function gatherTranscripts(
       lines: await playback.tracks.transcript(track.id, span.from, span.to, slices),
     })),
   );
+}
+
+/** The describe agent's slide descriptions over the span, from its history; the track must be held while this runs. */
+export function gatherDescriptions(
+  playback: Playback,
+  track: TrackView,
+  span: { from: number; to: number },
+): Promise<SlideItem[]> {
+  return playback.tracks.descriptions(track.id, span.from, span.to, Math.ceil((span.to - span.from) / SLICE_MS) + 2);
 }
 
 /** The room's cost guard: its catalog, and whether a real relay (and so paid agents) is behind it. */

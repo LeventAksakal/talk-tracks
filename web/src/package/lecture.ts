@@ -24,6 +24,10 @@ export interface PackageSlide {
   ink: number;
   marks: number;
   png: Uint8Array | undefined;
+  /** The listener's own annotations on it (undefined: none): counts, and the picture with them over the speaker's. */
+  mine?: { ink: number; marks: number; png: Uint8Array | undefined };
+  /** The describe agent's description of it, when the package gathered them. */
+  description?: string;
 }
 
 export interface PackageInput {
@@ -45,6 +49,8 @@ export interface PackageInput {
   notes: readonly Note[];
   /** Translations the room has that were not gathered (no agent was running for them), by name. */
   leftOut: readonly string[];
+  /** The slide descriptions were gathered (the describe agent was running or recorded); undefined: left out. */
+  descriptions?: boolean;
 }
 
 type Role =
@@ -55,6 +61,7 @@ type Role =
   | "chapters"
   | "glossary"
   | "slide-image"
+  | "slide-image-mine"
   | "slide-text"
   | "notes";
 
@@ -150,12 +157,20 @@ export function lectureFiles(input: PackageInput): ZipEntry[] {
   const glossary = (input.outline?.glossary ?? []).map((g) => ({ term: g.term, definition: g.definition }));
   files.push({ path: "glossary.json", role: "glossary", mediaType: "application/json", data: json(glossary) });
 
-  // Slides: a picture with the ink baked in, and the text beside it.
+  // Slides: a picture with the ink baked in, a second one with the listener's own over it, and the text beside them.
   const slides = input.slides.map((s) => {
     const image = s.png ? `slides/${stem(s)}.png` : null;
+    const mineImage = s.mine?.png ? `slides/${stem(s)}.mine.png` : null;
     const text = `slides/${stem(s)}.md`;
     if (s.png) files.push({ path: image!, role: "slide-image", mediaType: "image/png", data: s.png });
-    files.push({ path: text, role: "slide-text", mediaType: "text/markdown", data: slideMarkdown(s, clock, image) });
+    if (s.mine?.png)
+      files.push({ path: mineImage!, role: "slide-image-mine", mediaType: "image/png", data: s.mine.png });
+    files.push({
+      path: text,
+      role: "slide-text",
+      mediaType: "text/markdown",
+      data: slideMarkdown(s, clock, image, mineImage),
+    });
     return {
       number: s.number,
       deck: s.deck,
@@ -164,6 +179,8 @@ export function lectureFiles(input: PackageInput): ZipEntry[] {
       shown: s.shown.map((x) => ({ startMs: at(x.fromMs), endMs: at(x.toMs) })),
       ink: s.ink,
       marks: s.marks,
+      mine: s.mine ? { image: mineImage, ink: s.mine.ink, marks: s.mine.marks } : null,
+      ...(input.descriptions ? { description: s.description ?? null } : {}),
     };
   });
 
@@ -195,6 +212,7 @@ export function lectureFiles(input: PackageInput): ZipEntry[] {
     chapters: chapters.length,
     glossary: glossary.length,
     notes: input.notes.length,
+    descriptions: input.descriptions ? input.slides.filter((s) => s.description).length : null,
     slides,
     files: files.map((f) => ({
       path: f.path,
@@ -211,14 +229,23 @@ function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function slideMarkdown(s: PackageSlide, clock: (ms: number) => string, image: string | null): string {
+function slideMarkdown(
+  s: PackageSlide,
+  clock: (ms: number) => string,
+  image: string | null,
+  mineImage: string | null,
+): string {
   const lines = [`# Slide ${s.number}`, ""];
   if (s.shown.length) lines.push(`Shown at ${s.shown.map((x) => `${clock(x.fromMs)}–${clock(x.toMs)}`).join(", ")}.`);
   else lines.push("Not shown during the talk.");
   if (s.ink || s.marks)
     lines.push(`The speaker drew ${count(s.ink, "stroke")} and made ${count(s.marks, "text mark")} on it.`);
+  if (s.mine)
+    lines.push(`The listener drew ${count(s.mine.ink, "stroke")} and made ${count(s.mine.marks, "text mark")} on it.`);
   if (image) lines.push(`Picture: ${image.replace(/^slides\//, "")}`);
+  if (mineImage) lines.push(`With the listener's own annotations: ${mineImage.replace(/^slides\//, "")}`);
   lines.push("", s.text || "(This slide has no text layer.)");
+  if (s.description) lines.push("", "## Description (machine-generated)", "", s.description);
   return `${lines.join("\n")}\n`;
 }
 
@@ -262,8 +289,9 @@ function lectureMarkdown(input: PackageInput, stem: (s: PackageSlide) => string)
     const again = s.shown.slice(1).map((x) => clock(x.fromMs));
     const head = `**Slide ${s.number}** (shown at ${clock(at)}${again.length ? `, again at ${again.join(", ")}` : ""}; ${
       s.png ? `picture${s.ink || s.marks ? " with the speaker's ink" : ""}: slides/${stem(s)}.png` : "no picture"
-    })`;
-    return { at, text: quote([head, "", s.text || "(no text layer)"].join("\n")) };
+    }${s.mine?.png ? `; with the listener's own annotations: slides/${stem(s)}.mine.png` : ""})`;
+    const described = s.description ? ["", `*Description:* ${s.description}`] : [];
+    return { at, text: quote([head, "", s.text || "(no text layer)", ...described].join("\n")) };
   });
   const events = [...lines, ...slideEvents].sort((a, b) => a.at - b.at);
 
@@ -331,6 +359,18 @@ function readme(input: PackageInput): string {
     "- `glossary.json`: terms from the talk with definitions.",
     "- `slides/NN.png`: each slide as shown, with the speaker's ink and text marks drawn on it. `slides/NN.md` holds " +
       "the slide's text and when it was on screen. NN is the slide number in the deck.",
+    ...(input.slides.some((s) => s.mine?.png)
+      ? [
+          "- `slides/NN.mine.png`: the same slide with the listener's own ink, shapes and text marks drawn over the " +
+            "speaker's, for the slides they annotated.",
+        ]
+      : []),
+    ...(input.descriptions && input.slides.some((s) => s.description)
+      ? [
+          "- Slide descriptions: a machine-written description of each slide's picture, under the slide's text in " +
+            "`slides/NN.md` and `lecture.md`. Useful for charts and figures that have no text layer.",
+        ]
+      : []),
     "- `notes.md`: the listener's own notes and bookmarks, stamped with the talk time and slide.",
     "",
     "## How to read it",
@@ -341,6 +381,8 @@ function readme(input: PackageInput): string {
       "usually right.",
     "- The notes are the listener's. They show what the listener found important or was unsure about.",
   ];
+  if (input.slides.some((s) => s.mine?.png))
+    parts.push("- So are the annotations in `slides/NN.mine.png`: what the listener marked on the slides.");
   if (input.live) parts.push("- The talk was still going when this was downloaded: the package ends there.");
   if (input.leftOut.length)
     parts.push(

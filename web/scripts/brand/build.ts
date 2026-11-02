@@ -184,6 +184,9 @@ function titleCard() {
   );
 }
 
+/** The public repository, on the end card. */
+const REPO = "github.com/LeventAksakal/talk-tracks";
+
 function endCard() {
   return page(
     1920,
@@ -193,9 +196,10 @@ function endCard() {
       <p class="title" style="margin:0;font-size:150px;line-height:1">Thanks for watching</p>
     </div>
     ${standing({ cycle: "wave", face: "laugh" }, 460, 300, 852)}
-    <div style="position:absolute;left:770px;top:520px">
+    <div style="position:absolute;left:770px;top:470px">
       ${lockupInline(820)}
       <p style="margin:34px 0 0;font-size:40px;color:${MUTED}">Live talks over Media over QUIC, with AI tracks.</p>
+      <p style="margin:22px 0 0;font-size:44px;color:${CHALK_TEXT}">${REPO}</p>
     </div>`,
     BOARD,
   );

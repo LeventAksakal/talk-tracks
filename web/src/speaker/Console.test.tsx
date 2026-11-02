@@ -165,6 +165,10 @@ describe("the speaker console", () => {
     const { all, sink } = setup();
     await loadDeck();
     const canvas = stage();
+    // The deck's id is the room-clock slice it went out in: 0 only when it loads within the room's first 4 s, which a
+    // loaded machine misses. Read it from the published deck track, never assume it.
+    await waitFor(() => expect(sink().groups(DECK_TRACK)).toHaveLength(1));
+    const deck = sink().groups(DECK_TRACK)[0]!;
 
     await act(async () => fireEvent.keyDown(window, { key: "d" }));
     fireEvent.pointerDown(canvas, { clientX: 160, clientY: 450, button: 0, pointerId: 1 });
@@ -182,7 +186,7 @@ describe("the speaker console", () => {
 
     const ink = all<InkRecord>(INK_TRACK).map((r) => r.data);
     expect(ink.map((d) => d.kind).filter((k) => k !== "points")).toEqual(["begin", "end"]);
-    expect(ink[0]).toMatchObject({ kind: "begin", tool: "pen", deck: 0, index: 0, points: [[0.1, 0.5]] });
+    expect(ink[0]).toMatchObject({ kind: "begin", tool: "pen", deck, index: 0, points: [[0.1, 0.5]] });
     expect(ink[0]?.kind === "begin" && ink[0].by).toEqual({ id: "speaker", name: "Speaker", speaker: true });
     expect(all<PointerRecord>(POINTER_TRACK).map((r) => r.data.kind)).toEqual(["at", "at", "off"]);
     const marks = all<MarkRecord>(MARKS_TRACK).map((r) => r.data);

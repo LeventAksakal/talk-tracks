@@ -2,7 +2,8 @@
 
 A lecture package is a `.zip` a listener downloads from the side panel's Download popover ("Lecture package
 (.zip)"). It holds a talk as files an AI assistant can read: the transcript in each language, the chapters and
-glossary, every slide with the speaker's ink baked in, the listener's own notes, and one Markdown file, `lecture.md`,
+glossary, every slide with the speaker's ink baked in, the listener's own notes and annotations, the slide
+descriptions when the describe agent already ran, and one Markdown file, `lecture.md`,
 that holds the whole lecture on its own. The owner chose the format in
 [ticket 0023](../../tickets/0023-lecture-package-format.md) (option 1 with the recommendation: a folder in a .zip,
 built in the browser, with option 2's single Markdown file inside it).
@@ -19,6 +20,15 @@ The code is `web/src/package/`; `lecture.ts` writes the files, so it is the refe
 - **Final ink.** A slide's picture shows the ink and text marks on it at the end of the last span it was on screen.
   The ink carry-in holds only the slide on screen (container formats §1), so that is one ink group and one marks
   group per slide. The drawing is the player's: `canvas/ink.ts` on an `OffscreenCanvas`.
+- **The listener's own annotations.** Their strokes, shapes and text marks are read from the audience track
+  (`talk/<room>/annotations`, tracks `ink` and `marks`) the same way, at the end of each slide's last span, and only
+  the records whose author is this listener are kept: the id the room service gave this browser
+  (`tt.listener.v1`). A slide they annotated gets a second picture, `slides/NN.mine.png`, with theirs drawn over the
+  speaker's. Everyone else's are left out (§5).
+- **Slide descriptions.** The describe agent's descriptions are read over its history like a transcript, only when
+  the same rule as the translations' says it costs nothing (below): subscribed, running, or recorded. Otherwise the
+  track is never subscribed, and the package has none (`manifest.descriptions` is null). Each slide takes the newest
+  description written for its position in the deck.
 - **The talk so far.** During a live talk the package ends at the live edge, and says so (`lecture.live`).
 - **Cost guard.** Only translations that cost nothing more to read are included: ones this listener has subscribed,
   ones the room catalog says are running (`tt.status[agent].status` is `live` and fresh), and recorded ones (catalog
@@ -44,7 +54,8 @@ The code is `web/src/package/`; `lecture.ts` writes the files, so it is the refe
 ├── glossary.json        [{ term, definition }]
 ├── slides/
 │   ├── NN.png           the slide as shown, with the speaker's ink and text marks drawn on it
-│   └── NN.md            the slide's text layer, when it was on screen, how much ink is on it
+│   ├── NN.mine.png      the same with the listener's own annotations over it (only slides they annotated)
+│   └── NN.md            the slide's text layer, when it was on screen, how much ink is on it, its description
 └── notes.md             the listener's notes and bookmarks
 ```
 
@@ -58,7 +69,8 @@ The code is `web/src/package/`; `lecture.ts` writes the files, so it is the refe
 | `chapters.json` | The chapters agent's outline: chapters with summaries, and a recap of the talk. |
 | `glossary.json` | Terms from the talk with definitions. |
 | `slides/NN.png` | Slide NN (1-based, two digits) as a PNG at the deck's own size, ink and marks baked in. |
-| `slides/NN.md` | Slide NN's text, in reading order with line breaks, and when it was shown. |
+| `slides/NN.mine.png` | Slide NN with the listener's own ink, shapes and text marks over the speaker's; only when they made any. |
+| `slides/NN.md` | Slide NN's text, in reading order with line breaks, when it was shown, and its description (when gathered). |
 | `notes.md` | The listener's notes and bookmarks (kept in their browser), with talk time and slide. |
 
 - `<lang>` is the track's BCP 47 tag (`en`, `es`, `pt-BR`).
@@ -88,9 +100,12 @@ The code is `web/src/package/`; `lecture.ts` writes the files, so it is the refe
   "chapters": 7,
   "glossary": 12,
   "notes": 3,
+  "descriptions": 8,
   "slides": [
     { "number": 1, "deck": 0, "image": "slides/01.png", "text": "slides/01.md",
-      "shown": [{ "startMs": 0, "endMs": 41000 }], "ink": 0, "marks": 1 }
+      "shown": [{ "startMs": 0, "endMs": 41000 }], "ink": 0, "marks": 1,
+      "mine": { "image": "slides/01.mine.png", "ink": 2, "marks": 0 },
+      "description": "A title slide with a photograph of a river delta." }
   ],
   "files": [
     { "path": "transcript/en.vtt", "role": "transcript-vtt", "mediaType": "text/vtt", "bytes": 48211, "lang": "en" }
@@ -107,11 +122,12 @@ The code is `web/src/package/`; `lecture.ts` writes the files, so it is the refe
 | `languages` | One entry per transcript, the original first: tag, name in its own script, line count, files. |
 | `leftOut.languages` | Translations the room offers that were not running, so not gathered (cost guard, §1). |
 | `chapters`, `glossary`, `notes` | How many of each. |
-| `slides` | Every slide of each deck shown: number, deck, picture and text files, spans on screen, ink and mark counts. |
+| `descriptions` | How many slides have a description; null when the descriptions were not gathered (the agent was not running). |
+| `slides` | Every slide of each deck shown: number, deck, picture and text files, spans on screen, ink and mark counts; `mine` (the listener's picture and counts, or null); `description` (text or null, only when gathered). |
 | `files` | Every file in the zip except `manifest.json` itself: path, role, media type, size in bytes, language. |
 
-Roles: `readme`, `lecture`, `transcript-vtt`, `transcript-md`, `chapters`, `glossary`, `slide-image`, `slide-text`,
-`notes`.
+Roles: `readme`, `lecture`, `transcript-vtt`, `transcript-md`, `chapters`, `glossary`, `slide-image`,
+`slide-image-mine`, `slide-text`, `notes`.
 
 **Times** are talk time: milliseconds from the start of the talk in JSON (`startMs`, `endMs`, `durationMs`), `m:ss`
 or `h:mm:ss` in text, as the player's clock shows them. In a looped room that is the time within the loop.
@@ -125,7 +141,8 @@ One Markdown file an assistant can read on its own:
 3. `## Contents`: the chapters with their start times.
 4. One `## N. <chapter title>` per chapter, with its start time and summary, then the original transcript as
    `**m:ss** text` lines. Where a slide was first shown, its text is quoted inline (`> **Slide 3** (shown at 4:12;
-   picture with the speaker's ink: slides/03.png)` and the slide's text). With no chapters, one `## Transcript`.
+   picture with the speaker's ink: slides/03.png)` and the slide's text, then its description when there is one; the
+   listener's own picture is named too). With no chapters, one `## Transcript`.
 5. `## Slides not shown in the talk`, for deck slides never put on screen that have text.
 6. `## Glossary` and `## My notes`, when there are any.
 
@@ -133,11 +150,13 @@ One Markdown file an assistant can read on its own:
 
 - **Other listeners' ink, marks and comments.** Slide comments are supplementary and off by default
   ([brand.md §6](../product/brand.md));
-  the package shows the speaker's annotations only.
+  the package shows the speaker's annotations and the listener's own, never anyone else's.
 - **Audio and video.** The package is for reading; the replay link is the room.
-- **Slide descriptions** from the describe agent: they would wake a paid agent; the slide's own text layer is used.
+- **Slide descriptions** when the describe agent is neither running nor recorded: reading them would wake a paid
+  agent, so the slide's own text layer stands alone.
 
 ## 6. Versioning
 
 A change that a version 1 reader would misread (a file moved, a field's meaning changed) bumps `version`. Adding a
-file or a field does not: readers ignore what they do not know.
+file or a field does not: readers ignore what they do not know. `slides/NN.mine.png`, `descriptions` and the slides'
+`mine` and `description` fields were added (11-02) within version 1 on that rule.

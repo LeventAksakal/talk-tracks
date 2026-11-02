@@ -236,10 +236,54 @@ describe("RoomMedia: the HLS archive probe waits for the teacher catalog", () =>
       fetchFn: fetchFn as unknown as typeof fetch,
       loopWaitMs: 3_000,
     });
+    // The room service still says the room exists; only the speaker's broadcast is gone.
+    transport.emitJson(catalogPath("lecture"), CATALOG_TRACK, { tracks: [], tt: { E: EPOCH, shift: {} } });
     await vi.advanceTimersByTimeAsync(2_900);
     expect(fetchFn).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(200);
     expect(urls(fetchFn)).toEqual(["/archive/lecture/index.m3u8"]);
+    media.close();
+  });
+
+  it("waits on while the relay has not answered, and a recording's room catalog waits for its teacher catalog", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const fetchFn = probe();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "virus", {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      loopWaitMs: 3_000,
+    });
+    // A slow connection: nothing for 5 s, then the looper's room catalog, its agents free, and 4 s later its
+    // teacher catalog with the loop.
+    await vi.advanceTimersByTimeAsync(5_000);
+    transport.emitJson(catalogPath("virus"), CATALOG_TRACK, {
+      tracks: [
+        { name: "items", namespace: "talk/virus/agents/captions", packaging: "eventtimeline", tt: { cost: "free" } },
+      ],
+      tt: { E: EPOCH, shift: { [String(teacherCatalog.clock.wall)]: 0 } },
+    });
+    await vi.advanceTimersByTimeAsync(4_000);
+    transport.emitJson(teacherPath("virus"), HANG_CATALOG_TRACK, teacherCatalog);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(urls(fetchFn)).toEqual([]);
+    await expect(media.looping()).resolves.toBe(true);
+    media.close();
+  });
+
+  it("reads the playlist in the end when the relay never answers", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const fetchFn = probe();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "lecture", {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      loopWaitMs: 3_000,
+      loopWaitCapMs: 12_000,
+    });
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(fetchFn).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(urls(fetchFn)).toEqual(["/archive/lecture/index.m3u8"]);
+    await expect(media.looping()).resolves.toBe(false);
     media.close();
   });
 });

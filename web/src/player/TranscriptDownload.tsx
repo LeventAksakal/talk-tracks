@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import "./download.css";
 import type { PackageProgress } from "../package/build";
+import { readIdentity } from "../annotate/client";
 import {
+  gatherDescriptions,
   gatherTranscripts,
   guardOf,
   languageName,
@@ -10,7 +12,7 @@ import {
   subscribed,
   talkSpan,
 } from "../package/download";
-import { gatherableTranslations } from "../package/languages";
+import { gatherableTranslations, whyFree } from "../package/languages";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { exportTranscript, TRANSCRIPT_FORMATS, type TranscriptFormat, transcriptFileName } from "./transcriptExport";
@@ -93,7 +95,15 @@ export function TranscriptDownload() {
       ...included.map((track) => ({ track, original: false })),
     ];
     const outline = tracks.outline;
-    const ids = [...wanted.map((w) => w.track.id), ...(outline ? [outline.id] : [])];
+    // Slide descriptions only when the describe agent is already running or recorded: any other read wakes it.
+    const describe = tracks.describe && whyFree(tracks.describe, guardOf(ctx)) ? tracks.describe : undefined;
+    // The listener's own annotations are theirs by the id the room service gave this browser (kept across reloads).
+    const mine = ctx.listening?.service.me()?.id ?? readIdentity().id;
+    const ids = [
+      ...wanted.map((w) => w.track.id),
+      ...(outline ? [outline.id] : []),
+      ...(describe ? [describe.id] : []),
+    ];
     setBusy(true);
     setSaid(undefined);
     setProgress({ label: "Gathering the transcript…", fraction: 0 });
@@ -101,9 +111,10 @@ export function TranscriptDownload() {
     try {
       const [{ buildLecturePackage }] = await Promise.all([import("../package/build"), subscribed(playback, ids)]);
       controller.signal.throwIfAborted();
-      const [languages, gotOutline] = await Promise.all([
+      const [languages, gotOutline, descriptions] = await Promise.all([
         gatherTranscripts(playback, wanted, span),
         outline ? outlineOf(playback, outline.id) : undefined,
+        describe ? gatherDescriptions(playback, describe, span) : undefined,
       ]);
       controller.signal.throwIfAborted();
       const built = await buildLecturePackage({
@@ -118,6 +129,8 @@ export function TranscriptDownload() {
         languages,
         outline: gotOutline,
         notes: notes.notes,
+        mine,
+        descriptions,
         leftOut: left.map((t) => languageName(t.lang, false)),
         signal: controller.signal,
         onProgress: setProgress,
@@ -181,7 +194,7 @@ export function TranscriptDownload() {
               Lecture package (.zip)
             </button>
             <p className="tt-muted tt-small">
-              Transcripts, chapters, slides with ink and your notes, for an AI assistant.
+              Transcripts, chapters, slides with ink, your notes and your own marks, for an AI assistant.
             </p>
           </div>
           {progress ? (

@@ -1,11 +1,11 @@
-import { type CSSProperties, type KeyboardEvent, type PointerEvent, type RefObject, useRef } from "react";
+import { type CSSProperties, type KeyboardEvent, type PointerEvent, type RefObject, useEffect, useRef } from "react";
 import { RoomStateChalky } from "../brand/states";
 import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
 import { CameraSurface } from "./CameraSurface";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
-import { clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
+import { type BoardKind, clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
 import { ScreenSurface } from "./ScreenSurface";
 import { SlideSurface } from "./SlideSurface";
 import { StatsForNerds } from "./StatsForNerds";
@@ -17,33 +17,44 @@ export function effectiveLayout(layout: LayoutKind, sources: readonly SourceKind
 }
 
 /**
- * The pictures the stage lays out: the camera, and the main picture: a shared screen while there is one, else the
- * slides. The screen takes the slides' place (their corner, their side, their "one at a time" choice).
+ * The main picture: the slides, or a shared screen while there is one. With both, the listener's pick (`board`, the
+ * screen unless they picked the slides); with one, that one.
  */
-export function stageSources(sources: readonly SourceKind[]): SourceKind[] {
-  const board: SourceKind | undefined = sources.includes("screen")
-    ? "screen"
-    : sources.includes("slides")
-      ? "slides"
-      : undefined;
-  const out: SourceKind[] = sources.includes("camera") ? ["camera"] : [];
-  if (board) out.push(board);
+export function mainPicture(sources: readonly SourceKind[], board: BoardKind = "screen"): BoardKind | undefined {
+  const other: BoardKind = board === "screen" ? "slides" : "screen";
+  return sources.includes(board) ? board : sources.includes(other) ? other : undefined;
+}
+
+/**
+ * The pictures the stage lays out, the corner one first: the camera (or, with no camera, the board source that is not
+ * the main picture), and the main picture. A shared screen takes the slides' place unless the listener picks the
+ * slides back; the one not picked stays mounted, hidden.
+ */
+export function stageSources(sources: readonly SourceKind[], board?: BoardKind): SourceKind[] {
+  const main = mainPicture(sources, board);
+  const out: SourceKind[] = [];
+  if (sources.includes("camera")) out.push("camera");
+  else if (main) {
+    const other: BoardKind = main === "screen" ? "slides" : "screen";
+    if (sources.includes(other)) out.push(other);
+  }
+  if (main) out.push(main);
   return out;
 }
 
 /** Whether a source is on screen: present, and in the layout (single shows the one chosen). */
 export function sourceShown(
   kind: SourceKind,
-  prefs: Pick<Prefs, "layout" | "single">,
+  prefs: Pick<Prefs, "layout" | "single" | "board">,
   sources: readonly SourceKind[],
 ): boolean {
-  const placed = stageSources(sources);
+  const placed = stageSources(sources, prefs.board);
   if (!placed.includes(kind)) return false;
   if (effectiveLayout(prefs.layout, placed) !== "single" || placed.length < 2) return true;
   // "single" names the camera or the main picture, slides or screen.
-  return kind === "camera" ? prefs.single === "camera" : prefs.single !== "camera";
+  const main = placed.at(-1);
+  return prefs.single === "camera" && placed.includes("camera") ? kind === "camera" : kind === main;
 }
-
 /**
  * The canvas (ui-design §3.1–§3.2, decision 0026): by default the slides fill it and the camera sits in a corner
  * tile the listener can drag, resize or swap; with no deck the camera fills it; side by side (a draggable divider)
@@ -52,17 +63,24 @@ export function sourceShown(
  * re-created.
  */
 export function Stage() {
-  const { prefs, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
+  const { prefs, update, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
   const stage = useRef<HTMLDivElement>(null);
-  const placed = stageSources(sources);
+  // A share that starts (or is there when the page opens) comes forward; the listener can pick the slides back.
+  const sharing = sources.includes("screen");
+  useEffect(() => {
+    if (sharing) update({ board: "screen" });
+  }, [sharing, update]);
+  const placed = stageSources(sources, prefs.board);
   const layout = effectiveLayout(prefs.layout, placed);
   const hasCamera = placed.includes("camera");
   const hasSlides = sources.includes("slides");
-  const hasScreen = placed.includes("screen");
-  // The main picture: a shared screen in the slides' place, the slides kept mounted (hidden) under it.
-  const board: SourceKind = hasScreen ? "screen" : "slides";
+  const hasScreen = sources.includes("screen");
+  // The main picture and the corner one (the camera, or with no camera the other of slides and screen). The source
+  // not placed stays mounted, hidden, so picking it back is instant.
+  const board: SourceKind = placed.at(-1) ?? "slides";
+  const cornerKind: SourceKind = placed.length > 1 ? placed[0]! : "camera";
   // Which source is "first": the left one in split, the corner tile in the default layout.
-  const first: SourceKind = prefs.swap ? board : "camera";
+  const first: SourceKind = prefs.swap ? board : cornerKind;
   const shown = (kind: SourceKind) => sourceShown(kind, prefs, sources);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
@@ -77,7 +95,7 @@ export function Stage() {
   const needsGesture = media !== undefined && !ui.playing && view.timeline.mode === "live" && !card;
   const corner = (kind: SourceKind) =>
     layout === "pip" && role(kind) === "small" ? (
-      <CornerTools stageRef={stage} other={kind === "camera" ? board : "camera"} />
+      <CornerTools stageRef={stage} other={kind === cornerKind ? board : cornerKind} />
     ) : null;
 
   return (
@@ -98,7 +116,7 @@ export function Stage() {
           <CameraSurface />
         </div>
       ) : null}
-      {layout === "split" ? <SplitDivider stageRef={stage} /> : null}
+      {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}
       {hasSlides ? (
         <div className={`tt-cell tt-cell-slides tt-cell-${role("slides")}${shown("slides") ? "" : " tt-hidden"}`}>
           {corner("slides")}
@@ -195,7 +213,13 @@ export function Stage() {
 }
 
 /** The split divider: drag, or arrow keys when focused, to move it. */
-function SplitDivider({ stageRef }: { stageRef: RefObject<HTMLDivElement | null> }) {
+function SplitDivider({
+  stageRef,
+  names,
+}: {
+  stageRef: RefObject<HTMLDivElement | null>;
+  names: readonly [SourceKind, SourceKind];
+}) {
   const { prefs, update } = usePlayer();
   const dragging = useRef(false);
   const set = (v: number) => update({ split: clamp(v, 0.2, 0.8) });
@@ -218,7 +242,7 @@ function SplitDivider({ stageRef }: { stageRef: RefObject<HTMLDivElement | null>
       className="tt-divider"
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the camera and slides"
+      aria-label={`Resize the ${names[0]} and ${names[1]}`}
       aria-valuemin={20}
       aria-valuemax={80}
       aria-valuenow={Math.round(prefs.split * 100)}

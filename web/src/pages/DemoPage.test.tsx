@@ -90,7 +90,9 @@ describe("/demo in the player", () => {
     expect(screen.getByRole("slider", { name: "Position in the talk" }).getAttribute("aria-valuenow")).toBe("61");
   });
 
-  it("downloads the whole transcript so far, in one language or in all of them", async () => {
+  // Genuinely long: it plays 47 s of the live demo frame by frame (about 4 s on an idle machine), so it gets its own
+  // timeout. Past the 5 s default under load it timed out, and its still-running body broke the test after it.
+  it("downloads the whole transcript so far, in one language or in all of them", { timeout: 30_000 }, async () => {
     const saved: Blob[] = [];
     // Slide pictures are blobs too; the transcript is the text one.
     const create = vi.fn((b: Blob) => (b.type.startsWith("text/") && saved.push(b), "blob:x"));

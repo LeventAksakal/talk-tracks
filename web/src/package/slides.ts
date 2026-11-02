@@ -6,7 +6,7 @@
 // of ink and marks holds only the slide on screen, so a slide's final ink is the state of the ink track at the end
 // of the last span it was shown: one group per slide. The slide track is read whole, one group per slice.
 
-import { DECK_TRACK, INK_TRACK, MARKS_TRACK, SLIDE_TRACK, slidesPath } from "../contracts/names";
+import { annotationsPath, DECK_TRACK, INK_TRACK, MARKS_TRACK, SLIDE_TRACK, slidesPath } from "../contracts/names";
 import { inkCarry, marksCarry, upTo } from "../contracts/tracks";
 import type {
   CurrentSlideRecord,
@@ -57,6 +57,8 @@ export interface GatheredSlide {
   ink: InkElement[];
   /** The speaker's text marks on it then. */
   marks: TextMark[];
+  /** The listener's own strokes, shapes and text marks on it then, from the audience track (when `mine` is given). */
+  mine: { ink: InkElement[]; marks: TextMark[] };
 }
 
 export interface GatheredDeck {
@@ -86,6 +88,11 @@ export interface GatherSlidesOptions {
   onProgress?: (p: GatherProgress) => void;
   fetchTimeoutMs?: number;
   concurrency?: number;
+  /**
+   * The listener's author id: their own ink and text marks are read from the audience track too, everyone else's
+   * left out. Undefined: the audience track is not read.
+   */
+  mine?: string;
 }
 
 type Rec = { m: number; data: unknown };
@@ -200,11 +207,13 @@ export function shownSpans(
 
 /** Gather the talk's slides, their pictures and their final ink and marks. */
 export async function gatherSlides(options: GatherSlidesOptions): Promise<SlidesGathered> {
-  const { source, room, fromMs, toMs, signal, onProgress } = options;
+  const { source, room, fromMs, toMs, signal, onProgress, mine } = options;
   const fetcher = new Fetcher(source, signal, options.fetchTimeoutMs ?? FETCH_TIMEOUT_MS);
   const n = options.concurrency ?? CONCURRENCY;
   const live = slidesPath(room);
   const paths = [historyPath(live), live];
+  // The room service's annotations are fetched where they are published (as slideTracks reads them).
+  const audience = [annotationsPath(room)];
 
   const last = sliceOf(Math.max(fromMs, toMs - 1));
   const first = Math.max(sliceOf(fromMs), last - MAX_SLIDE_SLICES + 1);
@@ -241,33 +250,48 @@ export async function gatherSlides(options: GatherSlidesOptions): Promise<Slides
 
   // 3. Each shown slide's ink and marks at the end of its last span. Groups are shared between slides.
   const groups = new Map<string, Promise<(readonly Rec[])[] | undefined>>();
-  const read = (track: string, k: number, parse: (p: Uint8Array) => Parsed<readonly Rec[]>) => {
-    const id = `${track}:${k}`;
+  type Parse = (p: Uint8Array) => Parsed<readonly Rec[]>;
+  const read = (from: readonly string[], track: string, k: number, parse: Parse) => {
+    const id = `${from[0]}/${track}:${k}`;
     let p = groups.get(id);
     if (!p) {
-      p = fetcher.group<Rec>(paths, track, k, parse);
+      p = fetcher.group<Rec>(from, track, k, parse);
       groups.set(id, p);
     }
     return p;
   };
   /** The track's records in effect at t: its group at t up to t, or the whole group before it if that is a hole. */
-  const at = async (track: string, t: number, parse: (p: Uint8Array) => Parsed<readonly Rec[]>) => {
+  const at = async (from: readonly string[], track: string, t: number, parse: Parse) => {
     const k = sliceOf(t);
-    const g = await read(track, k, parse);
+    const g = await read(from, track, k, parse);
     if (g) return upTo(g, t);
-    const prev = k > 0 ? await read(track, k - 1, parse) : undefined;
+    const prev = k > 0 ? await read(from, track, k - 1, parse) : undefined;
     return prev ? prev.flat() : [];
   };
-  const finals = new Map<string, { ink: InkElement[]; marks: TextMark[] }>();
+  const inkParse = parseInkObject as Parse;
+  const marksParse = parseMarksObject as Parse;
+  const nothing = Promise.resolve<Rec[]>([]);
+  const own = (x: { by: { id: string } }) => x.by.id === mine;
+  const finals = new Map<string, Pick<GatheredSlide, "ink" | "marks" | "mine">>();
   await mapLimit(shownList, Math.max(1, Math.floor(n / 2)), async ({ show, spans: s }) => {
     const end = s.at(-1)!.toMs - 1;
-    const [ink, marks] = await Promise.all([
-      at(INK_TRACK, end, parseInkObject as (p: Uint8Array) => Parsed<readonly Rec[]>),
-      at(MARKS_TRACK, end, parseMarksObject as (p: Uint8Array) => Parsed<readonly Rec[]>),
+    const [ink, marks, audienceInk, audienceMarks] = await Promise.all([
+      at(paths, INK_TRACK, end, inkParse),
+      at(paths, MARKS_TRACK, end, marksParse),
+      mine === undefined ? nothing : at(audience, INK_TRACK, end, inkParse),
+      mine === undefined ? nothing : at(audience, MARKS_TRACK, end, marksParse),
     ]);
     finals.set(key(show), {
       ink: inkCarry(ink as InkRecord[], show).map((r) => r.data),
       marks: marksCarry(marks as MarkRecord[], show).map((r) => r.data),
+      mine: {
+        ink: inkCarry(audienceInk as InkRecord[], show)
+          .map((r) => r.data)
+          .filter(own),
+        marks: marksCarry(audienceMarks as MarkRecord[], show)
+          .map((r) => r.data)
+          .filter(own),
+      },
     });
     tick();
   });
@@ -287,6 +311,7 @@ export async function gatherSlides(options: GatherSlidesOptions): Promise<Slides
         shown: spans.get(k)?.spans ?? [],
         ink: finals.get(k)?.ink ?? [],
         marks: finals.get(k)?.marks ?? [],
+        mine: finals.get(k)?.mine ?? { ink: [], marks: [] },
       });
     }
   }
