@@ -20,7 +20,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,7 +35,7 @@ from ..room_catalog import catalog_path, speaker_sources
 from ..runtime import now_ms
 from .audience import Audience
 from .catalog import REFRESH_S, CatalogFeed
-from .create import CreateConfig
+from .create import CreateConfig, CreatedRoom
 from .events import RoomEvents
 from .listeners import EndpointConfig
 from .store import Archive, RoomArchive, RoomFilter
@@ -84,10 +84,12 @@ class Archiver:
         if not task.cancelled() and task.exception() is not None:
             log.error("reader %s stopped", task.get_name(), exc_info=task.exception())
 
-    async def run(self) -> None:
+    async def run(self, created: Iterable[CreatedRoom] = ()) -> None:
         for name in self.archive.known_rooms():  # their catalog carries E and the shifts
             if self.wanted(name):
                 self._spawn(self._room(name).events.restore(), f"{name}/history")  # their talks stay fetchable
+        for room in created:  # created before a restart: still "Not started" until their talk starts
+            self.created(room.room, room.title, room.speaker)
         ticker = asyncio.create_task(self._tick())
         try:
             async for path, active in self.relay.announced(ROOT):
@@ -151,9 +153,12 @@ class Archiver:
         return room in self.rooms or room in self.archive.known_rooms()
 
     def created(self, room: str, title: str, speaker: str | None) -> None:
-        """A room was created (or re-issued) with this title and speaker: its state track carries them."""
+        """A room was created (or re-issued) with this title and speaker: its state track carries them, and says at
+        once that the talk has not started (players show "Not started", not an unknown room)."""
         if self.wanted(room):
-            self._room(room).events.describe(title, speaker)
+            events = self._room(room).events
+            events.describe(title, speaker)
+            self._spawn(events.waiting(), f"{room}/waiting")
 
     async def end(self, room: str) -> int | None:
         """The speaker ended the room's talk (the endpoint's ``end``): its room track says ``ended``."""
@@ -302,7 +307,7 @@ async def archive_rooms(
     for server in servers:
         server.add_done_callback(_log_failure)
     try:
-        await archiver.run()
+        await archiver.run(registry.all_created() if registry is not None else ())
     finally:
         for server in servers:
             server.cancel()

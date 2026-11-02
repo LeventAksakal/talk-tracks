@@ -232,6 +232,11 @@ class Registry:
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
+    def all_created(self) -> list[CreatedRoom]:
+        """Every room created here, by name."""
+        names = sorted(p.stem for p in self.rooms_dir.glob("*.json")) if self.rooms_dir.is_dir() else []
+        return [found for name in names if (found := self.created(name)) is not None]
+
     def owner(self, room: str) -> str | None:
         """The caps batch that lists ``room`` (a code's, or a minted judge batch), as the ledger finds it."""
         if (created := self.created(room)) is not None:

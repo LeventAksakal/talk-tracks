@@ -309,6 +309,14 @@ class ServiceTrack[R: Wire]:
     def open_slice(self) -> int | None:
         return None if self._newest is None else self._newest + 1
 
+    def reopen(self) -> bool:
+        """The newest slice on disk was left open by a process before this one: drop it, so the next ``at`` writes it
+        afresh (live and archived) from its carry-in. False when there is none (or it is open here, or finished)."""
+        if self._open is not None or self._newest is None or not self.archive.discard(self._newest):
+            return False
+        self._newest = self.archive.latest_group()
+        return True
+
 
 def room_states(payload: bytes) -> list[RoomStateRecord]:
     return list(RoomStateObject.model_validate_json(payload).root)
@@ -612,6 +620,21 @@ class RoomEvents:
             await state.close()
             log.info("%s: the speaker ended the talk at room time %d ms", self.room, at)
             return at
+
+    async def waiting(self) -> None:
+        """The room was created and its talk has not started: the room track says ``waiting`` with the title and
+        speaker at once (room time 0, slice 0, left open until the talk starts), so a player opened before the
+        speaker goes on air shows "Not started" instead of an unknown room. Said again with a new title or speaker,
+        and by a restarted room service, whose open slice 0 is written afresh. Nothing once the talk has started."""
+        async with self._state_lock:
+            state = await self.room_state()
+            if any(r.data.state != "waiting" for r in state.records):
+                return
+            said = self._state("waiting")
+            if state.open_group is None and state.reopen() and state.records:
+                await state.at(0, active=True)  # a restart: object 0 (the carry-in) says it again
+            if not state.records or state.records[-1].data != said:
+                await state.add(RoomStateRecord(m=state.records[-1].m if state.records else 0, data=said))
 
     def describe(self, title: str | None, speaker: str | None) -> None:
         """The talk's title and speaker name (from room creation, decision 0025): every state record carries them."""

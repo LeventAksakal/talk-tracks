@@ -119,6 +119,8 @@ async def test_a_code_creates_a_room_with_a_capped_speaker_token_for_that_room_o
         "Ada Lovelace",
         "code-judges",
     )
+    # a restarted room service finds it again, to say "Not started" until its talk starts
+    assert [r.room for r in Registry(tmp_path / "caps", tmp_path / "rooms").all_created()] == ["quantum-101"]
 
 
 async def test_the_same_code_gets_a_fresh_link_for_its_room_and_another_code_is_refused(tmp_path: Path) -> None:
