@@ -103,9 +103,9 @@ More: [the track system](wiki/design/moq-track-system.md), [decisions](wiki/deci
 | Job | Model | What it does |
 |---|---|---|
 | Live captions | Muse Voice Transcribe (`muse-voice-transcribe-1.0`), realtime endpointing | Turns the speaker's audio into caption lines as they speak. It is the source text for every other AI track. |
-| Translation | Muse Spark (`muse-spark-1.3`, Standard mode) | Translates each caption line into Turkish, Spanish, Arabic, or any language a viewer asks for, with the talk so far as context. |
+| Translation | Muse Spark (`muse-spark-1.3`, Standard mode) | Translates each caption line into Turkish, Spanish, Arabic, or any language a viewer asks for, with the three lines before it as context. |
 | Slide description | Muse Spark, vision input | Describes each new slide for a listener who cannot see it; a slide shown again reuses its description. |
-| Chapters, glossary, recap | Muse Spark | Splits the talk into chapters as it goes, explains the technical terms with their first mention, and writes a recap for late joiners. |
+| Chapters, glossary, recap | Muse Spark | Splits the talk into chapters as it goes, explains the technical terms in a glossary, and writes a recap for late joiners. |
 | Punctuation of recordings | Muse Spark | Adds sentence and clause marks to a recording's caption lines without changing a word, so subtitles break on sentences. |
 
 ## Run it locally

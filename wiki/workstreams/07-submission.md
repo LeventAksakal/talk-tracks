@@ -1,6 +1,6 @@
 # 07 · Submission
 
-**Status:** not started · **Session:** — · **Window:** Tue Nov 3, 09:00 → Wed Nov 4, 12:00 ET (20:00 +03) ·
+**Status:** in progress (rules, README, NOTICE, text, video script drafted) · **Session:** submission lane · **Window:** Tue Nov 3, 09:00 → Wed Nov 4, 12:00 ET (20:00 +03) ·
 **Depends on:** 06 (product verified), 02 (banner, title cards)
 
 ## Goal
@@ -51,17 +51,17 @@ Sources, in order of authority:
 
 - [x] **Re-read the hackathon rules** for video length, required fields, image sizes, and use of Meta models and
       marks. Note them here before anything else. (2026-11-02, table above; the owner still checks sources 3 and 4.)
-- [ ] **Demo video** along the golden path in journeys.md (J8 → J1 → J6), with the title and end cards from 02.
+- [ ] **Demo video** (script: [submission-video.md](../submission-video.md); the owner records) along the golden path in journeys.md (J8 → J1 → J6), with the title and end cards from 02.
       Show the four demo moments ([howto/demo-moments.md](../howto/demo-moments.md)), Muse models at work, and the
       drawing replaying in rewind.
-- [ ] **Submission text:** problem, what it does, how it is built (MoQ, one publisher per agent, the track model),
+- [x] **Submission text** (draft in [submission.md](../submission.md), owner fills track, theme, video link, access code): problem, what it does, how it is built (MoQ, one publisher per agent, the track model),
       the Meta models used (README table), what was built during the hackathon, how judges try it (link plus access
       code or token).
-- [ ] **README:** status line, the live link (if the owner allows the hostname in the public repo), screenshots,
+- [x] **README** (lane/submission; screenshots still placeholders under `docs/screenshots/`): status line, the live link (if the owner allows the hostname in the public repo), screenshots,
       run-locally steps, credits.
-- [ ] **NOTICE:** every third-party licence, including anything new from 02 (fonts, icons) and 04
+- [x] **NOTICE** (from the lockfiles and Dockerfiles): every third-party licence, including anything new from 02 (fonts, icons) and 04
       (`perfect-freehand`, Excalidraw code if copied).
-- [ ] **Demo lecture credits** still match the rooms (README table).
+- [x] **Demo lecture credits** still match the rooms (README table).
 - [ ] **Freeze `main`** Tue 18:00 +03: tag it (for example `submission-2026-11-04`) and deploy exactly that tag.
 - [ ] Final smoke on the VM after the freeze: the four rooms loop, a judge link works, the spend ledger has room.
 - [ ] **Submit by Wed 12:00 ET.** Save a copy of the submitted text in `wiki/submission.md`.
@@ -71,3 +71,4 @@ Sources, in order of authority:
 | When (+03) | Session | Entry |
 |---|---|---|
 | 10-31 12:57 | coordinator | Brief written. |
+| 11-02 23:30 | submission lane | Rules read from the Official Rules on the event page, Meta's page, an entrant's verbatim copy of the participant rules and an entrant's read of the form; table above. README rewritten (live link, try-it table, Mermaid architecture, models table, run locally, built-during), NOTICE written from the lockfiles, submission text and video script drafted. Open for the owner: track and theme, the form's real fields, the participant rules in his own copy. |
