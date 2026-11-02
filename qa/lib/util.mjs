@@ -85,7 +85,20 @@ export const BRANDED = {
 
 export const brandedPath = (channel) => BRANDED[channel]?.find((p) => existsSync(p));
 
-export const stamp = (d = new Date()) => {
+/**
+ * Which build the base serves: the hashed entry script named in index.html (`index-<hash>.js`). The deployed site
+ * can be redeployed mid-run; the report compares this per browser so a run that straddles two builds says so.
+ */
+export async function buildId(base) {
+  try {
+    const html = await (await fetch(base, { signal: AbortSignal.timeout(10_000) })).text();
+    return /\/assets\/(index-[\w-]+)\.js/.exec(html)?.[1] ?? "unknown";
+  } catch {
+    return "unreachable";
+  }
+}
+
+export const stamp =(d = new Date()) => {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
 };

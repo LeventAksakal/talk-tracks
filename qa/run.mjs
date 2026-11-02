@@ -11,7 +11,7 @@ import { JOURNEYS } from "./lib/journeys.mjs";
 import { runLighthouse } from "./lib/lighthouse.mjs";
 import { writeReport } from "./lib/report.mjs";
 import { runTrace } from "./lib/trace.mjs";
-import { ensureDir, isLocal, list, makeRedactor, parseArgs, stamp } from "./lib/util.mjs";
+import { buildId, ensureDir, isLocal, list, makeRedactor, parseArgs, stamp } from "./lib/util.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = parseArgs(process.argv.slice(2));
@@ -61,7 +61,8 @@ try {
 }
 
 const started = new Date();
-log(`QA run ${run} against ${baseUrl}`);
+const buildStart = await buildId(baseUrl);
+log(`QA run ${run} against ${baseUrl} (build ${buildStart})`);
 log(`  output: ${runDir}`);
 
 let capture, lighthouse, trace;
@@ -76,15 +77,19 @@ if (!args["skip-capture"]) {
     log,
   });
 }
+const builds = { start: buildStart };
 if (!args["skip-lighthouse"]) {
   log("2/3 lighthouse");
+  builds.lighthouse = await buildId(baseUrl);
   const paths = { hub: "/", watch: `/watch/${room}`, demo: "/demo" };
   lighthouse = await runLighthouse({ runDir, pages: lhPages.map((id) => ({ id, path: paths[id] })), opts, redact, log });
 }
 if (!args["skip-trace"]) {
   log("3/3 trace");
+  builds.trace = await buildId(baseUrl);
   trace = await runTrace({ runDir, path: tracePath, seconds: Number(args["trace-seconds"] ?? 60), opts, log });
 }
+builds.end = await buildId(baseUrl);
 
 const finished = new Date();
 const meta = {
@@ -97,6 +102,7 @@ const meta = {
   themes: list(args.themes, "dark,light"),
   room,
   tracePath,
+  builds,
 };
 writeFileSync(join(runDir, "report.md"), writeReport({ meta, capture, lighthouse, trace, redact }));
 writeFileSync(join(runDir, "summary.json"), redact(JSON.stringify({ meta, capture, lighthouse, trace }, null, 2)));

@@ -10,6 +10,17 @@ export function writeReport({ meta, capture, lighthouse, trace, redact }) {
   L.push(`- Started: ${meta.started} · finished: ${meta.finished} · ${meta.minutes} min`);
   L.push(`- Journeys: ${meta.journeys.join(", ")} · themes: ${meta.themes.join(", ")} · viewport 1440×900 @1x, reduced motion`);
   L.push(`- Demo room: \`${meta.room}\` · trace page: \`${meta.tracePath}\``);
+  const b = meta.builds ?? {};
+  const seen = new Set(
+    [b.start, b.lighthouse, b.trace, b.end, ...(capture?.browsers ?? []).flatMap((x) => [x.build, x.buildEnd])].filter(Boolean),
+  );
+  L.push(`- Build (entry script): start \`${b.start ?? "?"}\`, Lighthouse \`${b.lighthouse ?? "–"}\`, trace \`${b.trace ?? "–"}\`, end \`${b.end ?? "?"}\``);
+  if (seen.size > 1)
+    L.push(
+      "",
+      `> **The site was redeployed during this run** (${seen.size} builds seen: ${[...seen].map((s) => `\`${s}\``).join(", ")}).`,
+      "> Compare the Build column below before reading a difference between browsers as a browser difference.",
+    );
   L.push("");
   L.push(
     "Captures are evidence, not assertions: nothing here passes or fails on pixels. Live rooms change between runs",
@@ -18,12 +29,13 @@ export function writeReport({ meta, capture, lighthouse, trace, redact }) {
   );
 
   if (capture) {
-    L.push("## Browsers", "", "| Browser | Status | Version | Captures | Failed steps | Skipped steps |", "|---|---|---|---|---|---|");
-    for (const b of capture.browsers) {
-      const caps = capture.captures.filter((c) => c.browser === b.name && c.file).length;
-      const fails = capture.failures.filter((f) => f.browser === b.name && !f.skipped).length;
-      const skips = capture.failures.filter((f) => f.browser === b.name && f.skipped).length;
-      L.push(`| ${b.name} | ${cell(b.status)} | ${cell(b.version)} | ${caps} | ${fails} | ${skips} |`);
+    L.push("## Browsers", "", "| Browser | Status | Version | Build (start → end) | Captures | Failed steps | Skipped steps |", "|---|---|---|---|---|---|---|");
+    for (const br of capture.browsers) {
+      const caps = capture.captures.filter((c) => c.browser === br.name && c.file).length;
+      const fails = capture.failures.filter((f) => f.browser === br.name && !f.skipped).length;
+      const skips = capture.failures.filter((f) => f.browser === br.name && f.skipped).length;
+      const build = br.build ? (br.buildEnd && br.buildEnd !== br.build ? `${br.build} → **${br.buildEnd}**` : br.build) : "";
+      L.push(`| ${br.name} | ${cell(br.status)} | ${cell(br.version)} | ${build} | ${caps} | ${fails} | ${skips} |`);
     }
     L.push("");
 

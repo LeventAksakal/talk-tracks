@@ -7,7 +7,7 @@
 import { chromium, firefox, webkit } from "playwright";
 import { join } from "node:path";
 import { JOURNEYS } from "./journeys.mjs";
-import { brandedPath, ensureDir, sleep } from "./util.mjs";
+import { brandedPath, buildId, ensureDir, sleep } from "./util.mjs";
 
 const FAKE_MEDIA = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"];
 const CHROMIUM_ARGS = [...FAKE_MEDIA, "--autoplay-policy=no-user-gesture-required"];
@@ -129,13 +129,15 @@ export async function captureJourneys({ runDir, browsers, themes, journeyIds, op
       log(`  ${name}: launch failed`);
       continue;
     }
-    record.browsers.push({ name, status: "ran", version: browser.version() });
+    const build = await buildId(opts.base);
+    record.browsers.push({ name, status: "ran", version: browser.version(), build });
     const outDir = ensureDir(join(runDir, name));
     for (const theme of themes) {
       log(`  ${name} ${theme}: ${journeys.map((j) => j.id).join(", ")}`);
       await runTheme({ name, browser, theme, journeys, opts, outDir, record });
     }
     await browser.close();
+    record.browsers.at(-1).buildEnd = await buildId(opts.base);
   }
   return record;
 }
