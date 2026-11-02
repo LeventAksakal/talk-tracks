@@ -1,8 +1,9 @@
 /* Talk Tracks design tokens: the Chalk direction (wiki/product/brand.md).
    The names are the contract: components use only these, so a restyle is a change of values here.
-   Every colour is light-dark(Paper, Blackboard); a subtree picks its theme with color-scheme
-   (the player sets dark, the rest follows the system or data-theme). Imported in main.tsx after Astryx; the fonts are
-   in fonts.css. */
+   Every colour is light-dark(Paper, Blackboard), following the system or data-theme. A light-dark() inside a custom
+   property resolves where the property is declared (:root), so a subtree's color-scheme alone cannot flip it: a
+   subtree that is always Blackboard (the player, brand.md) declares the dark values again, below. Imported in
+   main.tsx after Astryx; the fonts are in fonts.css. */
 
 :root {
   color-scheme: light dark;
@@ -23,7 +24,6 @@
   --tt-color-accent: light-dark(#2d5f8b, #9cc7ea);
   --tt-color-on-accent: light-dark(#ffffff, #10202b);
   --tt-color-accent-soft: light-dark(rgb(45 95 139 / 0.12), rgb(156 199 234 / 0.16));
-  --tt-color-focus: var(--tt-color-accent);
 
   /* States. Red only means live or on air; amber only means degraded; each also shows a word. */
   --tt-color-live: light-dark(#b42f27, #ff6a5c);
@@ -31,6 +31,7 @@
   --tt-color-on-live: #ffffff;
   --tt-color-degraded: light-dark(#8c5200, #f4b544);
   --tt-color-ready: light-dark(#226b3c, #86d39b);
+  /* Keep the Blackboard values in .tt-player below in step with the second value of each light-dark() above. */
 
   /* Captions over any slide */
   --tt-caption-bg: rgb(0 0 0 / 0.85);
@@ -100,8 +101,32 @@
   /* Layout */
   --tt-panel-width: 360px;
   --tt-target-min: 32px;
+}
 
-  /* Astryx reads its own names; point them at ours so standard controls follow the theme */
+/* The player is Blackboard whatever the system or page theme (brand.md: the player theme is always dark), like any
+   video player: its overlays sit on video and slides. The Blackboard half of every light-dark() pair above. */
+.tt-player {
+  color-scheme: dark;
+  --tt-color-ground: #1b2420;
+  --tt-color-surface: #222d28;
+  --tt-color-raised: #2a3631;
+  --tt-color-line: #3a4842;
+  --tt-color-field: #6d7d76;
+  --tt-color-text: #f1ede2;
+  --tt-color-text-muted: #aab5ae;
+  --tt-color-accent: #9cc7ea;
+  --tt-color-on-accent: #10202b;
+  --tt-color-accent-soft: rgb(156 199 234 / 0.16);
+  --tt-color-live: #ff6a5c;
+  --tt-color-degraded: #f4b544;
+  --tt-color-ready: #86d39b;
+}
+
+/* Names that point at other tokens resolve where they are declared, so they are declared again on every scope that
+   redeclares the tokens. Astryx reads its own names; point them at ours so standard controls follow the theme. */
+:root,
+.tt-player {
+  --tt-color-focus: var(--tt-color-accent);
   --color-background-body: var(--tt-color-ground);
   --color-background-surface: var(--tt-color-surface);
   --color-background-card: var(--tt-color-surface);
