@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TrackView } from "../playback/aiTracks";
 import type { LineItem } from "../playback/wire";
 import { languageOption, searchLanguages } from "./languages";
+import { cameraNote } from "./CameraSurface";
 import { DEFAULT_PREFS, readPrefs } from "./prefs";
 import { playerState, type PlayerStateInput } from "./state";
 import { cuesAt } from "./subtitles";
@@ -126,6 +127,17 @@ describe("player states", () => {
     expect(playerState({ ...base, looped: true, onAir: false }).kind).toBe("live");
     expect(playerState({ ...base, room: "ended" }).kind).toBe("ended");
     expect(playerState({ ...base, room: "on_air", onAir: false }).kind).toBe("live");
+  });
+});
+
+describe("the camera tile without a picture", () => {
+  it("claims no audio before the live player starts, and says audio without a picture only once it plays", () => {
+    // Before play nothing runs: a live session's picture comes with the live player (seen on the VM, 11-02).
+    expect(cameraNote(true, "idle")).toBeUndefined();
+    expect(cameraNote(true, "loading")).toBeDefined();
+    expect(cameraNote(true, "playing")).toBeDefined();
+    expect(cameraNote(true, "playing")).not.toBe(cameraNote(true, "loading"));
+    expect(cameraNote(false, "idle")).toBeDefined(); // rewound with no picture archived
   });
 });
 

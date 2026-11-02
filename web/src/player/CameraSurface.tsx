@@ -1,9 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import type { MediaStatus } from "../playback/media";
 import { usePlayer } from "./context";
 import { SourceTile } from "./SourceTile";
 
 /** A canvas @moq/watch has not sized yet keeps the HTML default 300 × 150. */
 const unsized = (w: number, h: number) => (w === 300 && h === 150) || w === 0 || h === 0;
+
+/**
+ * What the camera tile says while it has no picture. Live, the picture comes with the live player, which starts on
+ * play (a browser plays sound only after a tap): before that there is nothing to say, the stage asks for the tap.
+ * Only a live player that plays and has painted no frame has audio without a picture.
+ */
+export function cameraNote(live: boolean, status: MediaStatus): string | undefined {
+  if (!live) return "Audio only here";
+  if (status === "playing") return "Speaker audio, no picture yet";
+  if (status === "loading") return "Loading the picture…";
+  return undefined;
+}
 
 /**
  * The speaker's camera: the live `<canvas>` @moq/watch paints and the archive `<video>`, both handed to
@@ -16,6 +29,7 @@ export function CameraSurface() {
   const video = useRef<HTMLVideoElement>(null);
   const live = view.timeline.mode === "live";
   const [aspect, setAspect] = useState<number>();
+  const [status, setStatus] = useState<MediaStatus>("idle");
 
   useEffect(() => {
     if (!media || !canvas.current || !video.current) return;
@@ -51,6 +65,7 @@ export function CameraSurface() {
           ? v.videoWidth / v.videoHeight
           : undefined;
       setAspect((a) => (a === next ? a : next));
+      setStatus(media.status());
     };
     read();
     const timer = setInterval(read, 500);
@@ -67,6 +82,7 @@ export function CameraSurface() {
       </SourceTile>
     );
 
+  const note = cameraNote(live, status);
   return (
     <SourceTile kind="camera" aspect={aspect ?? 16 / 9} label="Speaker camera">
       <canvas ref={canvas} className={live ? "tt-media" : "tt-media tt-hidden"} aria-label="Speaker video, live" />
@@ -76,9 +92,9 @@ export function CameraSurface() {
         aria-label="Speaker video, rewound"
         playsInline
       />
-      {aspect === undefined ? (
+      {aspect === undefined && note !== undefined ? (
         <div className="tt-camera-empty">
-          <span className="tt-camera-note">{live ? "Speaker audio, no picture yet" : "Audio only here"}</span>
+          <span className="tt-camera-note">{note}</span>
         </div>
       ) : null}
       <span className="tt-source-tag">Camera</span>
