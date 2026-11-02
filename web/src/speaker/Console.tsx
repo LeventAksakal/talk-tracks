@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -13,9 +14,12 @@ import type { RoomService } from "../annotate/client";
 import { AUDIO_TRACK, HANG_CATALOG_TRACK, teacherPath } from "../contracts/names";
 import type { RoomCatalog } from "../contracts/types";
 import { type HangClock, hangClockOfPayload } from "../playback/roomClock";
+import type { HistorySource } from "../playback/source";
+import { MoqHistorySource } from "../playback/moqSource";
 import { watchRoomCatalog } from "../playback/roomCatalog";
 import { Link } from "../router";
 import { useResource } from "../useResource";
+import { MoqTransport } from "../transport/moq";
 import type { ConnectionStatus, Transport } from "../transport/types";
 import { Audience } from "./Audience";
 import { type ClockState, clockState, roomNowFn, wallNowMs } from "./clock";
@@ -39,6 +43,8 @@ import "./console.css";
 
 /** What the console runs on; TalkPage gives it the relay, tests give it memory. */
 export interface ConsoleDeps {
+  /** Where the audience area reads the chat from; by default the watcher's connection, when it is a relay's. */
+  chatSource?: HistorySource;
   /** The relay connection that carries the token: status for pre-flight. */
   publisherStatus?: Pick<Transport, "status" | "onStatus">;
   /** An anonymous connection (a viewer's view of the relay): the catalog and the proofs of publishing. */
@@ -140,6 +146,11 @@ function ConsoleView({
   publisher: SlidesPublisher;
 }) {
   const { watcher } = deps;
+  // The audience area's chat reads talk/<room>/chat through the viewer's connection (deps.chatSource in tests).
+  const chatSource = useMemo(
+    () => deps.chatSource ?? (watcher instanceof MoqTransport ? new MoqHistorySource(watcher) : undefined),
+    [deps.chatSource, watcher],
+  );
   const [phase, setPhase] = useState<Phase>("preflight");
   const [name, setName] = useState(loadName);
   const [now, setNow] = useState(() => Date.now());
@@ -771,7 +782,7 @@ function ConsoleView({
           ) : null}
         </aside>
       </div>
-      <Audience catalog={catalog} now={now} />
+      <Audience catalog={catalog} now={now} chat={{ source: chatSource, room, talkClock: clockText }} />
     </div>
   );
 }

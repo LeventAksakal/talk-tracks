@@ -564,6 +564,14 @@
   text-align: end;
   font-variant-numeric: tabular-nums;
 }
+/* The room's chat, read-only: a bounded scrolling list under the features. */
+.audience-chat {
+  margin-top: 10px;
+}
+.audience-chat-body {
+  height: min(320px, 40vh);
+  margin-top: 8px;
+}
 
 .console-ended .ended-panel {
   max-width: 640px;
