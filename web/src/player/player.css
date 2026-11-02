@@ -745,7 +745,7 @@
 }
 .tt-controller:not([userinactive]) .tt-subs:not([data-placed]),
 .tt-controller[mediapaused] .tt-subs:not([data-placed]) {
-  translate: -50% calc(-100% - var(--player-dock-reach) + 56px);
+  translate: -50% calc(-100% - var(--player-dock-reach) + 36px);
 }
 .tt-subs[data-preset="contrast"] {
   background: rgb(0 0 0 / max(var(--sub-bg), 0.9));
