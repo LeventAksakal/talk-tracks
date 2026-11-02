@@ -44,6 +44,7 @@ describe("the lecture package in the offline demo", () => {
         languages: { lang: string }[];
         files: { path: string }[];
         slides: unknown[];
+        descriptions: number | null;
       };
       expect(manifest.files.map((f) => f.path).sort()).toEqual(
         [...files.keys()].filter((p) => p !== "manifest.json").sort(),
@@ -51,6 +52,8 @@ describe("the lecture package in the offline demo", () => {
       // The demo's agents are free, so every language comes along.
       expect(manifest.languages.length).toBeGreaterThanOrEqual(3);
       expect(manifest.slides.length).toBeGreaterThan(0);
+      // The demo's describe agent is free too: the slides come with their descriptions.
+      expect(manifest.descriptions).toBeGreaterThan(0);
       const chapters = (JSON.parse(read("chapters.json")) as { chapters: { title: string }[] }).chapters;
       expect(chapters.length).toBeGreaterThan(0);
       const lecture = read("lecture.md");
