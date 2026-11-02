@@ -263,6 +263,11 @@ export class SlideTracks {
     }
   }
 
+  /** Where these tracks are read: the lecture package FETCHes the whole talk's slides over it (package/slides.ts). */
+  get source(): HistorySource {
+    return this.#source;
+  }
+
   // --- React glue: changes that matter to a render (a slide or room group, a deck image, a fetch) ---------------
 
   subscribe = (listener: () => void): (() => void) => {
