@@ -1,23 +1,27 @@
-import { Button, TextInput } from "@astryxdesign/core";
-import { type FormEvent, useEffect, useState } from "react";
-import { Chalky } from "../brand/Chalky";
+import "./hub.css";
+import { type FormEvent, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { LogoMark } from "../brand/LogoMark";
-import { HeroChalky } from "../brand/states";
 import { RELAY_URL } from "../config";
 import { normaliseRoom } from "../contracts/names";
-import { Icon } from "../player/icons";
 import { Link, navigate } from "../router";
-import { preloadWatch } from "../routes";
-import type { Transport } from "../transport/types";
-import { CreateTalk, type CreateTalkProps, PasteSpeakerLink } from "./CreateTalk";
-import { DEMO_CREDIT, DEMO_ROOMS, demoRoom } from "./demoRooms";
-import { type RelayRooms, watchRelayRooms } from "./liveRooms";
-import { readRecent, type RecentRoom } from "./recentRooms";
+import { type CreateTalkProps, StartTalkDialog } from "./CreateTalk";
+import { speakerPathFrom } from "./createRoom";
+import { DEMO_CREDIT, DEMO_ROOMS } from "./demoRooms";
+import { Hero } from "./hub/Hero";
+import { PlusIcon, SearchIcon } from "./hub/icons";
+import { hubRows } from "./hub/items";
+import { Row } from "./hub/Row";
+import { Tile, TileSkeleton } from "./hub/Tile";
+import { type AnnounceSource, type RelayRooms, watchRelayRooms } from "./liveRooms";
+import { fetchRecordings, type Recording } from "./recordings";
+import { readRecent } from "./recentRooms";
 
 export interface LandingPageProps {
-  /** The relay connection for what is on air; by default one MoqTransport for the page's lifetime. */
-  transport?: Transport | null;
+  /** The relay connection for what is on air; by default the hub's own narrow watch (teacherAnnouncements.ts). */
+  transport?: AnnounceSource | null;
   create?: CreateTalkProps["create"];
+  /** The archive's room list, for the Recordings row; by default GET /archive/rooms.json. */
+  recordings?: () => Promise<Recording[]>;
 }
 
 /** The room a person typed or pasted: a room name, or a /watch/<room> link. */
@@ -28,176 +32,106 @@ export function roomFrom(input: string): string | null {
 }
 
 /**
- * The hub (J2, J5, J8; ui-design §8; the canvas's Hub board): join a room by name or link, the rooms on air now,
- * the rooms this browser watched lately, the demo lectures, and Create talk with an access code (decision 0025).
+ * The hub (J2, J5, J8; decision 0033): a streaming front page. The hero shows what is on air; rows of cards hold the
+ * live sessions and talks, what this browser watched lately and the recordings. Join takes a room name, an audience
+ * link or a speaker link; Start a talk opens its modal.
  */
-export function LandingPage({ transport, create }: LandingPageProps) {
+export function LandingPage({ transport, create, recordings: loadRecordings = fetchRecordings }: LandingPageProps) {
   const relay = useRelayRooms(transport);
-  const connected = relay?.status === "connected";
+  const recordings = useRecordings(loadRecordings);
   const [recent] = useState(() => readRecent());
-  const onAir = connected ? [...relay.live].filter((r) => !demoRoom(r)).sort() : [];
-  useJoinShortcut();
+  const [starting, setStarting] = useState(false);
+  const rows = useMemo(() => hubRows({ relay, recordings, recent }), [relay, recordings, recent]);
+  const relayDown = relay?.status === "failed" || relay?.status === "disconnected";
 
   return (
     <div className="hub">
       <header className="hub-bar">
-        <span className="hub-brand">
-          <LogoMark />
-          Talk Tracks
-        </span>
-        <a className="hub-create" href="#give-heading">
-          Create talk
-        </a>
+        <Link href="/" className="hub-brand" aria-label="Talk Tracks, home">
+          <LogoMark size={22} />
+          <span>Talk Tracks</span>
+        </Link>
+        <nav className="hub-nav" aria-label="Sections">
+          <a href="#live">Live</a>
+          {rows.recordings.length ? <a href="#recordings">Recordings</a> : null}
+        </nav>
+        <JoinRoom />
+        <button type="button" className="hub-btn hub-btn-accent hub-start" onClick={() => setStarting(true)}>
+          <PlusIcon />
+          Start a talk
+        </button>
       </header>
+
       <main className="hub-main" id="main">
-        <section className="hub-hero" aria-labelledby="hub-title">
-          <div className="hub-hero-text">
-            <h1 className="hub-title" id="hub-title">
-              Talk Tracks
-            </h1>
-            <p className="lead">
-              A player for live talks. While the speaker talks, AI agents each publish their own live track into the
-              same broadcast: subtitles, a translation per language, a description of every new slide, chapters and a
-              glossary. Pick what you want, and rewind to any moment.
-            </p>
-            <JoinRoom />
-          </div>
-          <HeroChalky />
-        </section>
+        <h1 className="sr-only">Talk Tracks</h1>
+        <Hero items={rows.featured} paused={starting} />
 
-        <section className="lobby-section" aria-labelledby="live-heading">
-          <h2 id="live-heading">Live now</h2>
-          {connected ? (
-            onAir.length ? (
-              <ul className="lobby-cards">
-                {onAir.map((room) => (
-                  <li key={room} className="lobby-card hub-live-card">
-                    <LiveBadge />
-                    <Link href={`/watch/${room}`} className="lobby-card-link" {...PRELOAD_WATCH}>
-                      <span className="lobby-card-title">{room}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted hub-nothing-live" role="status">
-                <Chalky cycle="sleep" size={72} />
-                Nothing is on air right now. Try a demo lecture below, or give a talk.
-              </p>
-            )
-          ) : (
-            <p className="muted" role="status">
-              {relay?.status === "failed" || relay?.status === "disconnected"
-                ? "The relay can't be reached right now, so live rooms can't be listed. Links and the offline demo still open."
-                : "Checking what is on air…"}
-            </p>
-          )}
-        </section>
-
-        {recent.length ? (
-          <section className="lobby-section" aria-labelledby="recent-heading">
-            <h2 id="recent-heading">Continue watching</h2>
-            <p className="muted small">Kept in this browser only.</p>
-            <ul className="hub-recent">
-              {recent.map((r) => (
-                <RecentCard key={r.room} recent={r} live={connected ? relay.live.has(r.room) : undefined} />
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        <section className="lobby-section" aria-labelledby="demos-heading">
-          <h2 id="demos-heading">Demo lectures</h2>
-          <p className="muted">
-            Four recorded talks looped as if live, with their AI tracks generated once. Open one to try subtitles,
-            translation, chapters and rewind.
-          </p>
-          <ul className="lobby-cards">
-            {DEMO_ROOMS.map((d) => (
-              <li key={d.room} className="lobby-card">
-                {connected ? (
-                  <span className="lobby-card-state" data-live={relay.live.has(d.room) ? "true" : "false"}>
-                    {relay.live.has(d.room) ? (
-                      <>
-                        <LiveBadge /> <span className="muted small">looped recording</span>
-                      </>
-                    ) : (
-                      <span className="hub-off-air">Off air</span>
-                    )}
-                  </span>
-                ) : null}
-                <Link href={`/watch/${d.room}`} className="lobby-card-link" {...PRELOAD_WATCH}>
-                  <span className="lobby-card-title">{d.title}</span>
-                </Link>
-                <span className="lobby-card-speaker">{d.speaker}</span>
-                <span className="muted small">
-                  <a href={d.source} rel="noreferrer" target="_blank">
-                    {DEMO_CREDIT}
-                  </a>
-                </span>
-              </li>
+        <div className="hub-rows">
+          <Row id="live" title="Live now" note={relayDown ? "Live status is unavailable right now." : undefined}>
+            {rows.live.map((item) => (
+              <Tile key={item.room} item={item} />
             ))}
-          </ul>
-          <p className="small">
-            <Link href="/demo">Offline demo</Link>: a scripted talk that runs in this tab, with no relay.
-          </p>
-        </section>
+          </Row>
 
-        <section className="lobby-section hub-give" aria-labelledby="give-heading">
-          <h2 id="give-heading">Give a talk</h2>
-          <p className="muted">
-            Create a room with the access code you were given. You get a private speaker link for the console and an
-            audience link with a QR code to project.
-          </p>
-          <CreateTalk create={create} />
-          <h3 className="lobby-subheading">Already have a speaker link?</h3>
-          <PasteSpeakerLink />
-        </section>
+          {rows.recent.length ? (
+            <Row id="recent" title="Continue watching" note="Kept in this browser only.">
+              {rows.recent.map((item) => (
+                <Tile key={item.room} item={item} />
+              ))}
+            </Row>
+          ) : null}
 
-        <section className="lobby-section landing-how" aria-labelledby="how-heading">
-          <h2 id="how-heading">How it works</h2>
-          <p>
-            Everything travels over Media over QUIC. Each AI step is a separate publisher, so agents can be added,
-            swapped or restarted mid-talk, and a relay&apos;s cache serves anyone who joins late. Built with Meta&apos;s
-            Muse models and the Astryx design system.
-          </p>
-        </section>
+          {recordings === undefined ? (
+            <Row id="recordings" title="Recordings" busy>
+              {DEMO_ROOMS.map((d) => (
+                <TileSkeleton key={d.room} />
+              ))}
+            </Row>
+          ) : rows.recordings.length ? (
+            <Row id="recordings" title="Recordings" note="The whole lecture, from the start.">
+              {rows.recordings.map((item) => (
+                <Tile key={item.room} item={item} />
+              ))}
+            </Row>
+          ) : null}
+        </div>
       </main>
+
+      <footer className="hub-foot">
+        <p>
+          Live talks with AI tracks you pick: captions, translations, slide descriptions and chapters. No relay?{" "}
+          <Link href="/demo">Try the offline demo</Link>.
+        </p>
+        <p className="hub-credits">
+          Demo lectures: {DEMO_CREDIT},{" "}
+          {DEMO_ROOMS.map((d, i) => (
+            <span key={d.room}>
+              {i ? ", " : null}
+              <a href={d.source} rel="noreferrer" target="_blank">
+                {d.speaker}
+              </a>
+            </span>
+          ))}
+          .
+        </p>
+      </footer>
+
+      <StartTalkDialog open={starting} onClose={() => setStarting(false)} create={create} />
     </div>
   );
 }
 
-/** A room card's link starts loading the watch page when it is hovered or focused, before the click. */
-const PRELOAD_WATCH = { onMouseEnter: preloadWatch, onFocus: preloadWatch } as const;
-
-/** The LIVE marker on a card (brand §6): the Go-live icon and the word on the live fill. */
-function LiveBadge() {
-  return (
-    <span className="hub-live-badge">
-      <Icon name="live" />
-      LIVE
-    </span>
-  );
-}
-
-function RecentCard({ recent, live }: { recent: RecentRoom; live: boolean | undefined }) {
-  const demo = demoRoom(recent.room);
-  return (
-    <li className="hub-recent-item">
-      <Link href={`/watch/${recent.room}`} {...PRELOAD_WATCH}>
-        {demo?.title ?? recent.title ?? recent.room}
-      </Link>
-      {live ? <LiveBadge /> : null}
-    </li>
-  );
-}
-
+/** Join: a room name, an audience link or a speaker link, from one box. Ctrl K (⌘K) jumps here. */
 function JoinRoom() {
-  const [room, setRoom] = useState("");
+  const [text, setText] = useState("");
   const [error, setError] = useState<string>();
+  const input = useRef<HTMLInputElement>(null);
+  useJoinShortcut(input);
   const join = (e?: FormEvent) => {
     e?.preventDefault();
-    const name = roomFrom(room);
+    const speaker = speakerPathFrom(text);
+    if (speaker) return navigate(speaker);
+    const name = roomFrom(text);
     if (!name) {
       setError("Room names are 3 to 40 letters, digits or dashes.");
       return;
@@ -205,73 +139,112 @@ function JoinRoom() {
     navigate(`/watch/${encodeURIComponent(name)}`);
   };
   return (
-    <form className="join-form" onSubmit={join} aria-label="Join a room">
-      <TextInput
-        label="Room name or link"
-        description="The name the speaker gave you, for example physics-101, or the audience link. Ctrl K jumps here."
-        value={room}
-        onChange={(v) => {
-          setRoom(v);
-          setError(undefined);
-        }}
-        onEnter={() => join()}
-        status={error ? { type: "error", message: error } : undefined}
-        htmlName="room"
-      />
-      <Button label="Join" type="submit" variant="primary" />
+    <form className="hub-join" onSubmit={join} aria-label="Join a room" role="search">
+      <div className="hub-join-field" onClick={() => input.current?.focus()}>
+        <SearchIcon />
+        <label className="sr-only" htmlFor="hub-join-input">
+          Room name or link
+        </label>
+        <input
+          ref={input}
+          id="hub-join-input"
+          name="room"
+          value={text}
+          placeholder="Join a room: name or link"
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? "join-error" : undefined}
+          onChange={(e) => {
+            setText(e.target.value);
+            setError(undefined);
+          }}
+        />
+        <kbd className="hub-join-kbd" aria-hidden="true">
+          Ctrl K
+        </kbd>
+      </div>
+      <button type="submit" className="hub-join-go">
+        Join
+      </button>
+      {error ? (
+        <p className="hub-join-error" id="join-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </form>
   );
 }
 
-/** Ctrl K (⌘K) focuses the join box from anywhere on the hub. */
-function useJoinShortcut(): void {
+function useJoinShortcut(input: RefObject<HTMLInputElement | null>): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "k") return;
-      const input = document.querySelector<HTMLInputElement>('input[name="room"]');
-      if (!input) return;
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "k" || !input.current) return;
       e.preventDefault();
-      input.focus();
-      input.select();
+      input.current.focus();
+      input.current.select();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [input]);
+}
+
+/** The archive's recordings; undefined while loading. */
+function useRecordings(load: () => Promise<Recording[]>): Recording[] | undefined {
+  const [list, setList] = useState<Recording[]>();
+  useEffect(() => {
+    let live = true;
+    load().then(
+      (r) => live && setList(r),
+      () => live && setList([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [load]);
+  return list;
 }
 
 /** The relay's rooms on air; undefined until there is a connection to ask. */
-function useRelayRooms(given: Transport | null | undefined): RelayRooms | undefined {
-  const own = useOwnTransport(given === undefined);
-  const transport = given ?? own;
+function useRelayRooms(given: AnnounceSource | null | undefined): RelayRooms | undefined {
+  const own = useOwnWatch(given === undefined);
+  const source = given ?? own;
   const [rooms, setRooms] = useState<RelayRooms>();
   useEffect(() => {
-    if (!transport) return;
-    const w = watchRelayRooms(transport, setRooms);
+    if (!source) return;
+    const w = watchRelayRooms(source, setRooms);
     return () => w.close();
-  }, [transport]);
-  return transport ? rooms : undefined;
+  }, [source]);
+  return source ? rooms : undefined;
 }
 
 /**
- * The hub's own relay connection, one for the page's lifetime. The MoQ stack is a chunk of its own, loaded after the
- * hub's first paint, so the hub's entry script stays small and its load is not one long task.
+ * The hub's own relay watch, one for the page's lifetime. It is a chunk of its own (it pulls in @moq/net), loaded
+ * once the browser is idle after the hub's first paint, so neither the entry script nor the first frames wait for it.
  */
-function useOwnTransport(wanted: boolean): Transport | undefined {
-  const [transport, setTransport] = useState<Transport>();
+function useOwnWatch(wanted: boolean): AnnounceSource | undefined {
+  const [source, setSource] = useState<AnnounceSource>();
   useEffect(() => {
     if (!wanted) return;
     let closed = false;
-    let made: Transport | undefined;
-    void import("../transport/moq").then(({ MoqTransport, relayUrl }) => {
-      if (closed) return;
-      made = new MoqTransport({ url: relayUrl(RELAY_URL) });
-      setTransport(made);
-    });
+    let made: { close(): void } | undefined;
+    const start = () =>
+      void import("./teacherAnnouncements").then(({ TeacherAnnouncements }) => {
+        if (closed) return;
+        // Watching needs no token.
+        const watch = new TeacherAnnouncements(new URL(RELAY_URL));
+        made = watch;
+        setSource(watch);
+      });
+    const idle = window.requestIdleCallback?.(start, { timeout: 1500 });
+    const timer = idle === undefined ? window.setTimeout(start, 200) : undefined;
     return () => {
       closed = true;
+      if (idle !== undefined) window.cancelIdleCallback?.(idle);
+      window.clearTimeout(timer);
       made?.close();
-      setTransport(undefined);
+      setSource(undefined);
     };
   }, [wanted]);
-  return transport;
+  return source;
 }

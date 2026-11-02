@@ -1,5 +1,5 @@
 import { Button, TextInput } from "@astryxdesign/core";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { navigate } from "../router";
 import { Invite } from "../speaker/Invite";
 import {
@@ -11,6 +11,7 @@ import {
   slugify,
   speakerPathFrom,
 } from "./createRoom";
+import { CloseIcon } from "./hub/icons";
 
 type Field = "title" | "speaker" | "room" | "code";
 
@@ -20,8 +21,8 @@ const ERRORS: Record<CreateRoomError, { field?: Field; message: string }> = {
   code: { field: "code", message: "That access code is not known." },
   taken: { field: "room", message: "That room name is taken. Pick another." },
   rate: { message: "Too many tries. Wait a minute and try again." },
-  unreachable: { message: "Could not reach the room service. Try again, or paste a speaker link below." },
-  failed: { message: "The room could not be created. Try again, or paste a speaker link below." },
+  unreachable: { message: "Could not reach the room service. Try again." },
+  failed: { message: "The room could not be made. Try again." },
 };
 
 export interface CreateTalkProps {
@@ -30,9 +31,58 @@ export interface CreateTalkProps {
 }
 
 /**
- * Create talk (J5, decision 0025): title, speaker, room name and access code; the room service mints the speaker
- * link. Its cap is the operator's concern and never shown (decision 0026). Then the private speaker link, the audience link with its QR, and the way into the console.
+ * Start a talk (J5, decisions 0025 and 0033): one modal with title, speaker, room name and access code, and one
+ * primary button. The room service mints the speaker link; its cap is the operator's concern and never shown. Then
+ * the private speaker link, the audience link with its QR, and the way into the console.
  */
+export function StartTalkDialog({ open, onClose, create }: CreateTalkProps & { open: boolean; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const el = dialog.current;
+    if (!el) return;
+    if (open && !el.open) {
+      if (typeof el.showModal === "function") el.showModal();
+      else el.setAttribute("open", "");
+      // The first field, not the close button, takes focus.
+      el.querySelector<HTMLInputElement>("input")?.focus();
+    } else if (!open && el.open) {
+      if (typeof el.close === "function") el.close();
+      else el.removeAttribute("open");
+    }
+  }, [open]);
+  return (
+    <dialog
+      ref={dialog}
+      className="start-dialog"
+      aria-labelledby="start-heading"
+      onClose={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => {
+        // A click on the backdrop (the dialog element itself, outside its panel) closes it.
+        if (e.target === dialog.current) onClose();
+      }}
+    >
+      {open ? (
+        <div className="start-panel">
+          <header className="start-head">
+            <h2 id="start-heading" className="start-title">
+              Start a talk
+            </h2>
+            <button type="button" className="start-close" aria-label="Close" onClick={onClose}>
+              <CloseIcon />
+            </button>
+          </header>
+          <CreateTalk create={create} />
+        </div>
+      ) : null}
+    </dialog>
+  );
+}
+
+/** The form, then the new room's links. */
 export function CreateTalk({ create = createRoom }: CreateTalkProps) {
   const [title, setTitle] = useState("");
   const [speaker, setSpeaker] = useState("");
@@ -70,7 +120,8 @@ export function CreateTalk({ create = createRoom }: CreateTalkProps) {
 
   const status = (field: Field) => (errors[field] ? { type: "error" as const, message: errors[field] } : undefined);
   return (
-    <form className="lobby-form" onSubmit={(e) => void submit(e)} aria-label="Create talk" noValidate>
+    <form className="start-form" onSubmit={(e) => void submit(e)} aria-label="Start a talk" noValidate>
+      <p className="start-lead">You get a private speaker link for the console and an audience link to share.</p>
       <TextInput
         label="Talk title"
         value={title}
@@ -80,40 +131,76 @@ export function CreateTalk({ create = createRoom }: CreateTalkProps) {
       />
       <TextInput
         label="Speaker"
-        description="Your name as listeners will see it."
         value={speaker}
         onChange={(v) => setSpeaker(v)}
         status={status("speaker")}
         htmlName="speaker"
         autoComplete="name"
       />
-      <TextInput
-        label="Room name"
-        description="Part of the audience link: lower-case letters, digits and dashes."
-        value={slug}
-        onChange={(v) => {
-          setRoom(v.toLowerCase());
-          setRoomEdited(true);
-        }}
-        status={status("room")}
-        htmlName="room"
-      />
-      <TextInput
-        label="Access code"
-        description="Presenters get one from the organisers. It unlocks a room; watching stays open to everyone."
-        type="password"
-        value={code}
-        onChange={(v) => setCode(v)}
-        status={status("code")}
-        htmlName="code"
-        autoComplete="off"
-      />
+      <div className="start-pair">
+        <TextInput
+          label="Room name"
+          description="Part of the audience link."
+          value={slug}
+          onChange={(v) => {
+            setRoom(v.toLowerCase());
+            setRoomEdited(true);
+          }}
+          status={status("room")}
+          htmlName="room"
+        />
+        <TextInput
+          label="Access code"
+          description="From the organisers."
+          type="password"
+          value={code}
+          onChange={(v) => setCode(v)}
+          status={status("code")}
+          htmlName="code"
+          autoComplete="off"
+        />
+      </div>
       {errors.form ? (
-        <p className="lobby-error" role="alert">
+        <p className="start-error" role="alert">
           {errors.form}
         </p>
       ) : null}
-      <Button label="Create talk" type="submit" variant="primary" isLoading={busy} />
+      <div className="start-foot">
+        <p className="start-hint">Have a speaker link already? Paste it into Join a room.</p>
+        <Button label="Start" type="submit" variant="primary" size="lg" width="140px" isLoading={busy} />
+      </div>
+    </form>
+  );
+}
+
+/** "Paste your speaker link", for the console's pre-flight when the link it was opened with has no valid token. */
+export function PasteSpeakerLink() {
+  const [link, setLink] = useState("");
+  const [error, setError] = useState<string>();
+  const open = (e?: FormEvent) => {
+    e?.preventDefault();
+    const path = speakerPathFrom(link);
+    if (!path) {
+      setError("That is not a speaker link. It looks like …/talk/<room>?token=…");
+      return;
+    }
+    navigate(path);
+  };
+  return (
+    <form className="paste-link-form" onSubmit={open} aria-label="Open a speaker link">
+      <TextInput
+        label="Paste your speaker link"
+        value={link}
+        onChange={(v) => {
+          setLink(v);
+          setError(undefined);
+        }}
+        onEnter={() => open()}
+        status={error ? { type: "error", message: error } : undefined}
+        htmlName="speaker-link"
+        autoComplete="off"
+      />
+      <Button label="Open speaker link" type="submit" variant="secondary" />
     </form>
   );
 }
@@ -131,60 +218,33 @@ function Created({ created }: { created: CreatedRoom }) {
     }
   };
   return (
-    <section className="lobby-created" aria-labelledby="created-heading">
-      <h3 id="created-heading">Room {created.room} is ready</h3>
-      <div className="lobby-speaker-link">
+    <section className="start-created" aria-labelledby="created-heading">
+      <h3 id="created-heading" className="start-created-title">
+        Room {created.room} is ready
+      </h3>
+      <div className="start-speaker-link">
         <label htmlFor="speaker-link">Your speaker link</label>
-        <input
-          id="speaker-link"
-          className="lobby-link-field"
-          readOnly
-          value={speakerUrl}
-          onFocus={(e) => e.target.select()}
-        />
-        <Button label="Copy speaker link" size="sm" clickAction={copy} />
-        <p className="lobby-warning" role="note">
-          Keep this link private: anyone who has it can broadcast as the speaker in this room. Save it now; this page
-          does not keep it.
+        <div className="start-link-row">
+          <input
+            id="speaker-link"
+            className="start-link-field"
+            readOnly
+            value={speakerUrl}
+            onFocus={(e) => e.target.select()}
+          />
+          <Button label="Copy speaker link" size="sm" clickAction={copy} />
+        </div>
+        <p className="start-warning" role="note">
+          Keep it private: anyone with it can speak in this room. Save it now; this page does not keep it.
         </p>
-        <p className="muted small" role="status">
+        <p className="start-status" role="status">
           {copied === "yes" ? "Speaker link copied." : copied === "no" ? "Could not copy; select the link above." : ""}
         </p>
       </div>
       <Invite room={created.room} />
-      <Button label="Open console" variant="primary" onClick={() => navigate(created.speaker_path)} />
+      <div className="start-foot">
+        <Button label="Open console" variant="primary" size="lg" onClick={() => navigate(created.speaker_path)} />
+      </div>
     </section>
-  );
-}
-
-/** "Paste your speaker link": for a link minted another way (or by this form on another device). */
-export function PasteSpeakerLink() {
-  const [link, setLink] = useState("");
-  const [error, setError] = useState<string>();
-  const open = (e?: FormEvent) => {
-    e?.preventDefault();
-    const path = speakerPathFrom(link);
-    if (!path) {
-      setError("That is not a speaker link. It looks like …/talk/<room>?token=…");
-      return;
-    }
-    navigate(path);
-  };
-  return (
-    <form className="lobby-inline-form" onSubmit={open} aria-label="Open a speaker link">
-      <TextInput
-        label="Paste your speaker link"
-        value={link}
-        onChange={(v) => {
-          setLink(v);
-          setError(undefined);
-        }}
-        onEnter={() => open()}
-        status={error ? { type: "error", message: error } : undefined}
-        htmlName="speaker-link"
-        autoComplete="off"
-      />
-      <Button label="Open speaker link" type="submit" variant="secondary" />
-    </form>
   );
 }

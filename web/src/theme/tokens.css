@@ -1,44 +1,45 @@
-/* Talk Tracks design tokens: the Chalk direction (wiki/product/brand.md).
-   The names are the contract: components use only these, so a restyle is a change of values here.
-   Every colour is light-dark(Paper, Blackboard), following the system or data-theme. A light-dark() inside a custom
+/* Talk Tracks design tokens: the streaming look (decision 0033), which replaced the Chalk direction.
+   The names are the contract: components use only these, so a restyle is a change of values here. New names are
+   added; existing ones are never renamed (the player and the console read them).
+   Every colour is light-dark(light, dark), following the system or data-theme. A light-dark() inside a custom
    property resolves where the property is declared (:root), so a subtree's color-scheme alone cannot flip it: a
-   subtree that is always Blackboard (the player, brand.md) declares the dark values again, below. Imported in
-   main.tsx after Astryx; the fonts are in fonts.css. */
+   subtree that is always dark (the player) declares the dark values again, below. Imported in main.tsx after Astryx;
+   the fonts are in fonts.css. */
 
 :root {
   color-scheme: light dark;
 
   /* Surfaces: page ground, panels and cards, menus and hover, dividers, input and switch edges (3:1) */
-  --tt-color-ground: light-dark(#f5f2ea, #1b2420);
-  --tt-color-surface: light-dark(#fffdf8, #222d28);
-  --tt-color-raised: light-dark(#ece7db, #2a3631);
-  --tt-color-line: light-dark(#dcd5c5, #3a4842);
-  --tt-color-field: light-dark(#8a8272, #6d7d76);
-  --tt-color-scrim: rgb(16 22 19 / 0.55);
+  --tt-color-ground: light-dark(#f3f4f8, #07080d);
+  --tt-color-surface: light-dark(#ffffff, #10131b);
+  --tt-color-raised: light-dark(#e9ebf2, #181c27);
+  --tt-color-line: light-dark(#d6d9e3, #272d3b);
+  --tt-color-field: light-dark(#7a8194, #646d86);
+  --tt-color-scrim: rgb(4 5 10 / 0.62);
 
   /* Text: every pair passes 4.5:1 on ground, surface and raised */
-  --tt-color-text: light-dark(#1b2420, #f1ede2);
-  --tt-color-text-muted: light-dark(#5b645e, #aab5ae);
+  --tt-color-text: light-dark(#0c0f17, #f2f4f9);
+  --tt-color-text-muted: light-dark(#4f576a, #a2aabd);
 
-  /* The one accent (blue chalk): primary actions, selection, focus */
-  --tt-color-accent: light-dark(#2d5f8b, #9cc7ea);
-  --tt-color-on-accent: light-dark(#ffffff, #10202b);
-  --tt-color-accent-soft: light-dark(rgb(45 95 139 / 0.12), rgb(156 199 234 / 0.16));
+  /* The one accent: selection, focus, links */
+  --tt-color-accent: light-dark(#3553c9, #93b4ff);
+  --tt-color-on-accent: light-dark(#ffffff, #070b1c);
+  --tt-color-accent-soft: light-dark(rgb(53 83 201 / 0.12), rgb(147 180 255 / 0.16));
 
   /* States. Red only means live or on air; amber only means degraded; each also shows a word. */
-  --tt-color-live: light-dark(#b42f27, #ff6a5c);
-  --tt-color-live-fill: #c8352b;
+  --tt-color-live: light-dark(#c0251f, #ff5b52);
+  --tt-color-live-fill: #e0261f;
   --tt-color-on-live: #ffffff;
-  --tt-color-degraded: light-dark(#8c5200, #f4b544);
-  --tt-color-ready: light-dark(#226b3c, #86d39b);
-  /* Keep the Blackboard values in .tt-player below in step with the second value of each light-dark() above. */
+  --tt-color-degraded: light-dark(#8c5200, #f6b84a);
+  --tt-color-ready: light-dark(#1f6b3b, #7fdc9e);
+  /* Keep the dark values in .tt-player below in step with the second value of each light-dark() above. */
 
   /* Captions over any slide */
   --tt-caption-bg: rgb(0 0 0 / 0.85);
   --tt-caption-text: #ffffff;
   --tt-caption-size: 1.625rem;
 
-  /* The chalk box: the speaker's ink, shapes and text. Strokes carry a casing so pale chalk reads on white slides. */
+  /* The ink box: the speaker's ink, shapes and text. Strokes carry a casing so pale ink reads on white slides. */
   --tt-ink-chalk: #f7f4ea;
   --tt-ink-sun: #ffd84a;
   --tt-ink-mint: #5fd68a;
@@ -47,14 +48,14 @@
   --tt-ink-rose: #ff6fae;
   --tt-ink-coral: #ff5f57;
   --tt-ink-lilac: #b79cff;
-  --tt-ink-casing: #1b2420;
+  --tt-ink-casing: #07080d;
   --tt-ink-casing-opacity: 0.7;
   --tt-ink-casing-width: 2px;
   --tt-ink-marker-opacity: 0.35;
   --tt-laser: #ff3b30;
 
-  /* Type: hand-drawn chalk for titles; Atkinson Hyperlegible Next for interface, captions and numbers */
-  --tt-font-display: "Talk Tracks Title", "Cabin Sketch", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  /* Type: Atkinson Hyperlegible Next throughout; titles are its bold, set tight */
+  --tt-font-display: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
   --tt-font-ui: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
   --tt-font-numeric: var(--tt-font-ui);
   --tt-numeric: tabular-nums;
@@ -70,6 +71,10 @@
   --tt-text-micro: 0.75rem;
   --tt-leading-tight: 1.1;
   --tt-leading-body: 1.5;
+  --tt-text-hero: clamp(2.75rem, 4.4vw, 4.5rem);
+  --tt-leading-hero: 1.02;
+  --tt-tracking-tight: -0.025em;
+  --tt-tracking-caps: 0.08em;
 
   /* Space: 4 px steps */
   --tt-space-1: 4px;
@@ -81,15 +86,38 @@
   --tt-space-8: 32px;
   --tt-space-10: 40px;
   --tt-space-12: 48px;
+  --tt-space-16: 64px;
 
   /* Shape and depth */
   --tt-radius-sm: 6px;
   --tt-radius-md: 10px;
   --tt-radius-lg: 14px;
+  --tt-radius-xl: 22px;
   --tt-radius-full: 9999px;
   --tt-shadow-1: 0 1px 2px rgb(0 0 0 / 0.18);
   --tt-shadow-2: 0 6px 18px rgb(0 0 0 / 0.28);
   --tt-shadow-3: 0 20px 60px rgb(0 0 0 / 0.4);
+
+  /* Glass: translucent panels over the page's light (cards, the header, dialogs). Each sits on a solid fallback
+     where backdrop-filter is missing. */
+  --tt-glass-bg: light-dark(rgb(255 255 255 / 0.6), rgb(24 28 42 / 0.5));
+  --tt-glass-bg-strong: light-dark(rgb(255 255 255 / 0.84), rgb(16 19 30 / 0.82));
+  --tt-glass-border: light-dark(rgb(12 15 23 / 0.1), rgb(255 255 255 / 0.1));
+  --tt-glass-highlight: light-dark(rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.16));
+  --tt-glass-blur: 20px;
+  --tt-glass-saturate: 1.7;
+
+  /* The brand's light: the logomark's three lanes as three colours. They wash the hero, edge the cards and mark the
+     tracks a talk carries (captions, translations, slides). Decoration only, never a state. */
+  --tt-lane-1: #ff4f8b;
+  --tt-lane-2: #4f8bff;
+  --tt-lane-3: #20d3ae;
+  --tt-gradient-lanes: linear-gradient(100deg, var(--tt-lane-1), var(--tt-lane-2) 52%, var(--tt-lane-3));
+  --tt-shadow-glow: 0 30px 90px -30px rgb(79 139 255 / 0.55);
+
+  /* The primary action of a streaming page: a bright Play on dark */
+  --tt-color-play: light-dark(#0c0f17, #ffffff);
+  --tt-color-on-play: light-dark(#ffffff, #07080d);
 
   /* Motion: only for cause; off under reduced motion */
   --tt-duration-fast: 120ms;
@@ -97,29 +125,38 @@
   --tt-duration-slow: 400ms;
   --tt-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
   --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --tt-ease-spring: cubic-bezier(0.2, 0.9, 0.25, 1.15);
 
   /* Layout */
   --tt-panel-width: 360px;
   --tt-target-min: 32px;
+  --tt-page-gutter: clamp(24px, 4vw, 64px);
+  --tt-card-width: 288px;
 }
 
-/* The player is Blackboard whatever the system or page theme (brand.md: the player theme is always dark), like any
-   video player: its overlays sit on video and slides. The Blackboard half of every light-dark() pair above. */
+/* The player is dark whatever the system or page theme, like any video player: its overlays sit on video and
+   slides. The dark half of every light-dark() pair above. */
 .tt-player {
   color-scheme: dark;
-  --tt-color-ground: #1b2420;
-  --tt-color-surface: #222d28;
-  --tt-color-raised: #2a3631;
-  --tt-color-line: #3a4842;
-  --tt-color-field: #6d7d76;
-  --tt-color-text: #f1ede2;
-  --tt-color-text-muted: #aab5ae;
-  --tt-color-accent: #9cc7ea;
-  --tt-color-on-accent: #10202b;
-  --tt-color-accent-soft: rgb(156 199 234 / 0.16);
-  --tt-color-live: #ff6a5c;
-  --tt-color-degraded: #f4b544;
-  --tt-color-ready: #86d39b;
+  --tt-color-ground: #07080d;
+  --tt-color-surface: #10131b;
+  --tt-color-raised: #181c27;
+  --tt-color-line: #272d3b;
+  --tt-color-field: #646d86;
+  --tt-color-text: #f2f4f9;
+  --tt-color-text-muted: #a2aabd;
+  --tt-color-accent: #93b4ff;
+  --tt-color-on-accent: #070b1c;
+  --tt-color-accent-soft: rgb(147 180 255 / 0.16);
+  --tt-color-live: #ff5b52;
+  --tt-color-degraded: #f6b84a;
+  --tt-color-ready: #7fdc9e;
+  --tt-glass-bg: rgb(24 28 42 / 0.5);
+  --tt-glass-bg-strong: rgb(16 19 30 / 0.82);
+  --tt-glass-border: rgb(255 255 255 / 0.1);
+  --tt-glass-highlight: rgb(255 255 255 / 0.16);
+  --tt-color-play: #ffffff;
+  --tt-color-on-play: #07080d;
 }
 
 /* Names that point at other tokens resolve where they are declared, so they are declared again on every scope that

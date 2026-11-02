@@ -17,6 +17,7 @@ import { type HangClock, hangClockOfPayload } from "../playback/roomClock";
 import type { HistorySource } from "../playback/source";
 import { MoqHistorySource } from "../playback/moqSource";
 import { watchRoomCatalog } from "../playback/roomCatalog";
+import { LogoMark } from "../brand/LogoMark";
 import { Link } from "../router";
 import { useResource } from "../useResource";
 import { MoqTransport } from "../transport/moq";
@@ -506,6 +507,7 @@ function ConsoleView({
       <header className="console-bar">
         <div className="console-title">
           <Link href="/" className="brand">
+            <LogoMark />
             Talk Tracks
           </Link>
           <h1>
@@ -1167,6 +1169,7 @@ function Ended({ room, ending, retry }: { room: string; ending: Ending; retry: (
       <header className="console-bar">
         <div className="console-title">
           <Link href="/" className="brand">
+            <LogoMark />
             Talk Tracks
           </Link>
           <h1>
