@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-31
 tags: [downloads, replay, format, design]
 ---
@@ -40,3 +40,4 @@ that one file, and the folder carries the images and data.
 
 ## Answer
 
+Owner, 2026-11-02 (question prompt): the recommended option. Recorded as [decision 0029](../wiki/decisions/0029-the-lecture-package-is-a-zip-built-in-the-browser.md).

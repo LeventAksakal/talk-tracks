@@ -29,6 +29,21 @@ The benchmark runs beside the build. Each piece of work is a lane with its own a
 | Tue Nov 3 | Demo video and submission text; freeze `main`. | — |
 | Wed Nov 4 | Buffer for fixes; submit by 12:00 ET. | — |
 
+## Revised finish (2026-11-02)
+
+Owner (11-02): "we have 2 days left ... complete and ship all features; then do Full browser QAs with screenshots;
+lighthouse and performance traces then do a human QA like actual lecture I'll do an record from multiple browsers".
+
+| When (+03) | Work | Who |
+|---|---|---|
+| Mon Nov 2, all day | Six lanes: slides and ink; speaker and screen share; chat and stats (decisions 0027, 0028); lecture package (0029); brand assets and Chalky; QA harness. Coordinator: agent kill-and-restart test, rsa demo recording, access codes for judges, spend check. | lanes, coordinator |
+| Mon Nov 2, night | Merge what is ready, full gate, deploy (QA build 4). | coordinator |
+| Tue Nov 3, 10:00 | **Feature freeze.** Merge the rest, deploy (QA build 5). | coordinator |
+| Tue Nov 3, 10:00–16:00 | Automated QA: journey screenshots in Chrome, Edge and Firefox (WebKit headless as a Safari stand-in), Lighthouse, performance traces → ranked fix list → fix lanes. | QA harness, fix lanes |
+| Tue Nov 3, evening | Human QA: the owner gives a real lecture and records it from several browsers. | owner |
+| Wed Nov 4, morning | Fixes from the human QA, freeze `main`, demo video, submission text, README. | lanes, owner |
+| Wed Nov 4, 20:00 | Submit (12:00 ET target; the deadline is 9 PM ET). | owner |
+
 ## Running servers
 
 The VM runs everything around the clock: Docker restarts every service on failure and on boot. Updates follow

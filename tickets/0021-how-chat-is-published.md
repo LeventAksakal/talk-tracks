@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-31
 tags: [chat, tracks, architecture, design]
 ---
@@ -62,3 +62,5 @@ plain FETCH of one track.
 ## Answer
 
 <!-- owner -->
+
+Owner, 2026-11-02 (question prompt): the recommended option. Recorded as [decision 0027](../wiki/decisions/0027-chat-is-one-room-track-published-by-the-room-service.md).

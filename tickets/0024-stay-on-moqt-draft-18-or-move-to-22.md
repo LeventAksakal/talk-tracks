@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-31
 tags: [moqt, agents, relay, architecture]
 ---
@@ -39,3 +39,4 @@ Option 1. Write the draft-22 changes into the backlog, and fix the moq-lite vers
 
 ## Answer
 
+Owner, 2026-11-02 (question prompt): the recommended option. Recorded as [decision 0030](../wiki/decisions/0030-stay-on-moqt-draft-18-for-the-hackathon.md).

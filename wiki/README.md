@@ -41,3 +41,7 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | The speaker console renders PDF decks in the browser with PDF.js | [0023](decisions/0023-the-console-renders-pdf-decks-in-the-browser-with-pdfjs.md) |
 | Presenters create a room with an access code | [0025](decisions/0025-presenters-create-a-room-with-an-access-code.md) |
 | The look is Chalk, and a panel is a track subscription | [0026](decisions/0026-the-look-is-chalk-and-a-panel-is-a-track-subscription.md) |
+| Chat is one room track published by the room service | [0027](decisions/0027-chat-is-one-room-track-published-by-the-room-service.md) |
+| The room service publishes a stats track | [0028](decisions/0028-the-room-service-publishes-a-stats-track.md) |
+| The lecture package is a zip built in the browser | [0029](decisions/0029-the-lecture-package-is-a-zip-built-in-the-browser.md) |
+| Stay on MoQT draft-18 for the hackathon | [0030](decisions/0030-stay-on-moqt-draft-18-for-the-hackathon.md) |

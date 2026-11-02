@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-31
 tags: [stats, tracks, relay, architecture]
 ---
@@ -43,3 +43,4 @@ Option 1: it matches "everything as a track", keeps the relay replaceable, and a
 
 ## Answer
 
+Owner, 2026-11-02 (question prompt): the recommended option. Recorded as [decision 0028](../wiki/decisions/0028-the-room-service-publishes-a-stats-track.md).

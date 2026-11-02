@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-10-31
 tags: [ui, defaults, design]
 ---
@@ -39,3 +39,4 @@ The App UI lane (workstream 03) shipped with a default for each of these. Keep t
 
 ## Answer
 
+Owner, 2026-11-02: "I thought I resolved everything with the design session ... settles on palette typography layouts; chalky the mascot etc". The design session's decisions (brand.md, decision 0026) stand; the four defaults stay as shipped. Lanes take UI questions to brand.md and the Reference Canvas, not to the owner.
