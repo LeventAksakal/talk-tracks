@@ -1,17 +1,20 @@
-"""A looped demo room at the room service: its chat and its stats track, nothing else (decisions 0027, 0028).
+"""A demo room at the room service: its chat and its stats track, nothing else (decisions 0027, 0028, 0032).
 
-The looper publishes the rest of the room (the teacher's media, the slides, the agents' tracks and the room catalog;
-``demo.loop``), and its recording is the room's archive, so the room service archives nothing of it: no media, no
-event tracks, no catalog. It only reads two catalogs off the relay, the looper's room catalog (E, the tracks and the
-agents' status) and the teacher's hang catalog (the media tracks), and publishes two tracks, which the looper's
-catalog lists (``with_room_service``; one publisher per track name):
+("Looped" is the old name, kept in ``TT_LOOPED_ROOMS`` and ``TT_LOOPED_DIR``: a demo room now runs live sessions, each
+playing the lecture once, ``demo.session``.) The session player publishes the rest of the room (the teacher's media,
+the slides, the room catalog and ``room`` track, the recorded AI tracks or, with ``TT_DEMO_LIVE_AGENTS`` on, the live
+agents theirs), so the room service archives nothing of it: no media, no event tracks, no catalog. It only reads two
+catalogs off the relay, the player's room catalog (the tracks and the agents' status) and the teacher's hang catalog
+(the media tracks), and publishes two tracks, which the player's catalog lists (``with_room_service``; one publisher
+per track name):
 
 * ``talk/<room>/chat``: written over the listener WebSocket as in a live room (``archive.audience``: the same
-  validation, stamps and rate limits; any other write is refused). It lives on the room clock, wall time minus E,
-  which runs on across loops. A slice is written when a message is said and, while someone reads the chat, every
-  4 s with its carry-in (the last 50 messages), so a drawer opened at any moment gets the history at once; when
-  nobody reads and nobody writes, nothing is written. A rewind within the loop does not replay the chat (the
-  player keeps it live in a looped room), so the slices are kept only to carry the conversation across restarts:
+  validation, stamps and rate limits; any other write is refused). It lives on a clock of its own, wall time minus
+  ``CHAT_EPOCH_MS``, which runs on across sessions and the gaps between them: its ``m`` is not session time. A slice
+  is written when a message is said and, while someone reads the chat, every 4 s with its carry-in (the last 50
+  messages), so a drawer opened at any moment gets the history at once; when nobody reads and nobody writes, nothing
+  is written. A seek within a session does not replay the chat (the player keeps it live in a demo room), so the
+  slices are kept only to carry the conversation across restarts:
   in a folder of their own beside the archive (``TT_LOOPED_DIR``, never in the archive Caddy serves or the bucket
   copy), the newest ``KEEP_SLICES`` of them.
 * ``talk/<room>/stats``: Stats for nerds, as in a live room (``archive.stats``): the teacher's media, the looper's
@@ -72,6 +75,8 @@ from .store import track_configs
 log = logging.getLogger("talk_tracks.archive.looped")
 
 KEEP_SLICES = 64  # chat slices kept on disk per looped room: the newest carries the conversation across restarts
+# The chat's time 0 in a demo room: the old looper's fixed E, so chat slices written before sessions carry on.
+CHAT_EPOCH_MS = 1_790_812_800_000  # 2026-10-01 00:00 UTC
 
 # What a non-agent track of the looper's catalog is, by its event type (deck, slide, chat, stats).
 _KINDS = {event: kind for kind, event in EVENT_TYPES.items() if kind not in ("captions", "translation")}
@@ -143,6 +148,7 @@ class LoopedRoom:
         self.catalog: RoomCatalog | None = None  # the looper's, as last read
         self.media: dict[str, str] = {}  # the teacher's media tracks: name -> audio or video
         self.on_air = False  # the teacher broadcast is announced
+        self.catalog_on = False  # the session player's catalog is announced: a session, or the gap after one
         self.chat: ServiceTrack[ChatRecord] | None = None
         self.audience: ChatOnly | None = None
         self.stats: StatsTrack | None = None
@@ -153,10 +159,13 @@ class LoopedRoom:
     # --- the room clock -------------------------------------------------------------------------------------------
 
     def room_now(self) -> int | None:
-        """Room time now: wall time minus the looper's E, while the looper is on air; None before."""
-        if self.catalog is None or not self.on_air:
+        """The chat's clock now: wall time minus ``CHAT_EPOCH_MS``, in every session and in the gap between two (the
+        session player's catalog stays announced through it); None while no session player is there. A session's E is
+        new each time, and the chat track outlives sessions, so it is not on a session's clock: its group numbers never
+        go back (a relay drops a group older than the newest)."""
+        if not (self.on_air or self.catalog_on):
             return None
-        return max(0, self._wall() - self.catalog.tt.E)
+        return max(0, self._wall() - CHAT_EPOCH_MS)
 
     # --- what the looper publishes --------------------------------------------------------------------------------
 
@@ -165,6 +174,8 @@ class LoopedRoom:
             self.on_air = active
             if not active:
                 self.media = {}
+        if namespace == catalog_path(self.room):
+            self.catalog_on = active
         prefix = f"{agents_prefix(self.room)}/"
         if namespace.startswith(prefix) and "/" not in (agent := namespace.removeprefix(prefix)) and agent:
             (self.agents.add if active else self.agents.discard)(agent)

@@ -1,18 +1,21 @@
 """Subtitle-sized cues from a recording whose caption lines are long ASR segments (half a minute is common).
 
-Transport-free; the looper's converter runs it on a recording before slicing it (``slicing.Template``).
+Transport-free; a demo session and the recording room run it on a recording before slicing it (``slicing.Template``).
 
-* **Where a line breaks.** Each final line becomes cues of at most ``MAX_CUE_MS`` and ``MAX_CUE_CHARS`` (two lines of
-  42 characters): broken after a sentence end if one fits, else after a clause mark (, ; : dash) or before a
-  conjunction, else at the last word that fits.
+* **Where a line breaks.** Each final line becomes cues of at most ``MAX_CUE_CHARS`` (two subtitle lines of 42
+  characters) that end at a sentence end if one is in reach, else at a clause mark (, ; : dash). A cue may run a
+  little over ``MAX_CUE_MS`` (up to ``MAX_CUE_MS_HARD``) to reach one, and is short rather than cut mid-phrase. Only
+  when no mark is in reach is the break forced: before a conjunction, else at the last word that fits that is not a
+  function word ("the", "of", ...); a forced cue says so (``Cue.forced``, counted by ``cue_report``).
 * **When each word was said.** No word timings are recorded, but the interim snapshots are: each says how many words
   of the line had been heard at its media time. The line's [start_ms, end_ms] is spread over its words in that
   shape, or by character position when the interims cover too little of the line.
 * **When a cue goes out.** A cue is final from the snapshot whose interim had heard all of its words (the line's
   last cue when the line was final), so the room shows short final cues while the speaker is still talking; the
-  interim then holds the rest of the line heard so far.
-* **When a translation goes out.** In a looped room, with its caption cue (``translations_with_captions``): the
-  recorded translation of a line went out only once the whole line was final.
+  interim then holds the rest of the line heard so far. That is when the live captions agent had heard them, never
+  earlier.
+* **When a translation goes out.** When the recorded translation agent published it: once the whole line was final
+  and the model had answered. Nothing moves a translation earlier (decision 0032).
 * **Translations.** A translated line is split over its source line's cues: sentence by sentence when both have the
   same number of sentences, else over the whole line, by character share. Turkish puts the verb last, so a cue's
   translation can be a clause off inside a sentence.
@@ -25,15 +28,16 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-from .contracts import AgentInfo, CaptionLine, CaptionsState, TranslatedLine, TranslationState, Usage
+from .contracts import AgentInfo, CaptionLine, CaptionsState, TranslatedLine, TranslationState
 from .recording import RecordedSnapshot
 
-MAX_CUE_MS = 7000
+MAX_CUE_MS = 7000  # a cue's length, unless it runs on to reach a sentence end or a clause mark
+MAX_CUE_MS_HARD = 8500  # ... by "a little over 7 s" at most
 MAX_CUE_CHARS = 84  # two subtitle lines of 42
-MIN_BREAK_CHARS = 24  # a sentence or clause break shorter than this waits for a later one
+MIN_BREAK_CHARS = 24  # a sentence or clause break shorter than this waits for a later one, if one is in reach
 MIN_INTERIM_SHARE = 0.8  # interims that heard less of the line than this time it by character position instead
 
 _QUOTES = "\"'" + "".join(map(chr, (0x2018, 0x2019, 0x201C, 0x201D)))  # straight and curly quotes
@@ -43,6 +47,12 @@ _MEDIUM = re.compile(f"[,;:{_DASHES}][{_QUOTES})\\]]*$|^[-{_DASHES}]$")
 _CONJUNCTIONS = frozenset(
     {"and", "but", "or", "so", "because", "which", "that", "when", "while", "where", "whereas", "if", "then"}
     | {"although", "though", "unless", "until"}
+)
+# Words a forced cue does not end on: they open the phrase that follows.
+_FUNCTION_WORDS = _CONJUNCTIONS | frozenset(
+    {"a", "an", "the", "of", "to", "in", "on", "at", "by", "for", "with", "from", "into", "onto", "about", "as"}
+    | {"is", "are", "was", "were", "be", "this", "these", "those", "my", "your", "our", "their", "its", "his", "her"}
+    | {"we", "i", "you", "they", "it", "he", "she", "not", "very", "more", "most", "can", "will", "would", "just"}
 )
 
 Recorded = Sequence[tuple[AgentInfo, Sequence[RecordedSnapshot]]]
@@ -57,6 +67,7 @@ class Cue:
     end_ms: int
     text: str
     final_ms: int  # media time it goes out as final
+    forced: bool = False  # no sentence end or clause mark was in reach: the break is the length's, not the text's
 
 
 @dataclass(frozen=True)
@@ -101,45 +112,83 @@ def _cumulative_chars(words: Sequence[str]) -> list[int]:
 
 def breaks(words: Sequence[str], spoken: Sequence[int]) -> list[tuple[int, int]]:
     """Word ranges of the cues of one line, ``spoken[n]`` being the time of word boundary n."""
+    return [(i, j) for i, j, _ in cut(words, spoken)]
+
+
+def strong_end(word: str) -> bool:
+    """The word ends a sentence."""
+    return bool(_STRONG.search(word))
+
+
+def clause_end(word: str) -> bool:
+    """The word ends a clause (a comma, semicolon, colon or dash after it), or is a dash."""
+    return bool(_MEDIUM.search(word))
+
+
+def _bare(word: str) -> str:
+    return word.lower().strip(_QUOTES + "()")
+
+
+def cut(words: Sequence[str], spoken: Sequence[int]) -> list[tuple[int, int, bool]]:
+    """``breaks`` with each cue's ``forced`` flag: True when no sentence end or clause mark was in reach.
+
+    From word i a cue may reach word ``soft`` (``MAX_CUE_CHARS`` and ``MAX_CUE_MS``) or, to end on a mark, word
+    ``hard`` (``MAX_CUE_MS_HARD``). In order: the rest of the line when it fits within ``hard``; the latest sentence end
+    within ``soft`` that leaves at least ``MIN_BREAK_CHARS``, then one within ``hard``; the same for a clause mark;
+    the latest sentence end or clause mark of any length (a short cue beats a cut phrase); and only then a forced
+    break, before a conjunction or after the last word that fits and does not open the next phrase."""
 
     def chars(i: int, j: int) -> int:
         return sum(len(w) for w in words[i:j]) + max(0, j - i - 1)
 
-    def fits(i: int, j: int) -> bool:
-        return chars(i, j) <= MAX_CUE_CHARS and spoken[j] - spoken[i] <= MAX_CUE_MS
+    def reach(i: int, limit_ms: int) -> int:
+        j = i + 1
+        while j < n and chars(i, j + 1) <= MAX_CUE_CHARS and spoken[j + 1] - spoken[i] <= limit_ms:
+            j += 1
+        return j
 
-    def strong(k: int) -> bool:
-        return bool(_STRONG.search(words[k - 1]))
+    def latest(i: int, lo: int, hi: int, good: Callable[[str], bool], min_chars: int) -> int | None:
+        """The last boundary k in (lo, hi] after a word that is ``good``, leaving at least ``min_chars``."""
+        return next((k for k in range(hi, lo, -1) if chars(i, k) >= min_chars and good(words[k - 1])), None)
 
-    def medium(k: int) -> bool:
-        return bool(_MEDIUM.search(words[k - 1])) or words[k].lower().strip(_QUOTES + "(") in _CONJUNCTIONS
+    def forced(i: int, soft: int) -> int:
+        for k in range(soft, i + 1, -1):
+            if chars(i, k) >= MIN_BREAK_CHARS and _bare(words[k]) in _CONJUNCTIONS:
+                return k
+        for k in range(soft, max(i + 1, soft - 4), -1):  # step back over the words that open the next phrase
+            if _bare(words[k - 1]) not in _FUNCTION_WORDS:
+                return k
+        return soft
 
-    out: list[tuple[int, int]] = []
+    out: list[tuple[int, int, bool]] = []
     i, n = 0, len(words)
     while i < n:
-        j = i + 1
-        while j < n and fits(i, j + 1):
-            j += 1
-        if j == n:
-            out.append((i, n))
+        soft, hard = reach(i, MAX_CUE_MS), reach(i, MAX_CUE_MS_HARD)
+        if hard == n:
+            out.append((i, n, False))
             break
-        k = next(
-            (k for good in (strong, medium) for k in range(j, i, -1) if chars(i, k) >= MIN_BREAK_CHARS and good(k)),
-            j,
+        k = (
+            latest(i, i, soft, strong_end, MIN_BREAK_CHARS)
+            or latest(i, soft, hard, strong_end, MIN_BREAK_CHARS)
+            or latest(i, i, soft, clause_end, MIN_BREAK_CHARS)
+            or latest(i, soft, hard, clause_end, MIN_BREAK_CHARS)
+            or latest(i, i, hard, lambda w: strong_end(w) or clause_end(w), 1)
         )
-        out.append((i, k))
+        if k is None:
+            k = forced(i, soft)
+        out.append((i, k, not (strong_end(words[k - 1]) or clause_end(words[k - 1]))))
         i = k
     return out
 
 
 def line_cues(line: _Line, first_id: int) -> list[Cue]:
     words, spoken = line.words, line.spoken_ms()
-    ranges = breaks(words, spoken)
+    ranges = cut(words, spoken)
     cues: list[Cue] = []
-    for n, (i, j) in enumerate(ranges):
+    for n, (i, j, forced) in enumerate(ranges):
         start, end = spoken[i], spoken[j]
         out = line.final_ms if n == len(ranges) - 1 else min(line.final_ms, max(line.heard_ms(j), end))
-        cues.append(Cue(first_id + n, i, j, start, end, " ".join(words[i:j]), out))
+        cues.append(Cue(first_id + n, i, j, start, end, " ".join(words[i:j]), out, forced and n < len(ranges) - 1))
     return cues
 
 
@@ -249,56 +298,56 @@ def cue_texts(recorded: Recorded) -> dict[int, tuple[str, ...]]:
     return {i: tuple(c.text for c in line) for i, line in cues.items()}
 
 
-def _cost(usage: Usage) -> float:
-    return usage.cost_usd
+@dataclass(frozen=True)
+class CueReport:
+    """Where one recording's subtitle cues end (``cue_report``)."""
+
+    lines: int
+    cues: int
+    sentence: int  # cues ending a sentence
+    clause: int  # cues ending at a clause mark
+    forced: int  # cues inside a line ending at neither: no mark was in reach
+    forced_before_conjunction: int  # ... of which the next cue opens with a conjunction
+    line_end: int  # the last cue of an ASR line that itself ends at neither (the recogniser's break, not ours)
+    longest_ms: int
+    longest_chars: int
+
+    @property
+    def mid_phrase(self) -> int:
+        """Cues that end without a sentence end or clause mark and were not forced: 0 by design."""
+        return self.cues - self.sentence - self.clause - self.forced - self.line_end
+
+    def __str__(self) -> str:
+        return (
+            f"{self.lines} lines, {self.cues} cues: {self.sentence} end a sentence, {self.clause} a clause, "
+            f"{self.forced} forced ({self.forced_before_conjunction} before a conjunction), {self.line_end} end an "
+            f"ASR line without a mark, {self.mid_phrase} mid-phrase; longest {self.longest_ms} ms, "
+            f"{self.longest_chars} characters"
+        )
 
 
-def translations_with_captions(recorded: Recorded) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
-    """A resegmented recording with each translated cue going out when its caption cue goes out final, for a looped
-    room. A translation agent (and ``revise.retranslate``'s synthesised track, which copies its timing) publishes a
-    caption line's translation only once the whole line is final, so the line's early cues, shown while the speaker
-    is still talking, had none for up to the line's length (half a minute is common). In a recording every
-    translation is already known, so the room shows each with its caption. A later revision of a cue keeps its own
-    time; a cue the captions never show keeps its recorded one. Usage stays cumulative and ends at the recorded total.
-    """
-    captions = next((s for _, s in recorded if s and isinstance(s[0].state, CaptionsState)), None)
-    shown: dict[int, int] = {}
-    for snap in captions or ():
-        assert isinstance(snap.state, CaptionsState)
-        for line in snap.state.lines:
-            shown.setdefault(line.id, snap.media_ms)
-    out: list[tuple[AgentInfo, list[RecordedSnapshot]]] = []
-    for info, snapshots in recorded:
-        if not shown or not (snapshots and isinstance(snapshots[0].state, TranslationState)):
-            out.append((info, list(snapshots)))
-            continue
-        first = snapshots[0].state
-        assert isinstance(first, TranslationState)
-        events: dict[int, list[TranslatedLine]] = {}  # media ms -> the lines (new or changed) going out then
-        seen: dict[int, TranslatedLine] = {}
-        for snap in snapshots:
-            assert isinstance(snap.state, TranslationState)
-            for line in snap.state.lines:
-                if seen.get(line.id) == line:
-                    continue
-                at = min(shown.get(line.id, snap.media_ms), snap.media_ms) if line.id not in seen else snap.media_ms
-                seen[line.id] = line
-                events.setdefault(at, []).append(line)
-        rebuilt: list[RecordedSnapshot] = []
-        if not first.lines and (not events or snapshots[0].media_ms < min(events)):
-            rebuilt.append(snapshots[0])  # the agent's empty start, before anything is said
-        usage, n = snapshots[0].usage, 0
-        for k, at in enumerate(sorted(events)):
-            while n < len(snapshots) and snapshots[n].media_ms <= at:
-                usage = max(usage, snapshots[n].usage, key=_cost)
-                n += 1
-            if k == len(events) - 1:
-                usage = max([usage, *(s.usage for s in snapshots)], key=_cost)
-            state = first.model_copy(update={"lines": events[at]})
-            update = {"media_ms": at, "seq": len(rebuilt) + 1, "usage": usage, "state": state}
-            rebuilt.append(snapshots[0].model_copy(update=update))
-        out.append((info, rebuilt))
-    return out
+def cue_report(recorded: Recorded) -> CueReport:
+    """Count where the first captions agent's cues end: at a sentence end, a clause mark, a forced break, or the end
+    of an ASR line that has no mark."""
+    _, source, cues = _cues(recorded)
+    sentence = clause = forced = conjunction = line_end = longest_ms = longest_chars = 0
+    for line in source:
+        words, found = line.words, cues[line.line.id]
+        for n, cue in enumerate(found):
+            longest_ms = max(longest_ms, cue.end_ms - cue.start_ms)
+            longest_chars = max(longest_chars, len(cue.text))
+            last = words[cue.last - 1]
+            if strong_end(last):
+                sentence += 1
+            elif clause_end(last):
+                clause += 1
+            elif n == len(found) - 1:
+                line_end += 1
+            elif cue.forced:
+                forced += 1
+                conjunction += _bare(words[cue.last]) in _CONJUNCTIONS
+    total = sum(len(found) for found in cues.values())
+    return CueReport(len(source), total, sentence, clause, forced, conjunction, line_end, longest_ms, longest_chars)
 
 
 def resegment(

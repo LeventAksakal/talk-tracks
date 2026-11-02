@@ -303,16 +303,17 @@ says why.
   last record), and the same bytes go live and to the archive, whose copy answers FETCH on the same name.
 * Finished slices are copied to the bucket like the agents'.
 
-A looped demo room has no room service: its looper computes the same `deck` and `slide` tracks from the lecture's
-slides and serves them on both names ([demo rooms](demo-rooms.md)).
+A demo room's live sessions have no room service for this: the session player computes the same `deck` and `slide`
+tracks from the lecture's slides and serves them on both names, and so does `serve-recording` for a recording room
+([demo rooms](demo-rooms.md)).
 
 ## The room catalog
 
 The room service publishes `talk/<room>/catalog`, track `catalog`: an MSF catalog (draft-ietf-moq-msf-01 §5), one
 whole catalog per group (object 0), a new group on every change and every 4 s (under moq-relay's 5 s max age, so a
 late joiner always gets the latest). A new broadcast's shift is published at once, not at the next tick. Nothing is
-published before the room has an epoch. The document is built by `talk_tracks.room_catalog`, which the looper uses
-for the demo rooms too, with the field names locked in [the lane briefs](../design/lane-briefs.md) ("Catalog field
+published before the room has an epoch. The document is built by `talk_tracks.room_catalog`, which the session
+players use for the demo rooms too, with the field names locked in [the lane briefs](../design/lane-briefs.md) ("Catalog field
 names"). Read it as raw JSON: `@moq/msf` 0.3.1 drops the fields it does not declare.
 
 ```json
@@ -351,8 +352,19 @@ names"). Read it as raw JSON: `@moq/msf` 0.3.1 drops the fields it does not decl
   its cap, or the build at its ceiling, every paid agent's `status` is `capped`. Status is in the root because MSF forbids
   changing a declared track.
 * The speaker's media is at `/archive/<room>/index.m3u8` ([HLS playlists](#hls-playlists)).
-* The room service publishes the catalog of every archived room, on air or not. Demo rooms it skips
-  (`TT_ARCHIVE_SKIP`) get no catalog from it; their looper publishes one.
+* The room service publishes the catalog of every archived room, on air or not. Rooms it skips (`TT_ARCHIVE_SKIP`)
+  get no catalog from it: a demo room's session player publishes one, and `serve-recording` a recording room's.
+
+## Recording rooms
+
+A demo lecture's recording room, `<id>-recording` (decision 0032, [demo rooms](demo-rooms.md#the-recording-rooms)),
+is an ended room of this archive that `python -m talk_tracks record-archive` builds once, offline, from the lecture's
+recording, in the layout above: one run of fMP4 segments with ended HLS playlists, `room.json` and its entry in
+`rooms.json` (written by `archive.store`, as for a live talk), each AI track's slices and `track.json` (labels ending
+` (recorded)`, `cost: free`), and the `room` track's slices (`on_air` at 00:00, `ended` at the end). No slide image
+is stored (ticket 0001). Stop the room service while it runs: the service rewrites `rooms.json` from what it read at
+its start. The room service skips `*-recording` (compose's `TT_ARCHIVE_SKIP`), so `serve-recording` is the one
+publisher of its catalog and the origin of its tracks' FETCHes; Caddy serves its media like any archived room's.
 
 ## Serving
 
@@ -372,7 +384,7 @@ segments as `video/iso.segment`.
 | `TT_TOKEN` / `--token` | unset | A relay token that may publish `talk/*/catalog` (on the VM: `TT_ARCHIVE_TOKEN` in `.env`) |
 | `TT_ARCHIVE_DIR` / `--out` | `data/archive` | The archive root (`/data/archive` in the containers) |
 | `TT_ARCHIVE_ROOMS` / `--rooms` | `*` | Room patterns to archive, comma-separated |
-| `TT_ARCHIVE_SKIP` / `--skip` | (compose: the demo room) | Room patterns not to archive: a looped demo room's recording already is its archive, and its video would grow the archive by about 1 GB an hour. Its archive is one file instead: `archive/<room>/lecture.mp4`, a hard link to the looper's `demo/<room>/lecture.mp4`, which the viewer plays at room time modulo the loop length (`web/src/playback/loopArchive.ts`). Caddy caches `.mp4` forever, so a replaced lecture needs a new file name |
+| `TT_ARCHIVE_SKIP` / `--skip` | (compose: the demo rooms and `*-recording`) | Room patterns not to archive, nor copy to the bucket: a demo room's sessions replay its recording, and their video would grow the archive by about 1 GB an hour. Its archive is one file instead: `archive/<room>/lecture.mp4`, a hard link to the session player's `demo/<room>/lecture.mp4`; session time t is lecture time t. Caddy caches `.mp4` forever, so a replaced lecture needs a new file name. A recording room is in the archive but skipped too: `serve-recording` publishes its catalog |
 | `TT_ARCHIVE_BUCKET` / `--bucket` | unset | `gs://<bucket>[/<folder>]` to copy to (folder default `archive`); unset, nothing is copied |
 | `--no-catalog` | off | Record only; publish no room catalogs |
 | `TT_LEDGER`, `TT_CAPS_DIR` | `data/ledger.jsonl`, `data/caps` | The agents' spend ledger and judge caps, read for `capped` (on the VM the archiver mounts `$TT_DATA` like the agents) |

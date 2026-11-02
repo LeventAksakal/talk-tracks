@@ -37,7 +37,7 @@ services:
   # credentials, so leave it unset on a laptop).
   # Listeners write through it on ws://localhost:8091/api/rooms/<room> (decision 0024); with no room key locally,
   # TT_OPEN_SPEAKER lets the console's session be the speaker's whatever its token.
-  # The looped demo room (TT_LOOPED_ROOMS) is the looper's: nothing of it is archived; the room service publishes only
+  # The demo room (TT_LOOPED_ROOMS) is the session player's: nothing of it is archived; the room service publishes only
   # its chat and stats tracks there and keeps its chat in data/looped/ (archive.looped).
   archive:
     <<: *agent
@@ -51,7 +51,7 @@ services:
       TT_CAPS_DIR: /data/caps
       TT_ROOMS_DIR: /data/rooms
       TT_OPEN_SPEAKER: "1"
-      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo},*-recording}
       TT_LOOPED_ROOMS: ${TT_DEMO_ROOM:-demo}  # chat and stats only (archive.looped)
       TT_LOOPED_DIR: /data/looped
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
@@ -96,7 +96,7 @@ services:
     command: ["watch", "--insecure"]
 
   # Demo rooms (wiki/howto/demo-rooms.md). Lectures and recordings live in data/demo/<lecture>/ (not in git).
-  # TT_LECTURE names the lecture folder; agents and generate use TT_ROOM, the looping room is TT_DEMO_ROOM.
+  # TT_LECTURE names the lecture folder; agents and generate use TT_ROOM, the demo room (live sessions) is TT_DEMO_ROOM.
   media:
     image: talk-tracks-media:dev
     build: { context: ., dockerfile: Dockerfile.media }
@@ -119,4 +119,4 @@ services:
       TT_RELAY: moqt://relay:4443
       TT_ROOM: ${TT_DEMO_ROOM:-demo}
     # TT_SLIDES as for generate: the slides found in the video go out as the speaker's deck and slide tracks
-    command: ["loop", "--insecure", "--recording", "/data/${TT_LECTURE:-test}", "--slides", "${TT_SLIDES:-full}"]
+    command: ["session", "--insecure", "--recording", "/data/${TT_LECTURE:-test}", "--slides", "${TT_SLIDES:-full}"]

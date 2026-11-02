@@ -1,15 +1,16 @@
-"""A looped demo room's slides as the speaker's ``deck`` and ``slide`` tracks (decisions 0018 and 0022). Transport-free.
+"""A demo room's slides as the speaker's ``deck`` and ``slide`` tracks (decisions 0018, 0022, 0032). Transport-free.
 
-A recorded lecture has no speaker console, so the looper sends what one would: the slides ``slideshow.find_slides``
-finds in the video become one deck, and each slide's first appearance a ``show`` record on the room clock. The
-frames stay in memory, as for the describe agent (ticket 0001: the slides hold third-party images).
+A recorded lecture has no speaker console, so the session player sends what one would: the slides
+``slideshow.find_slides`` finds in the video become one deck, and each slide's first appearance a ``show`` record on
+the room clock. The frames stay in memory, as for the describe agent (ticket 0001: the slides hold third-party
+images). A live session and the recording room each play the lecture once, from room time 0.
 
-* **deck:** one group for the room's life, group ``DECK_GROUP`` (room slice 0, when a looped room's clock starts).
+* **deck:** one group for the room's life, group ``DECK_GROUP`` (room slice 0, when the room's clock starts).
   Object 0 is the ``DeckInfo``, then one object per ``DeckImage``.
-* **slide:** cut in 4 s slices like every sliced track. Object 0 of slice g is the carry-in, the last ``show`` before
-  the slice (the previous loop's last slide at the start of a loop), then one object per ``show`` in the slice.
-  Loop k plays slide i at room time ``k * period + at_ms``, so every group is a pure function of its number: the
-  looper writes it live and answers a FETCH of it from the same function, byte for byte.
+* **slide:** cut in 4 s slices like every sliced track, up to the room's length. Object 0 of slice g is the carry-in,
+  the last ``show`` before the slice, then one object per ``show`` in the slice. Slide i shows at room time
+  ``at_ms``, so every group is a pure function of its number: the player writes it live and answers a FETCH of it
+  from the same function, byte for byte.
 
 ``with_slides`` adds the two tracks and the slides source to the room catalog. A return to an earlier slide is not
 shown again (``find_slides`` drops it), and nothing is drawn: a recorded talk has no ink or laser.
@@ -65,20 +66,20 @@ def jpeg_size(data: bytes) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class LectureSlides:
-    """The slides of one loop (lecture time) and the loop's period on the room clock (a whole number of slices)."""
+    """The lecture's slides (lecture time is room time) and the room's length on its clock (whole slices)."""
 
     slides: tuple[Slide, ...]
-    period_ms: int
+    length_ms: int
 
     def __post_init__(self) -> None:
         if not self.slides:
             raise ValueError("a deck needs at least one slide")
-        if self.period_ms <= 0 or self.period_ms % SLICE_MS:
-            raise ValueError("the period is whole slices")
+        if self.length_ms <= 0 or self.length_ms % SLICE_MS:
+            raise ValueError("the length is whole slices")
 
     @classmethod
-    def of(cls, slides: Sequence[Slide], period_ms: int) -> LectureSlides:
-        return cls(tuple(sorted(slides, key=lambda s: s.at_ms)), period_ms)
+    def of(cls, slides: Sequence[Slide], length_ms: int) -> LectureSlides:
+        return cls(tuple(sorted(slides, key=lambda s: s.at_ms)), length_ms)
 
     @functools.cached_property
     def deck(self) -> tuple[Placed, ...]:
@@ -97,34 +98,30 @@ class LectureSlides:
     def deck_group(self, group: int) -> tuple[Placed, ...]:
         return self.deck if group == DECK_GROUP else ()
 
-    def _show(self, loop: int, index: int) -> CurrentSlideRecord:
-        m = loop * self.period_ms + self.slides[index].at_ms
-        return CurrentSlideRecord(m=m, data=ShowSlide(deck=DECK_GROUP, index=index))
+    def _show(self, index: int) -> CurrentSlideRecord:
+        return CurrentSlideRecord(m=self.slides[index].at_ms, data=ShowSlide(deck=DECK_GROUP, index=index))
 
     def carry(self, start_ms: int) -> list[CurrentSlideRecord]:
         """The last ``show`` before room time ``start_ms``: the slide on screen then (none before the first)."""
-        loop, offset = divmod(start_ms, self.period_ms)
-        shown = [i for i, s in enumerate(self.slides) if s.at_ms < offset]
-        if shown:
-            return [self._show(loop, shown[-1])]
-        return [self._show(loop - 1, len(self.slides) - 1)] if loop > 0 else []
+        shown = [i for i, s in enumerate(self.slides) if s.at_ms < start_ms]
+        return [self._show(shown[-1])] if shown else []
 
     def slide_group(self, group: int) -> tuple[Placed, ...]:
-        """Every object of group ``group`` of the slide track: the carry-in, then each slide shown in the slice."""
-        if group < 0:
-            return ()
+        """Every object of group ``group`` of the slide track: the carry-in, then each slide shown in the slice. None
+        outside the room's length."""
         start = group * SLICE_MS
-        loop, offset = divmod(start, self.period_ms)  # a slice never straddles two loops
+        if group < 0 or start >= self.length_ms:
+            return ()
         out = [Placed(start, encode(self.carry(start)))]
         for i, slide in enumerate(self.slides):
-            if offset <= slide.at_ms < offset + SLICE_MS:
-                record = self._show(loop, i)
+            if start <= slide.at_ms < start + SLICE_MS:
+                record = self._show(i)
                 out.append(Placed(record.m, encode([record])))
         return tuple(out)
 
 
 def with_slides(catalog: RoomCatalog, room: str) -> RoomCatalog:
-    """A looped room's catalog with its deck and slide tracks, and the slides among the speaker's sources."""
+    """A demo room's catalog with its deck and slide tracks, and the slides among the speaker's sources."""
     tracks = tuple(t for t in speaker_tracks(room) if t.name in TRACKS)
     slides = Source(kind="slides", namespace=slides_path(room), tracks=list(TRACKS))
     sources = (*speaker_sources(room, audio=True, camera=True), slides)

@@ -24,7 +24,7 @@ from talk_tracks.contracts import (
 )
 from talk_tracks.lecture import MediaPacket
 from talk_tracks.recording import RecordedSnapshot
-from talk_tracks.replay import event_us, loop_events
+from talk_tracks.replay import event_us, session_events
 from talk_tracks.slicing import (
     CaptionItem,
     CaptionsCarry,
@@ -43,7 +43,7 @@ CAPTIONS = AgentInfo(name="captions", label="Captions (English)", model="fake")
 TRANSLATE = AgentInfo(name="translate-tr", label="Turkish translation", model="fake")
 SLIDES = AgentInfo(name="describe", label="Slides", model="fake")
 CHAPTERS = AgentInfo(name="chapters", label="Chapters", model="fake")
-DURATION = 9_000  # three slices a loop: 0-4, 4-8, 8-12 s (the lecture ends at 9 s)
+DURATION = 9_000  # three slices: 0-4, 4-8, 8-12 s (the lecture ends at 9 s)
 EPOCH = 1_000_000
 
 
@@ -114,7 +114,7 @@ def bodies(t: Template, agent: str, j: int) -> list[object]:
     return [s.body for s in track.groups[j]]
 
 
-def test_a_loop_is_the_lecture_in_whole_slices() -> None:
+def test_a_template_is_the_lecture_in_whole_slices() -> None:
     assert period_of(9_000) == 12_000 and period_of(8_000) == 8_000 and period_of(1) == 4_000
     t = template()
     assert (t.period_ms, t.stride) == (12_000, 5)  # caption ids 0..4
@@ -146,7 +146,7 @@ def test_captions_slice_into_a_carry_in_and_items() -> None:
     assert isinstance(interim, CaptionItem) and (interim.line.id, interim.final) == (3, False)
     assert (interim.line.start_ms, interim.line.end_ms) == (line(2).end_ms, 4500)
     last = bodies(t, "captions", 2)
-    assert [b.line.id for b in last[1:] if isinstance(b, CaptionItem)] == [4]  # clamped to the loop's end
+    assert [b.line.id for b in last[1:] if isinstance(b, CaptionItem)] == [4]  # clamped to the end
     carry = next(a for a in t.agents if a.info.name == "captions").groups[1][0]
     assert carry.at_ms == 4000 and carry.usage.cost_usd == 0.25
 
@@ -168,19 +168,19 @@ def cue_records(payload: bytes) -> list[CueRecord]:
     return [r for r in CueObject.model_validate_json(payload).root if isinstance(r, CueRecord)]
 
 
-def test_room_groups_move_by_whole_loops_and_are_byte_identical() -> None:
+def test_room_groups_are_the_lectures_slices_once_and_byte_identical() -> None:
     room = Room(template(), EPOCH)
-    g = 2 * 3 + 1  # loop 2, slice 1
-    objects = room.group("captions", g)
-    again = room.group("captions", g)
+    objects = room.group("captions", 1)
+    again = room.group("captions", 1)
     assert [o.payload for o in objects] == [o.payload for o in again]
-    assert objects[0].media_ms == 2 * 12_000 + 4000  # room ms: on an items track the group is its slice
+    assert objects[0].media_ms == 4000  # room ms: on an items track the group is its slice
     carry = cue_records(objects[0].payload)
-    assert [r.data.id for r in carry] == ["11", "12"]  # ids move by 2 x stride
+    assert [r.data.id for r in carry] == ["1", "2"]  # one pass: the recording's own ids
     first = carry[0]
-    assert first.m == first.data.start == 24_000 + line(1).start_ms and first.data.final
+    assert first.m == first.data.start == line(1).start_ms and first.data.final
     interim = cue_records(objects[1].payload)[0]
-    assert (interim.data.id, interim.data.final, interim.data.rev) == ("13", False, 0)
+    assert (interim.data.id, interim.data.final, interim.data.rev) == ("3", False, 0)
+    assert room.group("captions", 3) == () and room.group("captions", -1) == ()  # nothing after the session's end
     wire = json.loads(objects[1].payload)
     assert wire == [{"m": interim.m, "data": interim.data.model_dump()}]  # a bare MSF event-timeline object
     slides = SlideObject.model_validate_json(room.group("describe", 2)[0].payload).root
@@ -190,34 +190,34 @@ def test_room_groups_move_by_whole_loops_and_are_byte_identical() -> None:
 
 def test_a_group_fills_as_the_room_clock_passes() -> None:
     room = Room(template(), EPOCH)
-    g = 3 + 1  # loop 1, slice 1: media 16..20 s
-    assert room.published("captions", g, 15_999) == ()
-    assert len(room.published("captions", g, 16_000)) == 1  # the carry-in, at the slice start
-    assert room.current("captions", 17_000) == g
-    # The outline: one group per revision, loop after loop.
+    assert room.published("captions", 1, 3_999) == ()
+    assert len(room.published("captions", 1, 4_000)) == 1  # the carry-in, at the slice start
+    assert room.current("captions", 5_000) == 1
+    assert room.current("captions", 60_000) == 2  # after the end the last slice stays the newest
+    assert room.current("captions", -1) is None
+    # The outline: one group per revision.
     assert room.current("chapters", 50) is None
     assert room.current("chapters", 2000) == 0 and room.current("chapters", 3000) == 1
-    assert room.current("chapters", 12_050) == 1  # loop 1 has no revision out yet: loop 0's last still holds
-    assert room.current("chapters", 12_100) == 2
-    outline = room.group("chapters", 3)
-    assert len(outline) == 1 and outline[0].media_ms == 12_000 + 3000
+    assert room.current("chapters", 12_100) == 1  # no revision after it: the last still holds
+    outline = room.group("chapters", 1)
+    assert len(outline) == 1 and outline[0].media_ms == 3000
     chapters = [r for r in OutlineObject.model_validate_json(outline[0].payload).root if r.data.kind == "chapter"]
-    assert chapters[0].data.id == 5 and chapters[0].m == chapters[0].data.start  # type: ignore[union-attr]
+    assert chapters[0].data.id == 0 and chapters[0].m == chapters[0].data.start  # type: ignore[union-attr]
 
 
 def test_cues_open_each_group_before_its_items_on_the_lecture_clock() -> None:
     t = template()
-    loop = list(cues(t, 1))
-    times = [c.at_ms for c in loop]
+    session = list(cues(t))
+    times = [c.at_ms for c in session]
     assert times == sorted(times)
     opened: set[tuple[str, int]] = set()
-    for c in loop:
+    for c in session:
         assert (c.index == 0) == ((c.agent, c.group) not in opened)
         opened.add((c.agent, c.group))
-    assert {c.group for c in loop if c.agent == "captions"} == {3, 4, 5}
-    assert {c.group for c in loop if c.agent == "chapters"} == {2, 3}
+    assert {c.group for c in session if c.agent == "captions"} == {0, 1, 2}
+    assert {c.group for c in session if c.agent == "chapters"} == {0, 1}
     media = [MediaPacket("video", us, us % 1_000_000 == 0, b"") for us in range(0, 9_000_000, 500_000)]
-    events = list(loop_events(media, loop))
+    events = list(session_events(media, session))
     assert [event_us(e) for e in events] == sorted(event_us(e) for e in events)
     at_four = [type(e).__name__ for e in events if event_us(e) == 4_000_000]
     assert at_four[-1] == "MediaPacket"  # a slice's carry-in goes out before the frame of the same instant

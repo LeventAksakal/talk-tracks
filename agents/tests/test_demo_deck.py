@@ -68,7 +68,7 @@ def test_a_deck_written_before_anyone_subscribes_is_one_whole_group() -> None:
     slides = [Slide(i * 3_000, picture(20 + 7 * i)) for i in range(34)]  # dataviz's deck size
     source = LectureSlides.of(slides, 120_000)
     relay = StubRelay()
-    asyncio.run(SpeakerSlides(relay, "dataviz", source).start())  # type: ignore[arg-type]
+    asyncio.run(SpeakerSlides(relay, "dataviz", source, lambda: 0).start())  # type: ignore[arg-type]
 
     for ns in ("talk/dataviz/slides", "talk/dataviz/archive/slides"):
         writer = relay.writers[(ns, "deck")]
