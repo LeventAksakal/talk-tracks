@@ -3,12 +3,44 @@
 // that takes an OffscreenCanvas context too. Positions are fractions of the slide; a width is a fraction
 // of the slide's width. Pen strokes are smoothed with perfect-freehand (MIT): its output depends only on
 // the points, so every reader draws the same outline.
+//
+// Every pen stroke and shape gets a casing under it (brand.md §3): a thin dark outline, so pale chalk (Chalk, Sun)
+// reads on a white slide and every colour on a dark or busy one. The marker has none: it sits under the text.
 
 import { getStroke } from "perfect-freehand";
 import type { InkElement, InkShape, InkStroke, Point } from "../contracts/types";
+import { tokenValue } from "../theme/ink";
 
 /** How opaque a highlighter stroke or a highlight mark is over the slide. */
 export const HIGHLIGHT_ALPHA = 0.35;
+
+/** The outline under a stroke: its colour, opacity, and width outside the stroke in canvas pixels. */
+export interface Casing {
+  color: string;
+  alpha: number;
+  px: number;
+}
+
+let casingCache: { at: number; dpr: number; value: Casing } | undefined;
+
+/**
+ * The casing from the theme's tokens (--tt-ink-casing, -opacity, -width), its width in device pixels. Read at
+ * most once a second, so a frame loop does not ask for computed style on every element.
+ */
+export function inkCasing(): Casing {
+  const dpr = typeof devicePixelRatio === "number" && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  const now = typeof performance === "undefined" ? 0 : performance.now();
+  if (casingCache && casingCache.dpr === dpr && now - casingCache.at < 1_000) return casingCache.value;
+  const alpha = Number.parseFloat(tokenValue("--tt-ink-casing-opacity", "0.7"));
+  const width = Number.parseFloat(tokenValue("--tt-ink-casing-width", "2px"));
+  const value: Casing = {
+    color: tokenValue("--tt-ink-casing", "#1b2420"),
+    alpha: Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0.7,
+    px: (Number.isFinite(width) ? Math.max(0, width) : 2) * dpr,
+  };
+  casingCache = { at: now, dpr, value };
+  return value;
+}
 
 export type Ctx2D = Pick<
   CanvasRenderingContext2D,
@@ -33,13 +65,28 @@ export type Ctx2D = Pick<
   | "globalAlpha"
 >;
 
-/** Draw elements on a canvas of `width` × `height` pixels, clearing it first, oldest first. */
-export function drawElements(ctx: Ctx2D, elements: readonly InkElement[], width: number, height: number): void {
+/**
+ * Draw elements on a canvas of `width` × `height` pixels, clearing it first, oldest first; `casing` null draws
+ * them without outlines.
+ */
+export function drawElements(
+  ctx: Ctx2D,
+  elements: readonly InkElement[],
+  width: number,
+  height: number,
+  casing: Casing | null = inkCasing(),
+): void {
   ctx.clearRect(0, 0, width, height);
-  for (const el of elements) drawElement(ctx, el, width, height);
+  for (const el of elements) drawElement(ctx, el, width, height, casing);
 }
 
-export function drawElement(ctx: Ctx2D, el: InkElement, width: number, height: number): void {
+export function drawElement(
+  ctx: Ctx2D,
+  el: InkElement,
+  width: number,
+  height: number,
+  casing: Casing | null = inkCasing(),
+): void {
   ctx.save();
   ctx.strokeStyle = el.color;
   ctx.fillStyle = el.color;
@@ -47,37 +94,50 @@ export function drawElement(ctx: Ctx2D, el: InkElement, width: number, height: n
   ctx.lineWidth = lw;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  if (el.kind === "shape") drawShape(ctx, el, width, height, lw);
+  const outline = casing && casing.px > 0 && casing.alpha > 0 ? casing : null;
+  if (el.kind === "shape") drawShape(ctx, el, width, height, lw, outline);
   else if (el.tool === "highlighter") drawHighlighter(ctx, el, width, height, lw);
-  else drawPen(ctx, el, width, height);
+  else drawPen(ctx, el, width, height, outline);
   ctx.restore();
+}
+
+/** Stroke the current path as the casing, `lineWidth` wide, then set the ink's colour and opacity back. */
+function strokeCasing(ctx: Ctx2D, casing: Casing, lineWidth: number, ink: string): void {
+  ctx.globalAlpha = casing.alpha;
+  ctx.strokeStyle = casing.color;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = ink;
 }
 
 /**
  * A pen stroke: perfect-freehand's outline, filled; velocity stands in for pressure. Drawn as if finished
  * (`last`), so a stroke being drawn ends under the pen instead of trailing it.
  */
-function drawPen(ctx: Ctx2D, s: InkStroke, width: number, height: number): void {
+function drawPen(ctx: Ctx2D, s: InkStroke, width: number, height: number, casing: Casing | null): void {
   const first = s.points[0];
   if (!first) return;
   const size = Math.max(1, s.width * width) * 1.4;
   if (s.points.length === 1) {
     ctx.beginPath();
     ctx.arc(first[0] * width, first[1] * height, size / 2, 0, Math.PI * 2);
-    ctx.fill();
-    return;
+  } else {
+    const outline = getStroke(
+      s.points.map(([x, y]) => [x * width, y * height]),
+      { size, thinning: 0.5, smoothing: 0.5, streamline: 0.4, simulatePressure: true, last: true },
+    );
+    if (!traceOutline(ctx, outline)) return;
   }
-  const outline = getStroke(
-    s.points.map(([x, y]) => [x * width, y * height]),
-    { size, thinning: 0.5, smoothing: 0.5, streamline: 0.4, simulatePressure: true, last: true },
-  );
-  fillOutline(ctx, outline);
+  // The casing is stroked along the outline at twice its width; the fill then covers the inner half.
+  if (casing) strokeCasing(ctx, casing, casing.px * 2, s.color);
+  ctx.fill();
 }
 
-/** A closed outline through the midpoints of its points (each point a control point). */
-function fillOutline(ctx: Ctx2D, pts: readonly number[][]): void {
+/** A closed outline through the midpoints of its points (each point a control point), as the current path. */
+function traceOutline(ctx: Ctx2D, pts: readonly number[][]): boolean {
   const n = pts.length;
-  if (n < 3) return;
+  if (n < 3) return false;
   ctx.beginPath();
   const [x0, y0] = pts[0]!;
   const [x1, y1] = pts[1]!;
@@ -88,7 +148,7 @@ function fillOutline(ctx: Ctx2D, pts: readonly number[][]): void {
     ctx.quadraticCurveTo(x!, y!, (x! + nx!) / 2, (y! + ny!) / 2);
   }
   ctx.closePath();
-  ctx.fill();
+  return true;
 }
 
 /** A highlighter stroke: an even, translucent line through the midpoints. */
@@ -114,7 +174,7 @@ function drawHighlighter(ctx: Ctx2D, s: InkStroke, width: number, height: number
   ctx.stroke();
 }
 
-function drawShape(ctx: Ctx2D, s: InkShape, width: number, height: number, lw: number): void {
+function drawShape(ctx: Ctx2D, s: InkShape, width: number, height: number, lw: number, casing: Casing | null): void {
   const [ax, ay] = [s.start[0] * width, s.start[1] * height];
   const [bx, by] = [s.end[0] * width, s.end[1] * height];
   ctx.beginPath();
@@ -131,6 +191,10 @@ function drawShape(ctx: Ctx2D, s: InkShape, width: number, height: number, lw: n
       ctx.lineTo(bx, by);
       ctx.lineTo(r[0], r[1]);
     }
+  }
+  if (casing) {
+    strokeCasing(ctx, casing, lw + casing.px * 2, s.color);
+    ctx.lineWidth = lw;
   }
   ctx.stroke();
 }
