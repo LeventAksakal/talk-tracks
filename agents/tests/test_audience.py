@@ -599,6 +599,18 @@ async def test_chat_is_rate_limited_per_session(tmp_path: Path) -> None:
     assert (await room.write(ada, "chat", {"text": "later"}))["type"] == "ack"
 
 
+async def test_stats_count_the_listeners_connected_to_each_room(tmp_path: Path) -> None:
+    room = Room(tmp_path)
+    await room.start()
+    ada, _ = await room.join({"name": "Ada"})
+    grace, _ = await room.join({})
+    assert room.endpoint.listeners(ROOM) == 2 and room.endpoint.listeners("talk2") == 0
+    room.endpoint.close(ada)
+    assert room.endpoint.listeners(ROOM) == 1
+    room.endpoint.close(grace)
+    assert room.endpoint.listeners(ROOM) == 0
+
+
 async def test_writes_are_rate_limited_per_session(tmp_path: Path) -> None:
     room = Room(tmp_path)
     await room.start()

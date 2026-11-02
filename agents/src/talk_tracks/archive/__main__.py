@@ -21,6 +21,11 @@ Presenters create rooms through it (decision 0025): ``--create HOST:PORT`` (TT_C
 ``private.jwk`` that signs speaker tokens (valid TT_ROOM_TOKEN_HOURS, default 48), TT_ROOMS_DIR (default rooms/ beside
 the archive folder) keeps each created room's title and speaker, and each code's rooms go into TT_CAPS_DIR as a caps
 batch. TT_DEMO_ROOMS are never created. TT_OPEN_SPEAKER=1 accepts any code (development only).
+
+Stats for nerds (ticket 0022): each room's ``talk/<room>/stats`` track lists its tracks, with subscriber counts read
+from moq-relay's stats feed (the relay runs with ``--stats-enabled``). TT_RELAY_STATS is that feed's broadcast
+(default ``.stats/node``; empty: not read, counts unknown). On a relay with auth, TT_TOKEN needs subscribe rights on
+``.stats/**`` and publish rights on ``talk/*/stats`` and ``talk/*/chat``.
 """
 
 from __future__ import annotations
@@ -62,6 +67,7 @@ async def main_async(args: argparse.Namespace) -> None:
     from .listeners import EndpointConfig
     from .relay import archive_rooms
     from .slices import SliceWatcher
+    from .stats import RELAY_STATS
     from .store import Archive, RoomFilter
 
     bucket = GcsBucket(args.bucket) if args.bucket else None
@@ -111,6 +117,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 capped=budget.capped,
                 listeners=listeners,
                 creation=creation,
+                relay_stats=os.environ.get("TT_RELAY_STATS", RELAY_STATS) or None,
             )
             await until_closed(relay, work)
     finally:
