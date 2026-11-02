@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ChalkyLoading } from "../brand/states";
 import { RoomMedia } from "../playback/media";
 import type { Playback } from "../playback/playback";
 import { useRoomStatus } from "../playback/roomStatus";
@@ -354,7 +355,7 @@ export function Player(props: PlayerProps) {
 
   useShortcuts(ctx, toggleFullscreen);
 
-  if (!ctx) return <p className="tt-loading">Connecting…</p>;
+  if (!ctx) return <ChalkyLoading className="tt-loading">Connecting…</ChalkyLoading>;
 
   return (
     <PlayerContext.Provider value={ctx}>

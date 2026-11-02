@@ -65,6 +65,9 @@ body {
   border-bottom: 1px solid var(--tt-color-line);
 }
 .hub-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
   font-weight: var(--tt-weight-strong);
 }
 .hub-create {
@@ -81,7 +84,18 @@ body {
   padding: var(--tt-space-10) var(--tt-space-6) var(--tt-space-12);
 }
 .hub-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-10);
+}
+.hub-hero-text {
+  flex: 1 1 auto;
   max-width: 760px;
+}
+.hub-nothing-live {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-4);
 }
 .hub-title {
   margin: 0 0 var(--tt-space-3);

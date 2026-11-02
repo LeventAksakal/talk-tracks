@@ -1,0 +1,386 @@
+/* Chalky's cycles (chalkyRig.ts), ported from the Reference Canvas's rig board. Each cycle is a loop on its own bone
+   group; blink runs over any cycle. Every animation is a transform or opacity on a small SVG, and none plays under
+   reduced motion. Chalky never sits on the stage while a talk plays, so the player's frames never pay for it. */
+
+.chalky {
+  /* The outline melts into Blackboard and draws a pencil line on Paper; props are chalk on the board. */
+  --chalky-line: #1b2420;
+  --chalky-mark: var(--tt-color-text, #f7f4ea);
+  display: block;
+  overflow: visible;
+  flex: none;
+}
+.chalky g {
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+/* Empty, error and loading states: Chalky above the words, centred. */
+.chalky-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tt-space-3, 12px);
+  max-width: 46ch;
+  margin: var(--tt-space-12, 48px) auto;
+  padding: var(--tt-space-4, 16px);
+  text-align: center;
+}
+.chalky-note > p {
+  margin: 0;
+}
+.chalky-note-title {
+  margin: 0;
+  font: var(--tt-weight-display, 700) var(--tt-text-h1, 2.5rem) / var(--tt-leading-tight, 1.1) var(--tt-font-display);
+}
+/* On a room-state card in the player, a little room above the title. */
+.chalky-card {
+  margin-bottom: var(--tt-space-1, 4px);
+}
+
+/* Shown only when loading takes more than a second, so a quick connect does not flash him. */
+.chalky-late {
+  animation: chalky-appear var(--tt-duration-slow, 400ms) var(--tt-ease-standard, ease) 1s both;
+}
+
+.chalky .chalky-eye {
+  animation: chalky-blink 4.2s infinite;
+}
+.chalky .cyc-still .chalky-eye,
+.chalky .cyc-sleep .chalky-eye {
+  animation: none;
+}
+.chalky .cyc-idle .b-body,
+.chalky .cyc-wave .b-body,
+.chalky .cyc-think .b-body {
+  animation: chalky-breathe 3.2s ease-in-out infinite;
+}
+.chalky .cyc-sleep .b-body {
+  animation: chalky-breathe-deep 4.5s ease-in-out infinite;
+}
+.chalky .cyc-wave .a-L {
+  animation: chalky-wave 1s ease-in-out infinite;
+}
+.chalky .cyc-wave .e-L {
+  animation: chalky-wave-fore 1s ease-in-out infinite;
+}
+.chalky .cyc-walk .b-root {
+  animation: chalky-bob 0.35s ease-in-out infinite;
+}
+.chalky .cyc-walk.v-side .l-L,
+.chalky .cyc-walk.v-side .a-R {
+  animation: chalky-swing 0.7s ease-in-out infinite;
+}
+.chalky .cyc-walk.v-side .l-R,
+.chalky .cyc-walk.v-side .a-L {
+  animation: chalky-swing 0.7s ease-in-out -0.35s infinite;
+}
+.chalky .cyc-walk.v-front .l-L {
+  animation: chalky-step 0.7s ease-in-out infinite;
+}
+.chalky .cyc-walk.v-front .l-R {
+  animation: chalky-step 0.7s ease-in-out -0.35s infinite;
+}
+.chalky .cyc-walk.v-front .a-L {
+  animation: chalky-foreshorten 0.7s ease-in-out infinite;
+}
+.chalky .cyc-walk.v-front .a-R {
+  animation: chalky-foreshorten 0.7s ease-in-out -0.35s infinite;
+}
+.chalky .cyc-hop .b-root {
+  animation: chalky-hop 0.9s infinite;
+}
+.chalky .cyc-hop .b-body {
+  animation: chalky-squash 0.9s infinite;
+}
+.chalky .cyc-hop .chalky-shadow {
+  animation: chalky-shadow 0.9s infinite;
+}
+.chalky .cyc-nod .b-face {
+  animation: chalky-nod 1.2s ease-in-out infinite;
+}
+.chalky .cyc-shake .b-face {
+  animation: chalky-shake 1.2s ease-in-out infinite;
+}
+.chalky .cyc-think .b-face {
+  animation: chalky-ponder 2.4s ease-in-out infinite;
+}
+.chalky .cyc-think .dots {
+  animation: chalky-float 2.4s ease-in-out infinite;
+}
+.chalky .cyc-listen .b-body {
+  animation: chalky-groove 0.6s ease-in-out infinite;
+}
+.chalky .cyc-talk .v1 {
+  animation: chalky-v1 0.45s infinite;
+}
+.chalky .cyc-talk .v2 {
+  animation: chalky-v2 0.45s infinite;
+}
+.chalky .cyc-talk .v3 {
+  animation: chalky-v3 0.45s infinite;
+}
+.chalky .cyc-talk .a-L {
+  animation: chalky-gesture 0.9s ease-in-out infinite;
+}
+.chalky .cyc-talk .bub {
+  animation: chalky-pop 0.9s ease-out infinite alternate;
+}
+.chalky .cyc-sleep .zz {
+  animation: chalky-float 4.5s ease-in-out infinite;
+}
+.chalky .cyc-sleep .z2 {
+  animation-delay: -1.5s;
+}
+.chalky .cyc-sleep .z3 {
+  animation-delay: -3s;
+}
+
+@keyframes chalky-appear {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes chalky-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes chalky-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.015, 1.03);
+  }
+}
+@keyframes chalky-breathe-deep {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.04, 0.96);
+  }
+}
+@keyframes chalky-wave {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes chalky-wave-fore {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  50% {
+    transform: rotate(28deg);
+  }
+}
+@keyframes chalky-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+@keyframes chalky-swing {
+  0%,
+  100% {
+    transform: rotate(24deg);
+  }
+  50% {
+    transform: rotate(-24deg);
+  }
+}
+@keyframes chalky-step {
+  0%,
+  50%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  25% {
+    transform: translateY(-4px) scale(1, 0.82);
+  }
+}
+@keyframes chalky-foreshorten {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1, 0.82);
+  }
+}
+@keyframes chalky-hop {
+  0%,
+  15% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-10px);
+  }
+  55% {
+    transform: translateY(-28px);
+  }
+  85%,
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes chalky-squash {
+  0% {
+    transform: scale(1, 1);
+  }
+  15% {
+    transform: scale(1.1, 0.88);
+  }
+  30% {
+    transform: scale(0.92, 1.1);
+  }
+  55%,
+  82% {
+    transform: scale(1, 1);
+  }
+  90% {
+    transform: scale(1.12, 0.86);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+@keyframes chalky-shadow {
+  0%,
+  15%,
+  85%,
+  100% {
+    transform: scale(1);
+  }
+  55% {
+    transform: scale(0.62);
+  }
+}
+@keyframes chalky-nod {
+  0%,
+  40%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  20%,
+  60% {
+    transform: translateY(5px);
+  }
+}
+@keyframes chalky-shake {
+  0%,
+  80%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(6px);
+  }
+  40% {
+    transform: translateX(-6px);
+  }
+}
+@keyframes chalky-ponder {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(2.5px);
+  }
+}
+@keyframes chalky-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-6px);
+    opacity: 0.5;
+  }
+}
+@keyframes chalky-groove {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+@keyframes chalky-v1 {
+  0%,
+  32% {
+    opacity: 1;
+  }
+  33%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes chalky-v2 {
+  0%,
+  32% {
+    opacity: 0;
+  }
+  33%,
+  65% {
+    opacity: 1;
+  }
+  66%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes chalky-v3 {
+  0%,
+  65% {
+    opacity: 0;
+  }
+  66%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes chalky-gesture {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  50% {
+    transform: rotate(-10deg);
+  }
+}
+@keyframes chalky-pop {
+  0% {
+    transform: translateY(2px);
+  }
+  100% {
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chalky *,
+  .chalky-late {
+    animation: none !important;
+  }
+}
