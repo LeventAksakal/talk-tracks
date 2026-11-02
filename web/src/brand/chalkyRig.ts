@@ -290,6 +290,8 @@ export function chalkyMarkup(pose: ChalkyPose = {}): string {
 const TITLE_FONT = `font-family="Talk Tracks Title, Cabin Sketch, sans-serif" font-weight="700"`;
 const PROPS: Record<Prop, string> = {
   "": "",
+  // The headphones sit on the head, so the body draws them.
+  phones: "",
   z:
     `<g style="${MARK}" ${TITLE_FONT}><text class="zz z1" x="30" y="-128" font-size="18">z</text>` +
     `<text class="zz z2" x="44" y="-146" font-size="22">z</text><text class="zz z3" x="60" y="-168" font-size="28">Z</text></g>`,
