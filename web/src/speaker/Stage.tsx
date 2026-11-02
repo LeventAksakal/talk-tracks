@@ -1,5 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { shapeEnd } from "../canvas/ink";
+import { WIDTHS, type WidthStep } from "../canvas/tools";
 import type { InkShape, Point, TextRange } from "../contracts/types";
 import type { RenderedSlide } from "./deck";
 import { drawElement, drawLaser, drawRange, marksAt, strokesAt } from "./draw";
@@ -26,13 +27,8 @@ export const colorKey = (tool: Tool): keyof ToolColors | undefined =>
       ? tool
       : undefined;
 
-/** Stroke widths (fractions of the slide's width): thin, medium, bold, as Excalidraw offers three. */
-export type WidthStep = 0 | 1 | 2;
-export const WIDTHS: Record<"pen" | "highlighter" | "shape", readonly [number, number, number]> = {
-  pen: [0.0025, 0.004, 0.008],
-  highlighter: [0.014, 0.022, 0.036],
-  shape: [0.0025, 0.004, 0.008],
-};
+/** Stroke widths, shared with the listener's toolbar (canvas/tools.ts). */
+export { WIDTHS, type WidthStep };
 export const PEN_WIDTH = WIDTHS.pen[1];
 export const HIGHLIGHTER_WIDTH = WIDTHS.highlighter[1];
 /** A shape needs a drag this long (a fraction of the slide's height) to be drawn at all. */

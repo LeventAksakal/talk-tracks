@@ -1,11 +1,14 @@
-// Listener tools on the slide tile (decisions 0021, 0024; ui-design §12): pen, highlighter, underline, highlight,
-// eraser, clear mine, and the comment tool that anchors a comment on a region or a text range of the slide. Writes go
-// to the room service, never the relay; what comes back on the room service's tracks is what everyone sees. Also the
-// comments anchored on the slide, outlined where they point.
+// Listener tools on the slide tile (decisions 0021, 0024; ui-design §12): pen, marker, the speaker's shapes, underline,
+// highlight, eraser, undo and redo of one's own work, clear mine, and the comment tool that anchors a comment on a
+// region or a text range of the slide. A tool's colour and width open in a popover from it, as on the console. Writes
+// go to the room service, never the relay; what comes back on the room service's tracks is what everyone sees. Also
+// the comments anchored on the slide, outlined where they point.
 
-import { type CSSProperties, type PointerEvent, useRef, useState } from "react";
+import { type CSSProperties, type PointerEvent, useEffect, useRef, useState } from "react";
 import { marksAt, rangeBetween, rangeBoxes, strokesAt } from "../annotate/geometry";
 import { type Thread, threadsAt } from "../annotate/threads";
+import { shapeEnd } from "../canvas/ink";
+import { SHAPE_LABELS, WIDTH_NAMES, WIDTHS, type WidthStep } from "../canvas/tools";
 import type { Anchor, Author, CommentRecord, Point, Region, ShowSlide, TextRun } from "../contracts/types";
 import { mayChange } from "../contracts/types";
 import { usePlayer } from "./context";
@@ -15,6 +18,9 @@ import {
   LISTENER_INKS,
   type Listening,
   type ListenerTool,
+  hasColor,
+  hasWidth,
+  isShape,
   useListening,
   useRoomService,
 } from "./listening";
@@ -27,14 +33,37 @@ export const DISCUSSION_TAB = "discussion";
 /** A press that moves less than this (a fraction of the slide) is a click. */
 const CLICK = 0.006;
 
-const TOOLS: { tool: ListenerTool; label: string; title: string }[] = [
-  { tool: "pen", label: "Pen", title: "Draw on the slide" },
-  { tool: "highlighter", label: "Marker", title: "Highlighter: draw translucent" },
-  { tool: "underline", label: "Underline", title: "Underline text: drag across it or click a word" },
-  { tool: "highlight", label: "Highlight", title: "Highlight text: drag across it or click a word" },
-  { tool: "eraser", label: "Eraser", title: "Erase your strokes and marks" },
-  { tool: "comment", label: "Comment", title: "Comment on a part of the slide: drag a box or click a word" },
+const TOOLS: { tool: ListenerTool; label: string; title: string }[][] = [
+  [
+    { tool: "pen", label: "Pen", title: "Draw on the slide" },
+    { tool: "highlighter", label: "Marker", title: "Highlighter: draw translucent" },
+  ],
+  [
+    { tool: "rect", label: SHAPE_LABELS.rect, title: "Draw a rectangle (Shift: a square)" },
+    { tool: "ellipse", label: SHAPE_LABELS.ellipse, title: "Draw an ellipse (Shift: a circle)" },
+    { tool: "arrow", label: SHAPE_LABELS.arrow, title: "Draw an arrow (Shift: in 45° steps)" },
+    { tool: "line", label: SHAPE_LABELS.line, title: "Draw a line (Shift: in 45° steps)" },
+  ],
+  [
+    { tool: "underline", label: "Underline", title: "Underline text: drag across it or click a word" },
+    { tool: "highlight", label: "Highlight", title: "Highlight text: drag across it or click a word" },
+    { tool: "eraser", label: "Eraser", title: "Erase your strokes and marks" },
+    { tool: "comment", label: "Comment", title: "Comment on a part of the slide: drag a box or click a word" },
+  ],
 ];
+
+const hasOptions = (t: ListenerTool) => hasColor(t) || hasWidth(t);
+
+/** The stroke width a tool draws with at a width step. */
+function widthOf(tool: ListenerTool, step: WidthStep): number {
+  return (tool === "highlighter" ? WIDTHS.highlighter : isShape(tool) ? WIDTHS.shape : WIDTHS.pen)[step];
+}
+
+/** Whether a key press goes to a text field (the name, a comment), where Ctrl+Z is the field's own. */
+function inTextField(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && typeof el.closest === "function" && (el.isContentEditable || !!el.closest("input, textarea, select"));
+}
 
 /** Whether the playhead is at the live edge: drawing changes the live slide only. */
 function useLive(): boolean {
@@ -50,15 +79,44 @@ function useAuthor(listening: Listening | undefined): Author | undefined {
 }
 
 /**
- * The tool bar on the slide tile: a button that opens it, then the tools, colours and Clear mine. Drawing tools need
- * the live slide and a display name, asked for here once.
+ * The tool bar on the slide tile: a button that opens it, then the tools (the active one's colour and width in a
+ * popover from it), Undo, Redo and Clear mine. Drawing tools need the live slide and a display name, asked for here
+ * once. Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z undo and redo one's own work on the slide while the tools are open.
  */
-export function AnnotateBar({ on }: { on: ShowSlide | null }) {
-  const { listening } = usePlayer();
+export function AnnotateBar({
+  on,
+  slides,
+  time,
+}: {
+  on: ShowSlide | null;
+  slides: SlideTracks;
+  time: (t: number | undefined) => number | undefined;
+}) {
+  const { listening, clock } = usePlayer();
   const state = useListening(listening);
   useRoomService(listening?.service);
   const live = useLive();
+  const author = useAuthor(listening);
   const [name, setName] = useState("");
+  const canWrite = !!listening && listening.service.status() === "open" && !!on && live && !!author?.name;
+  const keys = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    keys.current = (e) => {
+      if (!listening || !state?.annotating || !on || !canWrite || inTextField(e.target)) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const redo = key === "y" || (key === "z" && e.shiftKey);
+      if (key !== "z" && key !== "y") return;
+      e.preventDefault();
+      if (redo) listening.writer.redo(on);
+      else listening.writer.undo(on);
+    };
+  });
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => keys.current(e);
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, []);
   if (!listening || !state) return null;
   const service = listening.service;
   const status = service.status();
@@ -80,51 +138,91 @@ export function AnnotateBar({ on }: { on: ShowSlide | null }) {
     );
   }
 
-  const choose = (tool: ListenerTool) => listening.set({ tool, error: undefined });
+  // Picking a tool opens its options; picking it again closes them, as on the console.
+  const choose = (tool: ListenerTool) =>
+    listening.set({ tool, error: undefined, optionsOpen: state.tool !== tool ? hasOptions(tool) : !state.optionsOpen });
+  const { writer } = listening;
+  const clearMine = () => {
+    if (!on || !author) return;
+    const t = time(clock.now());
+    const elements = (slides.inkAt(t) ?? []).map((r) => r.data).filter((d) => mayChange(author, d.by));
+    const marks = (slides.slideAt(t)?.marks ?? []).map((r) => r.data).filter((d) => mayChange(author, d.by));
+    writer.clear(on, { elements, marks });
+  };
   return (
     <div className="tt-annotate-bar" role="toolbar" aria-label="Annotation tools" data-open="true">
-      {TOOLS.map(({ tool, label, title }) => {
-        const disabled = status !== "open" || !on || (DRAWING_TOOLS.includes(tool) && !live);
-        return (
-          <button
-            key={tool}
-            type="button"
-            className="tt-annotate-tool"
-            aria-pressed={state.tool === tool}
-            disabled={disabled}
-            title={title}
-            onClick={() => choose(tool)}
-          >
-            {label}
-          </button>
-        );
-      })}
-      <span className="tt-annotate-colors" role="radiogroup" aria-label="Colour">
-        {LISTENER_INKS.map((name) => {
-          const c = inkColor(name);
-          return (
-            <button
-              key={name}
-              type="button"
-              role="radio"
-              aria-checked={state.color === c}
-              aria-label={CHALK_BOX.find((i) => i.name === name)!.label}
-              className="tt-annotate-color"
-              style={{ "--swatch": c } as CSSProperties}
-              onClick={() => listening.set({ color: c })}
-            />
-          );
-        })}
+      {TOOLS.map((group, i) => (
+        <span key={i} className="tt-annotate-group">
+          {group.map(({ tool, label, title }) => {
+            const disabled = status !== "open" || !on || (DRAWING_TOOLS.includes(tool) && !live);
+            const active = state.tool === tool;
+            const options = active && !disabled && hasOptions(tool);
+            return (
+              <span key={tool} className="tt-annotate-slot">
+                <button
+                  type="button"
+                  className="tt-annotate-tool"
+                  aria-pressed={active}
+                  disabled={disabled}
+                  title={title}
+                  onClick={() => choose(tool)}
+                >
+                  {label}
+                </button>
+                {options ? (
+                  <button
+                    type="button"
+                    className="tt-annotate-options"
+                    aria-label={`${label} colour${hasWidth(tool) ? " and width" : ""}`}
+                    aria-expanded={state.optionsOpen}
+                    onClick={() => listening.set({ optionsOpen: !state.optionsOpen })}
+                  >
+                    <span style={{ "--swatch": state.color } as CSSProperties} />
+                  </button>
+                ) : null}
+                {options && state.optionsOpen ? (
+                  <ToolOptions
+                    label={label}
+                    color={state.color}
+                    width={hasWidth(tool) ? state.width : undefined}
+                    onColor={(color) => listening.set({ color })}
+                    onWidth={(width) => listening.set({ width })}
+                  />
+                ) : null}
+              </span>
+            );
+          })}
+        </span>
+      ))}
+      <span className="tt-annotate-group">
+        <button
+          type="button"
+          className="tt-annotate-tool"
+          disabled={!canWrite || !writer.canUndo(on)}
+          title="Undo your last change on this slide (Ctrl+Z)"
+          onClick={() => on && writer.undo(on)}
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          className="tt-annotate-tool"
+          disabled={!canWrite || !writer.canRedo(on)}
+          title="Redo (Ctrl+Y)"
+          onClick={() => on && writer.redo(on)}
+        >
+          Redo
+        </button>
+        <button
+          type="button"
+          className="tt-annotate-tool"
+          disabled={!canWrite}
+          title="Remove your strokes and marks from this slide"
+          onClick={clearMine}
+        >
+          Clear mine
+        </button>
       </span>
-      <button
-        type="button"
-        className="tt-annotate-tool"
-        disabled={status !== "open" || !on || !live || !me?.name}
-        title="Remove your strokes and marks from this slide"
-        onClick={() => on && listening.writer.clear(on)}
-      >
-        Clear mine
-      </button>
       <button
         type="button"
         className="tt-annotate-tool"
@@ -165,6 +263,61 @@ export function AnnotateBar({ on }: { on: ShowSlide | null }) {
           </button>
         </form>
       ) : null}
+    </div>
+  );
+}
+
+/** The active tool's colour (the listener's pencils) and, for the pen, marker and shapes, its width. */
+function ToolOptions({
+  label,
+  color,
+  width,
+  onColor,
+  onWidth,
+}: {
+  label: string;
+  color: string;
+  width: WidthStep | undefined;
+  onColor: (c: string) => void;
+  onWidth: (w: WidthStep) => void;
+}) {
+  return (
+    <div className="tt-annotate-popover" role="group" aria-label={`${label} options`}>
+      <span className="tt-annotate-colors" role="radiogroup" aria-label="Colour">
+        {LISTENER_INKS.map((name) => {
+          const c = inkColor(name);
+          return (
+            <button
+              key={name}
+              type="button"
+              role="radio"
+              aria-checked={color === c}
+              aria-label={CHALK_BOX.find((i) => i.name === name)!.label}
+              className="tt-annotate-color"
+              style={{ "--swatch": c } as CSSProperties}
+              onClick={() => onColor(c)}
+            />
+          );
+        })}
+      </span>
+      {width !== undefined ? (
+        <span className="tt-annotate-widths" role="radiogroup" aria-label="Stroke width">
+          {([0, 1, 2] as const).map((w) => (
+            <button
+              key={w}
+              type="button"
+              role="radio"
+              aria-checked={w === width}
+              aria-label={WIDTH_NAMES[w]}
+              className="tt-annotate-width"
+              onClick={() => onWidth(w)}
+            >
+              <span style={{ height: `${2 + w * 2}px` }} />
+            </button>
+          ))}
+        </span>
+      ) : null}
+      <span className="tt-annotate-hint">Closes when you draw</span>
     </div>
   );
 }
@@ -213,22 +366,40 @@ export function AnnotateSurface({
     const hitStrokes = strokesAt(strokes, p, aspect).filter((id) => !d.erased.has(id));
     const hitMarks = marksAt(marks, runs, p).filter((id) => !d.erased.has(id));
     for (const id of [...hitStrokes, ...hitMarks]) d.erased.add(id);
-    listening.writer.erase(hitStrokes);
-    listening.writer.unmark(hitMarks);
+    listening.writer.erase(
+      hitStrokes,
+      strokes.map((s) => s.data),
+    );
+    listening.writer.unmark(
+      hitMarks,
+      marks.map((k) => k.data),
+    );
   };
+
+  /** Where a shape's drag ends: Shift makes it even (a square, a circle, 45° steps). */
+  const shapeAt = (d: Drag, p: Point, even: boolean): Point =>
+    isShape(d.tool) ? shapeEnd(d.tool, d.from, p, aspect, even) : p;
 
   const down = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (state.optionsOpen) listening.set({ optionsOpen: false });
     const p = point(e);
     const d: Drag = { from: p, to: p, tool: state.tool, erased: new Set() };
     drag.current = d;
+    const width = widthOf(d.tool, state.width);
     if (d.tool === "pen" || d.tool === "highlighter") {
-      const stroke = listening.writer.begin(on, d.tool, state.color, p);
+      const stroke = listening.writer.begin(on, d.tool, state.color, p, width);
       if (stroke) listening.addDraft(stroke);
-    } else if (d.tool === "eraser") erase(p, d);
+    } else if (isShape(d.tool)) {
+      const shape = listening.writer.beginShape(on, { shape: d.tool, color: state.color, width }, p);
+      if (shape) listening.addDraft(shape);
+    } else if (d.tool === "eraser") {
+      listening.writer.startEdit(); // one sweep is one undo step
+      erase(p, d);
+    }
   };
 
   const move = (e: PointerEvent<HTMLDivElement>) => {
@@ -238,6 +409,8 @@ export function AnnotateSurface({
     d.to = p;
     if (d.tool === "pen" || d.tool === "highlighter") {
       listening.writer.move(p); // the draft is the same object: the ink canvas sees its new points
+    } else if (isShape(d.tool)) {
+      listening.writer.shapeTo(shapeAt(d, p, e.shiftKey)); // the draft's end moves with it
     } else if (d.tool === "eraser") erase(p, d);
     else if (d.tool === "underline" || d.tool === "highlight") {
       const range = rangeBetween(runs, d.from, p);
@@ -254,6 +427,13 @@ export function AnnotateSurface({
     if (d.tool === "pen" || d.tool === "highlighter") {
       const stroke = listening.writer.end();
       if (stroke) listening.addDraft(stroke);
+    } else if (isShape(d.tool)) {
+      const dragged = listening.writer.shaping();
+      const shape = listening.writer.endShape(shapeAt(d, p, e.shiftKey));
+      if (shape) listening.addDraft(shape);
+      else if (dragged) listening.dropDraft(dragged.stroke); // a click: too short to draw
+    } else if (d.tool === "eraser") {
+      listening.writer.endEdit();
     } else if (d.tool === "underline" || d.tool === "highlight") {
       const range = rangeBetween(runs, d.from, p);
       if (range) listening.writer.mark(on, d.tool, state.color, range);
@@ -274,6 +454,9 @@ export function AnnotateSurface({
         drag.current = undefined;
         setPreview(undefined);
         listening.writer.end();
+        const dragged = listening.writer.shaping();
+        if (!listening.writer.endShape() && dragged) listening.dropDraft(dragged.stroke);
+        listening.writer.endEdit();
       }}
     >
       {preview?.boxes.map((b, i) => (

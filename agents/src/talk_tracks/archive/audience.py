@@ -216,8 +216,9 @@ class Audience:
         record = _valid(MarkRecord, m, {**data, "by": by.model_dump()})
         d = record.data
         if isinstance(d, TextMark):
+            # A new mark, or one's own removed mark sent again whole (an undone unmark or clear, or a redo).
             _own(by, d.id, "mark")
-            if d.id in self._taken:
+            if d.id in self._taken and (not d.id.startswith(f"{by.id}:") or d.id in text_marks(self.marks.records)):
                 raise Refusal("invalid", "That mark id is taken")
             self._taken.add(d.id)
         elif isinstance(d, Unmark):

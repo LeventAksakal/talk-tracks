@@ -83,7 +83,7 @@ export function SlideSurface() {
             <InkLayer slides={slides} />
             <LaserPointer slides={slides} />
             <AnnotateSurface slides={slides} on={on} runs={runs} aspect={aspect} time={slideTime} />
-            <AnnotateBar on={on} />
+            <AnnotateBar on={on} slides={slides} time={slideTime} />
           </>
         ) : null
       }
@@ -167,9 +167,7 @@ function InkLayer({ slides }: { slides: SlideTracks }) {
       const drafts = listening?.get().drafts ?? [];
       let strokes = echoed;
       if (drafts.length) {
-        listening?.settle(
-          new Set(echoed.filter((s) => s.data.kind === "shape" || s.data.done).map((s) => s.data.stroke)),
-        );
+        listening?.settle(echoed.map((s) => s.data));
         const own = new Set(drafts.map((d) => d.stroke));
         strokes = [...echoed.filter((s) => !own.has(s.data.stroke)), ...drafts.map((data) => ({ m: 0, data }))];
       }

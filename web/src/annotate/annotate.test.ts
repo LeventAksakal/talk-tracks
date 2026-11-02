@@ -193,6 +193,50 @@ describe("a listener's annotations as writes", () => {
     expect(service.writes[0]!.data).toMatchObject({ id, style: "underline", span: [{ run: "t1", start: 2 }] });
   });
 
+  it("undoes an eraser sweep and a clear by sending what they took away again whole, and redoes them", () => {
+    const { service, w, tick } = writer();
+    const pen = w.begin(on, "pen", "#5fb3ff", [0.1, 0.1], 0.008)!;
+    w.move([0.2, 0.2]);
+    tick(BATCH_MS);
+    w.end();
+    expect(service.writes[0]!.data.width).toBe(0.008);
+    const id = w.mark(on, "highlight", "#ffd84a", [{ run: "t1" }])!;
+    const mark = { kind: "mark" as const, id, deck: 0, index: 3, style: "highlight" as const, color: "#ffd84a" };
+    const marked = { ...mark, span: [{ run: "t1" }], by: { id: "u7", name: "Ada" } };
+
+    // One sweep of the eraser over the stroke and the mark is one step.
+    w.startEdit();
+    w.erase([pen.stroke], [pen]);
+    w.unmark([id], [marked]);
+    w.endEdit();
+    service.writes.length = 0;
+    w.undo(on);
+    const { by: _by, ...penOnWire } = pen;
+    expect(service.writes.map((x) => x.data)).toEqual([
+      { ...penOnWire, done: true },
+      { ...mark, span: [{ run: "t1" }] },
+    ]);
+    service.writes.length = 0;
+    w.redo(on);
+    expect(service.writes.map((x) => x.data)).toEqual([
+      { kind: "erase", strokes: [pen.stroke] },
+      { kind: "unmark", marks: [id] },
+    ]);
+
+    // Clear mine, then undo: what it removed comes back.
+    w.undo(on);
+    service.writes.length = 0;
+    w.clear(on, { elements: [pen], marks: [marked] });
+    w.undo(on);
+    expect(service.writes.slice(2).map((x) => `${x.track}:${String(x.data.kind)}`)).toEqual([
+      "ink:stroke",
+      "marks:mark",
+    ]);
+    // Undo works on its own slide only.
+    expect(w.canUndo({ deck: 0, index: 4 })).toBe(false);
+    expect(w.canRedo(on)).toBe(true);
+  });
+
   it("writes nothing and reports why while there is no display name", async () => {
     const service = new FakeRoomService({ me: { id: "u7", name: null, speaker: false } });
     const w = new AnnotationWriter(service, () => {});

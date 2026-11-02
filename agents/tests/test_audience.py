@@ -365,6 +365,36 @@ async def test_a_listener_draws_shapes_and_undoes_and_redoes_their_own_work_for_
     assert bob_hello["id"] != me
 
 
+async def test_a_listener_brings_back_their_own_removed_text_mark_by_sending_it_again_whole(tmp_path: Path) -> None:
+    """Undoing an unmark or a clear, or redoing a mark, re-sends the mark as it was, under its own id."""
+    room = Room(tmp_path)
+    await room.start()
+    ada, [hello] = await room.join({"name": "Ada"})
+    bob, _ = await room.join({"name": "Bob"})
+    me = hello["id"]
+    mark: dict[str, Any] = {
+        "kind": "mark",
+        "id": f"{me}:m1",
+        "deck": DECK,
+        "index": 0,
+        "style": "underline",
+        "color": "#5fb3ff",
+        "span": [{"run": "t1"}],
+    }
+
+    async def answer(session: Session, data: dict[str, Any]) -> str:
+        reply = await room.write(session, "marks", data)
+        return str(reply.get("code", reply["type"]))
+
+    assert await answer(ada, mark) == "ack"
+    assert await answer(ada, mark) == "invalid"  # still on the slide: the id is taken
+    assert await answer(ada, {"kind": "unmark", "marks": [f"{me}:m1"]}) == "ack"
+    assert await answer(bob, mark) == "invalid"  # not Bob's id
+    assert await answer(ada, mark) == "ack"  # undo of the unmark: back, whole
+    records = [r for p in room.objects(ANNOTATIONS, "marks") for r in MarksObject.model_validate_json(p).root]
+    assert [getattr(r.data, "id", None) for r in marks_carry(records, ON)] == [f"{me}:m1"]
+
+
 async def test_the_speaker_moderates_through_the_room_service_with_their_relay_token(tmp_path: Path) -> None:
     d, jwk = keypair()
     room = Room(tmp_path, key=SpeakerKey.from_jwk(jwk))
