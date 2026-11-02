@@ -28,6 +28,8 @@ from typing import Literal
 
 from .contracts import (
     CATALOG_TRACK,
+    CHAT_EVENT,
+    CHAT_TRACK,
     COMMENTS_EVENT,
     COMMENTS_TRACK,
     CUE_EVENT,
@@ -48,15 +50,19 @@ from .contracts import (
     ROOT,
     SLIDE_TRACK,
     SLIDES_EVENT,
+    STATS_EVENT,
+    STATS_TRACK,
     RoomTt,
     Source,
     TrackStatus,
     TrackTt,
     agent_path,
     annotations_path,
+    chat_path,
     comments_path,
     slice_template,
     slides_path,
+    stats_path,
     teacher_path,
 )
 from .contracts import CatalogTrack as MsfTrack
@@ -73,12 +79,13 @@ __all__ = [
     "room_service_tracks",
     "speaker_sources",
     "speaker_tracks",
+    "stats_track",
     "translation_track",
     "translation_tracks",
 ]
 
 AgentKind = Literal["captions", "translation", "slides", "outline"]
-EventKind = Literal["deck", "slide", "ink", "marks", "pointer", "comments", "room"]
+EventKind = Literal["deck", "slide", "ink", "marks", "pointer", "comments", "room", "chat", "stats"]
 Kind = AgentKind | EventKind
 Cost = Literal["paid", "free"]
 
@@ -94,9 +101,11 @@ EVENT_TYPES: dict[Kind, str] = {
     "pointer": POINTER_EVENT,
     "comments": COMMENTS_EVENT,
     "room": ROOM_EVENT,
+    "chat": CHAT_EVENT,
+    "stats": STATS_EVENT,
 }
 ROLES: dict[Kind, str] = {"captions": "caption", "translation": "subtitle"}
-UNSLICED: frozenset[Kind] = frozenset({"outline", "deck"})  # one group per revision or per deck, no template
+UNSLICED: frozenset[Kind] = frozenset({"outline", "deck", "stats"})  # one group per revision, deck or snapshot
 
 
 @dataclass(frozen=True)
@@ -196,7 +205,13 @@ def room_service_tracks(room: str) -> tuple[CatalogTrack, ...]:
         CatalogTrack(comments_path(room), COMMENTS_TRACK, "comments", "", "Comments", 0, "free", (slide,)),
         CatalogTrack(ns, INK_TRACK, "ink", "", "Audience ink", 0, "free", (slide,)),
         CatalogTrack(ns, MARKS_TRACK, "marks", "", "Audience text marks", 0, "free", (deck, slide)),
+        CatalogTrack(chat_path(room), CHAT_TRACK, "chat", "", "Chat", 0, "free"),
     )
+
+
+def stats_track(room: str) -> CatalogTrack:
+    """The room service's stats track (ticket 0022): a snapshot every 5 s of every track and its subscribers."""
+    return CatalogTrack(stats_path(room), STATS_TRACK, "stats", "", "Stats for nerds", 0, "free")
 
 
 def speaker_sources(

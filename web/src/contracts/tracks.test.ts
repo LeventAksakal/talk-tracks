@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import carryIns from "../../../contracts/examples/carry-ins.json";
 import objects from "../../../contracts/examples/objects.json";
-import { commentsCarry, currentSlide, inkCarry, lastRecord, marksCarry, upTo } from "./tracks";
-import type { CommentRecord, CurrentSlideRecord, InkRecord, MarkRecord, RoomCatalog } from "./types";
+import { chatCarry, commentsCarry, currentSlide, inkCarry, lastRecord, marksCarry, upTo } from "./tracks";
+import type { ChatRecord, CommentRecord, CurrentSlideRecord, InkRecord, MarkRecord, RoomCatalog } from "./types";
 import {
+  parseChatObject,
   parseCommentsObject,
   parseCurrentSlideObject,
   parseDeckObject,
@@ -25,6 +26,7 @@ const parsers: Record<string, (payload: Uint8Array) => Parsed<unknown>> = {
   "pointer-object.schema.json": parsePointerObject,
   "comments-object.schema.json": parseCommentsObject,
   "room-state-object.schema.json": parseRoomStateObject,
+  "chat-object.schema.json": parseChatObject,
 };
 
 describe("speaker and room event track objects", () => {
@@ -107,6 +109,8 @@ interface Cut {
   pointer: { records: unknown[]; carry: unknown[] };
   comments: { records: CommentRecord[]; carry: CommentRecord[] };
   room: { records: unknown[]; carry: unknown[] };
+  /** The room service's chat; `n` messages kept (50 on the wire). */
+  chat: { records: ChatRecord[]; carry: ChatRecord[]; n: number };
 }
 
 describe("carry-ins", () => {
@@ -125,6 +129,7 @@ describe("carry-ins", () => {
       expect(inkCarry(cut.annotations_ink.records, on), at).toEqual(cut.annotations_ink.carry);
       expect(marksCarry(cut.annotations_marks.records, on), at).toEqual(cut.annotations_marks.carry);
       expect(commentsCarry(cut.comments.records, on), at).toEqual(cut.comments.carry);
+      expect(chatCarry(cut.chat.records, cut.chat.n), at).toEqual(cut.chat.carry);
     }
   });
 

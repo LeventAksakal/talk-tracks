@@ -21,6 +21,8 @@ from talk_tracks.archive.slices import NORMAL, Slice
 from talk_tracks.archive.speaker_key import G, N, SpeakerKey, covers, multiply
 from talk_tracks.contracts import (
     SLICE_MS,
+    ChatObject,
+    ChatRecord,
     Comment,
     CommentRecord,
     CommentsObject,
@@ -49,6 +51,7 @@ ROOM = "talk1"
 SLIDES = f"talk/{ROOM}/slides"
 ANNOTATIONS = f"talk/{ROOM}/annotations"
 COMMENTS = f"talk/{ROOM}/comments"
+CHAT = f"talk/{ROOM}/chat"
 DECK = 3
 
 
@@ -581,6 +584,73 @@ async def test_a_restarted_room_service_keeps_every_slides_audience_annotations(
     assert (await again.write(ada2, "ink", {"kind": "erase", "strokes": [f"{me}:1"]}))["type"] == "ack"
     _stranger, [other] = await again.join({"name": "Eve", "id": me, "key": "0" * 32})
     assert other["id"] != me  # a guessed key gets a fresh id
+
+
+def chat(payloads: list[bytes]) -> list[ChatRecord]:
+    return [r for p in payloads for r in ChatObject.model_validate_json(p).root]
+
+
+async def test_chat_goes_out_on_the_chat_track_stamped_and_replays_from_the_archive(tmp_path: Path) -> None:
+    room = Room(tmp_path)
+    await room.start()
+    ada, [hello] = await room.join({"name": "Ada"})
+    grace, _ = await room.join({"name": "Grace"})
+    said = await room.write(ada, "chat", {"text": "  Hello from Lisbon  "})
+    assert said["type"] == "ack" and said["m"] == 12_000 and said["id"]
+    room.now = 12_900
+    await room.write(grace, "chat", {"text": "Merhaba!"})
+
+    # who and when come from the room service, never from what was sent
+    sent = chat(room.objects(CHAT, "chat"))
+    assert [(r.m, r.data.by.name, r.data.text) for r in sent] == [
+        (12_000, "Ada", "Hello from Lisbon"),
+        (12_900, "Grace", "Merhaba!"),
+    ]
+    assert sent[0].data.by.id == hello["id"] and sent[0].data.id == said["id"]
+    for bad in (
+        {"text": "x", "by": {"id": "speaker", "name": "S", "speaker": True}},
+        {"text": "x", "id": "m1"},
+        {"text": " "},
+    ):
+        assert (await room.write(ada, "chat", bad))["type"] == "error"
+    assert (await room.write(ada, "chat", {"text": "x" * 501}))["code"] == "limit"
+
+    # the next slice's carry-in holds the conversation so far: a late joiner or a seek needs one group
+    await room.at(16_100)
+    [carry] = room.group(CHAT, "chat", 4)[:1]
+    assert [r.data.text for r in chat([carry])] == ["Hello from Lisbon", "Merhaba!"]
+    out = room.relay.published[(CHAT, "chat")]
+    assert await out.fetch(3) == out.live[3]  # replay: a FETCH of the slice is what went out live
+
+    # a restarted room service carries the conversation on
+    await room.events.close()
+    again = Room(tmp_path, now=21_000)
+    await again.events.restore()
+    await again.at(21_000)
+    assert [r.data.text for r in chat(again.group(CHAT, "chat", 5)[:1])] == ["Hello from Lisbon", "Merhaba!"]
+
+
+async def test_chat_is_rate_limited_per_session(tmp_path: Path) -> None:
+    room = Room(tmp_path)
+    await room.start()
+    ada, _ = await room.join({"name": "Ada"})
+    rate, burst = LIMITS["chat"]
+    answers = [(await room.write(ada, "chat", {"text": f"#{i}"}))["type"] for i in range(int(burst) + 1)]
+    assert answers == ["ack"] * int(burst) + ["error"]
+    room.clock += 1 / rate
+    assert (await room.write(ada, "chat", {"text": "later"}))["type"] == "ack"
+
+
+async def test_stats_count_the_listeners_connected_to_each_room(tmp_path: Path) -> None:
+    room = Room(tmp_path)
+    await room.start()
+    ada, _ = await room.join({"name": "Ada"})
+    grace, _ = await room.join({})
+    assert room.endpoint.listeners(ROOM) == 2 and room.endpoint.listeners("talk2") == 0
+    room.endpoint.close(ada)
+    assert room.endpoint.listeners(ROOM) == 1
+    room.endpoint.close(grace)
+    assert room.endpoint.listeners(ROOM) == 0
 
 
 async def test_writes_are_rate_limited_per_session(tmp_path: Path) -> None:

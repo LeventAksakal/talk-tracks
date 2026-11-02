@@ -24,8 +24,10 @@ services:
     build: { context: ., dockerfile: Dockerfile.relay }
     # The browser needs the web listener too: plain HTTP on the same port number (TCP) serves
     # /certificate.sha256 for WebTransport certificate pinning and the WebSocket fallback.
+    # --stats-enabled: the relay's own counters on .stats/node, every 2 s; the room service reads the subscriber
+    # counts for Stats for nerds from them (ticket 0022, archive.stats).
     command: ["--listen", "[::]:4443", "--listen-tls-generate", "relay,localhost", "--auth-public", "**",
-              "--web-http-listen", "[::]:4443", "--log-level", "info"]
+              "--web-http-listen", "[::]:4443", "--log-level", "info", "--stats-enabled", "--stats-interval", "2"]
     ports: ["${TT_RELAY_PORT:-4443}:4443/udp", "${TT_RELAY_PORT:-4443}:4443/tcp"]
     restart: unless-stopped
 

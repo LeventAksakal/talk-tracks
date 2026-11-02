@@ -11,12 +11,14 @@ from collections.abc import Iterable, Sequence
 from pydantic import ValidationError
 
 from .contracts import (
+    CHAT_CARRY,
     SLICE_MS,
     Anchor,
     CaptionLine,
     CarryData,
     CarryNote,
     CarryRecord,
+    ChatRecord,
     Comment,
     CommentEdit,
     CommentHide,
@@ -231,6 +233,20 @@ def comments_carry(records: Iterable[CommentRecord], on: ShowSlide | None) -> li
     threads = comment_threads(records)
     anchored = {r.data.id for r in threads if isinstance(r.data, Comment) and _on(r.data.anchor, on)}
     return [r for r in threads if r.data.id in anchored or _to(r) in anchored]
+
+
+def chat_messages(records: Iterable[ChatRecord]) -> list[ChatRecord]:
+    """Every message once (a carry-in repeats earlier ones), in room-time order."""
+    seen: dict[str, ChatRecord] = {}
+    for r in records:
+        seen.setdefault(r.data.id, r)
+    return sorted(seen.values(), key=lambda r: r.m)
+
+
+def chat_carry(records: Iterable[ChatRecord], n: int = CHAT_CARRY) -> list[ChatRecord]:
+    """Object 0 of the chat track: the last ``n`` messages, oldest first. Keeping only these is also the compaction
+    that leaves every later carry-in unchanged."""
+    return chat_messages(records)[-n:] if n > 0 else []
 
 
 def _on(where: InkElement | TextMark | ShowSlide | Anchor, slide: InkClear | MarksClear | ShowSlide) -> bool:

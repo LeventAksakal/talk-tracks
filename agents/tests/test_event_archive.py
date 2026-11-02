@@ -334,6 +334,42 @@ async def test_end_talk_makes_the_room_track_say_ended_for_good_even_after_a_res
     assert room_states(out2.live[7]) == [(10_500, "ended"), (30_000, "on_air")]
 
 
+async def test_a_created_room_says_not_started_with_its_title_before_the_speaker_goes_on_air(tmp_path: Path) -> None:
+    def said(payloads: list[bytes]) -> list[tuple[int, str, str | None, str | None]]:
+        return [
+            (r.m, r.data.state, r.data.title, r.data.speaker)
+            for p in payloads
+            for r in RoomStateObject.model_validate_json(p).root
+        ]
+
+    relay = FakeRelay()
+    events = RoomEvents(ROOM, relay, tmp_path)
+    events.describe("Quantum 101", "Ada")
+    await events.waiting()  # created: no clock, no speaker yet
+    out = relay.published[(f"talk/{ROOM}/catalog", "room")]
+    assert said(out.live[0]) == [(0, "waiting", "Quantum 101", "Ada")] and not out.ended  # a joiner gets group 0
+    await events.waiting()  # said once
+    events.describe("Quantum 102", "Ada")
+    await events.waiting()  # re-issued with a new title
+    assert said(out.live[0])[-1] == (0, "waiting", "Quantum 102", "Ada")
+
+    # the room service restarts before the talk: a player opened now still reads "Not started"
+    assert events.state is not None
+    events.state.archive.close()  # the process stops; its slice 0 stays open on disk
+    relay2 = FakeRelay()
+    again = RoomEvents(ROOM, relay2, tmp_path)
+    again.describe("Quantum 102", "Ada")
+    await again.waiting()
+    out2 = relay2.published[(f"talk/{ROOM}/catalog", "room")]
+    assert said(out2.live[0]) == [(0, "waiting", "Quantum 102", "Ada")]
+
+    # on air: the talk starts after the waiting record, and waiting is never said again
+    await again.tick(9_000, live=True)
+    assert room_states(out2.live[2]) == [(0, "waiting"), (9_000, "on_air")] and out2.ended == [0]
+    await again.waiting()
+    assert room_states([p for k in sorted(out2.live) for p in out2.live[k]])[-1] == (9_000, "on_air")
+
+
 async def test_end_talk_after_the_broadcast_paused_opens_the_next_slice(tmp_path: Path) -> None:
     relay = FakeRelay()
     events = RoomEvents(ROOM, relay, tmp_path)
@@ -359,7 +395,7 @@ async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_pat
     doc = json.loads(cat.changed() or b"")
     MsfRoomCatalog.model_validate(doc)
     names = [(t["namespace"], t["name"]) for t in doc["tracks"]]
-    # slides on air: the audience may draw on them and comment, so its tracks are published and listed too
+    # slides on air: the audience may draw on them, comment and chat, so its tracks are published and listed too
     assert names == [
         (NS, "deck"),
         (NS, "slide"),
@@ -370,6 +406,7 @@ async def test_the_live_rooms_catalog_lists_the_event_tracks_and_sources(tmp_pat
         (f"talk/{ROOM}/comments", "comments"),
         (f"talk/{ROOM}/annotations", "ink"),
         (f"talk/{ROOM}/annotations", "marks"),
+        (f"talk/{ROOM}/chat", "chat"),
     ]
     assert [s["kind"] for s in doc["tt"]["sources"]] == ["audio", "camera", "slides"]
     await events.close()

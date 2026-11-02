@@ -713,6 +713,69 @@ class RoomStateObject(RootModel[list[RoomStateRecord]]):
     model_config = ConfigDict(frozen=True)
 
 
+# chat: the room's conversation, one track published by the room service (ticket 0021, option 1). Everyone sends a
+# message over their room-service WebSocket; the service stamps who (``by``, from the session) and when (``m``, the
+# room time now) and appends it to ``talk/<room>/chat`` track ``chat``. A group is a 4 s slice of room time. Object 0
+# (the carry-in) holds the last ``CHAT_CARRY`` messages before the slice, so one group shows the conversation so far
+# and a seek or a late joiner needs nothing older; objects 1.. hold one message each, in the order they were stamped.
+# State at t: the carry-in and the slice's messages with m <= t. Append-only: no edit, no removal (moderation is out
+# of scope, decision 0026).
+
+CHAT_CARRY = 50  # messages a chat carry-in repeats from before its slice
+CHAT_MAX = 500  # characters in one message
+
+ChatId = Annotated[str, Field(min_length=1, max_length=32, description="Given by the room service, unique in the room")]
+ChatText = Annotated[str, Field(min_length=1, max_length=CHAT_MAX)]
+
+
+class ChatMessage(Wire):
+    kind: Literal["message"] = "message"
+    id: ChatId
+    by: Author
+    text: ChatText
+
+
+class ChatRecord(Wire):
+    m: int = Field(ge=0, description="Room ms the room service stamped it")
+    data: ChatMessage
+
+
+class ChatObject(RootModel[list[ChatRecord]]):
+    """One object of the ``chat`` track (eventType ``com.talktracks.chat``). Carry-in: the last 50 messages."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+# stats: what Stats for nerds lists (ticket 0022, option 1), one object per group on ``talk/<room>/stats`` track
+# ``stats``, a new group every 5 s. MoQT reports no subscriber counts, so the room service publishes them: every track
+# in the room's namespace, whether something is producing it now, and the sessions subscribed to its broadcast as the
+# relay counts them (moq-relay's ``.stats`` feed, per broadcast, not per track; agents and the room service count
+# too). Not archived: a replay shows the stats of now.
+
+
+class TrackStats(Wire):
+    namespace: str = Field(description="The track's broadcast, talk/<room>/...")
+    name: str
+    kind: str = Field(description="As the catalog says (captions, translation, ink, chat, ...), or audio and video")
+    state: Literal["running", "on_demand"] = Field(
+        description="running: published now (an agent producing, the speaker sending, the room service); on_demand: "
+        "listed, but its agent works only once someone subscribes"
+    )
+    subscribers: int | None = Field(
+        default=None, ge=0, description="Sessions subscribed to its broadcast at the relay; None without relay stats"
+    )
+    lang: str | None = None
+
+
+class RoomStats(Wire):
+    """The object of each group of ``talk/<room>/stats``."""
+
+    at: int = Field(ge=0, description="Unix ms of the snapshot")
+    relay: bool = Field(description="The relay's stats feed is read: subscriber counts are known")
+    listeners: int = Field(ge=0, description="Browsers connected to the room service for this room (WebSocket)")
+    tracks: list[TrackStats]
+
+
 DECK_EVENT = "com.talktracks.deck"
 CURRENT_SLIDE_EVENT = "com.talktracks.current-slide"
 INK_EVENT = "com.talktracks.ink"
@@ -720,6 +783,8 @@ MARKS_EVENT = "com.talktracks.marks"
 POINTER_EVENT = "com.talktracks.pointer"
 COMMENTS_EVENT = "com.talktracks.comments"
 ROOM_EVENT = "com.talktracks.room"
+CHAT_EVENT = "com.talktracks.chat"
+STATS_EVENT = "com.talktracks.stats"
 
 
 # --- the room catalog (design §5.10), published by the room service on ``talk/<room>/catalog`` ---------------
@@ -977,6 +1042,22 @@ COMMENTS_TRACK = "comments"  # CommentsObject, sliced
 def annotations_path(room: str) -> str:
     """Everyone else's annotations of the deck (``ink``, ``marks``), published by the room service (decision 0021)."""
     return f"{ROOT}/{room}/annotations"
+
+
+def chat_path(room: str) -> str:
+    """The room's chat, published by the room service (ticket 0021)."""
+    return f"{ROOT}/{room}/chat"
+
+
+CHAT_TRACK = "chat"  # ChatObject, sliced
+
+
+def stats_path(room: str) -> str:
+    """Stats for nerds: every track of the room, its subscribers, running or on demand (ticket 0022)."""
+    return f"{ROOT}/{room}/stats"
+
+
+STATS_TRACK = "stats"  # RoomStats, one group per snapshot
 
 
 def agents_prefix(room: str) -> str:

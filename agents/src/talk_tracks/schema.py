@@ -18,6 +18,9 @@ from pydantic import BaseModel, RootModel
 from .contracts import (
     Anchor,
     Author,
+    ChatMessage,
+    ChatObject,
+    ChatRecord,
     Comment,
     CommentEdit,
     CommentHide,
@@ -56,6 +59,7 @@ from .contracts import (
     RoomState,
     RoomStateObject,
     RoomStateRecord,
+    RoomStats,
     RunSpan,
     ShapeKind,
     ShowSlide,
@@ -66,7 +70,7 @@ from .contracts import (
     Unmark,
 )
 from .recording import RecordedSnapshot, Recording
-from .records import comments_carry, current_slide, ink_carry, last_record, marks_carry
+from .records import chat_carry, comments_carry, current_slide, ink_carry, last_record, marks_carry
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[3] / "contracts"
 EXAMPLES_DIR = CONTRACTS_DIR / "examples"
@@ -84,6 +88,8 @@ def schemas() -> dict[str, dict[str, Any]]:
         "pointer-object.schema.json": PointerObject.model_json_schema(),
         "comments-object.schema.json": CommentsObject.model_json_schema(),
         "room-state-object.schema.json": RoomStateObject.model_json_schema(),
+        "chat-object.schema.json": ChatObject.model_json_schema(),
+        "room-stats.schema.json": RoomStats.model_json_schema(),
         "room-catalog.schema.json": RoomCatalog.model_json_schema(),
         "slide-frame.schema.json": SlideFrame.model_json_schema(),
         "recording.schema.json": Recording.model_json_schema(),
@@ -264,6 +270,13 @@ COMMENTS = [
     CommentRecord(m=15_500, data=C1),  # slide 1 shown again
     CommentRecord(m=15_500, data=C2.model_copy(update={"text": "So a seek lands close."})),
 ]
+CHAT = [
+    ChatRecord(m=9_100, data=ChatMessage(id="m1", by=ADA, text="Hello from Lisbon")),
+    ChatRecord(m=9_900, data=ChatMessage(id="m2", by=GRACE, text="Is the deck shared after?")),
+    ChatRecord(m=10_300, data=ChatMessage(id="m3", by=SPEAKER, text="Yes, in the lecture package.")),
+    ChatRecord(m=12_000, data=ChatMessage(id="m4", by=ALAN, text="Merhaba!")),
+    ChatRecord(m=15_200, data=ChatMessage(id="m5", by=ADA, text="Rewind to 0:09 for the slicing bit")),
+]
 ROOM = [
     RoomStateRecord(m=0, data=RoomState(state="waiting", title="Talk Tracks", speaker="Levent")),
     RoomStateRecord(m=8_000, data=RoomState(state="on_air", title="Talk Tracks", speaker="Levent")),
@@ -295,6 +308,7 @@ def example_objects() -> dict[str, list[RootModel[Any]]]:
         "pointer-object.schema.json": [PointerObject(POINTER[:3]), PointerObject(POINTER[3:])],
         "comments-object.schema.json": [CommentsObject(COMMENTS)],
         "room-state-object.schema.json": [RoomStateObject(ROOM)],
+        "chat-object.schema.json": [ChatObject(CHAT[:2]), ChatObject(CHAT[2:])],
     }
 
 
@@ -321,6 +335,8 @@ def example_carry_ins() -> dict[str, dict[str, Any]]:
             "pointer": {"records": _dumps(p := [r for r in POINTER if r.m < at]), "carry": _dumps(last_record(p))},
             "comments": {"records": _dumps(comments), "carry": _dumps(comments_carry(comments, on))},
             "room": {"records": _dumps(r := [x for x in ROOM if x.m < at]), "carry": _dumps(last_record(r))},
+            # the last 3 messages here (50 on the wire), so the cut shows the carry-in dropping older ones
+            "chat": {"records": _dumps(c := [x for x in CHAT if x.m < at]), "carry": _dumps(chat_carry(c, 3)), "n": 3},
         }
     return cases
 

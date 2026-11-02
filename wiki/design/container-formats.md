@@ -70,6 +70,8 @@ decodes alone.
 | `talk/R/comments` `comments` | 4 s slice | the `comment` and `reply` records of the threads anchored on the slide on screen, edits applied, hidden ones left out | `comment`, `reply`, `edit`, `hide`, re-sent threads | `commentsCarry(records, on)` (the Discussion tab reads `commentThreads` over many groups) |
 | `talk/R/catalog` `room` | 4 s slice | the last `state` record | `state` | the last record |
 | `talk/R/catalog` `catalog` | one per change | the whole MSF catalog (`RoomCatalog`) | none | the newest group |
+| `talk/R/chat` `chat` | 4 s slice | the last 50 `message` records before the slice (`chatCarry`), oldest first | one `message` per object, in the order the room service stamped them | `chatMessages(carry-in + records with m ≤ t)`; append-only, no edit or removal |
+| `talk/R/stats` `stats` | one per snapshot: at once when someone subscribes, then every 5 s while anyone does | the whole `RoomStats`: every track of the room, `running` or `on_demand`, its broadcast's subscribers at the relay, and the room service's WebSocket listeners | none | the newest group; never archived (a replay shows the stats of now) |
 
 ### Agents (`talk/R/agents/<agent>`)
 

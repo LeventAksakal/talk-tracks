@@ -1,0 +1,69 @@
+/* --- the chat drawer of the side panel (ticket 0021) --- */
+.tt-chat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+.tt-chat-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.tt-chat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--tt-color-text);
+}
+.tt-chat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+.tt-chat-message[data-speaker] .tt-chat-head strong {
+  color: var(--tt-color-accent);
+}
+.tt-chat-tag {
+  padding: 0 5px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--tt-color-text-muted);
+}
+.tt-chat-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tt-chat-composer,
+.tt-chat-name {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tt-color-line);
+}
+.tt-chat-me,
+.tt-chat-send {
+  align-items: center;
+  justify-content: space-between;
+}
+.tt-chat-send .tt-input,
+.tt-chat-name .tt-input {
+  flex: 1;
+  width: auto;
+  resize: none;
+}
+.tt-chat-closed {
+  margin: 0;
+}

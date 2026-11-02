@@ -3,7 +3,8 @@
 
 Listeners never publish to the relay. They write through the room service's endpoint (``archive.listeners``), and
 this module turns each write into a record of the contract on the room's tracks: ink and text marks on
-``talk/<room>/annotations`` (``ink``, ``marks``), comments on ``talk/<room>/comments`` (``comments``). Every write is
+``talk/<room>/annotations`` (``ink``, ``marks``), comments on ``talk/<room>/comments`` (``comments``), chat messages on
+``talk/<room>/chat`` (``chat``, ticket 0021). Every write is
 validated by the contract's models, stamped with its author (``by``, from the listener's session, never from what
 they sent) and the room time now, and checked against who may change what (``may_change``) before it goes out, so a
 bad write publishes nothing. When the speaker shows a slide, that slide's strokes, marks and threads go out again
@@ -23,7 +24,9 @@ from typing import Any, Literal, Protocol, cast
 from pydantic import ValidationError
 
 from ..contracts import (
+    CHAT_MAX,
     Author,
+    ChatRecord,
     Comment,
     CommentEdit,
     CommentRecord,
@@ -47,7 +50,7 @@ from ..records import comment_threads, comments_carry, element, ink_carry, ink_s
 
 log = logging.getLogger("talk_tracks.archive.audience")
 
-TrackName = Literal["ink", "marks", "comments"]
+TrackName = Literal["ink", "marks", "comments", "chat"]
 Code = Literal["invalid", "forbidden", "not-live", "limit"]
 
 MAX_POINTS = 5_000  # points in one stroke
@@ -84,6 +87,10 @@ def new_comment_id() -> str:
     return f"c{secrets.token_hex(5)}"
 
 
+def new_message_id() -> str:
+    return f"m{secrets.token_hex(5)}"
+
+
 def _valid[M: Wire](model: type[M], m: int, data: dict[str, Any]) -> M:
     try:
         return model.model_validate({"m": m, "data": data})
@@ -107,14 +114,21 @@ class Audience:
         ink: Track[InkRecord],
         marks: Track[MarkRecord],
         comments: Track[CommentRecord],
+        chat: Track[ChatRecord] | None = None,
         *,
         now: Callable[[], int | None],
         new_id: Callable[[], str] = new_comment_id,
+        new_message: Callable[[], str] = new_message_id,
     ) -> None:
-        self.ink, self.marks, self.comments = ink, marks, comments
-        self._now, self._new_id = now, new_id
+        self.ink, self.marks, self.comments, self.chat = ink, marks, comments, chat
+        self._now, self._new_id, self._new_message = now, new_id, new_message
         self.listeners: list[Callable[[CommentRecord], None]] = []  # each new comments record, re-sends excluded
-        records: list[InkRecord | MarkRecord | CommentRecord] = [*ink.records, *marks.records, *comments.records]
+        records: list[InkRecord | MarkRecord | CommentRecord | ChatRecord] = [
+            *ink.records,
+            *marks.records,
+            *comments.records,
+            *(chat.records if chat is not None else []),
+        ]
         self._last_m = max((r.m for r in records), default=0)
         self._taken: set[str] = {*ink_strokes(ink.records), *text_marks(marks.records)}
         # Strokes being drawn: id -> (author id, points so far, deck, index). One a restart left open stays unfinished.
@@ -133,9 +147,10 @@ class Audience:
     # --- writing ---------------------------------------------------------------------------------------------------
 
     async def write(self, by: Author, track: str, data: object, at: int | None = None) -> Done:
-        """Publish one listener write on ``track`` (ink, marks or comments). ``data`` is the record's ``data``
-        without ``by`` (and, for a comment or reply, without ``id`` and ``at``); ``at``, for a new comment or reply,
-        is the room time of what the writer is watching (a replay's playhead), never later than now."""
+        """Publish one listener write on ``track`` (ink, marks, comments or chat). ``data`` is the record's ``data``
+        without ``by`` (and, for a comment, reply or chat message, without ``id`` and ``at``); ``at``, for a new
+        comment or reply, is the room time of what the writer is watching (a replay's playhead), never later than now.
+        A chat message is always stamped now: chat is the conversation of the moment, replayed where it was said."""
         if not isinstance(data, dict):
             raise Refusal("invalid", "A write has a data object")
         fields = cast(dict[str, Any], data)
@@ -151,6 +166,8 @@ class Audience:
             done = await self._marks(by, fields, m)
         elif track == "comments":
             done = await self._comment(by, fields, m, at)
+        elif track == "chat":
+            done = await self._chat(by, fields, m)
         else:
             raise Refusal("invalid", f"No track {track!r}")
         self._last_m = m
@@ -267,6 +284,24 @@ class Audience:
                 listener(record)
             except Exception:
                 log.exception("a comments listener failed")
+        return Done(m, given)
+
+    async def _chat(self, by: Author, data: dict[str, Any], m: int) -> Done:
+        if self.chat is None:
+            raise Refusal("invalid", "This room has no chat")
+        if data.get("kind", "message") != "message":
+            raise Refusal("invalid", "Chat is message")
+        if "id" in data:
+            raise Refusal("invalid", "The room service gives a message its id")
+        text = data.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise Refusal("invalid", "A message has text")
+        text = text.strip()
+        if len(text) > CHAT_MAX:
+            raise Refusal("limit", f"A message has at most {CHAT_MAX} characters")
+        given = self._new_message()
+        record = _valid(ChatRecord, m, {**data, "kind": "message", "id": given, "by": by.model_dump(), "text": text})
+        await self.chat.add(record)
         return Done(m, given)
 
     # --- the speaker shows a slide ---------------------------------------------------------------------------------

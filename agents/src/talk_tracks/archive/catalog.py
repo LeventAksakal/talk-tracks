@@ -132,6 +132,13 @@ class CatalogFeed:
     def document(self, now_ms: int | None = None) -> dict[str, Any] | None:
         if self.epoch_ms is None:
             return None
+        tracks, status = self.agent_tracks(now_ms)
+        shift = {int(float(wall)): ms for wall, ms in self.shift.items()}
+        tracks += self.event_tracks
+        return RoomCatalog(self.epoch_ms, tuple(tracks), shift, status, self.sources).to_json()
+
+    def agent_tracks(self, now_ms: int | None = None) -> tuple[list[CatalogTrack], dict[str, dict[str, Any]]]:
+        """The announced agents' tracks that have a ``track.json``, and each agent's ``tt.status`` entry."""
         now = int(time.time() * 1000) if now_ms is None else now_ms
         capped = self._capped is not None and self._capped(self.room)
         tracks: list[CatalogTrack] = []
@@ -149,9 +156,7 @@ class CatalogFeed:
                     infos.append(info)
             if infos:
                 status[agent] = agent_status(infos, capped=capped, now_ms=now)
-        shift = {int(float(wall)): ms for wall, ms in self.shift.items()}
-        tracks += self.event_tracks
-        return RoomCatalog(self.epoch_ms, tuple(tracks), shift, status, self.sources).to_json()
+        return tracks, status
 
     def changed(self, now_ms: int | None = None) -> bytes | None:
         """The catalog as JSON when it differs from the last one returned, else None."""

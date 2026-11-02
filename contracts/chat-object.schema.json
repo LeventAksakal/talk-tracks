@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable for one person in the room: given by the room service (listeners) or the console (speaker)",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name, no account",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "speaker": {
+          "default": false,
+          "description": "The speaker: may erase, unmark or hide anyone's annotations",
+          "title": "Speaker",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Author",
+      "type": "object"
+    },
+    "ChatMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/Author"
+        },
+        "id": {
+          "description": "Given by the room service, unique in the room",
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "message",
+          "default": "message",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "by",
+        "text"
+      ],
+      "title": "ChatMessage",
+      "type": "object"
+    },
+    "ChatRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ChatMessage"
+        },
+        "m": {
+          "description": "Room ms the room service stamped it",
+          "minimum": 0,
+          "title": "M",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "m",
+        "data"
+      ],
+      "title": "ChatRecord",
+      "type": "object"
+    }
+  },
+  "description": "One object of the ``chat`` track (eventType ``com.talktracks.chat``). Carry-in: the last 50 messages.",
+  "items": {
+    "$ref": "#/$defs/ChatRecord"
+  },
+  "title": "ChatObject",
+  "type": "array"
+}

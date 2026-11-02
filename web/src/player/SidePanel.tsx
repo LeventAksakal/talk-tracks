@@ -1,6 +1,8 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LineItem } from "../playback/wire";
+import { MoqTransport } from "../transport/moq";
 import { dirOf } from "../viewer/lang";
+import { ChatTab } from "./Chat";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { fold, languageOption } from "./languages";
@@ -11,8 +13,9 @@ import { chapterAt } from "./timeline";
 import { translationFor } from "./tracks";
 import { TranscriptDownload } from "./TranscriptDownload";
 
-// Chat (ticket 0021) goes first in this list once the owner settles how it is published; it is a panel like the
-// others, subscribed while open. Comments on a replay join the Discussion tab.
+// Chat (ticket 0021) goes first when there is a relay to read it from; it is a panel like the others, subscribed
+// while open. Comments on a replay join the Discussion tab.
+const CHAT: [PanelTab, string] = ["chat", "Chat"];
 const TABS: [PanelTab, string][] = [
   ["transcript", "Transcript"],
   ["chapters", "Chapters"],
@@ -28,8 +31,13 @@ const TABS: [PanelTab, string][] = [
  * from now or loading what came before.
  */
 export function SidePanel() {
-  const { prefs, update, extraTabs } = usePlayer();
-  const tabs: [PanelTab, string][] = [...TABS, ...extraTabs.map((t): [PanelTab, string] => [t.id, t.label])];
+  const { prefs, update, extraTabs, transport } = usePlayer();
+  const chat = transport instanceof MoqTransport;
+  const tabs: [PanelTab, string][] = [
+    ...(chat ? [CHAT] : []),
+    ...TABS,
+    ...extraTabs.map((t): [PanelTab, string] => [t.id, t.label]),
+  ];
   const current = tabs.some(([id]) => id === prefs.tab) ? prefs.tab : "transcript";
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = tabs.findIndex(([id]) => id === current);
@@ -70,6 +78,7 @@ export function SidePanel() {
         </button>
       </div>
       <div className="tt-tabpanel" role="tabpanel" id={`tt-tabpanel-${current}`} aria-labelledby={`tt-tab-${current}`}>
+        {current === "chat" ? <ChatTab /> : null}
         {current === "transcript" ? <Transcript /> : null}
         {current === "chapters" ? <Chapters /> : null}
         {current === "glossary" ? <Glossary /> : null}

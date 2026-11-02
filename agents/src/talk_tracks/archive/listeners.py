@@ -3,9 +3,9 @@
 
 Listeners never hold publish rights on the relay (decision 0005). They send what they draw, mark and comment here;
 ``archive.audience`` validates it with the contracts, stamps who and when, and publishes it on the room's
-``annotations`` and ``comments`` tracks. The same socket gives the Discussion tab and the console's question list
-the room's threads (a snapshot, then each new comment record), which on the track would take one FETCH per 4 s
-slice of the talk.
+``annotations``, ``comments`` and ``chat`` tracks (chat: ticket 0021, read back from its track, not this socket).
+The same socket gives the Discussion tab and the console's question list the room's threads (a snapshot, then each
+new comment record), which on the track would take one FETCH per 4 s slice of the talk.
 
 Protocol (JSON text messages):
 
@@ -15,8 +15,9 @@ Protocol (JSON text messages):
   allowed to publish the room's slides, the session is the speaker's (``by.speaker``). ``comments``: send the threads.
   Answer: ``{"type": "welcome", "id", "key"?, "name", "speaker", "now"}``, then ``{"type": "threads", "records"}``.
 * ``{"type": "name", "name"}``: the display name from now on (1 to 60 characters, asked once per browser).
-* ``{"type": "write", "seq", "track": "ink" | "marks" | "comments", "data", "at"?}``: one record's ``data`` without
-  ``by`` (and a new comment's ``id`` and ``at``). Answer ``{"type": "ack", "seq", "m", "id"?}`` or
+* ``{"type": "write", "seq", "track": "ink" | "marks" | "comments" | "chat", "data", "at"?}``: one record's ``data``
+  without ``by`` (and a new comment's or chat message's ``id`` and ``at``); a chat message is ``{"text"}``, at most
+  500 characters. Answer ``{"type": "ack", "seq", "m", "id"?}`` or
   ``{"type": "error", "seq", "code", "message"}``; codes ``invalid``, ``forbidden``, ``not-live``, ``limit``,
   ``rate``, ``name``.
 * ``{"type": "end", "seq"}``, the speaker only (End talk in the console): the room's state is ``ended`` from now on
@@ -60,8 +61,19 @@ OUTBOX = 256  # pushes queued for a slow reader before its session is closed
 SPEAKER_ID = "speaker"  # the console's own author id on talk/<room>/slides
 
 # (per second, burst) per session and track: ink is a points batch about every 50 ms while drawing
-LIMITS: dict[str, tuple[float, float]] = {"ink": (30.0, 60.0), "marks": (5.0, 10.0), "comments": (0.5, 5.0)}
-SPEAKER_LIMITS: dict[str, tuple[float, float]] = {"ink": (60.0, 120.0), "marks": (10.0, 20.0), "comments": (2.0, 10.0)}
+# Chat: five messages at once, then one every 2 s.
+LIMITS: dict[str, tuple[float, float]] = {
+    "ink": (30.0, 60.0),
+    "marks": (5.0, 10.0),
+    "comments": (0.5, 5.0),
+    "chat": (0.5, 5.0),
+}
+SPEAKER_LIMITS: dict[str, tuple[float, float]] = {
+    "ink": (60.0, 120.0),
+    "marks": (10.0, 20.0),
+    "comments": (2.0, 10.0),
+    "chat": (1.0, 10.0),
+}
 
 NAME: TypeAdapter[str] = TypeAdapter(DisplayName)
 
@@ -180,6 +192,7 @@ class Endpoint:
         )
         self.clock, self.end = clock, end
         self.rooms: dict[str, set[Session]] = {}  # sessions that read the threads, per room
+        self.present: dict[str, set[Session]] = {}  # listeners who said hello, per room (Stats for nerds)
         self._hooked: dict[str, Audience] = {}
         self.per_ip: dict[str, int] = {}
 
@@ -199,6 +212,15 @@ class Endpoint:
         else:
             self.per_ip.pop(session.ip, None)
         self.rooms.get(session.room, set()).discard(session)
+        here = self.present.get(session.room)
+        if here is not None:
+            here.discard(session)
+            if not here:
+                del self.present[session.room]
+
+    def listeners(self, room: str) -> int:
+        """Listeners connected to the room now (the speaker not counted)."""
+        return len(self.present.get(room, ()))
 
     async def handle(self, session: Session, raw: str | bytes) -> list[dict[str, Any]]:
         """One message from the client: the answers to send back."""
@@ -265,6 +287,7 @@ class Endpoint:
         }
         if not session.speaker:
             welcome["key"] = self.identities.key(session.user_id)
+            self.present.setdefault(session.room, set()).add(session)
         out = [welcome]
         if msg.get("comments"):
             session.comments = True
@@ -289,7 +312,7 @@ class Endpoint:
             return error(seq, "name", "Choose a display name first")
         track = msg.get("track")
         if not isinstance(track, str) or track not in LIMITS:
-            return error(seq, "invalid", "A write names its track: ink, marks or comments")
+            return error(seq, "invalid", "A write names its track: ink, marks, comments or chat")
         rate, burst = (SPEAKER_LIMITS if session.speaker else LIMITS)[track]
         bucket = session.buckets.setdefault(track, Bucket(rate, burst))
         if not bucket.take(self.clock()):
@@ -424,14 +447,19 @@ class EndpointConfig:
         host, _, port = value.rpartition(":")
         return host or "0.0.0.0", int(port)
 
-    async def run(self, lookup: Lookup, end: EndRoom | None = None) -> None:
+    def endpoint(self, lookup: Lookup, end: EndRoom | None = None) -> Endpoint:
         key = SpeakerKey.read(self.speaker_key) if self.speaker_key is not None else None
         if key is None and not self.open_speaker:
             log.warning("no speaker key (TT_SPEAKER_KEY): the speaker cannot reply to or hide comments")
-        endpoint = Endpoint(
+        return Endpoint(
             lookup, Identities(load_secret(self.secret_file)), speaker_key=key, open_speaker=self.open_speaker, end=end
         )
+
+    async def serve(self, endpoint: Endpoint) -> None:
         await endpoint.serve(self.host, self.port, origins=self.origins or None, proxied=self.proxied)
+
+    async def run(self, lookup: Lookup, end: EndRoom | None = None) -> None:
+        await self.serve(self.endpoint(lookup, end))
 
 
 def error(seq: int | None, code: str, message: str) -> dict[str, Any]:

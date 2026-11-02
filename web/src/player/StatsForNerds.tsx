@@ -1,20 +1,27 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { toAgentView } from "../playback/agentViews";
+import { MoqHistorySource } from "../playback/moqSource";
+import type { HistorySource } from "../playback/source";
 import { type RoomCatalog, statusOf } from "../playback/roomCatalog";
 import { formatClock } from "../playback/timeline";
 import { MoqTransport } from "../transport/moq";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
+import { byNamespace, StatsFeed } from "./roomStats";
 
 /**
  * Stats for nerds (ui-design §4.8): a translucent panel over the canvas, from Settings or a right-click. Per
  * track: on or off, producing or idle, slices held, FETCHes the agent served as origin (the rest came from
  * the relay's cache), back-fills; the connection; and the frame clock against the playhead. No money: cost is the
- * operator's concern (decision 0026). The room's stats track, with every track in its namespace and its subscriber
- * counts, goes here once ticket 0022 is answered.
+ * operator's concern (decision 0026). Below them, the room's stats track (ticket 0022): every track of the room by
+ * broadcast, running or on demand, and the sessions subscribed at the relay; read only while the panel is open.
  */
 export function StatsForNerds() {
-  const { playback, view, media, transport, setUi, clock, tracks } = usePlayer();
+  const { playback, view, media, transport, setUi, clock, tracks, roomName } = usePlayer();
+  const source = useMemo(
+    () => (transport instanceof MoqTransport ? new MoqHistorySource(transport) : undefined),
+    [transport],
+  );
   const catalog = useSyncExternalStore(
     (fn) => media?.onChange(fn) ?? (() => {}),
     () => media?.catalog(),
@@ -93,9 +100,49 @@ export function StatsForNerds() {
             k="subtitles"
             v={tracks.captions?.lastLiveAt ? `last line ${ago(tracks.captions.lastLiveAt)}` : "no live line yet"}
           />
+          {source ? <RoomTracks source={source} room={roomName} /> : null}
         </tbody>
       </table>
     </section>
+  );
+}
+
+/**
+ * The room's tracks from talk/<room>/stats: one row per broadcast, with its subscribers and each track running or on
+ * demand. Mounted, it subscribes; unmounted, it unsubscribes.
+ */
+export function RoomTracks({ source, room }: { source: HistorySource; room: string }) {
+  const feed = useMemo(() => new StatsFeed(source, room), [source, room]);
+  useEffect(() => {
+    feed.start();
+    return () => feed.stop();
+  }, [feed]);
+  useSyncExternalStore(feed.subscribe, feed.getVersion);
+  const { phase, stats } = feed.view();
+  if (!stats) {
+    return (
+      <Row k="room tracks" v={phase === "loading" ? "loading…" : "the room service sends no stats for this room"} />
+    );
+  }
+  const prefix = `talk/${room}/`;
+  return (
+    <>
+      <Row
+        k="room"
+        v={`${stats.listeners} listener${stats.listeners === 1 ? "" : "s"} connected${stats.relay ? "" : " · relay counts unknown"}`}
+      />
+      {byNamespace(stats).map((g) => (
+        <Row
+          key={g.namespace}
+          k={`${g.namespace.startsWith(prefix) ? g.namespace.slice(prefix.length) : g.namespace}${
+            g.subscribers === undefined ? "" : ` · ${g.subscribers} subscribed`
+          }`}
+          v={g.tracks
+            .map((t) => `${t.name}${t.lang ? ` (${t.lang})` : ""} ${t.state === "running" ? "running" : "on demand"}`)
+            .join(" · ")}
+        />
+      ))}
+    </>
   );
 }
 

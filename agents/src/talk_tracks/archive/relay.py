@@ -11,7 +11,9 @@ Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk
   their own slices (decision 0012). Their announcements only list them in the catalog;
 * ``<room>/catalog``: published here (``archive.catalog``), with the room's epoch and each broadcast's shift as soon
   as they are decided, since consumers stamp nothing before; beside it the ``room`` track (on air, paused, or ended
-  by the speaker), which the room service archives and serves by FETCH like an agent's track.
+  by the speaker), which the room service archives and serves by FETCH like an agent's track;
+* ``<room>/stats``: Stats for nerds (``archive.stats``), a snapshot of every track of the room every 5 s while
+  someone reads it, with subscriber counts from the relay's own stats feed (``counts``).
 """
 
 from __future__ import annotations
@@ -20,24 +22,25 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
-from ..contracts import ROOT, SCREEN_TRACK, SlideFrame, slides_path, teacher_path
+from ..contracts import ROOT, SCREEN_TRACK, STATS_TRACK, RoomStats, SlideFrame, slides_path, stats_path, teacher_path
 from ..lecture import AUDIO_TRACK, CATALOG_TRACK
 from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
 from ..room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
-from ..room_catalog import catalog_path, speaker_sources
+from ..room_catalog import catalog_path, speaker_sources, stats_track
 from ..runtime import now_ms
 from .audience import Audience
 from .catalog import REFRESH_S, CatalogFeed
-from .create import CreateConfig
+from .create import CreateConfig, CreatedRoom
 from .events import RoomEvents
 from .listeners import EndpointConfig
+from .stats import RelayCounts, StatsTrack, snapshot
 from .store import Archive, RoomArchive, RoomFilter
 
 log = logging.getLogger("talk_tracks.archive")
@@ -54,6 +57,7 @@ class _Room:
     slides: asyncio.Task[None] | None = None
     writer: TrackWriter | None = None
     sent_s: float = 0.0
+    stats: StatsTrack | None = None
 
 
 class Archiver:
@@ -67,10 +71,13 @@ class Archiver:
         publish_catalog: bool = True,
         capped: Callable[[str], bool] | None = None,
         described: Callable[[str], tuple[str | None, str | None] | None] | None = None,
+        counts: RelayCounts | None = None,
     ) -> None:
         self.relay, self.archive, self.wanted = relay, archive, rooms
         self.on_tick, self.publish_catalog, self.capped = on_tick, publish_catalog, capped
         self.described = described  # a created room's title and speaker (decision 0025)
+        self.counts = counts  # subscriber counts from the relay's stats feed; None: not read
+        self.listeners: Callable[[str], int] = lambda _room: 0  # browsers connected to the endpoint, per room
         self.rooms: dict[str, _Room] = {}
         self._wake = asyncio.Event()  # a room's clock changed: publish without waiting for the tick
 
@@ -84,10 +91,12 @@ class Archiver:
         if not task.cancelled() and task.exception() is not None:
             log.error("reader %s stopped", task.get_name(), exc_info=task.exception())
 
-    async def run(self) -> None:
+    async def run(self, created: Iterable[CreatedRoom] = ()) -> None:
         for name in self.archive.known_rooms():  # their catalog carries E and the shifts
             if self.wanted(name):
                 self._spawn(self._room(name).events.restore(), f"{name}/history")  # their talks stay fetchable
+        for room in created:  # created before a restart: still "Not started" until their talk starts
+            self.created(room.room, room.title, room.speaker)
         ticker = asyncio.create_task(self._tick())
         try:
             async for path, active in self.relay.announced(ROOT):
@@ -121,6 +130,10 @@ class Archiver:
                         await self._publish(name, room)
                     except Exception:
                         log.exception("room %s: publishing the catalog failed", name)
+                    try:
+                        await self._stats(name, room)
+                    except Exception:
+                        log.exception("room %s: publishing the stats failed", name)
 
     def _room(self, room: str) -> _Room:
         state = self.rooms.get(room)
@@ -151,9 +164,12 @@ class Archiver:
         return room in self.rooms or room in self.archive.known_rooms()
 
     def created(self, room: str, title: str, speaker: str | None) -> None:
-        """A room was created (or re-issued) with this title and speaker: its state track carries them."""
+        """A room was created (or re-issued) with this title and speaker: its state track carries them, and says at
+        once that the talk has not started (players show "Not started", not an unknown room)."""
         if self.wanted(room):
-            self._room(room).events.describe(title, speaker)
+            events = self._room(room).events
+            events.describe(title, speaker)
+            self._spawn(events.waiting(), f"{room}/waiting")
 
     async def end(self, room: str) -> int | None:
         """The speaker ended the room's talk (the endpoint's ``end``): its room track says ``ended``."""
@@ -175,7 +191,7 @@ class Archiver:
     async def _publish(self, name: str, room: _Room) -> None:
         cat, archived = room.catalog, self.archive.room(name)
         cat.epoch_ms, cat.shift = archived.epoch_ms, archived.shift
-        cat.event_tracks = room.events.catalog_tracks()
+        cat.event_tracks = (*room.events.catalog_tracks(), stats_track(name))
         media = archived.teacher.catalog if archived.live else {}
         kinds = {config.kind for track, config in media.items() if track != SCREEN_TRACK}
         cat.sources = speaker_sources(
@@ -197,6 +213,32 @@ class Archiver:
             room.writer = await self.relay.publish(catalog_path(name), ROOM_CATALOG_TRACK)
         await room.writer.write(data)
         room.sent_s = now
+
+    async def _stats(self, name: str, room: _Room) -> None:
+        if room.stats is None:
+
+            async def open_track() -> TrackWriter:
+                return await self.relay.publish(stats_path(name), STATS_TRACK)
+
+            room.stats = StatsTrack(open_track, lambda: self.stats(name, room))
+        await room.stats.tick()
+
+    def stats(self, name: str, room: _Room) -> RoomStats:
+        """The room's stats snapshot now (``archive.stats.snapshot``)."""
+        archived, events = self.archive.room(name), room.events
+        agents, status = room.catalog.agent_tracks()
+        return snapshot(
+            name,
+            media={t: c.kind for t, c in archived.teacher.catalog.items()} if archived.live else {},
+            speaker=(t for key, t in events.speaker.items() if key[0] in events.announced_now),
+            catalog=room.writer is not None,
+            owned=(t for key, t in events.owned_tracks.items() if key in events.owned),
+            agents=agents,
+            status=status,
+            counts=self.counts,
+            listeners=self.listeners(name),
+            at_ms=now_ms(),
+        )
 
     def announced(self, path: str, active: bool) -> None:
         parts = path.split("/")
@@ -289,25 +331,40 @@ async def archive_rooms(
     capped: Callable[[str], bool] | None = None,
     listeners: EndpointConfig | None = None,
     creation: CreateConfig | None = None,
+    relay_stats: str | None = None,
 ) -> None:
+    """``relay_stats``: the broadcast of moq-relay's stats feed (``.stats/node``) for the subscriber counts of Stats
+    for nerds; None: not read, counts unknown."""
     registry = creation.registry() if creation is not None else None
 
     def described(room: str) -> tuple[str | None, str | None] | None:
         found = registry.created(room) if registry is not None else None
         return (found.title, found.speaker) if found is not None else None
 
+    counts = RelayCounts() if relay_stats else None
     archiver = Archiver(
-        relay, archive, rooms, on_tick=on_tick, publish_catalog=publish_catalog, capped=capped, described=described
+        relay,
+        archive,
+        rooms,
+        on_tick=on_tick,
+        publish_catalog=publish_catalog,
+        capped=capped,
+        described=described,
+        counts=counts,
     )
     servers: list[asyncio.Task[None]] = []
+    if counts is not None and relay_stats:
+        servers.append(asyncio.create_task(counts.follow(relay, relay_stats), name="relay stats"))
     if listeners is not None:
-        servers.append(asyncio.create_task(listeners.run(archiver.audience, archiver.end)))
+        endpoint = listeners.endpoint(archiver.audience, archiver.end)
+        archiver.listeners = endpoint.listeners
+        servers.append(asyncio.create_task(listeners.serve(endpoint)))
     if creation is not None:
         servers.append(asyncio.create_task(creation.run(archiver.holds, archiver.created)))
     for server in servers:
         server.add_done_callback(_log_failure)
     try:
-        await archiver.run()
+        await archiver.run(registry.all_created() if registry is not None else ())
     finally:
         for server in servers:
             server.cancel()
