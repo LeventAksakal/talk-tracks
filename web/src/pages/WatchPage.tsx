@@ -41,7 +41,12 @@ function WatchRoom({ room }: { room: string }) {
   );
   // The hub lists it under "Continue watching".
   useEffect(() => rememberRoom({ room, title: demo?.title, at: Date.now() }), [room, demo]);
-  if (!playback) return <ChalkyLoading>Connecting…</ChalkyLoading>;
+  if (!playback)
+    return (
+      <main id="main">
+        <ChalkyLoading>Connecting…</ChalkyLoading>
+      </main>
+    );
   return (
     <Player
       playback={playback}

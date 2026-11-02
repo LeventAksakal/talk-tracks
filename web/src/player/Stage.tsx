@@ -63,7 +63,8 @@ export function sourceShown(
  * re-created.
  */
 export function Stage() {
-  const { prefs, update, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
+  const { prefs, update, sources, sourcesPending, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } =
+    usePlayer();
   const stage = useRef<HTMLDivElement>(null);
   // A share that starts (or is there when the page opens) comes forward; the listener can pick the slides back.
   const sharing = sources.includes("screen");
@@ -81,7 +82,8 @@ export function Stage() {
   const cornerKind: SourceKind = placed.length > 1 ? placed[0]! : "camera";
   // Which source is "first": the left one in split, the corner tile in the default layout.
   const first: SourceKind = prefs.swap ? board : cornerKind;
-  const shown = (kind: SourceKind) => sourceShown(kind, prefs, sources);
+  // Until the room says what it sends, no picture: the tiles stay mounted (the live canvas with them), unseen.
+  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 

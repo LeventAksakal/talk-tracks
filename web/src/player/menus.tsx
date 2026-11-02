@@ -2,13 +2,51 @@
 // style submenu, layout, settings. Each is a small dialog of ordinary buttons and inputs, so Tab reaches
 // everything; the subtitle style previews live on the canvas while its menu is open.
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { guardOf } from "../package/download";
+import { MoqHistorySource } from "../playback/moqSource";
+import { MoqTransport } from "../transport/moq";
+import type { Transport } from "../transport/types";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { languageOption, searchLanguages, SUPPORTED_LANGUAGES } from "./languages";
 import { type BoardKind, DEFAULT_STYLE, type LayoutKind, type SubtitlePreset, SUBTITLE_PRESETS } from "./prefs";
+import { StatsFeed } from "./roomStats";
 import { effectiveLayout, stageSources } from "./Stage";
-import { translationFor } from "./tracks";
+import { type LanguageReadiness, languageReadiness, translationFor } from "./tracks";
+
+/** What the subtitles menu says under a language, by how ready it is ("in this room" only for ready ones). */
+const READINESS_NOTE: Record<LanguageReadiness, string | undefined> = {
+  running: "running in this room",
+  recorded: "recorded in this room",
+  "on-request": "starts when picked · takes a moment",
+  absent: undefined,
+};
+const READY_FIRST: Record<LanguageReadiness, number> = { running: 0, recorded: 0, "on-request": 1, absent: 2 };
+
+/**
+ * The tracks the room's stats track lists as running (decision 0028), read while the subtitles menu is open; undefined
+ * without a relay or before the first snapshot.
+ */
+function useStatsRunning(transport: Transport | undefined, room: string): ReadonlySet<string> | undefined {
+  const feed = useMemo(
+    () => (transport instanceof MoqTransport ? new StatsFeed(new MoqHistorySource(transport), room) : undefined),
+    [transport, room],
+  );
+  useEffect(() => {
+    feed?.start();
+    return () => feed?.stop();
+  }, [feed]);
+  useSyncExternalStore(feed?.subscribe ?? (() => () => {}), feed?.getVersion ?? (() => 0));
+  const stats = feed?.view().stats;
+  return useMemo(
+    () =>
+      stats
+        ? new Set(stats.tracks.filter((t) => t.state === "running").map((t) => `${t.namespace}/${t.name}`))
+        : undefined,
+    [stats],
+  );
+}
 
 function Menu({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -51,13 +89,21 @@ function Choice({
 }
 
 export function CaptionsMenu() {
-  const { prefs, update, tracks, setUi } = usePlayer();
+  const ctx = usePlayer();
+  const { prefs, update, tracks, setUi } = ctx;
   const [query, setQuery] = useState("");
   const original = tracks.captions;
   const originalName = languageOption(original?.lang ?? "en").local;
+  const statsRunning = useStatsRunning(ctx.transport, ctx.roomName);
+  const guard = guardOf(ctx);
+  const readiness = (tag: string) => languageReadiness(translationFor(tracks, tag), guard, statsRunning);
   const inRoom = tracks.translations.map((t) => t.lang!).filter(Boolean);
   const all = useMemo(() => SUPPORTED_LANGUAGES.map((tag) => languageOption(tag)), []);
-  const roomOptions = inRoom.map((tag) => languageOption(tag));
+  // The room's languages first, the ready ones at the top; then every other language.
+  const roomOptions = inRoom
+    .map((tag) => ({ option: languageOption(tag), order: READY_FIRST[readiness(tag)] }))
+    .sort((a, b) => a.order - b.order)
+    .map((o) => o.option);
   const others = all.filter((o) => !inRoom.some((tag) => tag.split("-")[0] === o.tag));
   const results = searchLanguages([...roomOptions, ...others], query);
   const translating = prefs.subtitleLang !== "original";
@@ -89,13 +135,12 @@ export function CaptionsMenu() {
       />
       <div className="tt-menu-list" role="group" aria-label="Languages">
         {results.map((o) => {
-          const offered = translationFor(tracks, o.tag) !== undefined;
           return (
             <Choice
               key={o.tag}
               checked={prefs.cc && prefs.subtitleLang === o.tag}
               onClick={() => pick(o.tag)}
-              sub={offered ? "in this room" : undefined}
+              sub={READINESS_NOTE[readiness(o.tag)]}
             >
               <span lang={o.tag} dir={o.dir}>
                 {o.autonym}

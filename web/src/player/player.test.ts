@@ -95,7 +95,7 @@ describe("player states", () => {
     expect(playerState({ ...base, connection: "connecting" }).kind).toBe("reconnecting");
     expect(playerState({ ...base, connection: "connecting", everConnected: false }).kind).toBe("connecting");
     expect(playerState({ ...base, connection: "failed" }).card?.retry).toBe(true);
-    expect(playerState({ ...base, onAir: false, liveEdge: undefined }).kind).toBe("not-started");
+    expect(playerState({ ...base, onAir: false, liveEdge: undefined, room: "waiting" }).kind).toBe("not-started");
     expect(playerState({ ...base, onAir: false }).kind).toBe("ended");
     expect(playerState({ ...base, room: "paused" }).kind).toBe("paused");
   });
@@ -104,7 +104,10 @@ describe("player states", () => {
     const nothing = { ...base, onAir: undefined, liveEdge: undefined };
     expect(playerState({ ...nothing, known: false }).kind).toBe("unknown");
     expect(playerState({ ...nothing, known: false }).card?.hub).toBe(true);
-    expect(playerState({ ...nothing, known: true }).kind).toBe("not-started");
+    // Silence is not "Not started": only the room service's waiting record says that (a created room has it).
+    expect(playerState({ ...nothing, known: true }).kind).not.toBe("not-started");
+    expect(playerState({ ...nothing }).kind).not.toBe("not-started");
+    expect(playerState({ ...nothing, room: "waiting" }).kind).toBe("not-started");
     // A room the room service knows is waiting is never unknown.
     expect(playerState({ ...nothing, known: false, room: "waiting" }).kind).toBe("not-started");
 
@@ -116,6 +119,13 @@ describe("player states", () => {
 
     expect(playerState({ ...base, looped: true }).kind).toBe("live");
     expect(playerState({ ...base, looped: true }).pill).not.toBe(playerState(base).pill);
+  });
+
+  it("never ends a looped room; any other room ends by its room track's newest record", () => {
+    expect(playerState({ ...base, looped: true, room: "ended" }).kind).toBe("live");
+    expect(playerState({ ...base, looped: true, onAir: false }).kind).toBe("live");
+    expect(playerState({ ...base, room: "ended" }).kind).toBe("ended");
+    expect(playerState({ ...base, room: "on_air", onAir: false }).kind).toBe("live");
   });
 });
 

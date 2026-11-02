@@ -1271,13 +1271,38 @@
   border-left: 1px solid var(--tt-color-line);
   background: var(--tt-color-ground);
 }
-.tt-tabs {
+/* The tabs, then the close button outside the tablist. More tabs than fit scroll sideways: the clipped side fades and
+   shows an arrow. */
+.tt-panel-head {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 6px;
   border-bottom: 1px solid var(--tt-color-line);
+}
+.tt-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+.tt-tabs::-webkit-scrollbar {
+  display: none;
+}
+.tt-tabs.tt-clip-after {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), #0000);
+}
+.tt-tabs.tt-clip-before {
+  mask-image: linear-gradient(to left, #000 calc(100% - 24px), #0000);
+}
+.tt-tabs.tt-clip-before.tt-clip-after {
+  mask-image: linear-gradient(to right, #0000, #000 24px, #000 calc(100% - 24px), #0000);
+}
+.tt-tabs-more {
+  color: var(--tt-color-text-muted);
 }
 .tt-tab {
   padding: 6px 10px;
@@ -1294,7 +1319,7 @@
   background: #ffffff14;
 }
 .tt-panel-close {
-  margin-left: auto;
+  margin-left: 4px;
 }
 .tt-tabpanel {
   flex: 1;
@@ -1568,6 +1593,10 @@
   background: linear-gradient(#000c, #0000);
   border-bottom: 0;
   transition: opacity 0.25s;
+}
+/* Reached by the skip link: focus lands on the talk, and the controls inside it show their own rings. */
+.tt-main:focus {
+  outline: none;
 }
 .tt-fullscreen .tt-main {
   grid-column: 1;

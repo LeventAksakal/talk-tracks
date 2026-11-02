@@ -17,7 +17,7 @@ import { byNamespace, StatsFeed } from "./roomStats";
  * broadcast, running or on demand, and the sessions subscribed at the relay; read only while the panel is open.
  */
 export function StatsForNerds() {
-  const { playback, view, media, transport, setUi, clock, tracks, roomName } = usePlayer();
+  const { playback, view, media, transport, setUi, clock, tracks, roomName, talkClock } = usePlayer();
   const source = useMemo(
     () => (transport instanceof MoqTransport ? new MoqHistorySource(transport) : undefined),
     [transport],
@@ -71,14 +71,14 @@ export function StatsForNerds() {
           <Row k="media" v={`${t.mediaStatus}${playback.media.error() ? ` · ${playback.media.error()}` : ""}`} />
           <Row
             k="playhead"
-            v={`${pos === undefined ? "–" : formatClock(pos)} · live edge ${t.liveEdge === undefined ? "–" : formatClock(t.liveEdge)}`}
+            v={`${pos === undefined ? "–" : talkClock(pos)} · live edge ${t.liveEdge === undefined ? "–" : talkClock(t.liveEdge)}`}
           />
           <Row
             k="frame clock"
             v={
               frame === undefined || pos === undefined
                 ? "–"
-                : `${formatClock(frame)} · ${Math.round(frame - pos)} ms from the playhead`
+                : `${talkClock(frame)} · ${Math.round(frame - pos)} ms from the playhead`
             }
           />
           {all.map((track) => {
