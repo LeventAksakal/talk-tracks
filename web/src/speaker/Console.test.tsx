@@ -316,10 +316,15 @@ describe("the speaker console", () => {
 
   it("lists the audience's questions, counts them per slide, and replies to or hides one as the speaker", async () => {
     const ada = { id: "u1", name: "Ada" };
-    const service = new FakeRoomService({
-      me: { id: "speaker", name: "Speaker", speaker: true },
-      now: 60_000,
-      records: [
+    const service = new FakeRoomService({ me: { id: "speaker", name: "Speaker", speaker: true }, now: 60_000 });
+    const { sink } = setup({ makeRoomService: () => service });
+    await loadDeck();
+    // The audience anchors questions on the deck the console published. Its id is the room-clock slice it went out
+    // in, so it is 0 only when the deck loads within the room's first 4 s: read it, never assume it.
+    await waitFor(() => expect(sink().groups(DECK_TRACK)).toHaveLength(1));
+    const deck = sink().groups(DECK_TRACK)[0]!;
+    act(() =>
+      service.push(
         {
           m: 50_000,
           data: {
@@ -329,17 +334,15 @@ describe("the speaker console", () => {
             text: "Is RNA a virus?",
             by: ada,
             question: true,
-            anchor: { deck: 0, index: 1 },
+            anchor: { deck, index: 1 },
           },
         },
         {
           m: 55_000,
-          data: { kind: "comment", id: "c2", at: 55_000, text: "Nice slide", by: ada, anchor: { deck: 0, index: 1 } },
+          data: { kind: "comment", id: "c2", at: 55_000, text: "Nice slide", by: ada, anchor: { deck, index: 1 } },
         },
-      ],
-    });
-    setup({ makeRoomService: () => service });
-    await loadDeck();
+      ),
+    );
     const list = screen.getByRole("region", { name: "Questions from the audience" });
     expect(within(list).getByText("Is RNA a virus?")).toBeTruthy();
     expect(within(list).queryByText("Nice slide")).toBeNull(); // a comment, not a question
