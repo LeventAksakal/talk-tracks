@@ -8,9 +8,8 @@ import { MoqHistorySource } from "../playback/moqSource";
 import { MoqTransport } from "../transport/moq";
 import type { Transport } from "../transport/types";
 import { usePlayer } from "./context";
-import { Icon } from "./icons";
 import { languageOption, searchLanguages, SUPPORTED_LANGUAGES } from "./languages";
-import { type BoardKind, DEFAULT_STYLE, type LayoutKind, type SubtitlePreset, SUBTITLE_PRESETS } from "./prefs";
+import { type BoardKind, type LayoutKind } from "./prefs";
 import { StatsFeed } from "./roomStats";
 import { effectiveLayout, stageSources } from "./Stage";
 import { type LanguageReadiness, languageReadiness, translationFor } from "./tracks";
@@ -90,7 +89,7 @@ function Choice({
 
 export function CaptionsMenu() {
   const ctx = usePlayer();
-  const { prefs, update, tracks, setUi } = ctx;
+  const { prefs, update, tracks } = ctx;
   const [query, setQuery] = useState("");
   const original = tracks.captions;
   const originalName = languageOption(original?.lang ?? "en").local;
@@ -156,12 +155,11 @@ export function CaptionsMenu() {
           Dual subtitles: original above the translation
         </Choice>
       ) : null}
-      <button type="button" className="tt-menu-item" onClick={() => setUi({ menu: "style" })}>
-        <span>Style</span>
-        <span className="tt-menu-sub">
-          {SUBTITLE_PRESETS[prefs.style.preset].label} · {prefs.style.size}px ›
-        </span>
-      </button>
+      {prefs.subtitlePos ? (
+        <button type="button" className="tt-menu-item" onClick={() => update({ subtitlePos: undefined })}>
+          Put the subtitles back in place
+        </button>
+      ) : null}
       <span className="tt-menu-heading">Sound</span>
       <Choice checked={prefs.sound === "speaker"} onClick={() => update({ sound: "speaker" })}>
         Speaker
@@ -176,91 +174,6 @@ export function CaptionsMenu() {
       >
         Speaker and slide descriptions
       </Choice>
-    </Menu>
-  );
-}
-
-export function StyleMenu() {
-  const { prefs, update, setUi } = usePlayer();
-  const style = prefs.style;
-  const setStyle = (change: Partial<typeof style>) => update((p) => ({ style: { ...p.style, ...change } }));
-  return (
-    <Menu label="Subtitle style" wide>
-      <button type="button" className="tt-menu-item tt-menu-back" onClick={() => setUi({ menu: "cc" })}>
-        <Icon name="back" />
-        <span>Subtitles</span>
-      </button>
-      <span className="tt-menu-heading">Preset</span>
-      <div className="tt-presets">
-        {(Object.keys(SUBTITLE_PRESETS) as SubtitlePreset[]).map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            className="tt-preset"
-            data-preset={preset}
-            aria-pressed={style.preset === preset}
-            onClick={() => {
-              const large = SUBTITLE_PRESETS[preset].size;
-              setStyle({ preset, size: large ? Math.max(style.size, large) : style.size });
-            }}
-          >
-            {SUBTITLE_PRESETS[preset].label}
-          </button>
-        ))}
-      </div>
-      <div className="tt-slider-row">
-        <label htmlFor="tt-sub-size">Size</label>
-        <input
-          id="tt-sub-size"
-          type="range"
-          min={12}
-          max={44}
-          value={style.size}
-          onChange={(e) => setStyle({ size: Number(e.target.value) })}
-        />
-        <input
-          className="tt-input tt-number"
-          type="number"
-          min={12}
-          max={44}
-          aria-label="Size in pixels"
-          value={style.size}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            if (Number.isFinite(v)) setStyle({ size: Math.min(44, Math.max(12, Math.round(v))) });
-          }}
-        />
-      </div>
-      <div className="tt-slider-row">
-        <label htmlFor="tt-sub-bg">Background</label>
-        <input
-          id="tt-sub-bg"
-          type="range"
-          min={0}
-          max={100}
-          value={Math.round(style.background * 100)}
-          aria-valuetext={`${Math.round(style.background * 100)} %`}
-          onChange={(e) => setStyle({ background: Number(e.target.value) / 100 })}
-        />
-        <span className="tt-slider-value">{Math.round(style.background * 100)} %</span>
-      </div>
-      <span className="tt-menu-heading">Lines shown</span>
-      <div className="tt-segmented" role="group" aria-label="Lines shown">
-        {([1, 2, 3] as const).map((n) => (
-          <button key={n} type="button" aria-pressed={style.lines === n} onClick={() => setStyle({ lines: n })}>
-            {n}
-          </button>
-        ))}
-      </div>
-      <Choice checked={style.interim} onClick={() => setStyle({ interim: !style.interim })}>
-        Show words as they form
-      </Choice>
-      <button type="button" className="tt-menu-item" onClick={() => update({ subtitlePos: undefined })}>
-        Reset position
-      </button>
-      <button type="button" className="tt-menu-item" onClick={() => update({ style: DEFAULT_STYLE })}>
-        Reset style
-      </button>
     </Menu>
   );
 }
@@ -330,27 +243,6 @@ export function LayoutMenu() {
           </button>
         </>
       )}
-    </Menu>
-  );
-}
-
-/** Settings opens things; it switches nothing on (decision 0026): the tracks follow what is picked and open. */
-export function SettingsMenu() {
-  const { setUi } = usePlayer();
-  return (
-    <Menu label="Settings" wide>
-      <button type="button" className="tt-menu-item" onClick={() => setUi({ menu: "style" })}>
-        <span>Subtitle style</span>
-        <span className="tt-menu-sub">›</span>
-      </button>
-      <button type="button" className="tt-menu-item" onClick={() => setUi({ stats: true, menu: undefined })}>
-        <span>Stats for nerds</span>
-        <span className="tt-menu-sub">right-click the stage</span>
-      </button>
-      <button type="button" className="tt-menu-item" onClick={() => setUi({ shortcuts: true, menu: undefined })}>
-        <span>Keyboard shortcuts</span>
-        <span className="tt-menu-sub">?</span>
-      </button>
     </Menu>
   );
 }

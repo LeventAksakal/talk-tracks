@@ -1,5 +1,13 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChalkyLoading } from "../brand/states";
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { RoomMedia } from "../playback/media";
 import type { Playback } from "../playback/playback";
 import { useRoomStatus } from "../playback/roomStatus";
@@ -11,22 +19,24 @@ import type { Transport } from "../transport/types";
 import type { RoomService, ServiceStatus } from "../annotate/client";
 import { DISCUSSION_TAB } from "./Annotate";
 import { type ExtraTab, INITIAL_UI, type PlayerCtx, PlayerContext, type UiState } from "./context";
-import { ControlBar } from "./ControlBar";
+import { Controls } from "./Controls";
 import { Discussion } from "./Discussion";
 import { FrameClock } from "./frameClock";
+import { languageOption } from "./languages";
 import { LanguageOffer } from "./LanguageOffer";
 import { Listening, useListening, useRoomService } from "./listening";
+import { MediaUIEvents } from "./mediaChrome";
 import { useNotes } from "./notes";
 import "./player.css";
-import { type PanelTab, type SourceKind, usePrefs } from "./prefs";
-import { ProgressBar } from "./ProgressBar";
+import { type PanelTab, type Prefs, type SourceKind, usePrefs } from "./prefs";
+import type { RoomMediaElement, SubtitleChoice } from "./roomMediaElement";
 import { ScreenMedia } from "./screenMedia";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SidePanel } from "./SidePanel";
 import type { SlideTracks } from "./slideTracks";
 import { sourceShown, Stage } from "./Stage";
 import { forcedInput, playerState, type PlayerStateKind } from "./state";
-import { Linger, roomTracks, openTab as shownTab, wantedSlideTracks, wantedTracks } from "./tracks";
+import { Linger, type RoomTracks, roomTracks, openTab as shownTab, wantedSlideTracks, wantedTracks } from "./tracks";
 
 export interface PlayerProps {
   playback: Playback;
@@ -66,8 +76,22 @@ const UNKNOWN_AFTER_MS = 6_000;
 /** A connected relay has announced the room's slides by now, if it has any (the first announcements come at once). */
 const SOURCES_WAIT_MS = 1_500;
 
-/** Controls hide after this long without the pointer moving, in full screen while playing. */
-const IDLE_MS = 3_000;
+/** The keys Media Chrome answers to (media-controller): forwarded to it from anywhere on the page. */
+const MEDIA_KEYS = new Set([
+  " ",
+  "k",
+  "m",
+  "f",
+  "c",
+  "j",
+  "l",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "<",
+  ">",
+]);
 
 /**
  * The media player (ui-design §3–§4.8, decision 0020): title bar, the canvas with its sources and overlays,
@@ -90,8 +114,9 @@ export function Player(props: PlayerProps) {
   const clock = useMemo(() => new FrameClock(() => playback.media.frameTime()), [playback]);
   const media = playback.media instanceof RoomMedia ? playback.media : undefined;
   const root = useRef<HTMLDivElement>(null);
+  const controller = useRef<HTMLElement>(null);
+  const [el, setEl] = useState<RoomMediaElement | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [idle, setIdle] = useState(false);
   const [everConnected, setEverConnected] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
@@ -220,39 +245,21 @@ export function Player(props: PlayerProps) {
     return () => clearTimeout(timer);
   }, [ui.toast, setUi]);
 
-  // Full screen takes the whole player, side panel and overlays included (Fullscreen API).
+  // Full screen takes the whole player, side panel included: Media Chrome's fullscreen element is the player.
+  const hasView = view !== undefined;
   useEffect(() => {
+    const c = controller.current as (HTMLElement & { fullscreenElement?: HTMLElement }) | null;
+    if (c && root.current) c.fullscreenElement = root.current;
     const onChange = () => setFullscreen(document.fullscreenElement === root.current && root.current !== null);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  }, [hasView]);
   const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    else void root.current?.requestFullscreen?.().catch(() => {});
-  }, []);
-
-  // In full screen, controls and title fade after a while and return on pointer move or focus.
-  useEffect(() => {
-    if (!fullscreen) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const wake = () => {
-      setIdle(false);
-      clearTimeout(timer);
-      timer = setTimeout(() => setIdle(true), IDLE_MS);
-    };
-    wake();
-    const el = root.current;
-    el?.addEventListener("pointermove", wake);
-    el?.addEventListener("keydown", wake);
-    el?.addEventListener("focusin", wake);
-    return () => {
-      clearTimeout(timer);
-      setIdle(false);
-      el?.removeEventListener("pointermove", wake);
-      el?.removeEventListener("keydown", wake);
-      el?.removeEventListener("focusin", wake);
-    };
-  }, [fullscreen]);
+    const type = document.fullscreenElement
+      ? MediaUIEvents.MEDIA_EXIT_FULLSCREEN_REQUEST
+      : MediaUIEvents.MEDIA_ENTER_FULLSCREEN_REQUEST;
+    el?.dispatchEvent(new CustomEvent(type, { bubbles: true, composed: true }));
+  }, [el]);
 
   // A menu closes on a press outside it.
   useEffect(() => {
@@ -284,6 +291,7 @@ export function Player(props: PlayerProps) {
     timeline?.liveEdge === undefined;
   const unknown = useHeldFor(nothing, UNKNOWN_AFTER_MS);
   const known = unknown ? false : status?.status === "connected" && !nothing ? true : undefined;
+  const sessions = media?.hasSessions() ?? false;
   const real = {
     connection: status?.status,
     everConnected: everConnected || status?.status === "connected",
@@ -300,32 +308,80 @@ export function Player(props: PlayerProps) {
     looped: props.looped,
     known,
     roomName: room,
+    sessions,
+    sessionEnded: view?.sessionEnded ?? false,
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
+  const origin = media?.talkOrigin() ?? 0;
+
+  // The media element: Media Chrome drives it; it holds the paused state and the playhead (held while paused live).
+  const elementAt = el?.playback === playback ? el.roomTime() : undefined;
   const at = timeline
-    ? timeline.mode === "live"
-      ? (timeline.position ?? timeline.liveEdge)
-      : timeline.position
+    ? (elementAt ?? (timeline.mode === "live" ? (timeline.position ?? timeline.liveEdge) : timeline.position))
     : undefined;
 
   const talkClock = (ms: number) => formatClock(media ? media.talkTime(ms) : ms);
 
-  const togglePlay = useCallback(() => {
-    if (!media) return;
-    if (ui.playing) media.stop();
-    else media.play();
-    setUi({ playing: !ui.playing });
-  }, [media, ui.playing, setUi]);
+  // Bind the element to this playback (a new demo session hands a new one, which carries on playing).
+  useEffect(() => {
+    const e = el;
+    if (!e) return;
+    e.bind(playback);
+    const onPlayState = () => setUi({ playing: !e.paused });
+    const onSubtitles = (ev: Event) => {
+      const id = (ev as CustomEvent<string | null>).detail;
+      update(id === null ? { cc: false } : { cc: true, subtitleLang: id });
+    };
+    const onVolume = (ev: Event) => {
+      const { volume, muted } = (ev as CustomEvent<{ volume: number; muted: boolean }>).detail;
+      update({ volume, muted });
+    };
+    e.addEventListener("play", onPlayState);
+    e.addEventListener("pause", onPlayState);
+    e.addEventListener("ttsubtitles", onSubtitles);
+    e.addEventListener("ttvolume", onVolume);
+    onPlayState();
+    return () => {
+      e.removeEventListener("play", onPlayState);
+      e.removeEventListener("pause", onPlayState);
+      e.removeEventListener("ttsubtitles", onSubtitles);
+      e.removeEventListener("ttvolume", onVolume);
+    };
+  }, [el, playback, setUi, update]);
+  // What the element tells Media Chrome: the talk's 00:00 and span, the subtitle choices, the chapters, the volume.
+  const recording = state.kind === "ended" && !sessions ? state.recording : undefined;
+  const choices = useMemo(() => subtitleChoices(tracks), [tracks]);
+  const outlineChapters = tracks.outline?.enabled ? tracks.outline.outline?.chapters : undefined;
+  useEffect(() => {
+    const e = el;
+    if (!e) return;
+    e.setSpan({ origin, recording });
+    e.setSubtitles(choices, prefs.cc ? showingChoice(prefs, choices) : undefined);
+    const end = timeline?.liveEdge ?? timeline?.position ?? 0;
+    e.setChapters(
+      (outlineChapters ?? []).map((c, i, all) => ({
+        startMs: c.start_ms,
+        endMs: all[i + 1]?.start_ms ?? Math.max(end, c.start_ms),
+        title: c.title,
+      })),
+    );
+    e.setVolumeQuietly(prefs.volume, prefs.muted);
+    e.setPipSource(() => {
+      const tile = e.querySelector(".tt-tile-camera");
+      return (
+        tile?.querySelector<HTMLVideoElement>("video.tt-media:not(.tt-hidden)") ??
+        tile?.querySelector<HTMLCanvasElement>("canvas.tt-media:not(.tt-hidden)") ??
+        undefined
+      );
+    });
+  });
 
-  // RoomMedia plays the recording as soon as a seek opens it, and takes the next Go live as a wish for live
-  // sound; a seek is a gesture, so it starts sound the way Play does.
-  const seekWith = (move: () => void) => {
-    move();
-    if (media && !ui.playing) {
-      media.play();
-      setUi({ playing: true });
-    }
-  };
+  const togglePlay = useCallback(() => {
+    const e = el;
+    if (!e) return;
+    if (e.paused) void e.play();
+    else e.pause();
+  }, [el]);
 
   const openTab = useCallback((tab: PanelTab) => update({ panel: true, tab }), [update]);
   const shownSlide = slidesShown && at !== undefined ? slides?.slideAt(at)?.slide : undefined;
@@ -370,9 +426,14 @@ export function Player(props: PlayerProps) {
           looped: props.looped ?? false,
           at,
           talkClock,
-          seek: (ms) => seekWith(() => playback.seek(ms)),
-          seekBy: (ms) => seekWith(() => playback.seekBy(ms)),
-          goLive: () => playback.goLive(),
+          origin,
+          element: () => el,
+          seek: (ms) => seekRoom(el, origin, ms),
+          seekBy: (ms) => {
+            const from = el?.roomTime() ?? playback.liveEdge();
+            if (from !== undefined) seekRoom(el, origin, from + ms);
+          },
+          goLive: () => el?.goLive(),
           openTab,
           holdTracks,
           togglePlay,
@@ -381,12 +442,14 @@ export function Player(props: PlayerProps) {
         }
       : undefined;
 
-  useShortcuts(ctx, toggleFullscreen);
+  useShortcuts(ctx, controller);
 
   if (!ctx)
     return (
       <main id="main">
-        <ChalkyLoading className="tt-loading">Connecting…</ChalkyLoading>
+        <p className="tt-loading" role="status">
+          Connecting…
+        </p>
       </main>
     );
 
@@ -394,37 +457,49 @@ export function Player(props: PlayerProps) {
     <PlayerContext.Provider value={ctx}>
       <div
         ref={root}
-        className={`tt-player${prefs.panel ? " tt-with-panel" : ""}${fullscreen ? " tt-fullscreen" : ""}${
-          idle && !ui.menu ? " tt-idle" : ""
-        }`}
+        className={`tt-player${prefs.panel ? " tt-with-panel" : ""}${fullscreen ? " tt-fullscreen" : ""}`}
         data-state={state.kind}
       >
-        <header className="tt-titlebar">
-          <Link href="/" className="tt-brand">
-            Talk Tracks
-          </Link>
-          <h1 className="tt-title">{title}</h1>
-          {speaker || props.credit ? (
-            <span className="tt-credit">{[speaker, props.credit].filter(Boolean).join(" · ")}</span>
-          ) : null}
-          <span className="tt-notices">
-            {/* The room service has no such room either: the unknown-room card says so, not an outage. */}
-            {serviceDown && state.kind !== "unknown" && state.kind !== "connecting" ? (
-              <span className="tt-notice tt-notice-degraded" role="status" title={toolsOff}>
-                Room service unreachable
-              </span>
-            ) : null}
-            {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
-          </span>
-        </header>
-        {/* The skip link's target: the talk itself, its canvas and controls (the title bar and the side panel beside). */}
+        {/* The skip link's target: the talk itself, its canvas and controls (the side panel beside). */}
         <main className="tt-main" id="main" tabIndex={-1}>
-          <Stage />
-          <LanguageOffer />
-          <div className="tt-chrome">
-            <ProgressBar />
-            <ControlBar fullscreen={fullscreen} onFullscreen={toggleFullscreen} />
-          </div>
+          <media-controller
+            ref={controller}
+            className="tt-controller"
+            gesturesdisabled=""
+            hotkeys="noshift+/"
+            novolumepref=""
+            nomutedpref=""
+            nosubtitleslangpref=""
+            defaultstreamtype="live"
+            noautohide={ui.menu ? "" : undefined}
+          >
+            <tt-room-media ref={setEl} slot="media" className="tt-media-element">
+              <Stage onToggle={togglePlay} onFullscreen={toggleFullscreen} />
+            </tt-room-media>
+            <header slot="top-chrome" className="tt-titlebar">
+              <Link href="/" className="tt-brand">
+                Talk Tracks
+              </Link>
+              <div className="tt-title-block">
+                <h1 className="tt-title">{title}</h1>
+                {speaker || props.credit ? (
+                  <span className="tt-credit">{[speaker, props.credit].filter(Boolean).join(" · ")}</span>
+                ) : null}
+              </div>
+              <span className="tt-notices">
+                {/* The room service has no such room either: the unknown-room card says so, not an outage. */}
+                {serviceDown && state.kind !== "unknown" && state.kind !== "connecting" ? (
+                  <span className="tt-notice tt-notice-degraded" role="status" title={toolsOff}>
+                    Room service unreachable
+                  </span>
+                ) : null}
+                {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
+              </span>
+            </header>
+            <media-loading-indicator slot="centered-chrome" className="tt-loading-indicator" loadingdelay="600" />
+            <LanguageOffer />
+            <Controls quality={false} />
+          </media-controller>
         </main>
         {prefs.panel ? <SidePanel /> : null}
         {ui.shortcuts ? <ShortcutsDialog onClose={() => setUi({ shortcuts: false })} /> : null}
@@ -433,6 +508,36 @@ export function Player(props: PlayerProps) {
         </div>
       </div>
     </PlayerContext.Provider>
+  );
+}
+
+/** Seek the element to room ms `ms` (it speaks the talk clock's seconds). */
+function seekRoom(e: RoomMediaElement | null, origin: number, ms: number): void {
+  if (e) e.currentTime = Math.max(0, ms - origin) / 1000;
+}
+
+/** The subtitle choices as text tracks: the original, then every translation the room runs. */
+function subtitleChoices(tracks: RoomTracks): SubtitleChoice[] {
+  const out: SubtitleChoice[] = [];
+  if (tracks.captions) {
+    const lang = tracks.captions.lang ?? "en";
+    out.push({ id: "original", label: `${languageOption(lang).autonym} (original)`, language: lang });
+  }
+  for (const t of tracks.translations) {
+    const lang = t.lang!;
+    const o = languageOption(lang);
+    out.push({ id: lang, label: o.local !== o.autonym ? `${o.autonym} · ${o.local}` : o.autonym, language: lang });
+  }
+  return out;
+}
+
+/** The choice shown for the subtitle preference, if the room offers it. */
+function showingChoice(prefs: Pick<Prefs, "subtitleLang">, choices: readonly SubtitleChoice[]): string | undefined {
+  if (prefs.subtitleLang === "original") return choices.some((c) => c.id === "original") ? "original" : undefined;
+  const base = (tag: string) => tag.toLowerCase().split("-")[0];
+  return (
+    choices.find((c) => c.id.toLowerCase() === prefs.subtitleLang.toLowerCase())?.id ??
+    choices.find((c) => c.id !== "original" && base(c.id) === base(prefs.subtitleLang))?.id
   );
 }
 
@@ -459,8 +564,13 @@ export function listenerToolsOff(status: ServiceStatus | undefined, noService: s
   }
 }
 
-/** Keyboard shortcuts of ui-design §4.10, on the whole page (the player is the page). */
-function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void): void {
+/**
+ * Keyboard shortcuts on the whole page (the player is the page). Media Chrome answers the media keys (Space and K,
+ * J and L, the arrows, M, F, C, < and >) inside its controller; pressed anywhere else on the page they are handed to
+ * it. The room's own keys are ours: G go live, S side panel, B bookmark, N note, / search, [ and ] subtitle size, ?
+ * these shortcuts.
+ */
+function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElement | null>): void {
   const latest = useRef(ctx);
   useEffect(() => {
     latest.current = ctx;
@@ -474,61 +584,35 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
         if (e.key === "Escape") c.setUi({ menu: undefined });
         return;
       }
-      const onButton = target?.closest("button, a, [role='slider'], [role='separator'], [role='tab']");
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      const mc = controller.current as (HTMLElement & { keyboardShortcutHandler?(e: unknown): void }) | null;
+      if (MEDIA_KEYS.has(key)) {
+        // Inside the controller Media Chrome has it already; a focused button keeps Space for itself.
+        if (!mc || (target && mc.contains(target))) return;
+        if (key === " " && target?.closest("button, a, [role='button'], [role='tab'], [role='slider']")) return;
+        mc.keyboardShortcutHandler?.({ key, target: mc, shiftKey: e.shiftKey });
+        e.preventDefault();
+        return;
+      }
       const { prefs, update, setUi } = c;
-      switch (e.key) {
-        case " ":
-          if (onButton) return;
-          c.togglePlay();
-          break;
-        case "k":
-        case "K":
-          c.togglePlay();
-          break;
-        case "ArrowLeft":
-          c.seekBy(-5_000);
-          break;
-        case "ArrowRight":
-          c.seekBy(5_000);
-          break;
-        case "j":
-        case "J":
-          c.seekBy(-10_000);
-          break;
-        case "l":
-        case "L":
-          c.seekBy(10_000);
-          break;
+      switch (key) {
         case "g":
-        case "G":
           c.goLive();
-          break;
-        case "c":
-        case "C":
-          update({ cc: !prefs.cc });
-          c.announce(prefs.cc ? "Subtitles off" : "Subtitles on");
           break;
         case "[":
         case "]": {
-          const size = Math.min(44, Math.max(12, prefs.style.size + (e.key === "]" ? 2 : -2)));
+          const size = Math.min(44, Math.max(12, prefs.style.size + (key === "]" ? 2 : -2)));
           update({ style: { ...prefs.style, size } });
           c.announce(`Subtitle size ${size}`);
           break;
         }
         case "s":
-        case "S":
           update({ panel: !prefs.panel });
           break;
-        case "f":
-        case "F":
-          toggleFullscreen();
-          break;
         case "b":
-        case "B":
           c.addBookmark();
           break;
         case "n":
-        case "N":
           c.openTab("notes");
           setUi((u) => ({ focusNote: u.focusNote + 1 }));
           break;
@@ -549,7 +633,7 @@ function useShortcuts(ctx: PlayerCtx | undefined, toggleFullscreen: () => void):
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [toggleFullscreen]);
+  }, [controller]);
 }
 
 /** True once `on` has held for `ms` without a break; false again as soon as it breaks. */

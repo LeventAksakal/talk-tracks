@@ -2,13 +2,15 @@ import { useEffect, useRef } from "react";
 
 export const SHORTCUTS: [string, string][] = [
   ["Space or K", "Play or pause"],
-  ["← / →", "Back or forward 5 s"],
-  ["J / L", "Back or forward 10 s"],
+  ["J / L or ← / →", "Back or forward 10 s"],
+  ["↑ / ↓", "Louder or quieter"],
+  ["M", "Mute"],
+  ["< / >", "Slower or faster (rewound)"],
   ["G", "Go live"],
   ["C", "Subtitles on or off"],
   ["[ / ]", "Smaller or larger subtitles"],
   ["S", "Side panel"],
-  ["F", "Full screen"],
+  ["F or double-click", "Full screen"],
   ["B", "Bookmark this moment"],
   ["N", "Write a note"],
   ["/", "Search the transcript"],

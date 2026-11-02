@@ -4,7 +4,7 @@ import { MoqTransport } from "../transport/moq";
 import { dirOf } from "../viewer/lang";
 import { ChatTab } from "./Chat";
 import { usePlayer } from "./context";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 import { fold, languageOption } from "./languages";
 import { notesMarkdown } from "./notes";
 import type { TrackView } from "../playback/aiTracks";
@@ -13,34 +13,43 @@ import { chapterAt } from "./timeline";
 import { translationFor } from "./tracks";
 import { TranscriptDownload } from "./TranscriptDownload";
 
-// Chat (ticket 0021) goes first when there is a relay to read it from; it is a panel like the others, subscribed
-// while open. Comments on a replay join the Discussion tab.
+// The side panel's jobs (decision 0033): each answers one thing the viewer is doing. Talking with the room (Chat),
+// following what is said (Transcript), finding a place in the talk (Chapters, with its terms and the slides as text),
+// keeping their own notes (Notes); Discussion joins them only where listeners can comment. Chat goes first when there
+// is a relay to read it from. A panel is a subscription (decision 0026): its track is subscribed while it is open.
 const CHAT: [PanelTab, string] = ["chat", "Chat"];
-const TABS: [PanelTab, string][] = [
+const JOBS: [PanelTab, string][] = [
   ["transcript", "Transcript"],
   ["chapters", "Chapters"],
-  ["glossary", "Glossary"],
-  ["descriptions", "Slides"],
   ["notes", "Notes"],
 ];
+/** The Chapters job's views: one track (the outline) for chapters and terms, the descriptions for the slides. */
+const FIND: [PanelTab, string][] = [
+  ["chapters", "Chapters"],
+  ["glossary", "Terms"],
+  ["descriptions", "Slides"],
+];
+const ICON: Record<string, IconName> = { chat: "chat", transcript: "transcript", chapters: "chapters", notes: "notes" };
+
+/** The job a tab belongs to: the Chapters job holds its terms and slides. */
+const jobOf = (tab: PanelTab): PanelTab => (tab === "glossary" || tab === "descriptions" ? "chapters" : tab);
 
 /**
- * The side panel (ui-design §4.6), beside the player, never over it: Transcript, Chapters (So far on top),
- * Glossary, Slides (each slide's description) and Notes, plus any extra tab a later lane adds (Discussion). A tab
- * is a subscription (decision 0026): its track is subscribed while it is open, so each says when it is starting
- * from now or loading what came before.
+ * The side panel (ui-design §4.6), beside the player, never over it: one job at a time, picked from the tabs or by
+ * what the viewer does (/ searches the transcript, N writes a note, the chapter name opens Chapters).
  */
 export function SidePanel() {
   const { prefs, update, extraTabs, transport } = usePlayer();
   const chat = transport instanceof MoqTransport;
   const tabs: [PanelTab, string][] = [
     ...(chat ? [CHAT] : []),
-    ...TABS,
+    ...JOBS,
     ...extraTabs.map((t): [PanelTab, string] => [t.id, t.label]),
   ];
-  const current = tabs.some(([id]) => id === prefs.tab) ? prefs.tab : "transcript";
+  const job = tabs.some(([id]) => id === jobOf(prefs.tab)) ? jobOf(prefs.tab) : "transcript";
+  const current = job === "chapters" ? prefs.tab : job;
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const i = tabs.findIndex(([id]) => id === current);
+    const i = tabs.findIndex(([id]) => id === job);
     const next = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : undefined;
     if (next === undefined) return;
     e.preventDefault();
@@ -49,31 +58,11 @@ export function SidePanel() {
     update({ tab: id });
     document.getElementById(`tt-tab-${id}`)?.focus();
   };
-  const extra = extraTabs.find((t) => t.id === current);
-  const { ref: list, more, scroll } = useOverflow<HTMLDivElement>(current, tabs.length);
+  const extra = extraTabs.find((t) => t.id === job);
   return (
     <aside className="tt-panel" aria-label="Side panel">
       <div className="tt-panel-head">
-        {/* More tabs than fit: arrows on the clipped side scroll them (keyboard and screen readers move by tab). */}
-        {more.before ? (
-          <button
-            type="button"
-            className="tt-icon-button tt-small tt-tabs-more tt-tabs-before"
-            aria-hidden="true"
-            tabIndex={-1}
-            title="Earlier tabs"
-            onClick={() => scroll(-1)}
-          >
-            <Icon name="back" />
-          </button>
-        ) : null}
-        <div
-          ref={list}
-          className={`tt-tabs${more.before ? " tt-clip-before" : ""}${more.after ? " tt-clip-after" : ""}`}
-          role="tablist"
-          aria-label="Side panel"
-          onKeyDown={onKey}
-        >
+        <div className="tt-tabs" role="tablist" aria-label="Side panel" onKeyDown={onKey}>
           {tabs.map(([id, label]) => (
             <button
               key={id}
@@ -81,27 +70,16 @@ export function SidePanel() {
               type="button"
               role="tab"
               className="tt-tab"
-              aria-selected={current === id}
+              aria-selected={job === id}
               aria-controls={`tt-tabpanel-${id}`}
-              tabIndex={current === id ? 0 : -1}
+              tabIndex={job === id ? 0 : -1}
               onClick={() => update({ tab: id })}
             >
-              {label}
+              <Icon name={ICON[id] ?? "comment"} />
+              <span>{label}</span>
             </button>
           ))}
         </div>
-        {more.after ? (
-          <button
-            type="button"
-            className="tt-icon-button tt-small tt-tabs-more tt-tabs-after"
-            aria-hidden="true"
-            tabIndex={-1}
-            title="More tabs"
-            onClick={() => scroll(1)}
-          >
-            <Icon name="forward" />
-          </button>
-        ) : null}
         <button
           type="button"
           className="tt-icon-button tt-small tt-panel-close"
@@ -111,7 +89,22 @@ export function SidePanel() {
           <Icon name="close" />
         </button>
       </div>
-      <div className="tt-tabpanel" role="tabpanel" id={`tt-tabpanel-${current}`} aria-labelledby={`tt-tab-${current}`}>
+      <div className="tt-tabpanel" role="tabpanel" id={`tt-tabpanel-${job}`} aria-labelledby={`tt-tab-${job}`}>
+        {job === "chapters" ? (
+          <div className="tt-views" role="group" aria-label="Show">
+            {FIND.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className="tt-view"
+                aria-pressed={current === id}
+                onClick={() => update({ tab: id })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {current === "chat" ? <ChatTab /> : null}
         {current === "transcript" ? <Transcript /> : null}
         {current === "chapters" ? <Chapters /> : null}
@@ -440,39 +433,4 @@ function Notes() {
       ) : null}
     </div>
   );
-}
-
-/**
- * A row that may hold more than it shows: which ends are clipped, re-measured on scroll and resize; the selected item
- * (`selected` changes) scrolls into view; `scroll(±1)` moves by most of the visible width.
- */
-function useOverflow<T extends HTMLElement>(selected: string, count: number) {
-  const ref = useRef<T>(null);
-  const [more, setMore] = useState({ before: false, after: false });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      const before = el.scrollLeft > 1;
-      const after = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
-      setMore((m) => (m.before === before && m.after === after ? m : { before, after }));
-    };
-    measure();
-    el.addEventListener("scroll", measure, { passive: true });
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
-    observer?.observe(el);
-    return () => {
-      el.removeEventListener("scroll", measure);
-      observer?.disconnect();
-    };
-  }, [count]);
-  useEffect(() => {
-    const tab = ref.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    tab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [selected]);
-  const scroll = (direction: 1 | -1) => {
-    const el = ref.current;
-    el?.scrollBy?.({ left: direction * el.clientWidth * 0.7, behavior: "smooth" });
-  };
-  return { ref, more, scroll };
 }

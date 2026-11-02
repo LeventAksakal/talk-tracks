@@ -10,6 +10,7 @@ import { type ArchivePlayback, type ArchiveState, archiveState, hlsUrl, openArch
 import { type LoopInfo, loopInfo, loopOf, LoopPlayback, loopPlace, loopUrl } from "./loopArchive";
 import { type RoomCatalog, STATUS_FRESH_MS, watchRoomCatalog } from "./roomCatalog";
 import { HANG_CATALOG_TRACK, type HangClock, hangClockOf, roomTimeOf, shiftOf, wallClockMs } from "./roomClock";
+import { type SessionInfo, sessionOf, sessionOrigin, type SessionSource } from "./session";
 import { type Range, sliceOf } from "./slices";
 
 export type MediaStatus =
@@ -43,6 +44,12 @@ export interface SpeakerMedia {
   onAir?(): boolean | undefined;
   seek(ms: number): void;
   goLive(): void;
+  /** Start (or resume) playing; live media starts its sound here, so call it from a gesture. */
+  play?(): void;
+  /** Stop playing; the mode stays. */
+  pause?(): void;
+  /** Playback rate for rewound media (live always plays at 1×). */
+  setRate?(rate: number): void;
   onChange(listener: () => void): () => void;
   close(): void;
 }
@@ -74,6 +81,9 @@ export class ClockMedia implements SpeakerMedia {
   #status: MediaStatus;
   #listeners = new Listeners();
   #timer: ReturnType<typeof setInterval> | undefined;
+  #rate = 1;
+  /** Paused while rewound: the media ms it holds at. */
+  #frozen: number | undefined;
 
   constructor(options: { now?: () => number; tickMs?: number; status?: MediaStatus } = {}) {
     this.#now = options.now ?? Date.now;
@@ -100,8 +110,9 @@ export class ClockMedia implements SpeakerMedia {
   }
   position(): number | undefined {
     if (this.#mode === "live") return this.liveEdge();
+    if (this.#frozen !== undefined) return this.#frozen;
     if (!this.#anchor) return undefined;
-    const pos = this.#anchor.media + (this.#now() - this.#anchor.wall);
+    const pos = this.#anchor.media + (this.#now() - this.#anchor.wall) * this.#rate;
     const edge = this.liveEdge();
     return edge === undefined ? pos : Math.min(pos, edge);
   }
@@ -122,12 +133,33 @@ export class ClockMedia implements SpeakerMedia {
   }
   seek(ms: number): void {
     this.#mode = "rewound";
+    this.#frozen = undefined;
     this.#anchor = { media: ms, wall: this.#now() };
     this.#listeners.emit();
   }
   goLive(): void {
     this.#mode = "live";
+    this.#frozen = undefined;
     this.#anchor = undefined;
+    this.#listeners.emit();
+  }
+  play(): void {
+    if (this.#frozen === undefined) return;
+    this.#anchor = { media: this.#frozen, wall: this.#now() };
+    this.#frozen = undefined;
+    this.#listeners.emit();
+  }
+  /** Rewound, the playhead holds still until play(); live, the edge runs on (the player holds its display). */
+  pause(): void {
+    if (this.#mode !== "rewound" || this.#frozen !== undefined) return;
+    this.#frozen = this.position();
+    this.#listeners.emit();
+  }
+  setRate(rate: number): void {
+    if (!(rate > 0) || rate === this.#rate) return;
+    const pos = this.#mode === "rewound" && this.#frozen === undefined ? this.position() : undefined;
+    this.#rate = rate;
+    if (pos !== undefined) this.#anchor = { media: pos, wall: this.#now() };
     this.#listeners.emit();
   }
   onChange(listener: () => void): () => void {
@@ -181,7 +213,7 @@ export function recordedRoom(catalog: RoomCatalog, room: string): boolean {
  * room's recording itself (loopArchive). Go live closes the archive playback and starts the live one
  * again. It also holds the room catalog, which gives E and every track's L.
  */
-export class RoomMedia implements SpeakerMedia {
+export class RoomMedia implements SpeakerMedia, SessionSource {
   readonly room: string;
   #transport: MoqTransport;
   #now: () => number;
@@ -189,6 +221,8 @@ export class RoomMedia implements SpeakerMedia {
   #loopUrl: string;
   /** A looped room's loop, from the teacher's hang catalog, and when it was last seen (this device's ms). */
   #loop: { loop: NonNullable<ReturnType<typeof loopOf>>; seen: number } | undefined;
+  /** A demo session's id and clock, from the teacher's hang catalog (decision 0032). */
+  #session: SessionInfo | undefined;
   #fetch: typeof fetch;
   #elements: RoomMediaElements | undefined;
   #mode: Mode = "live";
@@ -206,6 +240,7 @@ export class RoomMedia implements SpeakerMedia {
   /** Live speaker volume, 0–1, and the live player's volume input once it exists. */
   #volume = 1;
   #liveVolume: { set(volume: number): void } | undefined;
+  #rate = 1;
   #archive: ArchivePlayback | undefined;
   #archiveGeneration = 0;
   /** The archive's last presented frame (requestVideoFrameCallback mediaTime, s) and the callback handle. */
@@ -258,15 +293,20 @@ export class RoomMedia implements SpeakerMedia {
       // A catalog track only (the looper repeats it every 2 s): no agent works for it.
       transport.subscribe(teacherPath(room), HANG_CATALOG_TRACK, ({ payload }) => {
         let loop: ReturnType<typeof loopOf>;
+        let session: SessionInfo | undefined;
         try {
-          loop = loopOf(JSON.parse(new TextDecoder().decode(payload)));
+          const json: unknown = JSON.parse(new TextDecoder().decode(payload));
+          loop = loopOf(json);
+          session = sessionOf(json);
         } catch {
           return;
         }
         const first = !this.#loop;
         this.#loop = loop ? { loop, seen: this.#now() } : undefined;
+        const newSession = session !== undefined && session.id !== this.#session?.id;
+        if (session) this.#session = session;
         this.#setLoopKnown();
-        if (first && loop) this.#listeners.emit();
+        if ((first && loop) || newSession) this.#listeners.emit();
       }),
     );
     this.#timers.push(setInterval(() => this.#listeners.emit(), 250));
@@ -277,6 +317,32 @@ export class RoomMedia implements SpeakerMedia {
   /** The newest room catalog, once it has arrived. */
   catalog(): RoomCatalog | undefined {
     return this.#catalog;
+  }
+
+  /** What tells this room's session apart (session.ts): E, and a demo session's id. */
+  sessionKey(): { epoch?: number; session?: string } {
+    return { epoch: this.#catalog?.tt.E, session: this.#session?.id };
+  }
+
+  /** The room plays demo sessions (decision 0032): each ends, and the next starts from 00:00. */
+  hasSessions(): boolean {
+    return this.#session !== undefined;
+  }
+
+  /**
+   * Room ms of the talk clock's 00:00: a demo session's start, or in a looped room the current loop's start; 0 in any
+   * other room (room time is the time since the talk began).
+   */
+  talkOrigin(): number {
+    const e = this.#catalog?.tt.E;
+    if (e === undefined) return 0;
+    const session = this.#session;
+    if (session) return sessionOrigin(session, e, shiftOf(this.#catalog?.tt.shift, session.clock));
+    const loop = this.#loopInfo();
+    const edge = this.liveEdge();
+    if (!loop || edge === undefined) return 0;
+    const place = loopPlace(loop, edge + e);
+    return Math.max(0, edge - place.fileMs);
   }
 
   /**
@@ -298,7 +364,10 @@ export class RoomMedia implements SpeakerMedia {
   play(): void {
     this.#wantLive = true;
     if (this.#mode === "live") this.#startLive();
-    else void this.#archive?.element.play().catch(() => {});
+    else {
+      this.#clock?.play();
+      void this.#archive?.element.play().catch(() => {});
+    }
   }
 
   /**
@@ -310,12 +379,28 @@ export class RoomMedia implements SpeakerMedia {
     this.#liveVolume?.set(this.#volume);
   }
 
+  /** Stop playing (all sound, live or rewound); the mode stays. */
+  pause(): void {
+    this.stop();
+  }
+
+  /** The rewound archive's playback rate; live plays at 1×. */
+  setRate(rate: number): void {
+    if (!(rate > 0)) return;
+    this.#rate = rate;
+    const video = this.#archive?.element;
+    if (video) video.playbackRate = rate;
+    this.#clock?.setRate(rate);
+  }
+
   /** Stop all sound, live or rewound; the mode stays. */
   stop(): void {
     this.#wantLive = false;
     this.#stopLive();
     this.#archive?.pause();
-    this.#status = "idle";
+    this.#clock?.pause();
+    // A rewind with no archived media keeps saying so while paused.
+    this.#status = this.#clock ? "no-media" : "idle";
     this.#listeners.emit();
   }
 
@@ -439,6 +524,7 @@ export class RoomMedia implements SpeakerMedia {
   talkTime(ms: number): number {
     const loop = this.#loopInfo();
     const e = this.#catalog?.tt.E;
+    if (this.#session && e !== undefined) return Math.max(0, ms - this.talkOrigin());
     return loop && e !== undefined ? loopPlace(loop, ms + e).fileMs : ms;
   }
 
@@ -496,6 +582,7 @@ export class RoomMedia implements SpeakerMedia {
     }
     if (generation !== this.#archiveGeneration) return;
     this.#watchFrames(video, generation);
+    video.playbackRate = this.#rate;
     this.#status = "playing";
     this.#error = undefined;
     video.muted = false;
@@ -532,6 +619,7 @@ export class RoomMedia implements SpeakerMedia {
     const clock = new ClockMedia({ now: this.#now, tickMs: 0, status: "no-media" });
     if (edge !== undefined) clock.setLiveEdge(edge);
     clock.seek(ms);
+    clock.setRate(this.#rate);
     this.#clock = clock;
     this.#status = "no-media";
     this.#listeners.emit();

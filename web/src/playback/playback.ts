@@ -10,6 +10,8 @@ export interface PlaybackView {
   timeline: TimelineView;
   tracks: AiTracksView;
   missed: Missed | undefined;
+  /** This demo session has ended and the next one has started (decision 0032): the end card shows until it is joined. */
+  sessionEnded: boolean;
 }
 
 export interface PlaybackOptions extends AiTracksOptions {
@@ -29,6 +31,7 @@ export class Playback {
   #view: PlaybackView | undefined;
   #disposers: (() => void)[] = [];
   #onClose: (() => void) | undefined;
+  #sessionEnded = false;
 
   constructor(source: HistorySource, media: SpeakerMedia, room: string, options: PlaybackOptions = {}) {
     this.media = media;
@@ -82,6 +85,14 @@ export class Playback {
     const from = this.#awayFrom;
     this.#awayFrom = undefined;
     if (from !== undefined) this.#setMissed(from, this.liveEdge(), "away");
+  }
+
+  /** The session this playback plays has ended (session.ts); a new playback joins the next one. */
+  endSession(): void {
+    if (this.#sessionEnded) return;
+    this.#sessionEnded = true;
+    this.#missed = undefined;
+    this.#changed();
   }
 
   dismissMissed(): void {
@@ -187,6 +198,6 @@ export class Playback {
         outlineAnnounced: outline?.announced ?? false,
       };
     }
-    return { timeline, tracks, missed };
+    return { timeline, tracks, missed, sessionEnded: this.#sessionEnded };
   }
 }

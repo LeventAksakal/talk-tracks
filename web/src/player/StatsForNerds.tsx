@@ -43,6 +43,10 @@ export function StatsForNerds() {
   const frame = clock.now();
   const pos = playback.position();
   const all = view.tracks.tracks;
+  // One row per track this player uses; the rest of the room's tracks (a room can offer forty translations) are one
+  // summary row, and listed below by the room's stats track.
+  const on = all.filter((t) => t.enabled);
+  const off = all.filter((t) => !t.enabled);
 
   return (
     <section className="tt-stats" aria-label="Stats for nerds">
@@ -81,7 +85,7 @@ export function StatsForNerds() {
                 : `${talkClock(frame)} · ${Math.round(frame - pos)} ms from the playhead`
             }
           />
-          {all.map((track) => {
+          {on.map((track) => {
             const agent = toAgentView(track);
             const s = statusOf(catalog as RoomCatalog | undefined, track.agent);
             const held = agent.historyLength;
@@ -96,6 +100,9 @@ export function StatsForNerds() {
             return <Row key={track.id} k={track.label} v={parts.join(" · ")} />;
           })}
           {all.length === 0 ? <Row k="tracks" v="no agents announced yet" /> : null}
+          {off.length > 0 ? (
+            <Row k={on.length > 0 ? "other tracks" : "tracks"} v={`${off.length} offered, off: ${offSummary(off)}`} />
+          ) : null}
           <Row
             k="subtitles"
             v={tracks.captions?.lastLiveAt ? `last line ${ago(tracks.captions.lastLiveAt)}` : "no live line yet"}
@@ -152,6 +159,15 @@ function Row({ k, v }: { k: string; v: string }) {
       <th scope="row">{k}</th>
       <td>{v}</td>
     </tr>
+  );
+}
+
+/** "Captions, Slide descriptions, 38 translations": translations counted, other tracks named. */
+function offSummary(tracks: readonly { kind?: string; label: string }[]): string {
+  const translations = tracks.filter((t) => t.kind === "translation").length;
+  const named = tracks.filter((t) => t.kind !== "translation").map((t) => t.label);
+  return [...named, ...(translations ? [`${translations} translation${translations === 1 ? "" : "s"}`] : [])].join(
+    ", ",
   );
 }
 
