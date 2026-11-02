@@ -1,15 +1,19 @@
 // Slide keys and presenter clickers (ui-design §7). Clickers send PageDown/PageUp (some arrows), "b"
 // or "." for a black screen, and F5 or Shift+F5 to start a slideshow, which would reload the console
 // and end the broadcast, so F5 is swallowed. Drawing keys follow Excalidraw's where ours are free (R, O, A,
-// E, digits in toolbar order, Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); L, D and H stay laser, pen, highlighter.
+// E, digits in toolbar order, Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); L, D and H stay laser, pen, highlighter. Excalidraw's
+// diamond key is D, which is the pen here, so the diamond is G.
 
-export type ShapeTool = "rect" | "ellipse" | "arrow" | "line";
+export type ShapeTool = "rect" | "ellipse" | "arrow" | "line" | "diamond";
 export type Tool = "none" | "laser" | "pen" | "highlighter" | ShapeTool | "underline" | "highlight" | "eraser";
 
-export const SHAPE_TOOLS: readonly ShapeTool[] = ["rect", "ellipse", "arrow", "line"];
+export const SHAPE_TOOLS: readonly ShapeTool[] = ["rect", "ellipse", "arrow", "line", "diamond"];
 export const isShapeTool = (t: Tool): t is ShapeTool => (SHAPE_TOOLS as readonly Tool[]).includes(t);
 
-/** The toolbar's order; the digit keys 1..9, 0 pick them in this order (as in Excalidraw). */
+/**
+ * The toolbar's order; the digit keys 1..9, 0 pick them in this order (as in Excalidraw). The diamond, last of the
+ * shapes, has no digit: the ten are taken, and which tools keep one waits on the owner.
+ */
 export const TOOL_ORDER: readonly Exclude<Tool, "none">[] = [
   "laser",
   "pen",
@@ -43,6 +47,7 @@ export const TOOL_KEYS: Record<string, Tool> = {
   o: "ellipse",
   a: "arrow",
   i: "line",
+  g: "diamond",
   u: "underline",
   m: "highlight",
   e: "eraser",

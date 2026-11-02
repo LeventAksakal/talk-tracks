@@ -115,6 +115,18 @@ export function elementLines(el: InkElement): Point[][] {
       ],
     ];
   }
+  if (el.shape === "diamond") {
+    const [cx, cy] = [(ax + bx) / 2, (ay + by) / 2];
+    return [
+      [
+        [cx, ay],
+        [bx, cy],
+        [cx, by],
+        [ax, cy],
+        [cx, ay],
+      ],
+    ];
+  }
   if (el.shape === "ellipse") {
     const [cx, cy, rx, ry] = [(ax + bx) / 2, (ay + by) / 2, Math.abs(bx - ax) / 2, Math.abs(by - ay) / 2];
     return [

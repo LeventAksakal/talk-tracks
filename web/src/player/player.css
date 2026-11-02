@@ -317,6 +317,7 @@
 }
 .tt-marks,
 .tt-ink,
+.tt-laser-trail,
 .tt-laser {
   position: absolute;
   inset: 0;
@@ -443,6 +444,89 @@
 }
 .tt-annotate-color[aria-checked="true"] {
   border-color: var(--tt-color-text);
+}
+.tt-annotate-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-end: 4px;
+  border-inline-end: 1px solid var(--tt-color-line);
+}
+.tt-annotate-slot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tt-annotate-options {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tt-color-surface) 90%, transparent);
+  cursor: pointer;
+}
+.tt-annotate-options[aria-expanded="true"] {
+  border-color: var(--tt-color-accent);
+}
+.tt-annotate-options > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--tt-ink-casing);
+}
+/* The bar sits at the slide's foot, so a tool's options open upwards. */
+.tt-annotate-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: max-content;
+  padding: 8px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 8px;
+  background: var(--tt-color-surface);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--tt-ink-casing) 35%, transparent);
+}
+.tt-annotate-popover .tt-annotate-colors {
+  padding: 0;
+}
+.tt-annotate-widths {
+  display: inline-flex;
+  gap: 4px;
+}
+.tt-annotate-width {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.tt-annotate-width[aria-checked="true"] {
+  border-color: var(--tt-color-accent);
+  background: color-mix(in srgb, var(--tt-color-accent) 20%, transparent);
+}
+.tt-annotate-width > span {
+  display: block;
+  width: 16px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.tt-annotate-hint {
+  color: var(--tt-color-text-muted);
+  font-size: 11px;
 }
 .tt-annotate-note {
   padding: 0 6px;

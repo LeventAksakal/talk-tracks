@@ -1,5 +1,7 @@
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { shapeEnd } from "../canvas/ink";
+import { LaserTrail } from "../canvas/laser";
+import { WIDTHS, type WidthStep } from "../canvas/tools";
 import type { InkShape, Point, TextRange } from "../contracts/types";
 import type { RenderedSlide } from "./deck";
 import { drawElement, drawLaser, drawRange, marksAt, strokesAt } from "./draw";
@@ -26,13 +28,8 @@ export const colorKey = (tool: Tool): keyof ToolColors | undefined =>
       ? tool
       : undefined;
 
-/** Stroke widths (fractions of the slide's width): thin, medium, bold, as Excalidraw offers three. */
-export type WidthStep = 0 | 1 | 2;
-export const WIDTHS: Record<"pen" | "highlighter" | "shape", readonly [number, number, number]> = {
-  pen: [0.0025, 0.004, 0.008],
-  highlighter: [0.014, 0.022, 0.036],
-  shape: [0.0025, 0.004, 0.008],
-};
+/** Stroke widths, shared with the listener's toolbar (canvas/tools.ts). */
+export { WIDTHS, type WidthStep };
 export const PEN_WIDTH = WIDTHS.pen[1];
 export const HIGHLIGHTER_WIDTH = WIDTHS.highlighter[1];
 /** A shape needs a drag this long (a fraction of the slide's height) to be drawn at all. */
@@ -87,6 +84,7 @@ export function Stage({
     shape?: { style: ShapeStyle; end: Point; id?: string; sent?: Point };
   } | null>(null);
   const frame = useRef(0);
+  const trail = useRef(new LaserTrail());
   const runs = slide?.runs ?? [];
   const latest = useRef({ publisher, runs, colors });
   useLayoutEffect(() => {
@@ -95,7 +93,7 @@ export function Stage({
 
   const redraw = useCallback(() => {
     cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => {
+    const paint = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (!canvas || !ctx) return;
@@ -114,8 +112,10 @@ export function Stage({
       }
       const held =
         g?.kind === "laser" && g.at ? { m: 0, data: { kind: "at" as const, x: g.at[0], y: g.at[1] } } : undefined;
-      drawLaser(ctx, held ?? state.pointer, w, h);
-    });
+      // The laser's trail fades over the next frames (canvas/laser.ts).
+      if (drawLaser(ctx, held ?? state.pointer, w, h, trail.current)) frame.current = requestAnimationFrame(paint);
+    };
+    frame.current = requestAnimationFrame(paint);
   }, []);
 
   useEffect(() => publisher.onChange(redraw), [publisher, redraw]);

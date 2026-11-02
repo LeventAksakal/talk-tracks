@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeRoomService } from "../annotate/fake";
+import { WIDTHS } from "../canvas/tools";
 import type { CommentRecord, TextRun } from "../contracts/types";
 import { DEMO_ROOM, DEMO_START_MS } from "../pages/DemoPage";
 import { createDemoPlayback } from "../playback/usePlayback";
+import { inkColor } from "../theme/ink";
 import { FakeTransport } from "../transport/fake";
 import { DemoSlides } from "./demoSlides";
 import { Player } from "./Player";
@@ -130,6 +132,47 @@ describe("a listener annotating and commenting (decision 0024)", () => {
     const threads = screen.getByRole("list", { name: "Threads" });
     expect(within(threads).getByText("Why does it bend here?")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Comment by Ada: Why does it bend here\?/ })).toBeTruthy();
+  });
+
+  it("draws a shape in the colour and width picked from the tool, and undoes and redoes it for everyone", async () => {
+    const service = new FakeRoomService({ me: { id: "u1", name: "Ada", speaker: false } });
+    const room = setup(service);
+    close = room.close;
+    await advance(300);
+
+    fireEvent.click(tool("Annotate"));
+    fireEvent.click(tool("Rectangle"));
+    // Picking the tool opens its options: the listener's pencils and the console's three widths.
+    const options = screen.getByRole("group", { name: "Rectangle options" });
+    fireEvent.click(within(options).getByRole("radio", { name: "Rose" }));
+    fireEvent.click(within(options).getByRole("radio", { name: "Bold" }));
+    drag([0.2, 0.3], [0.5, 0.6]);
+    // Drawing closes them.
+    expect(screen.queryByRole("group", { name: "Rectangle options" })).toBeNull();
+
+    const shapes = service.writes.filter((w) => w.track === "ink").map((w) => w.data);
+    expect(shapes.length).toBeGreaterThan(0);
+    expect(shapes.every((d) => d.kind === "shape" && !("by" in d))).toBe(true);
+    const drawn = shapes.at(-1)!;
+    expect(drawn).toMatchObject({ shape: "rect", deck: 0, index: 4, start: [0.2, 0.3], end: [0.5, 0.6] });
+    expect(drawn.color).toBe(inkColor("rose"));
+    expect(drawn.width).toBe(WIDTHS.shape[2]);
+    expect(String(drawn.stroke).startsWith("u1:")).toBe(true);
+
+    service.writes.length = 0;
+    fireEvent.click(tool("Undo"));
+    expect(service.writes.map((w) => w.data)).toEqual([{ kind: "erase", strokes: [drawn.stroke] }]);
+    expect((tool("Undo") as HTMLButtonElement).disabled).toBe(true);
+
+    service.writes.length = 0;
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(service.writes.map((w) => w.data)).toEqual([drawn]);
+
+    // A click with a shape tool draws nothing.
+    service.writes.length = 0;
+    fireEvent.click(tool("Ellipse"));
+    drag([0.6, 0.6], [0.6, 0.6]);
+    expect(service.writes).toEqual([]);
   });
 
   it("while rewound draws nothing, and a comment goes out at the playhead's room time", async () => {

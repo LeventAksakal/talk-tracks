@@ -412,9 +412,10 @@ class CurrentSlideObject(RootModel[list[CurrentSlideRecord]]):
 # space. A stroke is ``begin``, ``points`` (any number), ``end``. ``stroke`` states a whole stroke at once: in the
 # carry-in (every element visible on the slide on screen, ``done`` false while still being drawn) and, re-sent at the
 # moment a slide that kept its ink is shown again, so a reader that started from a later carry-in sees it too. A
-# shape (rectangle, ellipse, line, arrow) is one ``shape`` record, made whole; while its author drags it, the record
-# is sent again (same id) and the last one wins. ``erase`` removes elements, ``clear`` a slide's ink. ``m`` is when
-# the record took effect on screen; a re-sent element's m is when its slide was shown or it was restored.
+# shape (rectangle, ellipse, diamond, line, arrow) is one ``shape`` record, made whole; while its author drags it,
+# the record is sent again (same id) and the last one wins. ``erase`` removes elements, ``clear`` a slide's ink.
+# ``m`` is when the record took effect on screen; a re-sent element's m is when its slide was shown or it was
+# restored.
 #
 # Undo and redo are ordinary records, so a replay and a late joiner see what the room saw: undoing a new element is
 # an ``erase`` of it; redoing it, or undoing an erase or a clear, re-sends the elements whole (``stroke`` with
@@ -476,12 +477,12 @@ class InkStroke(Wire):
     done: bool = Field(description="False while its author is still drawing it: points and end follow")
 
 
-ShapeKind = Literal["rect", "ellipse", "line", "arrow"]
+ShapeKind = Literal["rect", "ellipse", "diamond", "line", "arrow"]
 
 
 class InkShape(Wire):
-    """A shape, whole: a rectangle or ellipse in the box from ``start`` to ``end``, or a line or arrow from ``start``
-    to ``end`` (the arrow's head)."""
+    """A shape, whole: a rectangle, ellipse or diamond in the box from ``start`` to ``end`` (a diamond's corners at the
+    middles of the box's sides), or a line or arrow from ``start`` to ``end`` (the arrow's head)."""
 
     kind: Literal["shape"] = "shape"
     stroke: StrokeId

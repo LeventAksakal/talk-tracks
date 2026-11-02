@@ -309,7 +309,7 @@
     },
     "InkShape": {
       "additionalProperties": false,
-      "description": "A shape, whole: a rectangle or ellipse in the box from ``start`` to ``end``, or a line or arrow from ``start``\nto ``end`` (the arrow's head).",
+      "description": "A shape, whole: a rectangle, ellipse or diamond in the box from ``start`` to ``end`` (a diamond's corners at the\nmiddles of the box's sides), or a line or arrow from ``start`` to ``end`` (the arrow's head).",
       "properties": {
         "by": {
           "$ref": "#/$defs/Author"
@@ -361,6 +361,7 @@
           "enum": [
             "rect",
             "ellipse",
+            "diamond",
             "line",
             "arrow"
           ],

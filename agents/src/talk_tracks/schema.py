@@ -175,7 +175,9 @@ INK = [
     erase(11_350, "s6"),  # undo the arrow
     shape(11_380, "s6", "arrow", (0.2, 0.9), (0.4, 0.7)),  # redo: sent again whole
     shape(11_600, "s7", "ellipse", (0.3, 0.3), (0.5, 0.45)),
+    shape(11_620, "s8", "diamond", (0.55, 0.5), (0.75, 0.7)),
     erase(11_650, "s7"),  # undone, not redone
+    erase(11_660, "s8"),
     pen(14_300, "s4", 0, [(0.9, 0.9)]),  # slide 0, shown at 14.2 s with no ink
     end(14_400, "s4"),
     InkRecord(m=14_500, data=InkClear(deck=DECK, index=0, by=SPEAKER)),

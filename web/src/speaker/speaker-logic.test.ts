@@ -200,6 +200,21 @@ describe("the eraser on shapes", () => {
     expect(strokesAt(shapes, [0.7, 0.3], 16 / 9)).toEqual([]);
     expect(strokesAt(shapes, [0.3, 0.805], 16 / 9)).toEqual(["l"]);
   });
+
+  it("takes a diamond by its four sides, not at its box's corners or from inside", () => {
+    const diamond = [shape("d", "diamond", [0.2, 0.2], [0.6, 0.6])];
+    expect(strokesAt(diamond, [0.3, 0.3], 16 / 9)).toEqual(["d"]); // on the upper left side
+    expect(strokesAt(diamond, [0.6, 0.4], 16 / 9)).toEqual(["d"]); // the right corner
+    expect(strokesAt(diamond, [0.2, 0.2], 16 / 9)).toEqual([]);
+    expect(strokesAt(diamond, [0.4, 0.4], 16 / 9)).toEqual([]);
+  });
+});
+
+describe("the diamond on the console", () => {
+  it("is picked with G, and leaves every digit where it was", () => {
+    expect(keyAction({ key: "g" })).toEqual({ kind: "tool", tool: "diamond" });
+    expect(keyAction({ key: "0" })).toEqual({ kind: "tool", tool: "eraser" });
+  });
 });
 
 describe("Shift while dragging a shape", () => {

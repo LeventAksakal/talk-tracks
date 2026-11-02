@@ -4,6 +4,7 @@
 // its deltas up to t is the whole state; the speaker's past comes from talk/<room>/archive/slides, the room
 // service's tracks from their own names. The deck is FETCHed by the group the slide track names.
 
+import { laserTrail, TRAIL_MS, type TrailPoint } from "../canvas/laser";
 import {
   annotationsPath,
   catalogPath,
@@ -364,6 +365,28 @@ export class SlideTracks {
     const at = this.#at(e, t);
     if (!at) return null;
     return laserAt(at.records as PointerRecord[], t, at.group ? dense(at.group) : []);
+  }
+
+  /**
+   * The laser's trail at t (canvas/laser.ts): its positions of the last TRAIL_MS, from the pointer records up to t,
+   * the previous group's too near a group's start, so live and rewound draw the same trail. Empty when no slide is
+   * shown, or the laser has been off longer than the trail lasts.
+   */
+  pointerTrail(t: number | undefined): TrailPoint[] {
+    const e = this.#entries.get("pointer");
+    if (!e?.active || this.#slide(t) === null) return [];
+    const at = this.#at(e, t);
+    if (!at) return [];
+    let records = at.records as PointerRecord[];
+    const now = t ?? records.at(-1)?.m;
+    if (now === undefined) return [];
+    if (t !== undefined && t - sliceOf(t) * SLICE_MS < TRAIL_MS) {
+      const prev = e.groups.get(sliceOf(t) - 1);
+      if (prev?.objects[0] !== undefined && prev !== at.group)
+        records = [...(dense(prev).flat() as PointerRecord[]), ...records];
+    }
+    const head = laserAt(at.records as PointerRecord[], t, at.group ? dense(at.group) : []);
+    return laserTrail(records, now, head);
   }
 
   /** The room's state now: the newest group's last record (undefined until the room track is read). */

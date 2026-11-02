@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TRAIL_MS } from "../canvas/laser";
 import { catalogPath, ROOM_TRACK, slidesPath } from "../contracts/names";
 import type { InkElement, InkStroke, Point, RoomStateRecord, TextRun } from "../contracts/types";
 import { FakeHistorySource } from "../playback/fakeSource";
@@ -111,6 +112,30 @@ describe("slides, ink, marks and laser at a time t", () => {
     const b = slides.pointerAt(t + 400)!;
     expect(b.x).toBeGreaterThan(a.x);
     expect(slides.pointerAt(S(1) + 3_500)).toBeNull();
+  });
+
+  it("leaves a fading trail behind the laser, the same live and after a seek, that fades out after off", async () => {
+    const t = S(1) + 2_300; // mid-sweep along the title
+    const { slides } = demoRoom(300_000);
+    slides.setWanted(ALL);
+    await seek(slides, t, 300_000);
+    await vi.waitFor(() => expect(slides.pointerTrail(t).length).toBeGreaterThan(2));
+    const trail = slides.pointerTrail(t);
+    expect(trail.every((p) => p.t <= t && t - p.t <= TRAIL_MS)).toBe(true);
+    expect(trail.map((p) => p.x)).toEqual([...trail.map((p) => p.x)].sort((a, b) => a - b)); // left to right
+    expect(trail.at(-1)).toMatchObject({ ...slides.pointerAt(t), t });
+
+    const live = demoRoom(t);
+    live.slides.setWanted(ALL);
+    live.slides.setTime(t, "live", t);
+    await vi.waitFor(() => expect(live.slides.pointerTrail(t)).toEqual(trail));
+
+    // The sweep ends at S(1) + 3.15 s: what is left of the trail fades, then nothing.
+    const off = S(1) + 3_200;
+    await seek(slides, off, 300_000);
+    await vi.waitFor(() => expect(slides.pointerAt(off)).toBeNull());
+    expect(slides.pointerTrail(off).length).toBeGreaterThan(1);
+    expect(slides.pointerTrail(off + TRAIL_MS)).toEqual([]);
   });
 
   it("live, draws what arrives on the subscription, point by point, with no FETCH", async () => {
