@@ -252,3 +252,8 @@ def test_the_room_catalog_lists_sources_and_event_tracks() -> None:
     assert [s["kind"] for s in doc["tt"]["sources"]] == ["audio", "camera", "slides"]
     assert MARKS_TRACK in doc["tt"]["sources"][2]["tracks"]
     assert speaker_sources(room) == speaker_sources(room, audio=True, camera=False, slides=False)
+    shared = RoomCatalog(1_800_000_000_000, tracks, {300: 0}, {}, speaker_sources(room, screen=True, slides=True))
+    shared_doc: Any = shared.to_json()
+    jsonschema.validate(shared_doc, schema_of("room-catalog.schema.json"))
+    assert [s["kind"] for s in shared_doc["tt"]["sources"]] == ["audio", "screen", "slides"]
+    assert shared_doc["tt"]["sources"][1]["namespace"] == f"talk/{room}/teacher"

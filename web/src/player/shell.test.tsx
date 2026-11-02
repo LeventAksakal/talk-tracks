@@ -106,6 +106,16 @@ describe("the player shell", () => {
     expect(screen.getByText(/Demo speaker/)).toBeTruthy();
     expect(screen.queryByText(/Grace/)).toBeNull();
   });
+
+  it("puts a shared screen on the main stage with the camera in the corner, and lets the listener swap them", async () => {
+    const room = setup({ sources: ["camera", "slides", "screen"] });
+    close = room.close;
+    await advance(300);
+    expect(screen.getByRole("group", { name: "Shared screen" })).toBeTruthy();
+    // The corner tile is the camera; swapping puts the screen there.
+    fireEvent.click(screen.getByRole("button", { name: "Swap: screen in the corner" }));
+    expect(screen.getByRole("button", { name: "Swap: camera in the corner" })).toBeTruthy();
+  });
 });
 
 describe("the slower path", () => {

@@ -5,6 +5,13 @@ export const ROOT = "talk";
 /** The speaker's hang broadcast (@moq/publish): microphone and camera, described by its `catalog.json`. */
 export const teacherPath = (room: string) => `${ROOT}/${room}/teacher`;
 export const AUDIO_TRACK = "audio";
+/** The camera's video rendition of teacherPath(room). */
+export const VIDEO_TRACK = "video";
+/**
+ * The shared screen's video rendition of teacherPath(room), in the hang catalog only while the speaker shares. A
+ * shared tab's sound is mixed into AUDIO_TRACK (one speaker sound for listeners, the archive and captions).
+ */
+export const SCREEN_TRACK = "screen";
 /** The hang catalog track of teacherPath(room), which names its media tracks. */
 export const HANG_CATALOG_TRACK = "catalog.json";
 

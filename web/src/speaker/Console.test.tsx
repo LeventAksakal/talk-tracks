@@ -72,6 +72,9 @@ function fakeMedia(): SpeakerMedia & { closed: boolean } {
     chooseCamera: () => undefined,
     goOnAir: () => set({ onAir: true }),
     goOffAir: () => set({ onAir: false }),
+    shareScreen: async (withAudio) =>
+      set({ screenTrack: { kind: "video" } as MediaStreamTrack, screenAudio: withAudio }),
+    stopScreen: () => set({ screenTrack: undefined, screenAudio: false }),
     close() {
       this.closed = true;
     },
@@ -236,6 +239,23 @@ describe("the speaker console", () => {
     expect(screen.getByRole("button", { name: "End talk" })).toBeTruthy();
   });
 
+  it("shares a screen with its sound in place of the slides, and stops sharing", async () => {
+    const media = fakeMedia();
+    setup({ createMedia: async () => media });
+    await loadDeck();
+    const share = await screen.findByRole("button", { name: "Share screen" });
+    await waitFor(() => expect(share.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("switch", { name: "With its sound" }));
+    await act(async () => fireEvent.click(share));
+    expect(media.snapshot()).toMatchObject({ screenAudio: true });
+    expect(screen.getByLabelText("Your shared screen")).toBeTruthy(); // what viewers see now
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Stop sharing" })));
+    expect(media.snapshot().screenTrack).toBeUndefined();
+    expect(screen.queryByLabelText("Your shared screen")).toBeNull();
+    expect(screen.getByTestId("stage")).toBeTruthy(); // the slides are back
+  });
+
   it("shows the invitation with the room's watch link", () => {
     setup();
     expect(screen.getAllByRole("img", { name: /QR code for .*\/watch\/physics-101/ }).length).toBeGreaterThan(0);
@@ -262,12 +282,49 @@ describe("the speaker console", () => {
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);
   });
+  it("says Ending… until the room service acknowledges the end, trying again while the message is lost", async () => {
+    const media = fakeMedia();
+    const answers = [false, false, true]; // the socket is down twice, then the service acknowledges
+    let tries = 0;
+    let forgotten = 0;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    setup({
+      createMedia: async () => media,
+      endRoom: async () => {
+        if (tries === 2) await held; // the third try waits for the service
+        return answers[tries++]!;
+      },
+      endRetryMs: 1,
+      onEnded: () => forgotten++,
+    });
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await waitFor(() => expect(goLive.hasAttribute("disabled")).toBe(false));
+    await act(async () => fireEvent.click(goLive));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "End talk" })));
+    const dialog = await screen.findByRole("alertdialog");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "End talk" })));
+
+    await waitFor(() => expect(tries).toBe(2));
+    expect(screen.getByRole("status").textContent).toContain("Ending…");
+    expect(forgotten).toBe(0); // the link is kept until the end is said
+    await act(async () => release());
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Ended"));
+    expect(tries).toBe(3);
+    expect(forgotten).toBe(1);
+  });
+
   it("lists the audience's questions, counts them per slide, and replies to or hides one as the speaker", async () => {
     const ada = { id: "u1", name: "Ada" };
-    const service = new FakeRoomService({
-      me: { id: "speaker", name: "Speaker", speaker: true },
-      now: 60_000,
-      records: [
+    const service = new FakeRoomService({ me: { id: "speaker", name: "Speaker", speaker: true }, now: 60_000 });
+    const { sink } = setup({ makeRoomService: () => service });
+    await loadDeck();
+    // The audience anchors questions on the deck the console published. Its id is the room-clock slice it went out
+    // in, so it is 0 only when the deck loads within the room's first 4 s: read it, never assume it.
+    await waitFor(() => expect(sink().groups(DECK_TRACK)).toHaveLength(1));
+    const deck = sink().groups(DECK_TRACK)[0]!;
+    act(() =>
+      service.push(
         {
           m: 50_000,
           data: {
@@ -277,17 +334,15 @@ describe("the speaker console", () => {
             text: "Is RNA a virus?",
             by: ada,
             question: true,
-            anchor: { deck: 0, index: 1 },
+            anchor: { deck, index: 1 },
           },
         },
         {
           m: 55_000,
-          data: { kind: "comment", id: "c2", at: 55_000, text: "Nice slide", by: ada, anchor: { deck: 0, index: 1 } },
+          data: { kind: "comment", id: "c2", at: 55_000, text: "Nice slide", by: ada, anchor: { deck, index: 1 } },
         },
-      ],
-    });
-    setup({ makeRoomService: () => service });
-    await loadDeck();
+      ),
+    );
     const list = screen.getByRole("region", { name: "Questions from the audience" });
     expect(within(list).getByText("Is RNA a virus?")).toBeTruthy();
     expect(within(list).queryByText("Nice slide")).toBeNull(); // a comment, not a question

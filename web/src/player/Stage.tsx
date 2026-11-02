@@ -6,6 +6,7 @@ import { CameraSurface } from "./CameraSurface";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
+import { ScreenSurface } from "./ScreenSurface";
 import { SlideSurface } from "./SlideSurface";
 import { StatsForNerds } from "./StatsForNerds";
 import { SubtitleOverlay } from "./SubtitleOverlay";
@@ -15,15 +16,32 @@ export function effectiveLayout(layout: LayoutKind, sources: readonly SourceKind
   return sources.length < 2 ? "single" : layout;
 }
 
+/**
+ * The pictures the stage lays out: the camera, and the main picture: a shared screen while there is one, else the
+ * slides. The screen takes the slides' place (their corner, their side, their "one at a time" choice).
+ */
+export function stageSources(sources: readonly SourceKind[]): SourceKind[] {
+  const board: SourceKind | undefined = sources.includes("screen")
+    ? "screen"
+    : sources.includes("slides")
+      ? "slides"
+      : undefined;
+  const out: SourceKind[] = sources.includes("camera") ? ["camera"] : [];
+  if (board) out.push(board);
+  return out;
+}
+
 /** Whether a source is on screen: present, and in the layout (single shows the one chosen). */
 export function sourceShown(
   kind: SourceKind,
   prefs: Pick<Prefs, "layout" | "single">,
   sources: readonly SourceKind[],
 ): boolean {
-  if (!sources.includes(kind)) return false;
-  if (effectiveLayout(prefs.layout, sources) !== "single" || sources.length < 2) return true;
-  return prefs.single === kind;
+  const placed = stageSources(sources);
+  if (!placed.includes(kind)) return false;
+  if (effectiveLayout(prefs.layout, placed) !== "single" || placed.length < 2) return true;
+  // "single" names the camera or the main picture, slides or screen.
+  return kind === "camera" ? prefs.single === "camera" : prefs.single !== "camera";
 }
 
 /**
@@ -36,11 +54,15 @@ export function sourceShown(
 export function Stage() {
   const { prefs, sources, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } = usePlayer();
   const stage = useRef<HTMLDivElement>(null);
-  const layout = effectiveLayout(prefs.layout, sources);
-  const hasCamera = sources.includes("camera");
+  const placed = stageSources(sources);
+  const layout = effectiveLayout(prefs.layout, placed);
+  const hasCamera = placed.includes("camera");
   const hasSlides = sources.includes("slides");
+  const hasScreen = placed.includes("screen");
+  // The main picture: a shared screen in the slides' place, the slides kept mounted (hidden) under it.
+  const board: SourceKind = hasScreen ? "screen" : "slides";
   // Which source is "first": the left one in split, the corner tile in the default layout.
-  const first: SourceKind = prefs.swap ? "slides" : "camera";
+  const first: SourceKind = prefs.swap ? board : "camera";
   const shown = (kind: SourceKind) => sourceShown(kind, prefs, sources);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
@@ -54,7 +76,9 @@ export function Stage() {
   const card = state.card;
   const needsGesture = media !== undefined && !ui.playing && view.timeline.mode === "live" && !card;
   const corner = (kind: SourceKind) =>
-    layout === "pip" && role(kind) === "small" ? <CornerTools stageRef={stage} kind={kind} /> : null;
+    layout === "pip" && role(kind) === "small" ? (
+      <CornerTools stageRef={stage} other={kind === "camera" ? board : "camera"} />
+    ) : null;
 
   return (
     <div
@@ -79,6 +103,12 @@ export function Stage() {
         <div className={`tt-cell tt-cell-slides tt-cell-${role("slides")}${shown("slides") ? "" : " tt-hidden"}`}>
           {corner("slides")}
           <SlideSurface />
+        </div>
+      ) : null}
+      {hasScreen ? (
+        <div className={`tt-cell tt-cell-screen tt-cell-${role("screen")}${shown("screen") ? "" : " tt-hidden"}`}>
+          {corner("screen")}
+          <ScreenSurface />
         </div>
       ) : null}
 
@@ -221,7 +251,7 @@ function tileBox(tile: Element | null | undefined, rect: DOMRect): { x: number; 
  * The corner tile's tools (decision 0026): drag it anywhere on the stage, drag its grip to resize it (the opposite
  * corner stays put), swap it with the main picture (the button, or a double click). It is kept inside the stage.
  */
-function CornerTools({ stageRef, kind }: { stageRef: RefObject<HTMLDivElement | null>; kind: SourceKind }) {
+function CornerTools({ stageRef, other }: { stageRef: RefObject<HTMLDivElement | null>; other: SourceKind }) {
   const { prefs, update } = usePlayer();
   const drag = useRef<
     { mode: "move" | "size"; x: number; y: number; box: { x: number; y: number; w: number; h: number } } | undefined
@@ -256,7 +286,6 @@ function CornerTools({ stageRef, kind }: { stageRef: RefObject<HTMLDivElement | 
   };
   const end = () => (drag.current = undefined);
   const swap = () => update({ swap: !prefs.swap });
-  const other = kind === "camera" ? "slides" : "camera";
   return (
     <>
       <div

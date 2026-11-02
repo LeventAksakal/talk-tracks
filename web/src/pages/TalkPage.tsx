@@ -6,6 +6,7 @@ import { localEpoch } from "../speaker/clock";
 import { Console, type ConsoleDeps } from "../speaker/Console";
 import { openPdf } from "../speaker/deck";
 import { createSpeakerMedia } from "../speaker/media";
+import { forgetToken, speakerToken } from "../speaker/savedToken";
 import { moqBroadcast } from "../speaker/sink";
 import { useMoqTransport } from "../transport/useTransport";
 import { NotFound } from "./NotFound";
@@ -18,7 +19,11 @@ import { NotFound } from "./NotFound";
 export function TalkPage({ room }: { room: string }) {
   const { search } = useLocation();
   const params = new URLSearchParams(search);
-  const token = params.get("token") ?? undefined;
+  // The link's token is kept for this room, so a reload without it still opens the console (savedToken.ts).
+  const token = useMemo(() => {
+    const fromLink = new URLSearchParams(search).get("token") ?? undefined;
+    return isValidRoom(room) ? speakerToken(room, fromLink) : undefined;
+  }, [room, search]);
   const localClock = import.meta.env.DEV && params.get("clock") === "local";
   if (!isValidRoom(room)) return <NotFound what={`"${room}" is not a room name.`} />;
   return <LiveConsole room={room} token={token} localClock={localClock} />;
@@ -44,6 +49,8 @@ function LiveConsole({ room, token, localClock }: { room: string; token: string 
             // room service (TT_OPEN_SPEAKER) takes any, so the console still gets the speaker's rights there.
             makeRoomService: (name) =>
               new RoomServiceClient(roomServiceBase(), room, { token: token ?? "local", name, comments: true }),
+            // A finished talk's link is not kept: the next visit to /talk/<room> needs the link again.
+            onEnded: () => forgetToken(room),
           }
         : undefined,
     [publisher, watcher, room, epoch, token],

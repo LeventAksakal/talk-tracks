@@ -238,6 +238,33 @@ def test_video_segments_open_with_a_keyframe_and_the_playlists_pair_them(tmp_pat
     assert (tmp_path / "archive" / "demo" / "video.m3u8").read_text().endswith("#EXT-X-ENDLIST\n")
 
 
+def test_a_shared_screen_is_archived_as_its_own_playlist_and_never_replaces_the_camera(tmp_path: Path) -> None:
+    clip = make_clip(tmp_path / "clip.mp4", seconds=8.0, fps=10)
+    cat = cast(dict[str, Any], catalog(probe(clip), {"clock": clock_of(WALL)}))
+    renditions = cat["video"]["renditions"]
+    # The screen is bigger than the camera: the camera's playlist must still be the camera.
+    renditions["screen"] = {**renditions["video"], "codedWidth": 1920, "codedHeight": 1080}
+    archive = Archive(tmp_path / "archive")
+    room = archive.room("demo")
+    assert room.catalog(json.dumps(cat).encode(), WALL)
+    room.live = True
+    for p in packets(clip):
+        room.media(p.kind, legacy_frame(p.file_us, p.data), WALL)
+        if p.kind == "video" and p.file_us >= 4_000_000:  # shared from 4 s on
+            room.media("screen", legacy_frame(p.file_us, p.data), WALL)
+    room.tick(WALL + 10_000)
+    archive.save()
+    run = RunIndex.model_validate_json((run_dir(tmp_path / "archive", "demo") / "run.json").read_bytes())
+    assert [s.start_ms for s in next(t for t in run.tracks if t.track == "screen").segments] == [4000]
+    folder = tmp_path / "archive" / "demo"
+    assert f"{run.run}/teacher/video/" in (folder / "video.m3u8").read_text()
+    screen = (folder / "screen.m3u8").read_text()
+    assert f'#EXT-X-MAP:URI="{run.run}/teacher/screen/init-0.mp4"' in screen
+    assert "#EXT-X-PROGRAM-DATE-TIME:2025-10-28T11:13:24.000Z" in screen  # E + 4 s: where the share began
+    assert "teacher/video/" not in screen
+    assert "screen" not in (folder / "index.m3u8").read_text()  # the player plays the screen beside the camera
+
+
 def to_annexb(access_unit: bytes, avcc: bytes, keyframe: bool) -> bytes:
     """What @moq/publish sends: start codes, an access unit delimiter, and SPS and PPS on each keyframe."""
     out = b"\x00\x00\x00\x01\x09\xf0"

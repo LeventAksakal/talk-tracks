@@ -21,11 +21,11 @@ import { Audience } from "./Audience";
 import { type ClockState, clockState, roomNowFn, wallNowMs } from "./clock";
 import type { Deck, RenderedSlide } from "./deck";
 import { type Echo, watchEcho } from "./echo";
-import { endRoom } from "./endRoom";
+import { type EndOutcome, endRoomOnce, untilAnswered } from "./endRoom";
 import { Invite, watchUrl } from "./Invite";
 import { type Tool, isShapeTool, keyAction } from "./keys";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
-import { LevelMeter, SelfView, useLevel } from "./MediaViews";
+import { LevelMeter, ScreenPreview, SelfView, useLevel } from "./MediaViews";
 import { useNotes } from "./notes";
 import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
@@ -52,9 +52,19 @@ export interface ConsoleDeps {
   localEpochMs?: number;
   /** The room service's endpoint as the speaker (decision 0024): the audience's questions, reply and hide. */
   makeRoomService?: (name: string) => RoomService;
-  /** Tell the room service the talk ended (its state says "ended"); default: `endRoom` when there is a room service. */
-  endRoom?: () => Promise<boolean>;
+  /**
+   * Tell the room service the talk ended (its state says "ended"), one try: true or `acked` once it acknowledged.
+   * Default: `endRoomOnce` when there is a room service. End talk tries again until the service answers.
+   */
+  endRoom?: () => Promise<boolean | EndOutcome>;
+  /** The pause before End talk's second try, ms (it doubles, up to 10 s); default 1 s. */
+  endRetryMs?: number;
+  /** The talk's end is settled at the room service (or there is none): the speaker link is no longer kept. */
+  onEnded?: () => void;
 }
+
+/** End talk at the room service: being said, said (or nothing to end), or refused. */
+type Ending = "ending" | "ended" | "refused";
 
 type Phase = "preflight" | "on-air" | "paused" | "ended";
 
@@ -431,10 +441,30 @@ function ConsoleView({
     setPhase("on-air");
   };
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [ending, setEnding] = useState<Ending>("ended");
+  // Stops End talk's retries when the console goes away.
+  const endAbort = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => endAbort.current?.abort(), []);
+  const sayEnded = () => {
+    const end = deps.endRoom ?? (deps.makeRoomService ? () => endRoomOnce(room, token ?? "local") : undefined);
+    if (!end) {
+      setEnding("ended");
+      deps.onEnded?.();
+      return;
+    }
+    endAbort.current?.abort();
+    const abort = (endAbort.current = new AbortController());
+    setEnding("ending");
+    // A lost message or a socket that is down is tried again until the room service answers.
+    void untilAnswered(end, { firstDelayMs: deps.endRetryMs, signal: abort.signal }).then((outcome) => {
+      if (abort.signal.aborted) return;
+      setEnding(outcome === "refused" ? "refused" : "ended");
+      deps.onEnded?.();
+    });
+  };
   const endTalk = () => {
-    // Said first, so the room service hears "ended" before it sees the broadcast go; never waited on.
-    const end = deps.endRoom ?? (deps.makeRoomService ? () => endRoom(room, token ?? "local") : undefined);
-    void end?.();
+    // Said first, so the room service hears "ended" before it sees the broadcast go.
+    sayEnded();
     publisher.pointerOff();
     publisher.stop();
     media?.close();
@@ -445,7 +475,7 @@ function ConsoleView({
     setPhase("ended");
   };
 
-  if (phase === "ended") return <Ended room={room} />;
+  if (phase === "ended") return <Ended room={room} ending={ending} retry={sayEnded} />;
 
   const current = slides[index];
   const next = deck && index + 1 < deck.count ? slides[index + 1] : undefined;
@@ -569,7 +599,10 @@ function ConsoleView({
             </span>
           </div>
           <div className="stage-wrap" onPointerDownCapture={() => setOptionsOpen(false)}>
-            {deck ? (
+            {snap?.screenTrack ? (
+              // While a screen is shared, viewers see it in place of the slides (the camera stays in the corner).
+              <ScreenPreview track={snap.screenTrack} className="stage stage-screen" />
+            ) : deck ? (
               <Stage
                 publisher={publisher}
                 slide={current}
@@ -962,6 +995,7 @@ function Sources(props: {
           />
           {snap?.cameraError ? <p className="alert small">{snap.cameraError}</p> : null}
         </Check>
+        <ScreenCheck media={media} snap={snap} />
         <Check
           state={props.deckError ? "bad" : deck ? (props.rendered >= deck.count ? "ok" : "wait") : "off"}
           title="Slides"
@@ -1027,6 +1061,44 @@ function Sources(props: {
   );
 }
 
+/** Share a screen, window or tab, optionally with its sound; stop it here or from the browser's own bar. */
+function ScreenCheck({ media, snap }: { media: SpeakerMedia | undefined; snap: MediaSnapshot | undefined }) {
+  const [withAudio, setWithAudio] = useState(false);
+  const sharing = !!snap?.screenTrack;
+  const canShare = !!media?.shareScreen;
+  return (
+    <Check state={snap?.screenError ? "bad" : sharing ? "ok" : snap?.screenStarting ? "wait" : "off"} title="Screen">
+      <div className="row">
+        {sharing ? (
+          <Button label="Stop sharing" size="sm" variant="secondary" onClick={() => media?.stopScreen?.()} />
+        ) : (
+          <Button
+            label="Share screen"
+            size="sm"
+            variant="secondary"
+            isDisabled={!canShare || snap?.screenStarting}
+            onClick={() => void media?.shareScreen?.(withAudio)}
+          />
+        )}
+        <Switch
+          label="With its sound"
+          value={withAudio}
+          isDisabled={!canShare || sharing || snap?.screenStarting}
+          onChange={setWithAudio}
+        />
+      </div>
+      <p className="muted small">
+        {snap?.screenError ??
+          (sharing
+            ? `Viewers see your screen in place of the slides${snap?.screenAudio ? ", and hear its sound" : ""}.`
+            : snap?.screenStarting
+              ? "Pick what to share in your browser's window."
+              : "Optional: a demo or code. Its sound goes out only with a tab, or a whole screen on Windows.")}
+      </p>
+    </Check>
+  );
+}
+
 function DevicePicker({
   label,
   devices,
@@ -1056,7 +1128,7 @@ function DevicePicker({
   );
 }
 
-function Ended({ room }: { room: string }) {
+function Ended({ room, ending, retry }: { room: string; ending: Ending; retry: () => void }) {
   const url = watchUrl(room);
   return (
     <div className="console console-ended">
@@ -1070,9 +1142,19 @@ function Ended({ room }: { room: string }) {
           </h1>
         </div>
         <span role="status">
-          <Badge variant="neutral" label="Ended" />
+          {/* Until the room service acknowledges, viewers may still see "Paused". */}
+          <Badge variant="neutral" label={ending === "ending" ? "Ending…" : "Ended"} />
         </span>
       </header>
+      {ending === "refused" ? (
+        <Banner
+          status="warning"
+          title="The room service did not take the end of the talk"
+          description="Viewers may see the talk as paused. This link may not be the speaker's, or it expired."
+          role="alert"
+          endContent={<Button label="Try again" size="sm" variant="secondary" onClick={retry} />}
+        />
+      ) : null}
       <section className="panel ended-panel">
         <h2 className="panel-title">What is kept</h2>
         <ul>

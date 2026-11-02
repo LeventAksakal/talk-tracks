@@ -28,6 +28,10 @@ time; a token is refused from then on, and a live session closes at that moment.
 | Room service (archive, catalog, room, comments and audience annotation tracks, the past of the speaker's tracks; decision 0022) | `talk/*/catalog`, `talk/*/comments`, `talk/*/annotations`, `talk/*/archive/**` | `talk/**` |
 | Viewers | nothing, no token | `talk/**` (anonymous) |
 
+Scopes name broadcasts, not tracks: `talk/R/teacher` covers every track the speaker's hang broadcast carries, the
+microphone (`audio`), the camera (`video`) and a shared screen (`screen`, only while shared; a shared tab's sound is
+mixed into `audio`). Screen share needed no new scope, so speaker tokens minted before it still share screens.
+
 ```bash
 docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/dev/agents/**' --subscribe 'talk/dev/**' --expires 1793200000
 docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish talk/dev/teacher --publish talk/dev/slides --subscribe 'talk/dev/**' --expires 1793200000

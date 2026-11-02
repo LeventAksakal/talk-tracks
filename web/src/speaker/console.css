@@ -206,6 +206,19 @@
   transform: scaleX(-1);
 }
 
+.screen-view {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+  border-radius: var(--tt-radius-md);
+}
+.stage-screen {
+  display: block;
+  object-fit: contain;
+  aspect-ratio: 16 / 9;
+}
+
 /* --- the stage: the slide with ink, marks and laser --- */
 .stage-wrap {
   position: relative;

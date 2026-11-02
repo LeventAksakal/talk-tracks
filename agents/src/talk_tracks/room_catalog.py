@@ -199,13 +199,17 @@ def room_service_tracks(room: str) -> tuple[CatalogTrack, ...]:
     )
 
 
-def speaker_sources(room: str, *, audio: bool = True, camera: bool = False, slides: bool = False) -> tuple[Source, ...]:
-    """The sources the speaker is sending, for ``RoomCatalog.sources``: audio and camera on the hang broadcast,
-    slides as the deck, slide, ink, marks and pointer tracks."""
+def speaker_sources(
+    room: str, *, audio: bool = True, camera: bool = False, slides: bool = False, screen: bool = False
+) -> tuple[Source, ...]:
+    """The sources the speaker is sending, for ``RoomCatalog.sources``: audio, camera and a shared screen on the hang
+    broadcast (its catalog names the ``video`` and ``screen`` renditions), slides as the deck, slide, ink, marks and
+    pointer tracks."""
     teacher = teacher_path(room)
     return (
         *([Source(kind="audio", namespace=teacher, tracks=[HANG_CATALOG_TRACK])] if audio else []),
         *([Source(kind="camera", namespace=teacher, tracks=[HANG_CATALOG_TRACK])] if camera else []),
+        *([Source(kind="screen", namespace=teacher, tracks=[HANG_CATALOG_TRACK])] if screen else []),
         *(
             [
                 Source(
