@@ -32,6 +32,9 @@ Scopes name broadcasts, not tracks: `talk/R/teacher` covers every track the spea
 microphone (`audio`), the camera (`video`) and a shared screen (`screen`, only while shared; a shared tab's sound is
 mixed into `audio`). Screen share needed no new scope, so speaker tokens minted before it still share screens.
 
+The recordings server's token (`TT_RECORDINGS_TOKEN` on the VM) publishes only the four recording rooms' paths; its
+sign command is in [demo rooms](demo-rooms.md).
+
 The room service's token (`TT_ARCHIVE_TOKEN` on the VM; [chat and stats](chat-and-stats.md)):
 
 ```bash
