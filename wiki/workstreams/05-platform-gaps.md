@@ -41,7 +41,7 @@ This is the coordinator's workstream: it briefs, merges, deploys, and owns contr
 - [ ] **Cross-browser transport:** WebTransport in Chrome and Firefox 153+, the WebSocket fallback in Safari and
       iPhone, on the VM; note delay and stability.
 - [ ] **Load pass** on the VM (the benchmark harness from decision 0016) with 50–100 viewers on a demo room.
-- [ ] **Mint judge tokens** (`deploy/mint-judge-tokens.sh`), or create access codes if the endpoint shipped.
+- [x] **Judge access code** created 2026-11-02 with the owner's approval: label `judges`, $2 a room, $20 in total, 10 rooms, expires 2026-12-02; the code is in `~/judge-access-code.txt` on the VM (mode 600), never in git or chat. Rollback copy of the codes file: `~/room-codes-before-judges.json`.
 - [ ] Check the spend ledger and caps before the judging window.
 
 ## Definition of done
