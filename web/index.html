@@ -15,6 +15,27 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f2ea" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b2420" />
+    <!-- Link previews. %TT_SITE_URL% is the deployment's origin, set at build time (vite.config.ts); never committed. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Talk Tracks" />
+    <meta property="og:title" content="Talk Tracks" />
+    <meta
+      property="og:description"
+      content="Live lectures you can rewind, with AI tracks you pick: subtitles in your language, chapters and slide descriptions."
+    />
+    <meta property="og:image" content="%TT_SITE_URL%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Talk Tracks, with Chalky the stick of chalk saying Aa on a blackboard." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Talk Tracks" />
+    <meta
+      name="twitter:description"
+      content="Live lectures you can rewind, with AI tracks you pick: subtitles in your language, chapters and slide descriptions."
+    />
+    <meta name="twitter:image" content="%TT_SITE_URL%/og.png" />
+    <meta name="twitter:image:alt" content="Talk Tracks, with Chalky the stick of chalk saying Aa on a blackboard." />
     <title>Talk Tracks</title>
   </head>
   <body>

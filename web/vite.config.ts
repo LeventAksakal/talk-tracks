@@ -7,8 +7,15 @@ const archive = env.TT_ARCHIVE_URL;
 // them on the VM. Listeners' WebSockets still go straight to :8091 in development (annotate/client.ts).
 const roomService = env.TT_ROOM_SERVICE_URL || "http://localhost:8091";
 
+// Link previews need the social card's absolute URL: set TT_SITE_URL to the deployment's origin when building for it
+// (never committed, the repo is public). Unset, index.html's %TT_SITE_URL% is empty and the URLs stay relative.
+const siteUrl = (env.TT_SITE_URL ?? "").replace(/\/+$/, "");
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    { name: "tt-site-url", transformIndexHtml: (html: string) => html.replaceAll("%TT_SITE_URL%", siteUrl) },
+  ],
   server: {
     // The JSON Schemas live in ../contracts and are imported directly, never copied.
     fs: { allow: [".."] },
