@@ -168,11 +168,34 @@ export class MoqTransport implements Transport {
 
   close(): void {
     this.#closed = true;
+    muteCloseError();
     for (const { producer } of this.#broadcasts.values()) producer.close();
     this.#broadcasts.clear();
     this.connection.close();
     this.origin.close();
   }
+}
+
+/** How long after a deliberate close @moq/net's own report of it is dropped, ms. */
+const CLOSE_QUIET_MS = 3_000;
+const CLOSE_ERROR = "fatal error running connection";
+let quietUntil = 0;
+let consoleError: typeof console.error | undefined;
+
+/**
+ * Leaving a room closes the connection on purpose, yet @moq/net logs "fatal error running connection" when its
+ * tasks reject on the way down (Firefox does; QA 2026-11-02). For a few seconds after our own close that one line is
+ * dropped; every other error, and that line at any other time, still reaches the console.
+ */
+function muteCloseError(now = Date.now()): void {
+  quietUntil = now + CLOSE_QUIET_MS;
+  if (consoleError) return;
+  const original = console.error.bind(console);
+  consoleError = original;
+  console.error = (...args: unknown[]) => {
+    if (Date.now() < quietUntil && typeof args[0] === "string" && args[0].startsWith(CLOSE_ERROR)) return;
+    original(...args);
+  };
 }
 
 /** Read groups as they arrive, each in its own task: a broken group is skipped, never the track's end. */

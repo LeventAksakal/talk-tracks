@@ -7,6 +7,7 @@ import type { RoomMedia } from "../playback/media";
 import type { Playback, PlaybackView } from "../playback/playback";
 import type { Transport } from "../transport/types";
 import type { FrameClock } from "./frameClock";
+import type { RoomMediaElement } from "./roomMediaElement";
 import type { Listening } from "./listening";
 import type { NotesApi } from "./notes";
 import type { PanelTab, Prefs, SourceKind } from "./prefs";
@@ -15,7 +16,7 @@ import type { SlideTracks } from "./slideTracks";
 import type { PlayerState } from "./state";
 import type { RoomTracks } from "./tracks";
 
-export type MenuKind = "cc" | "style" | "layout" | "settings";
+export type MenuKind = "cc" | "layout";
 
 export interface UiState {
   menu: MenuKind | undefined;
@@ -26,7 +27,7 @@ export interface UiState {
   /** Bumped to move focus into the transcript search or the note box. */
   focusSearch: number;
   focusNote: number;
-  /** Sound was started from a gesture (live media plays only after one). */
+  /** The media element plays (Media Chrome's paused state, mirrored for the stage). */
   playing: boolean;
   /** A short message for screen readers and the canvas ("Bookmark added"). */
   toast: string | undefined;
@@ -92,8 +93,12 @@ export interface PlayerCtx {
   looped: boolean;
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
-  /** A room time as the talk's clock shows it ("12:34"); in a looped demo room, the time within the loop. */
+  /** A room time as the talk's clock shows it ("12:34"); in a demo session or loop, the time since its start. */
   talkClock(ms: number): string;
+  /** Room ms of the talk clock's 00:00 (a demo session's start; 0 in other rooms). */
+  origin: number;
+  /** The media element Media Chrome drives, once mounted. */
+  element(): RoomMediaElement | null;
   seek(ms: number): void;
   /** Move by `deltaMs` from the playhead (negative: back). */
   seekBy(deltaMs: number): void;

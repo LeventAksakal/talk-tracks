@@ -44,13 +44,3 @@ export function StateNote({
     </div>
   );
 }
-
-// Transitional names for the player lane, which still imports them (web/src/player/**, not this lane's files).
-// The mascot is gone: the loading state is the spinner and a room-state card draws nothing. Delete both once the
-// player imports Loading directly.
-/** @deprecated Use Loading. */
-export const ChalkyLoading = Loading;
-/** @deprecated Draws nothing; the mascot is removed (decision 0033). */
-export function RoomStateChalky(_props: { kind: string; size?: number }): null {
-  return null;
-}

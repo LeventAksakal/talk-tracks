@@ -1,5 +1,12 @@
-import { type CSSProperties, type KeyboardEvent, type PointerEvent, type RefObject, useEffect, useRef } from "react";
-import { RoomStateChalky } from "../brand/states";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type RefObject,
+  useEffect,
+  useRef,
+} from "react";
 import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
 import { CameraSurface } from "./CameraSurface";
@@ -10,6 +17,9 @@ import { ScreenSurface } from "./ScreenSurface";
 import { SlideSurface } from "./SlideSurface";
 import { StatsForNerds } from "./StatsForNerds";
 import { SubtitleOverlay } from "./SubtitleOverlay";
+
+/** A click on the stage waits this long for a second one (a double-click is full screen, not play and pause). */
+const DOUBLE_CLICK_MS = 250;
 
 /** The layout actually shown: one source means single, whatever the preference. */
 export function effectiveLayout(layout: LayoutKind, sources: readonly SourceKind[]): LayoutKind {
@@ -62,10 +72,31 @@ export function sourceShown(
  * §5. Both source tiles stay mounted in one place in every layout (CSS moves them), so the live canvas is never
  * re-created.
  */
-export function Stage() {
-  const { prefs, update, sources, sourcesPending, ui, setUi, state, view, playback, media, togglePlay, openTab, seek } =
+export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFullscreen: () => void }) {
+  const { prefs, update, sources, sourcesPending, ui, setUi, state, view, playback, media, openTab, seek, listening } =
     usePlayer();
   const stage = useRef<HTMLDivElement>(null);
+  const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(clickTimer.current), []);
+  // Click plays or pauses, double-click is full screen (any streaming player). A click on something of its own (a
+  // button, the subtitles, the corner tile's handles, the annotation tools, a card) is that thing's; while drawing,
+  // the stage is the drawing surface.
+  const annotating = listening?.get().annotating ?? false;
+  const own = (e: MouseEvent) =>
+    annotating ||
+    (e.target as Element).closest?.(
+      "button, a, input, textarea, select, [role='slider'], [role='separator'], [role='dialog'], .tt-subs, .tt-pip-handle, .tt-pip-grip, .tt-stats, .tt-state-card, .tt-missed, [class*='tt-annotate'], [class*='tt-comment']",
+    ) !== null;
+  const onClick = (e: MouseEvent) => {
+    if (e.button !== 0 || own(e)) return;
+    clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(onToggle, DOUBLE_CLICK_MS);
+  };
+  const onDoubleClick = (e: MouseEvent) => {
+    if (own(e)) return;
+    clearTimeout(clickTimer.current);
+    onFullscreen();
+  };
   // A share that starts (or is there when the page opens) comes forward; the listener can pick the slides back.
   const sharing = sources.includes("screen");
   useEffect(() => {
@@ -94,6 +125,8 @@ export function Stage() {
     ...(pip ? { "--pip-x": pip.x, "--pip-y": pip.y } : {}),
   } as CSSProperties;
   const card = state.card;
+  // A card that replaces the talk (no room, connecting, failed) shows alone: no faint tiles or labels behind it.
+  const covered = card !== undefined && !card.dim && !card.replay && view.timeline.liveEdge === undefined;
   const needsGesture = media !== undefined && !ui.playing && view.timeline.mode === "live" && !card;
   const corner = (kind: SourceKind) =>
     layout === "pip" && role(kind) === "small" ? (
@@ -105,8 +138,10 @@ export function Stage() {
       ref={stage}
       className={`tt-stage tt-layout-${layout}${prefs.swap ? " tt-swapped" : ""}${pip ? " tt-pip-placed" : ""}${
         card?.dim ? " tt-dimmed" : ""
-      }`}
+      }${covered ? " tt-covered" : ""}`}
       style={style}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onContextMenu={(e) => {
         e.preventDefault();
         setUi((u) => ({ stats: !u.stats, menu: undefined }));
@@ -138,20 +173,22 @@ export function Stage() {
         <div className="tt-missed" role="status">
           <span>
             You missed {formatClock(view.missed.toMs - view.missed.fromMs)}
-            {view.missed.outlineOn
+            {view.missed.chapters.length > 0
               ? ` · ${view.missed.chapters.length} chapter${view.missed.chapters.length === 1 ? "" : "s"}`
               : ""}
           </span>
-          <button
-            type="button"
-            className="tt-link"
-            onClick={() => {
-              openTab("chapters");
-              playback.dismissMissed();
-            }}
-          >
-            Chapters
-          </button>
+          {view.missed.chapters.length > 0 || (view.missed.outlineAnnounced && !view.missed.outlineOn) ? (
+            <button
+              type="button"
+              className="tt-link"
+              onClick={() => {
+                openTab("chapters");
+                playback.dismissMissed();
+              }}
+            >
+              Chapters
+            </button>
+          ) : null}
           <button
             type="button"
             className="tt-link"
@@ -176,15 +213,15 @@ export function Stage() {
       {ui.stats ? <StatsForNerds /> : null}
 
       {needsGesture ? (
-        <button type="button" className="tt-big-play" onClick={togglePlay}>
+        <button type="button" className="tt-big-play" onClick={onToggle}>
           <Icon name="play" />
           <span>Play the talk</span>
         </button>
       ) : null}
 
       {card ? (
-        <div className="tt-state-card" role="status">
-          <RoomStateChalky kind={state.kind} />
+        <div className="tt-state-card" role="status" data-kind={state.kind}>
+          <span className="tt-state-glyph" aria-hidden="true" />
           <strong>{card.title}</strong>
           {card.body ? <span>{card.body}</span> : null}
           {card.retry ? (

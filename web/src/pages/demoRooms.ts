@@ -3,6 +3,8 @@
 // again, and a recording, the archived room `<room>-recording`. Titles and speakers as credited; the descriptions
 // are ours.
 
+import { RECORDING_SUFFIX, recordingOf } from "../contracts/names";
+
 /** What a card draws for a lecture: generated artwork, never a frame of the talk (its slides hold others' images). */
 export type LectureArt = "virus" | "dataviz" | "rsa" | "qrcode";
 
@@ -92,21 +94,12 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
   },
 ];
 
-const RECORDING_SUFFIX = "-recording";
-
 /** The archived room that holds a lecture's recording. */
 export const recordingRoom = (room: string) => `${room}${RECORDING_SUFFIX}`;
 
 /** The demo lecture whose live session is `room`. */
 export function demoRoom(room: string): DemoRoom | undefined {
   return DEMO_ROOMS.find((d) => d.room === room);
-}
-
-/** For a `<id>-recording` room: the id, else undefined. */
-export function recordingOf(room: string): string | undefined {
-  return room.endsWith(RECORDING_SUFFIX) && room.length > RECORDING_SUFFIX.length
-    ? room.slice(0, -RECORDING_SUFFIX.length)
-    : undefined;
 }
 
 /** The demo lecture a room belongs to, as its live session or its recording. */

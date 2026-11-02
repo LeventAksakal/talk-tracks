@@ -74,6 +74,19 @@ export const STATE_TRACK = "state";
 /** Agents send a heartbeat every 2 s; an agent with no object for this long is stale. */
 export const STALE_AFTER_MS = 6_000;
 
+/**
+ * A demo lecture's recording (decision 0032): the archived room `<id>-recording`, built once by `record-archive` and
+ * served by `serve-recording`. It has no teacher broadcast and never loops; its media is the archive's HLS.
+ */
+export const RECORDING_SUFFIX = "-recording";
+
+/** For a `<id>-recording` room: the id, else undefined. */
+export function recordingOf(room: string): string | undefined {
+  return room.endsWith(RECORDING_SUFFIX) && room.length > RECORDING_SUFFIX.length
+    ? room.slice(0, -RECORDING_SUFFIX.length)
+    : undefined;
+}
+
 const ROOM_RE = /^[a-z0-9-]{3,40}$/;
 
 export function isValidRoom(room: string): boolean {

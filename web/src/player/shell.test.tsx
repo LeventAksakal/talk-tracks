@@ -12,6 +12,7 @@ import { FakeTransport } from "../transport/fake";
 import { DemoSlides } from "./demoSlides";
 import { Player, type PlayerProps } from "./Player";
 import { SlideTracks } from "./slideTracks";
+import type { RoomMediaElement } from "./roomMediaElement";
 import { playerState } from "./state";
 
 const advance = async (ms: number) => {
@@ -94,8 +95,11 @@ describe("the player shell", () => {
     const room = setup({ forceState: "ended" });
     close = room.close;
     await advance(300);
-    const time = screen.getByLabelText("Time in the talk");
-    expect(time.textContent).toContain("/");
+    // A recording: Media Chrome shows its length beside the time, and the range spans it.
+    const media = document.querySelector<RoomMediaElement>("tt-room-media")!;
+    expect(media.streamType).toBe("on-demand");
+    expect(Number.isFinite(media.duration) && media.duration > 0).toBe(true);
+    expect(document.querySelector("media-time-display")?.hasAttribute("showduration")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Replay from the start" }));
     await advance(300);
     expect(room.playback.media.mode()).toBe("rewound");
@@ -118,7 +122,9 @@ describe("the player shell", () => {
     await advance(300);
     const main = screen.getByRole("main");
     expect(main.id).toBe("main");
-    expect(within(main).getByRole("slider", { name: "Position in the talk" })).toBeTruthy();
+    expect(main.querySelector("media-controller tt-room-media .tt-stage")).toBeTruthy();
+    expect(main.querySelector("media-controller media-time-range")).toBeTruthy();
+    expect(main.querySelector("media-controller media-play-button")).toBeTruthy();
   });
 
   it("reaches every side panel tab by keyboard, and closes the panel from outside the tab list", async () => {

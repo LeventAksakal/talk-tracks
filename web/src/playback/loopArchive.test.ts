@@ -270,6 +270,33 @@ describe("RoomMedia: the HLS archive probe waits for the teacher catalog", () =>
     media.close();
   });
 
+  it("reads a recording room's playlist at once: it has no teacher broadcast and never loops", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const fetchFn = probe();
+    const media = new RoomMedia(transport as unknown as MoqTransport, "virus-recording", {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      loopWaitMs: 3_000,
+    });
+    // serve-recording's catalog: every agent track free, as a session's; no teacher catalog ever comes.
+    transport.emitJson(catalogPath("virus-recording"), CATALOG_TRACK, {
+      tracks: [
+        {
+          name: "items",
+          namespace: "talk/virus-recording/agents/captions",
+          packaging: "eventtimeline",
+          tt: { cost: "free" },
+        },
+      ],
+      tt: { E: EPOCH, shift: { [String(teacherCatalog.clock.wall)]: 0 } },
+    });
+    await flush();
+    expect(urls(fetchFn)).toEqual(["/archive/virus-recording/index.m3u8"]);
+    await expect(media.looping()).resolves.toBe(false);
+    expect(media.catalog()?.tt.E).toBe(EPOCH);
+    media.close();
+  });
+
   it("reads the playlist in the end when the relay never answers", async () => {
     vi.useFakeTimers();
     const transport = new FakeTransport();

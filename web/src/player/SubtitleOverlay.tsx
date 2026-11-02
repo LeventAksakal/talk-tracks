@@ -5,7 +5,8 @@ import { dirOf } from "../viewer/lang";
 import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import { languageOption } from "./languages";
-import { clamp, type Fraction } from "./prefs";
+import { clamp, type Fraction, type Prefs, type SourceKind } from "./prefs";
+import { effectiveLayout, stageSources } from "./Stage";
 import { cuesAt } from "./subtitles";
 import { translationFor } from "./tracks";
 
@@ -18,6 +19,31 @@ const SAFE = { x: [0.12, 0.88], y: [0.16, 0.97] } as const;
 /** A dragged position: `from` moved by a fraction of the canvas, kept in the safe area. */
 export function dragSubtitle(from: Fraction, dx: number, dy: number): Fraction {
   return { x: clamp(from.x + dx, SAFE.x[0], SAFE.x[1]), y: clamp(from.y + dy, SAFE.y[0], SAFE.y[1]) };
+}
+
+/** The corner tile's margin from the stage's edge, as a fraction of its width (player.css: about 16 px of 1000). */
+const TILE_MARGIN = 0.02;
+
+/**
+ * Where the subtitles go when the viewer has not moved them, and how wide they may be: bottom centre, or, with the
+ * corner tile in the bottom half of the stage, centred in the room left of it (or right of it) so they never cover
+ * the camera.
+ */
+export function subtitlePlace(
+  prefs: Pick<Prefs, "layout" | "board" | "pipPos" | "pipWidth" | "subtitlePos">,
+  sources: readonly SourceKind[],
+): { pos: Fraction; maxWidth: number | undefined } {
+  if (prefs.subtitlePos) return { pos: prefs.subtitlePos, maxWidth: undefined };
+  const placed = stageSources(sources, prefs.board);
+  if (effectiveLayout(prefs.layout, placed) !== "pip" || placed.length < 2)
+    return { pos: DEFAULT_SUBTITLE_POS, maxWidth: undefined };
+  const left = prefs.pipPos?.x ?? 1 - prefs.pipWidth - TILE_MARGIN;
+  const bottomHalf = prefs.pipPos === undefined || prefs.pipPos.y > 0.4;
+  if (!bottomHalf) return { pos: DEFAULT_SUBTITLE_POS, maxWidth: undefined };
+  const right = left + prefs.pipWidth;
+  // The wider side of the tile takes the subtitles.
+  const [from, to] = left >= 1 - right ? [TILE_MARGIN, left - TILE_MARGIN] : [right + TILE_MARGIN, 1 - TILE_MARGIN];
+  return { pos: { x: (from + to) / 2, y: DEFAULT_SUBTITLE_POS.y }, maxWidth: Math.max(0.2, to - from) };
 }
 
 interface Shown {
@@ -35,7 +61,7 @@ const sameShown = (a: Shown, b: Shown) => sameLines(a.original, b.original) && s
  * canvas, so they keep their place through resizes and layout changes.
  */
 export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivElement | null> }) {
-  const { tracks, prefs, update, clock, view, ui } = usePlayer();
+  const { tracks, prefs, update, clock, view, sources } = usePlayer();
   const live = view.timeline.mode === "live";
   const translating = prefs.subtitleLang !== "original";
   const trackFor = (lang: string) => (lang === "original" ? tracks.captions : translationFor(tracks, lang));
@@ -67,18 +93,18 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
     sameShown,
   );
 
-  const pos = prefs.subtitlePos ?? DEFAULT_SUBTITLE_POS;
+  const place = subtitlePlace(prefs, sources);
+  const pos = place.pos;
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; from: Fraction; to: Fraction } | undefined>(undefined);
 
-  const preview = ui.menu === "style";
   const empty = shown.original.length === 0 && shown.translation.length === 0;
   const starting = standIn
     ? `${languageName(prefs.subtitleLang)} is starting · ${languageName(standIn)} stays up until it lands`
     : undefined;
   const status = prefs.cc && empty ? subtitleStatus() : undefined;
-  if (!prefs.cc && !preview) return null;
-  if (empty && !status && !preview) return null;
+  if (!prefs.cc) return null;
+  if (empty && !status) return null;
 
   function languageName(lang: string): string {
     if (lang !== "original") return languageOption(lang).autonym;
@@ -124,6 +150,7 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
     top: `${pos.y * 100}%`,
     "--sub-size": `${prefs.style.size}px`,
     "--sub-bg": prefs.style.background,
+    ...(place.maxWidth !== undefined ? { maxWidth: `calc(${place.maxWidth * 100}% - 8px)` } : {}),
   } as CSSProperties;
   const origLang = tracks.captions?.lang ?? "en";
   const transLang = shownTrack?.lang ?? prefs.subtitleLang;
@@ -133,6 +160,7 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
       ref={box}
       className="tt-subs"
       data-preset={prefs.style.preset}
+      data-placed={prefs.subtitlePos ? "" : undefined}
       style={style}
       title="Drag to move the subtitles"
       aria-label="Subtitles"
@@ -165,9 +193,6 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
       ))}
       {empty && status ? <span className="tt-sub-status">{status}</span> : null}
       {!empty && starting ? <span className="tt-sub-status">{starting}</span> : null}
-      {empty && !status && preview ? (
-        <span className="tt-sub-line">Subtitles look like this while you adjust them.</span>
-      ) : null}
     </div>
   );
 }

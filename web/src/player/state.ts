@@ -54,6 +54,10 @@ export interface PlayerStateInput {
   known?: boolean;
   /** The room name, for the unknown-room card. */
   roomName?: string;
+  /** The room plays demo sessions (decision 0032): one ends, and the next starts from 00:00. */
+  sessions?: boolean;
+  /** This session has ended and the next one is about to be joined. */
+  sessionEnded?: boolean;
 }
 
 export interface PlayerState {
@@ -63,7 +67,15 @@ export interface PlayerState {
   /** The pill is a Go live button. */
   canGoLive: boolean;
   /** A card over the canvas, when the state needs one. */
-  card?: { title: string; body: string; retry?: boolean; replay?: boolean; dim?: boolean; hub?: boolean };
+  card?: {
+    title: string;
+    body: string;
+    retry?: boolean;
+    replay?: boolean;
+    dim?: boolean;
+    hub?: boolean;
+    next?: boolean;
+  };
   /** An ended talk: the recording's span, for "3:12 / 17:00". */
   recording?: { start: number; end: number };
 }
@@ -126,6 +138,21 @@ export function playerState(input: PlayerStateInput): PlayerState {
       },
     };
 
+  // A demo session that ended: its end card, until the next session (from 00:00) is joined.
+  if (input.sessionEnded || (input.sessions && input.room === "ended" && mode === "live"))
+    return {
+      kind: "ended",
+      pill: "Session ended",
+      canGoLive: false,
+      card: {
+        title: "This session has ended",
+        body: input.sessionEnded
+          ? "The next session is starting from 00:00…"
+          : "The next session starts from 00:00 in a moment. The whole lecture is in its recording.",
+        next: true,
+        hub: true,
+      },
+    };
   // A looped room is never ended: it plays its recording again. Any other room ends by its room track's newest
   // record (the live edge's, never one at the playhead); without a room track, when its media says the speaker left.
   const ended =

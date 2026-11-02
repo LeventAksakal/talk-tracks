@@ -77,7 +77,7 @@ from .lecture import (
     probe,
 )
 from .lecture import clock as hang_clock
-from .moq import AUDIO_IDLE_S, Relay, TrackWriter, connect, until_closed
+from .moq import AUDIO_IDLE_S, WRITER_QUEUE, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest
 from .replay import Cue, MediaClock, event_us, session_events
@@ -769,12 +769,19 @@ class _Archived:
 
 async def _serve_archived(relay: Relay, namespace: str, archive: TrackArchive) -> int | None:
     """Publish an archived track whose every group answers a FETCH from the archive, and write its last group live,
-    so the track's Largest Location covers all of them. Its newest group, None when it has none."""
-    sink = await relay.publish(namespace, archive.track)
-    track = ComputedTrack(sink, _Archived(archive))
+    so the track's Largest Location covers all of them. Its newest group, None when it has none.
+
+    The last group is written at start, while nobody subscribes: the writer's queue holds all of it (as the deck's,
+    ``SpeakerSlides``). The default queue of 4 dropped a longer slice's first objects and moved the rest to new groups,
+    so Largest ran past the last real group and the relay's joining FETCH for a viewer asked for one that is not
+    there."""
+    source = _Archived(archive)
     newest = archive.latest_group()
+    last = source.objects(newest) if newest is not None else []
+    sink = await relay.publish(namespace, archive.track, queue=max(WRITER_QUEUE, len(last)))
+    track = ComputedTrack(sink, source)
     if newest is not None:
-        for i, payload in enumerate(_Archived(archive).objects(newest)):
+        for i, payload in enumerate(last):
             await (track.open(newest, payload) if i == 0 else track.append(newest, i, payload))
     return newest
 

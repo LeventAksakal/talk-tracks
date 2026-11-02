@@ -1,15 +1,29 @@
-/* The media player (ui-design §3, §9; the clickable mockup). The player chrome is dark like any video player,
-   whatever the page theme; red only for LIVE, amber for degraded, every state also has a word. */
+/* The media player (decisions 0031, 0033; ui-design §3, §9). A cinematic dark player whatever the page theme: the
+   talk fills a black stage, the title floats over it on a scrim, and the controls sit in one glass dock that fades
+   when the viewer is idle. Media Chrome draws the media controls; this file skins them. Colours are the brand tokens
+   (color-scheme: dark picks their Blackboard values); the few --player-* values below exist only for the glass.
+   Red only for LIVE, amber for degraded, every state also has a word. */
 
 .tt-player {
+  --player-stage: #000;
+  --player-glass: color-mix(in srgb, var(--tt-color-surface) 58%, transparent);
+  --player-glass-strong: color-mix(in srgb, var(--tt-color-surface) 86%, transparent);
+  --player-glass-line: rgb(255 255 255 / 0.1);
+  --player-blur: blur(22px) saturate(1.5);
+  --player-hover: rgb(255 255 255 / 0.1);
+  --player-scrim: linear-gradient(rgb(0 0 0 / 0.72), rgb(0 0 0 / 0.3) 60%, transparent);
+  --player-dock-gap: var(--tt-space-4);
+  /* How far the dock reaches up from the stage's bottom edge: subtitles rise above it while it shows. */
+  --player-dock-reach: 112px;
+
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100dvh;
   min-height: 420px;
-  background: var(--tt-color-ground);
+  background: var(--player-stage);
   color: var(--tt-color-text);
-  font: 14px/1.45 var(--tt-font-ui);
+  font: var(--tt-text-body) / var(--tt-leading-body) var(--tt-font-ui);
   color-scheme: dark;
   overflow: hidden;
 }
@@ -21,36 +35,151 @@
   outline-offset: 2px;
 }
 .tt-loading {
-  padding: 16px;
+  padding: var(--tt-space-4);
 }
 .tt-hidden {
   display: none !important;
 }
 
-/* --- title bar --- */
-.tt-titlebar {
-  grid-column: 1 / -1;
+/* --- main column: Media Chrome's controller, the room's media element filling it --- */
+.tt-main {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
   min-width: 0;
-  padding: 10px 16px;
-  background: var(--tt-color-surface);
-  border-bottom: 1px solid var(--tt-color-line);
+  min-height: 0;
+  position: relative;
+}
+/* Reached by the skip link: focus lands on the talk, and the controls inside it show their own rings. */
+.tt-main:focus {
+  outline: none;
+}
+.tt-controller {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  line-height: var(--tt-leading-body);
+
+  --media-background-color: var(--player-stage);
+  --media-font-family: var(--tt-font-ui);
+  --media-font-size: var(--tt-text-small);
+  --media-font-weight: var(--tt-weight-regular);
+  --media-primary-color: var(--tt-color-text);
+  --media-secondary-color: transparent;
+  --media-text-color: var(--tt-color-text);
+  --media-icon-color: var(--tt-color-text);
+  --media-control-background: transparent;
+  --media-control-hover-background: var(--player-hover);
+  --media-control-height: 22px;
+  --media-control-padding: 9px;
+  --media-button-icon-width: 22px;
+  --media-button-icon-height: 22px;
+  --media-focus-box-shadow: inset 0 0 0 2px var(--tt-color-accent);
+  --media-control-transition-in: opacity var(--tt-duration-medium) var(--tt-ease-standard);
+  --media-control-transition-out: opacity var(--tt-duration-slow) var(--tt-ease-exit);
+
+  --media-range-padding: 0;
+  --media-range-track-height: 4px;
+  --media-range-track-border-radius: var(--tt-radius-full);
+  --media-range-track-background: rgb(255 255 255 / 0.2);
+  --media-range-track-pointer-background: rgb(255 255 255 / 0.32);
+  --media-time-range-buffered-color: rgb(255 255 255 / 0.28);
+  --media-range-bar-color: var(--tt-color-text);
+  --media-range-thumb-background: var(--tt-color-text);
+  --media-range-thumb-width: 13px;
+  --media-range-thumb-height: 13px;
+  --media-range-thumb-border-radius: 50%;
+  --media-range-thumb-box-shadow: 0 0 0 4px rgb(0 0 0 / 0.28);
+  --media-range-segments-gap: 3px;
+
+  --media-menu-background: var(--player-glass-strong);
+  --media-settings-menu-background: var(--player-glass-strong);
+  --media-menu-border-radius: var(--tt-radius-lg);
+  --media-menu-border: 1px solid var(--player-glass-line);
+  --media-menu-item-hover-background: var(--player-hover);
+  --media-menu-item-checked-background: transparent;
+  --media-settings-menu-min-width: 260px;
+
+  --media-tooltip-background: var(--player-glass-strong);
+  --media-tooltip-border-radius: var(--tt-radius-sm);
+  --media-tooltip-arrow-display: none;
+  --media-tooltip-padding: 4px 8px;
+
+  --media-preview-background: var(--player-glass-strong);
+  --media-preview-border-radius: var(--tt-radius-md);
+  --media-preview-time-background: transparent;
+  --media-preview-chapter-background: transparent;
+  --media-preview-time-margin: 0;
+  --media-preview-chapter-margin: 0;
+
+  --media-loading-indicator-icon-height: 64px;
+}
+/* The played part is live red on a live talk (the live edge), white otherwise. */
+.tt-player[data-state="live"] .tt-controller {
+  --media-range-bar-color: var(--tt-color-live-fill);
+  --media-range-thumb-background: var(--tt-color-live);
+}
+/* Its own stacking context: the stage's overlays (subtitles, cards) stay under the title, the dock and the menus. */
+.tt-media-element {
+  display: block;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+}
+/* The hidden video picture-in-picture plays the live canvas through. */
+.tt-pip-video {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- title, over the stage on a scrim; it fades with the controls --- */
+.tt-titlebar {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-4);
+  min-width: 0;
+  padding: var(--tt-space-4) var(--tt-space-5) var(--tt-space-10);
+  background: var(--player-scrim);
+  text-shadow: 0 1px 12px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+.tt-titlebar a,
+.tt-titlebar .tt-notice {
+  pointer-events: auto;
 }
 .tt-brand {
-  color: var(--tt-color-text-muted);
-  font-weight: 600;
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--player-glass-line);
+  border-radius: var(--tt-radius-full);
+  background: var(--player-glass);
+  backdrop-filter: var(--player-blur);
+  color: var(--tt-color-text);
+  font: var(--tt-weight-strong) var(--tt-text-micro) var(--tt-font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   text-decoration: none;
   white-space: nowrap;
+  text-shadow: none;
 }
 .tt-brand:hover {
-  color: var(--tt-color-text);
+  background: var(--player-glass-strong);
+}
+.tt-title-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .tt-title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font: var(--tt-weight-strong) var(--tt-text-h3) / var(--tt-leading-tight) var(--tt-font-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -58,50 +187,44 @@
 }
 .tt-credit {
   color: var(--tt-color-text-muted);
-  font-size: 12px;
+  font-size: var(--tt-text-small);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
 }
-.tt-notice {
-  flex: none;
-  font-size: 12px;
-  color: var(--tt-color-text-muted);
-  border: 1px solid var(--tt-color-line);
-  border-radius: 999px;
-  padding: 2px 10px;
-}
-
 .tt-notices {
   display: flex;
   gap: var(--tt-space-2);
   margin-left: auto;
 }
+.tt-notice {
+  flex: none;
+  font-size: var(--tt-text-micro);
+  color: var(--tt-color-text-muted);
+  border: 1px solid var(--player-glass-line);
+  border-radius: var(--tt-radius-full);
+  background: var(--player-glass);
+  backdrop-filter: var(--player-blur);
+  padding: 3px 10px;
+  text-shadow: none;
+}
 .tt-notice-degraded {
   color: var(--tt-color-degraded);
   border-color: currentColor;
 }
-
-/* --- main column: canvas over the chrome --- */
-.tt-main {
-  grid-column: 1;
-  grid-row: 2;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  position: relative;
+.tt-loading-indicator {
+  --media-icon-color: var(--tt-color-text);
 }
 
 /* --- the canvas and its layouts --- */
 .tt-stage {
   position: relative;
-  flex: 1;
+  height: 100%;
   min-height: 0;
   display: flex;
   gap: 4px;
-  background: #000;
+  background: var(--player-stage);
   overflow: hidden;
   user-select: none;
 }
@@ -124,18 +247,18 @@
   position: absolute;
   inset: 0;
 }
-/* The corner tile: bottom-right until the listener moves it. */
+/* The corner tile: bottom-right, above the dock, until the listener moves it. */
 .tt-layout-pip .tt-cell-small {
   position: absolute;
-  right: var(--tt-space-4);
-  bottom: var(--tt-space-4);
+  right: var(--player-dock-gap);
+  bottom: var(--player-dock-reach);
   width: calc(var(--pip-w) * 100%);
   aspect-ratio: 16 / 9;
   z-index: 3;
-  border: 2px solid var(--tt-color-ground);
-  border-radius: var(--tt-radius-md);
+  border: 1px solid var(--player-glass-line);
+  border-radius: var(--tt-radius-lg);
   overflow: hidden;
-  box-shadow: var(--tt-shadow-2);
+  box-shadow: var(--tt-shadow-3);
 }
 .tt-pip-placed.tt-layout-pip .tt-cell-small {
   right: auto;
@@ -616,6 +739,14 @@
 .tt-subs:active {
   cursor: grabbing;
 }
+/* Where the viewer has not moved them, subtitles rise above the dock while it shows, and settle when it fades. */
+.tt-subs:not([data-placed]) {
+  transition: translate var(--tt-duration-medium) var(--tt-ease-standard);
+}
+.tt-controller:not([userinactive]) .tt-subs:not([data-placed]),
+.tt-controller[mediapaused] .tt-subs:not([data-placed]) {
+  translate: -50% calc(-100% - var(--player-dock-reach) + 36px);
+}
 .tt-subs[data-preset="contrast"] {
   background: rgb(0 0 0 / max(var(--sub-bg), 0.9));
   color: #ffe94d;
@@ -662,29 +793,35 @@
 /* --- notices and cards over the canvas --- */
 .tt-missed {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  left: var(--player-dock-gap);
+  bottom: var(--player-dock-reach);
   z-index: 6;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 6px 12px;
-  background: var(--tt-color-surface);
-  border: 1px solid var(--tt-color-line);
-  border-radius: 8px;
-  font-size: 13px;
+  padding: 6px 8px 6px 14px;
+  background: var(--player-glass);
+  backdrop-filter: var(--player-blur);
+  border: 1px solid var(--player-glass-line);
+  border-radius: var(--tt-radius-full);
+  box-shadow: var(--tt-shadow-2);
+  font-size: var(--tt-text-small);
 }
 .tt-toast {
   position: absolute;
   left: 50%;
-  top: 14px;
-  translate: -50%;
+  top: 50%;
+  translate: -50% -50%;
   z-index: 9;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #000c;
-  font-size: 13px;
+  padding: 10px 18px;
+  border-radius: var(--tt-radius-full);
+  background: var(--player-glass-strong);
+  backdrop-filter: var(--player-blur);
+  border: 1px solid var(--player-glass-line);
+  font: var(--tt-weight-strong) var(--tt-text-body) var(--tt-font-ui);
+  font-variant-numeric: var(--tt-numeric);
 }
+/* A state card covers the stage: what is behind it (empty tiles, their labels) is hidden, not shown faintly. */
 .tt-state-card {
   position: absolute;
   inset: 0;
@@ -693,23 +830,50 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 16px;
+  gap: var(--tt-space-3);
+  padding: var(--tt-space-6);
   text-align: center;
-  background: #000d;
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    color-mix(in srgb, var(--tt-color-surface) 70%, #000),
+    var(--player-stage) 70%
+  );
 }
 .tt-state-card strong {
   font: var(--tt-weight-display) var(--tt-text-h2) / var(--tt-leading-tight) var(--tt-font-display);
+  max-width: 24ch;
 }
 .tt-state-card span {
   color: var(--tt-color-text-muted);
   max-width: 46ch;
 }
+.tt-state-card .tt-button {
+  margin-top: var(--tt-space-2);
+}
+.tt-state-glyph {
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--tt-space-2);
+  border-radius: 50%;
+  border: 1px solid var(--player-glass-line);
+  background: radial-gradient(circle, var(--tt-color-text-muted) 0 3px, transparent 4px), var(--player-glass);
+}
+.tt-state-card[data-kind="ended"] .tt-state-glyph,
+.tt-state-card[data-kind="before"] .tt-state-glyph {
+  background: radial-gradient(circle, var(--tt-color-accent) 0 5px, transparent 6px), var(--player-glass);
+}
+.tt-state-card[data-kind="reconnecting"] .tt-state-glyph,
+.tt-state-card[data-kind="failed"] .tt-state-glyph {
+  background: radial-gradient(circle, var(--tt-color-degraded) 0 5px, transparent 6px), var(--player-glass);
+}
 .tt-dimmed .tt-state-card {
-  background: #0008;
+  background: rgb(0 0 0 / 0.55);
 }
 .tt-dimmed .tt-cell {
   filter: brightness(0.55);
+}
+.tt-covered .tt-cell {
+  visibility: hidden;
 }
 .tt-big-play {
   position: absolute;
@@ -719,32 +883,42 @@
   z-index: 7;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 22px;
-  border-radius: 999px;
-  border: 0;
-  background: #000c;
+  gap: 12px;
+  padding: 16px 26px 16px 20px;
+  border-radius: var(--tt-radius-full);
+  border: 1px solid var(--player-glass-line);
+  background: var(--player-glass-strong);
+  backdrop-filter: var(--player-blur);
+  box-shadow: var(--tt-shadow-3);
   color: var(--tt-color-text);
-  font: 600 16px var(--tt-font-ui);
+  font: var(--tt-weight-strong) var(--tt-text-h3) var(--tt-font-ui);
   cursor: pointer;
+  transition: scale var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-big-play:hover {
+  scale: 1.04;
 }
 .tt-big-play .tt-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+  fill: currentColor;
 }
 .tt-stats {
   position: absolute;
-  left: 10px;
-  top: 10px;
+  left: var(--player-dock-gap);
+  top: 76px;
   z-index: 7;
-  max-width: min(560px, calc(100% - 20px));
-  max-height: calc(100% - 20px);
+  max-width: min(560px, calc(100% - 32px));
+  max-height: calc(100% - 200px);
   overflow: auto;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #000d;
-  color: #dfe3ea;
-  font: 12px/1.5 var(--tt-font-numeric);
+  padding: 10px 12px;
+  border-radius: var(--tt-radius-md);
+  border: 1px solid var(--player-glass-line);
+  background: var(--player-glass-strong);
+  backdrop-filter: var(--player-blur);
+  color: var(--tt-color-text);
+  font: var(--tt-text-micro) / 1.5 var(--tt-font-numeric);
+  font-variant-numeric: var(--tt-numeric);
   user-select: text;
 }
 .tt-stats-head {
@@ -758,7 +932,7 @@
 }
 .tt-stats th {
   text-align: left;
-  font-weight: 500;
+  font-weight: var(--tt-weight-regular);
   color: var(--tt-color-text-muted);
   padding: 0 12px 0 0;
   white-space: nowrap;
@@ -768,77 +942,112 @@
   padding: 0;
 }
 
-/* --- progress bar --- */
-.tt-chrome {
-  background: var(--tt-color-surface);
+/* --- the dock: one glass panel holding the time range and the control bar, floating over the stage --- */
+.tt-dock {
   position: relative;
-  z-index: 10;
+  align-self: stretch;
+  margin: 0 var(--player-dock-gap) var(--player-dock-gap);
+  padding: 10px 8px 4px;
+  border: 1px solid var(--player-glass-line);
+  border-radius: 18px;
+  background: var(--player-glass);
+  backdrop-filter: var(--player-blur);
+  box-shadow:
+    0 18px 50px rgb(0 0 0 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
 }
-.tt-progress {
-  position: relative;
-  height: 24px;
-  padding: 0 14px;
+.tt-bar {
   display: flex;
   align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+.tt-bar-range {
+  padding: 0 10px;
+}
+.tt-bar-spacer {
+  flex: 1;
+}
+.tt-mc-button,
+.tt-bar-button {
+  border-radius: var(--tt-radius-md);
+}
+.tt-bar-button {
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--tt-color-text);
   cursor: pointer;
-  touch-action: none;
 }
-.tt-progress.tt-disabled {
-  cursor: default;
-  opacity: 0.5;
+.tt-bar-button .tt-icon {
+  width: 22px;
+  height: 22px;
 }
-.tt-progress-track {
+.tt-bar-button:hover,
+.tt-bar-button[aria-expanded="true"],
+.tt-bar-button[aria-pressed="true"] {
+  background: var(--player-hover);
+}
+.tt-bar-button.tt-on::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  right: 11px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tt-color-accent);
+}
+
+/* The time range, its slide-and-chapter preview, and our marks over it (holes, slides, notes, search matches). */
+.tt-range-wrap {
   position: relative;
   flex: 1;
-  height: 4px;
+  min-width: 0;
   display: flex;
-  gap: 3px;
-  transition: height 0.12s;
+  align-items: center;
 }
-.tt-progress:hover .tt-progress-track,
-.tt-scrubbing .tt-progress-track,
-.tt-progress:focus-visible .tt-progress-track {
-  height: 6px;
+.tt-range {
+  flex: 1;
+  height: 22px;
+  padding: 0;
+  background: none;
+  --media-range-track-transition: height var(--tt-duration-fast) var(--tt-ease-standard);
 }
-.tt-seg {
-  flex: 1 1 0;
-  position: relative;
-  min-width: 2px;
-  border-radius: 2px;
-  overflow: hidden;
-  background: #ffffff2e;
-  transition: transform 0.12s;
+.tt-range:hover {
+  --media-range-track-height: 6px;
 }
-.tt-seg.tt-hot {
-  transform: scaleY(1.7);
-  background: #ffffff4a;
-}
-.tt-seg-fill {
+.tt-marks {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: var(--tt-color-text);
-}
-.tt-player[data-state="live"] .tt-seg-fill {
-  background: var(--tt-color-live);
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 0;
+  pointer-events: none;
 }
 .tt-hole {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(90deg, var(--tt-color-ground) 0 2px, transparent 2px 5px);
-  pointer-events: none;
+  top: -3px;
+  height: 6px;
+  background: repeating-linear-gradient(90deg, rgb(0 0 0 / 0.75) 0 2px, transparent 2px 5px);
 }
 .tt-mark {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: -5px;
+  height: 10px;
   width: 2px;
   translate: -1px;
-  pointer-events: none;
+  border-radius: 1px;
 }
 .tt-mark-slide {
   background: var(--tt-color-accent);
-  opacity: 0.75;
+  opacity: 0.8;
 }
 .tt-mark-note {
   background: var(--tt-ink-sun);
@@ -846,93 +1055,70 @@
 .tt-mark-match {
   background: var(--tt-ink-mint);
 }
-.tt-head {
-  position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  translate: -50% -50%;
-  background: var(--tt-color-text);
-  box-shadow: 0 0 0 3px #0006;
-  pointer-events: none;
-}
 .tt-preview {
-  position: absolute;
-  bottom: 16px;
-  left: clamp(64px, var(--x), calc(100% - 64px));
-  translate: -50%;
-  z-index: 12;
-  width: 128px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 6px;
-  border: 1px solid var(--tt-color-line);
-  background: var(--tt-color-surface);
-  font-size: 12px;
-  pointer-events: none;
+  align-items: stretch;
+  gap: 4px;
+  width: 176px;
+  padding: 6px;
+  font-size: var(--tt-text-micro);
+  line-height: 1.3;
 }
 .tt-preview-thumb {
   aspect-ratio: 16 / 9;
-  border-radius: 3px;
+  overflow: hidden;
+  border-radius: var(--tt-radius-sm);
   background: #f4f5f7;
   color: #1b1f27;
   display: grid;
   place-items: center;
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: var(--tt-weight-strong);
 }
-.tt-preview-thumb {
-  overflow: hidden;
-}
-.tt-preview-thumb img {
+img.tt-preview-thumb {
   width: 100%;
-  height: 100%;
   object-fit: cover;
   display: block;
 }
-.tt-preview-blank {
-  width: 60%;
-  height: 12%;
-  background: #1b1f2733;
-  box-shadow: 0 8px 0 -1px #1b1f2722;
-}
 .tt-preview-time {
   font-family: var(--tt-font-numeric);
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: var(--tt-numeric);
+  font-weight: var(--tt-weight-strong);
+  padding: 0 2px;
 }
 .tt-preview-chapter {
   color: var(--tt-color-text-muted);
+  padding: 0 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* --- control bar --- */
-.tt-controls {
-  position: relative;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 8px 8px;
-  min-width: 0;
-}
-.tt-controls-left,
-.tt-controls-right {
+/* Volume: the slider opens beside the mute button on hover or focus. */
+.tt-volume {
   display: flex;
   align-items: center;
-  gap: 2px;
-  min-width: 0;
 }
-.tt-controls-left {
-  flex: 1;
+.tt-volume-range {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  transition: width var(--tt-duration-medium) var(--tt-ease-standard);
+  --media-range-track-height: 4px;
 }
-.tt-controls-right {
-  flex: none;
+.tt-volume:hover .tt-volume-range,
+.tt-volume:focus-within .tt-volume-range {
+  width: 84px;
+  padding: 0 10px 0 4px;
 }
+.tt-time {
+  padding: 0 10px 0 6px;
+  font-variant-numeric: var(--tt-numeric);
+  color: var(--tt-color-text);
+  white-space: nowrap;
+}
+
+/* Icons shared by the dock, the panel and the cards. */
 .tt-icon {
   width: 20px;
   height: 20px;
@@ -945,12 +1131,12 @@
 .tt-icon-button {
   flex: none;
   position: relative;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   display: inline-grid;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--tt-radius-md);
   background: none;
   color: var(--tt-color-text);
   cursor: pointer;
@@ -958,7 +1144,7 @@
 .tt-icon-button:hover:not(:disabled),
 .tt-icon-button[aria-expanded="true"],
 .tt-icon-button[aria-pressed="true"] {
-  background: #ffffff16;
+  background: var(--player-hover);
 }
 .tt-icon-button:disabled {
   opacity: 0.45;
@@ -972,49 +1158,28 @@
   width: 16px;
   height: 16px;
 }
-.tt-icon-button.tt-on::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 5px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--tt-color-live);
-}
-.tt-volume {
-  display: flex;
-  align-items: center;
-}
-.tt-volume-slider {
-  width: 72px;
-  accent-color: var(--tt-color-text);
-}
-.tt-time {
-  padding: 0 6px 0 8px;
-  font: 13px var(--tt-font-numeric);
-  font-variant-numeric: tabular-nums;
-  color: var(--tt-color-text);
-  white-space: nowrap;
-}
+
+/* The LIVE marker (brand §6): the Go-live icon and the word, both in live red; no dot. Behind live it is a button. */
 .tt-pill {
   flex: none;
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 0;
-  background: #ffffff16;
-  color: var(--tt-color-text-muted);
-  font: 600 12px var(--tt-font-ui);
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-}
-/* The LIVE marker (brand §6): the Go-live icon and the word, both in live red; no dot. */
-.tt-pill-live {
   display: inline-flex;
   align-items: center;
   gap: var(--tt-space-1);
-  background: none;
+  margin: 0 4px;
+  padding: 4px 10px;
+  border-radius: var(--tt-radius-full);
+  border: 1px solid var(--player-glass-line);
+  background: rgb(255 255 255 / 0.06);
+  color: var(--tt-color-text-muted);
+  font: var(--tt-weight-strong) var(--tt-text-micro) var(--tt-font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tt-pill-live {
   color: var(--tt-color-live);
+  border-color: color-mix(in srgb, var(--tt-color-live) 40%, transparent);
+  background: color-mix(in srgb, var(--tt-color-live) 12%, transparent);
 }
 .tt-pill-live .tt-icon {
   width: 16px;
@@ -1022,13 +1187,11 @@
 }
 .tt-pill-behind {
   cursor: pointer;
-}
-.tt-pill-behind::before {
-  content: "● ";
-  color: #8a919e;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .tt-pill-behind:hover {
-  background: #ffffff26;
+  background: var(--player-hover);
   color: var(--tt-color-text);
 }
 .tt-player[data-state="reconnecting"] .tt-pill,
@@ -1037,11 +1200,13 @@
 }
 .tt-chapter-name {
   min-width: 0;
-  padding: 4px 6px;
+  padding: 6px 8px;
   border: 0;
+  border-radius: var(--tt-radius-md);
   background: none;
   color: var(--tt-color-text-muted);
   font: inherit;
+  font-size: var(--tt-text-small);
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
@@ -1050,15 +1215,25 @@
 }
 .tt-chapter-name:hover {
   color: var(--tt-color-text);
+  background: var(--player-hover);
+}
+
+/* Media Chrome's settings menu, in the dock's glass. */
+.tt-settings {
+  right: var(--player-dock-gap);
+  bottom: calc(var(--player-dock-reach) - 8px);
+  z-index: 2;
+  backdrop-filter: var(--player-blur);
+  box-shadow: var(--tt-shadow-3);
 }
 
 /* --- menus --- */
 .tt-menu {
   position: absolute;
-  right: 8px;
-  bottom: calc(100% + 30px);
+  right: 0;
+  bottom: calc(100% + 10px);
   z-index: 20;
-  width: 290px;
+  width: 300px;
   max-width: calc(100% - 16px);
   max-height: min(460px, 70dvh);
   overflow: auto;
@@ -1066,10 +1241,11 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px;
-  border: 1px solid var(--tt-color-line);
-  border-radius: 10px;
-  background: var(--tt-color-surface);
-  box-shadow: 0 8px 30px #0009;
+  border: 1px solid var(--player-glass-line);
+  border-radius: var(--tt-radius-lg);
+  background: var(--player-glass-strong);
+  backdrop-filter: var(--player-blur);
+  box-shadow: var(--tt-shadow-3);
 }
 .tt-menu-wide {
   width: 330px;
@@ -1260,9 +1436,9 @@
   flex-wrap: wrap;
 }
 
-/* --- side panel --- */
+/* --- side panel: one job a tab (decision 0033), on the brand's Blackboard surface beside the stage --- */
 .tt-panel {
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 2;
   display: flex;
   flex-direction: column;
@@ -1271,13 +1447,12 @@
   border-left: 1px solid var(--tt-color-line);
   background: var(--tt-color-ground);
 }
-/* The tabs, then the close button outside the tablist. More tabs than fit scroll sideways: the clipped side fades and
-   shows an arrow. */
+/* The tabs, then the close button outside the tablist. Four jobs fit; nothing scrolls sideways. */
 .tt-panel-head {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px;
+  padding: 8px;
   border-bottom: 1px solid var(--tt-color-line);
 }
 .tt-tabs {
@@ -1286,40 +1461,68 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tt-tabs::-webkit-scrollbar {
-  display: none;
-}
-.tt-tabs.tt-clip-after {
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), #0000);
-}
-.tt-tabs.tt-clip-before {
-  mask-image: linear-gradient(to left, #000 calc(100% - 24px), #0000);
-}
-.tt-tabs.tt-clip-before.tt-clip-after {
-  mask-image: linear-gradient(to right, #0000, #000 24px, #000 calc(100% - 24px), #0000);
-}
-.tt-tabs-more {
-  color: var(--tt-color-text-muted);
 }
 .tt-tab {
-  padding: 6px 10px;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 1px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--tt-radius-md);
   background: none;
   color: var(--tt-color-text-muted);
-  font: 500 13px var(--tt-font-ui);
-  white-space: nowrap;
+  font: var(--tt-weight-strong) 11px var(--tt-font-ui);
+  letter-spacing: -0.01em;
   cursor: pointer;
+  transition:
+    background var(--tt-duration-fast) var(--tt-ease-standard),
+    color var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-tab span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tt-tab:hover {
+  color: var(--tt-color-text);
 }
 .tt-tab[aria-selected="true"] {
   color: var(--tt-color-text);
-  background: #ffffff14;
+  background: var(--tt-color-raised);
+}
+.tt-tab[aria-selected="true"] .tt-icon {
+  color: var(--tt-color-accent);
 }
 .tt-panel-close {
   margin-left: 4px;
+}
+/* Inside the Chapters job: what to look at (chapters, terms, slide descriptions), as a segmented row. */
+.tt-views {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--tt-space-3);
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-color-surface);
+  border: 1px solid var(--tt-color-line);
+}
+.tt-view {
+  flex: 1;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--tt-radius-full);
+  background: none;
+  color: var(--tt-color-text-muted);
+  font: var(--tt-weight-strong) var(--tt-text-small) var(--tt-font-ui);
+  cursor: pointer;
+}
+.tt-view[aria-pressed="true"] {
+  background: var(--tt-color-raised);
+  color: var(--tt-color-text);
 }
 .tt-tabpanel {
   flex: 1;
@@ -1581,46 +1784,9 @@
   background: var(--tt-color-ground);
 }
 
-/* --- full screen: the canvas fills, title and controls float over it and fade when idle --- */
+/* --- full screen: the whole player (side panel included) fills the screen; Media Chrome fades title and dock --- */
 .tt-player.tt-fullscreen {
-  grid-template-rows: minmax(0, 1fr);
-}
-.tt-fullscreen .tt-titlebar {
-  grid-column: 1;
-  grid-row: 1;
-  align-self: start;
-  z-index: 15;
-  background: linear-gradient(#000c, #0000);
-  border-bottom: 0;
-  transition: opacity 0.25s;
-}
-/* Reached by the skip link: focus lands on the talk, and the controls inside it show their own rings. */
-.tt-main:focus {
-  outline: none;
-}
-.tt-fullscreen .tt-main {
-  grid-column: 1;
-  grid-row: 1;
-}
-.tt-fullscreen .tt-panel {
-  grid-row: 1;
-}
-.tt-fullscreen .tt-chrome {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(#0000, #000d 40%);
-  padding-top: 24px;
-  transition: opacity 0.25s;
-}
-.tt-fullscreen.tt-idle .tt-titlebar,
-.tt-fullscreen.tt-idle .tt-chrome {
-  opacity: 0;
-  pointer-events: none;
-}
-.tt-fullscreen.tt-idle .tt-stage {
-  cursor: none;
+  height: 100%;
 }
 
 /* --- the Discussion tab (decision 0024) --- */
@@ -1760,10 +1926,10 @@
 @media (max-width: 860px) {
   .tt-player.tt-with-panel {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) 40%;
+    grid-template-rows: minmax(0, 1fr) 40%;
   }
   .tt-panel {
-    grid-row: 3;
+    grid-row: 2;
     grid-column: 1;
     border-left: 0;
     border-top: 1px solid var(--tt-color-line);

@@ -58,13 +58,19 @@ const paths = {
       <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
     </>
   ),
+  chat: <path d="M4 5h16v11H9l-5 4z" />,
+  comment: <path d="M5 4h14v12h-6l-4 4v-4H5z" />,
+  transcript: <path d="M5 6h14M5 10h14M5 14h10M5 18h7" />,
+  chapters: <path d="M4 6h2M9 6h11M4 12h2M9 12h11M4 18h2M9 18h11" />,
+  notes: <path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5" />,
 } as const;
 
 export type IconName = keyof typeof paths;
 
-export function Icon({ name }: { name: IconName }) {
+/** One of the player's icons; `slot` places it in a Media Chrome button's icon slot. */
+export function Icon({ name, slot }: { name: IconName; slot?: string }) {
   return (
-    <svg className="tt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className="tt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" slot={slot}>
       {paths[name]}
     </svg>
   );

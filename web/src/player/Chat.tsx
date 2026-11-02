@@ -11,6 +11,14 @@ import { usePlayer } from "./context";
 const noop = () => () => {};
 const zero = () => 0;
 
+/**
+ * A demo room's chat clock (wiki/howto/demo-rooms.md): `m` is wall time minus 2026-10-01 00:00 UTC in every session,
+ * not session time, so its messages show the time of day they were written.
+ */
+const DEMO_CHAT_EPOCH_MS = Date.UTC(2026, 9, 1);
+const demoChatClock = (m: number) =>
+  new Date(DEMO_CHAT_EPOCH_MS + m).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 export interface ChatProps {
   /** Where the chat track is read from; undefined without a relay (the offline demo). */
   source: HistorySource | undefined;
@@ -116,7 +124,7 @@ export function Chat({ source, room, service, rewound, at, talkClock, readOnly, 
             <span className="tt-chat-head">
               <strong>{r.data.by.name}</strong>
               {r.data.by.speaker ? <span className="tt-chat-tag">speaker</span> : null}
-              <span className="tt-muted">{talkClock(r.m)}</span>
+              <span className="tt-muted">{looped ? demoChatClock(r.m) : talkClock(r.m)}</span>
             </span>
             <span className="tt-chat-text">{r.data.text}</span>
           </li>
