@@ -107,6 +107,34 @@ describe("the player shell", () => {
     expect(screen.queryByText(/Grace/)).toBeNull();
   });
 
+  it("gives the skip link a main landmark: the talk, its canvas and its controls", async () => {
+    const room = setup();
+    close = room.close;
+    await advance(300);
+    const main = screen.getByRole("main");
+    expect(main.id).toBe("main");
+    expect(within(main).getByRole("slider", { name: "Position in the talk" })).toBeTruthy();
+  });
+
+  it("reaches every side panel tab by keyboard, and closes the panel from outside the tab list", async () => {
+    const room = setup({ noRoomService: "No room service here." });
+    close = room.close;
+    await advance(300);
+    if (!screen.queryByRole("tablist")) fireEvent.click(screen.getByRole("button", { name: /Side panel/ }));
+    const list = screen.getByRole("tablist", { name: "Side panel" });
+    // A tab list holds tabs only.
+    expect(within(list).queryAllByRole("button")).toEqual([]);
+    const tabs = within(list).getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toContain("Discussion");
+    // Arrow keys walk the tabs to the last one.
+    act(() => tabs[0]!.focus());
+    for (let i = 1; i < tabs.length; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(tabs.at(-1));
+    expect(tabs.at(-1)!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close the side panel" }));
+    expect(screen.queryByRole("tablist")).toBeNull();
+  });
+
   it("puts a shared screen on the main stage with the camera in the corner, and lets the listener swap them", async () => {
     const room = setup({ sources: ["camera", "slides", "screen"] });
     close = room.close;

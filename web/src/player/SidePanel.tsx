@@ -50,24 +50,58 @@ export function SidePanel() {
     document.getElementById(`tt-tab-${id}`)?.focus();
   };
   const extra = extraTabs.find((t) => t.id === current);
+  const { ref: list, more, scroll } = useOverflow<HTMLDivElement>(current, tabs.length);
   return (
     <aside className="tt-panel" aria-label="Side panel">
-      <div className="tt-tabs" role="tablist" aria-label="Side panel" onKeyDown={onKey}>
-        {tabs.map(([id, label]) => (
+      <div className="tt-panel-head">
+        {/* More tabs than fit: arrows on the clipped side scroll them (keyboard and screen readers move by tab). */}
+        {more.before ? (
           <button
-            key={id}
-            id={`tt-tab-${id}`}
             type="button"
-            role="tab"
-            className="tt-tab"
-            aria-selected={current === id}
-            aria-controls={`tt-tabpanel-${id}`}
-            tabIndex={current === id ? 0 : -1}
-            onClick={() => update({ tab: id })}
+            className="tt-icon-button tt-small tt-tabs-more tt-tabs-before"
+            aria-hidden="true"
+            tabIndex={-1}
+            title="Earlier tabs"
+            onClick={() => scroll(-1)}
           >
-            {label}
+            <Icon name="back" />
           </button>
-        ))}
+        ) : null}
+        <div
+          ref={list}
+          className={`tt-tabs${more.before ? " tt-clip-before" : ""}${more.after ? " tt-clip-after" : ""}`}
+          role="tablist"
+          aria-label="Side panel"
+          onKeyDown={onKey}
+        >
+          {tabs.map(([id, label]) => (
+            <button
+              key={id}
+              id={`tt-tab-${id}`}
+              type="button"
+              role="tab"
+              className="tt-tab"
+              aria-selected={current === id}
+              aria-controls={`tt-tabpanel-${id}`}
+              tabIndex={current === id ? 0 : -1}
+              onClick={() => update({ tab: id })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {more.after ? (
+          <button
+            type="button"
+            className="tt-icon-button tt-small tt-tabs-more tt-tabs-after"
+            aria-hidden="true"
+            tabIndex={-1}
+            title="More tabs"
+            onClick={() => scroll(1)}
+          >
+            <Icon name="forward" />
+          </button>
+        ) : null}
         <button
           type="button"
           className="tt-icon-button tt-small tt-panel-close"
@@ -406,4 +440,39 @@ function Notes() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * A row that may hold more than it shows: which ends are clipped, re-measured on scroll and resize; the selected item
+ * (`selected` changes) scrolls into view; `scroll(±1)` moves by most of the visible width.
+ */
+function useOverflow<T extends HTMLElement>(selected: string, count: number) {
+  const ref = useRef<T>(null);
+  const [more, setMore] = useState({ before: false, after: false });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const before = el.scrollLeft > 1;
+      const after = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setMore((m) => (m.before === before && m.after === after ? m : { before, after }));
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [count]);
+  useEffect(() => {
+    const tab = ref.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    tab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [selected]);
+  const scroll = (direction: 1 | -1) => {
+    const el = ref.current;
+    el?.scrollBy?.({ left: direction * el.clientWidth * 0.7, behavior: "smooth" });
+  };
+  return { ref, more, scroll };
 }
