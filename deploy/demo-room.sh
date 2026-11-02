@@ -1,8 +1,8 @@
 #!/bin/sh
-# Make a looping demo room from a lecture, end to end (wiki/howto/demo-rooms.md):
+# Make a demo room from a lecture, end to end (wiki/howto/demo-rooms.md):
 #   1. prepare   the lecture as data/demo/$TT_LECTURE/lecture.mp4 (from $1, or a synthetic test clip without $1)
 #   2. generate  start fresh agents in the private room $TT_ROOM, play the lecture once, record their tracks
-#   3. loop      stop those agents and serve the recording, looping, in the room $TT_DEMO_ROOM
+#   3. session   stop those agents and run live sessions of the recording, one after the other, in $TT_DEMO_ROOM
 #
 # Usage, from the repo root:   sh deploy/demo-room.sh [path/to/lecture-video]
 # Settings: TT_LECTURE (default test), TT_ROOM (default gen-$TT_LECTURE), TT_DEMO_ROOM (default demo),
@@ -34,6 +34,6 @@ $compose up -d --force-recreate $agents
 $compose --profile demo run --rm generate
 $compose stop $agents
 
-echo "== loop: room $TT_DEMO_ROOM replays data/demo/$lecture"
+echo "== session: room $TT_DEMO_ROOM plays data/demo/$lecture once per session"
 $compose --profile demo up -d --force-recreate looper
 echo "watch it: TT_ROOM=$TT_DEMO_ROOM $compose --profile dev run --rm watch"

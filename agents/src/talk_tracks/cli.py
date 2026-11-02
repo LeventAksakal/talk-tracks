@@ -5,10 +5,14 @@ Agents: ``captions`` (speech to text), ``translate`` (one language per process),
 slide images like the speaker's browser, ``catalog`` publishes the room epoch like the room service, ``watch`` prints
 what the agents publish. Demo rooms (see
 wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``record`` records a room's agent tracks,
-``generate`` does both at once, ``loop`` replays a recording as a live room, forever. Fixes to a finished recording
-(``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its caption lines (into
-``--lang`` / ``--agent``) cut to subtitle cues, ``redescribe`` describes the slides it has no note for (``--slides`` as
-for ``generate``), ``resplit`` cuts retranslate's over-long subtitle cues again, free (no model call, no spend).
+``generate`` does both at once, ``session`` runs a demo lecture's live sessions in its room one after the other (each
+plays the lecture once from 00:00 and ends; ``TT_DEMO_LIVE_AGENTS`` on: its AI tracks come from the live agents only),
+``serve-recording`` serves a recording room ``<id>-recording`` that ``record-archive`` built. Offline and free:
+``record-archive`` builds a recording room into the archive (TT_ARCHIVE_DIR), ``cue-report`` counts where a
+recording's subtitle cues end. Fixes to a finished recording (``--recording``, offline, spending through ``--room``'s
+ledger): ``retranslate`` translates its caption lines (into ``--lang`` / ``--agent``) cut to subtitle cues,
+``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``), ``resplit`` cuts
+retranslate's over-long subtitle cues again, free (no model call, no spend).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
@@ -17,7 +21,8 @@ rooms listed, each from when its speaker comes on air.
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_ROOMS, TT_ROOMS_EXCLUDE (rooms never served, such as
 the demo room), TT_TOKEN, TT_LEDGER (default data/ledger.jsonl), TT_SPEND_CEILING_USD (default 100), TT_ROOM_CAP_USD
 (default 2: any room's cap), TT_CAPS_DIR (default data/caps: judge token batches with their own caps),
-TT_DEMO_ROOMS (rooms never back-filled: the looped demo rooms),
+TT_DEMO_ROOMS (the demo rooms: never back-filled; with TT_DEMO_LIVE_AGENTS on, served session by session and
+dropped from TT_ROOMS_EXCLUDE),
 TT_IDLE_GRACE_S (default 10: how long a track goes unsubscribed before its agent pauses), TT_ROOM_LINGER_S (default
 600: how long a room is served after its speaker left), TT_ARCHIVE_DIR (default data/archive: every slice an agent
 publishes, which it serves FETCH and restarts from), TT_ARCHIVE_BUCKET (where older slices are read back from)
@@ -51,8 +56,9 @@ from .llm.queued import Priority, QueuedLlm, add_usage
 
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "catalog", "watch")
-DEMO = ("play", "record", "generate", "loop")
+DEMO = ("play", "record", "generate", "session", "serve-recording")
 REVISE = ("retranslate", "redescribe", "resplit")  # offline: a finished recording, no relay
+OFFLINE = ("record-archive", "cue-report")  # offline and free: a recording into the archive, or its cue report
 
 FAKE_SENTENCES = [
     "Media over QUIC lets one relay fan out many named tracks.",
@@ -104,7 +110,7 @@ def make_llm(fake: bool, room: str, *, backfill: bool = False) -> Llm:
 
 
 def demo_room(room: str) -> bool:
-    """A looped demo room: its tracks are the looper's, and nothing is back-filled in it."""
+    """A demo room (decision 0032): live sessions, each on a room clock of its own, and nothing back-filled in it."""
     return room in {r.strip() for r in os.environ.get("TT_DEMO_ROOMS", "").split(",") if r.strip()}
 
 
@@ -304,10 +310,11 @@ async def serve_translate_room(
     room: str,
     *,
     languages: Sequence[str] | None = None,
-) -> None:
+) -> bool:
     """Translation agent for ``room``: serves translation tracks on demand for any supported
     BCP 47 language tag (decision 0019). Each track is lazy and only consumes spend when subscribed.
-    In a demo room, pre-made tr, es, ar stay while other languages translate live against room cap."""
+    In a demo room, pre-made tr, es, ar stay while other languages translate live against room cap. True when the
+    demo room's live session changed under it (``epoch_changed``)."""
     from . import moq, runtime
     from .archive.slices import TrackArchive, archive_bucket
     from .cores.translate import TranslateCore
@@ -333,10 +340,19 @@ async def serve_translate_room(
         target_langs = open_languages(room)
 
     log = logging.getLogger("talk_tracks")
+    sessions = demo_room(room)  # live sessions: one instance each; slices stay on the VM (each writes group 0 again)
+    bucket = None if sessions else archive_bucket()
+    changed = False
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         room_time = RoomTime()
         io = RoomIo(relay, room_time, moq.TeacherFeed(relay, room, room_time))
         clock = Watermark(edge=lambda: room_time.edge)
+        catalogs = asyncio.create_task(moq.room_catalog(relay, room, room_time))
+        try:
+            epoch = await session_epoch(room_time) if sessions else None
+        except BaseException:
+            catalogs.cancel()
+            raise
 
         def captions() -> AsyncGenerator[Any]:
             return moq.follow_captions(relay, room)
@@ -363,7 +379,9 @@ async def serve_translate_room(
                 lateness_ms=TRANSLATION_LATE_MS,
             )
             agent_info = AgentInfo(name=name, label=label, model=live_llm.model)
-            archive = TrackArchive(room, name, ITEMS_TRACK, bucket=archive_bucket(), info=track_info)
+            archive = TrackArchive(room, name, ITEMS_TRACK, bucket=bucket, info=track_info)
+            if epoch is not None and archive.start_session(epoch):
+                log.info("%s in room %s: a new session (E %d), the last one's slices cleared", name, room, epoch)
             out = await relay.publish_sliced(agent_path(room, name), ITEMS_TRACK)
             sliced = SlicedTrack(agent_info, out, archive, list, clock=clock, marks_from=False)
 
@@ -411,13 +429,27 @@ async def serve_translate_room(
         for lang in target_langs:
             await start_language(lang)
 
-        background = [
-            asyncio.create_task(moq.room_catalog(relay, room, room_time)),
-            asyncio.create_task(io.feed.run()),
-        ]
+        background = [catalogs, asyncio.create_task(io.feed.run())]
 
         async def serve() -> None:
-            await asyncio.gather(*runners)
+            nonlocal changed
+            if epoch is None:
+                await asyncio.gather(*runners)
+                return
+            work = asyncio.ensure_future(asyncio.gather(*runners))
+            moved = asyncio.ensure_future(epoch_changed(room_time, epoch))
+            try:
+                await asyncio.wait({work, moved}, return_when=asyncio.FIRST_COMPLETED)
+                if not moved.done():
+                    work.result()
+                await moved
+                changed = True
+                for sliced in tracks.values():
+                    with contextlib.suppress(Exception):
+                        await sliced.end()
+            finally:
+                work.cancel()
+                moved.cancel()
 
         try:
             await moq.until_closed(relay, serve())
@@ -435,15 +467,43 @@ async def serve_translate_room(
                 with contextlib.suppress(Exception):
                     await sliced.pause()
                 sliced.archive.close()
+    return changed
+
+
+def room_exclusions(exclude: str) -> list[str]:
+    """The rooms an agent never serves (``TT_ROOMS_EXCLUDE``): with ``TT_DEMO_LIVE_AGENTS`` on, not the demo rooms,
+    whose live sessions then get their AI tracks from the live agents only (decision 0032)."""
+    from .session import live_agents
+
+    rooms = [r.strip() for r in exclude.split(",") if r.strip()]
+    if live_agents():
+        rooms = [r for r in rooms if not demo_room(r)]
+    return rooms
+
+
+async def session_epoch(room_time: Any) -> int:
+    """The ``E`` of a demo room's current live session: the first room catalog's (the session player publishes it
+    before its teacher comes on air)."""
+    return await room_time.wait_epoch()
+
+
+async def epoch_changed(room_time: Any, epoch: int) -> None:
+    """Return when the room catalog's ``E`` is no longer ``epoch``: a new live session began while this agent still
+    served the last one (it missed the ``ended``). The agent then starts again on the new session."""
+    now = await room_time.wait_epoch(other_than=epoch)
+    logging.getLogger("talk_tracks").info("room epoch %d -> %d: a new session", epoch, now)
 
 
 async def serve_room(args: argparse.Namespace, room: str) -> None:
     """One room's agent on a connection of its own, under its stable name: its track stays published, idle until
-    subscribed, and answers FETCH for its history from the archive (back-filling slices never produced)."""
-    if args.agent == "translate":
-        await serve_translate_room(args, room)
-        return
+    subscribed, and answers FETCH for its history from the archive (back-filling slices never produced). In a demo
+    room's live sessions, one instance per session: a new ``E`` starts it again from the session's group 0."""
+    while await (serve_translate_room(args, room) if args.agent == "translate" else _serve_room(args, room)):
+        pass
 
+
+async def _serve_room(args: argparse.Namespace, room: str) -> bool:
+    """True when the demo room's session changed under it (``epoch_changed``)."""
     from . import moq
     from .archive.slices import TrackArchive, archive_bucket
     from .demand import IDLE_GRACE_S, Gate
@@ -454,11 +514,21 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
     agent = build(args, room)
     info = agent.info
     name = ITEMS_TRACK if agent.sliced else OUTLINE_TRACK
-    archive = TrackArchive(room, info.name, name, bucket=archive_bucket(), info=agent.catalog)
+    sessions = demo_room(room)  # live sessions: one instance each; slices stay on the VM (each writes group 0 again)
+    archive = TrackArchive(room, info.name, name, bucket=None if sessions else archive_bucket(), info=agent.catalog)
     log = logging.getLogger("talk_tracks")
+    changed = False
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         room_time = RoomTime()
         io = RoomIo(relay, room_time, moq.TeacherFeed(relay, room, room_time))
+        catalogs = asyncio.create_task(moq.room_catalog(relay, room, room_time))
+        try:
+            epoch = await session_epoch(room_time) if sessions else None
+        except BaseException:
+            catalogs.cancel()
+            raise
+        if epoch is not None and archive.start_session(epoch):
+            log.info("%s in room %s: a new session (E %d), the last one's slices cleared", info.name, room, epoch)
         out = await relay.publish_sliced(agent_path(room, info.name), name)
         clock = Watermark(edge=lambda: room_time.edge)
         track: SlicedTrack | SnapshotTrack
@@ -474,8 +544,23 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
         log.info("%s in room %s, after slice %s", info.name, room, "none" if newest is None else newest)
 
         async def serve() -> None:
-            await agent.run(io, track, gate)
-            await asyncio.Event().wait()  # stopped at a spend cap: the track stays up and says so
+            nonlocal changed
+            work = asyncio.ensure_future(agent.run(io, track, gate))
+            moved = asyncio.ensure_future(epoch_changed(room_time, epoch)) if epoch is not None else None
+            try:
+                await asyncio.wait({work, *([moved] if moved else [])}, return_when=asyncio.FIRST_COMPLETED)
+                if moved is not None and moved.done():
+                    changed = True
+                    if isinstance(track, SlicedTrack):
+                        await track.end()
+                    return
+                work.result()
+                await (moved if moved is not None else asyncio.Event().wait())  # capped: the track stays up
+                changed = True
+            finally:
+                work.cancel()
+                if moved is not None:
+                    moved.cancel()
 
         def state() -> TrackState:
             """What the room service shows for this track (design §5.10): all the counters, in one place."""
@@ -497,7 +582,7 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
                 await asyncio.sleep(0.5)
 
         background = [
-            asyncio.create_task(moq.room_catalog(relay, room, room_time)),
+            catalogs,
             asyncio.create_task(io.feed.run()),
             asyncio.create_task(track.run_clock()),
             asyncio.create_task(status()),
@@ -519,6 +604,7 @@ async def serve_room(args: argparse.Namespace, room: str) -> None:
             status_now, _, fetched, filled, spent = state()
             report(archive, ("capped" if status_now == "capped" else "idle", False, fetched, filled, spent))
             archive.close()
+    return changed
 
 
 REPORT_EVERY_S = 5.0
@@ -537,7 +623,7 @@ async def run_agent(args: argparse.Namespace) -> None:
     from . import moq
     from .rooms import ROOM_LINGER_S, RoomPolicy, room_ended, serve_rooms
 
-    policy = RoomPolicy(args.rooms, os.environ.get("TT_ROOMS_EXCLUDE", "").split(","))
+    policy = RoomPolicy(args.rooms, room_exclusions(os.environ.get("TT_ROOMS_EXCLUDE", "")))
     linger = env_float("TT_ROOM_LINGER_S", ROOM_LINGER_S)
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         logging.getLogger("talk_tracks").info("%s serving rooms %s", args.agent, args.rooms)
@@ -558,6 +644,9 @@ async def main_async(args: argparse.Namespace) -> None:
         work = _demo(args)
     elif args.agent in REVISE:
         work = _revise(args)
+    elif args.agent in OFFLINE:
+        _offline(args)
+        return
     else:
         work = _dev(args)
     task = asyncio.ensure_future(work)
@@ -598,9 +687,46 @@ async def _demo(args: argparse.Namespace) -> None:
         await demo.generate(
             args.relay, args.room, media, out, lead_in_s=args.lead_in_s, tail_s=args.tail_s, slides=slides, **common
         )
-    else:
+    elif args.agent == "session":
+        from .archive.slices import default_root
+        from .session import gap_s, live_agents
+
         recording = need(args.recording, "--recording")
-        await demo.loop(args.relay, args.room, recording, media=args.media, slides=slides, **common)
+        await demo.session(
+            args.relay,
+            args.room,
+            recording,
+            media=args.media,
+            slides=slides,
+            live=live_agents(),
+            gap_s=gap_s() if args.gap_s is None else args.gap_s,
+            archive_root=default_root(),
+            **common,
+        )
+    else:
+        from .archive.slices import default_root
+
+        await demo.serve_recording(
+            args.relay, args.room, archive_root=default_root(), media=args.media, slides=slides, **common
+        )
+
+
+def _offline(args: argparse.Namespace) -> None:
+    from .archive.slices import default_root
+
+    recording = need(args.recording, "--recording")
+    if args.agent == "record-archive":
+        from .recording_room import record_archive
+        from .session import recording_room
+
+        room = args.room or recording_room(recording.resolve().name)
+        built = record_archive(recording, parse_room(room), default_root(), media=args.media)
+        print(f"{built.room}: E {built.epoch_ms}, {built.end_ms / 1000:.1f} s, {len(built.tracks)} AI tracks")
+    else:
+        from .resegment import cue_report
+        from .revise import read_recording
+
+        print(f"{recording.name}: {cue_report(read_recording(recording))}")
 
 
 async def _revise(args: argparse.Namespace) -> None:
@@ -648,7 +774,7 @@ def need(value: Path | None, flag: str) -> Path:
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="talk_tracks", description=__doc__.splitlines()[0] if __doc__ else None)
-    p.add_argument("agent", choices=AGENTS + DEV + DEMO + REVISE)
+    p.add_argument("agent", choices=AGENTS + DEV + DEMO + REVISE + OFFLINE)
     p.add_argument("--relay", default=os.environ.get("TT_RELAY"), help="moqt://host:port or https://host:port/path")
     p.add_argument("--room", default=os.environ.get("TT_ROOM"))
     p.add_argument("--rooms", default=os.environ.get("TT_ROOMS") or None, help="agents: '*' for any room, or a,b")
@@ -668,10 +794,27 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--wav", type=Path, default=None, help="teacher: a 16-bit WAV file to loop instead of a tone")
     p.add_argument("--image", type=Path, action="append", default=[], help="slides: a PNG or JPEG slide (repeatable)")
     p.add_argument("--watch", default="captions,translate-tr,describe,chapters", help="watch: the agents to print")
-    p.add_argument("--media", type=Path, default=None, help="play, generate, loop: the lecture (MP4, H.264 + Opus)")
+    p.add_argument(
+        "--media",
+        type=Path,
+        default=None,
+        help="play, generate, session, serve-recording, record-archive: the lecture (MP4, H.264 + Opus; default the"
+        " recording's)",
+    )
     p.add_argument("--out", type=Path, default=None, help="record, generate: the recording directory to write")
-    p.add_argument("--recording", type=Path, default=None, help="loop, retranslate, resplit, redescribe: recording dir")
+    p.add_argument(
+        "--recording",
+        type=Path,
+        default=None,
+        help="session, record-archive, cue-report, retranslate, resplit, redescribe: the recording directory",
+    )
     p.add_argument("--loops", type=int, default=None, help="play: how many times (default: forever)")
+    p.add_argument(
+        "--gap-s",
+        type=float,
+        default=None,
+        help="session: seconds between a session's end and the next one's start (default TT_DEMO_SESSION_GAP_S or 30)",
+    )
     p.add_argument("--lead-in-s", type=float, default=5.0, help="generate: wait before the lecture starts")
     p.add_argument("--tail-s", type=float, default=15.0, help="generate: keep recording after the lecture ends")
     p.add_argument(
@@ -680,15 +823,16 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         const="full",
         default=None,
         help="play, generate: also send the slides found in the video, cropped to x,y,w,h (fractions; default full);"
-        " loop: also send them as the speaker's deck and slide tracks",
+        " session, serve-recording: also send them as the speaker's deck and slide tracks (a live-agents session"
+        " also sends the frames, for describe)",
     )
     args = p.parse_args(argv)
     if args.agent not in AGENTS:
         args.rooms = None
     if args.agent not in REVISE and args.lang is None and args.agent != "translate":
         args.lang = "en"
-    need_relay = args.agent not in REVISE
-    need_room = args.agent != "resplit"
+    need_relay = args.agent not in REVISE + OFFLINE
+    need_room = args.agent not in ("resplit", *OFFLINE)
     if (need_relay and not args.relay) or (need_room and not (args.room or args.rooms)):
         p.error("--relay and --room (agents: or --rooms) are required (or TT_RELAY and TT_ROOM)")
     if args.agent == "slides" and not args.image:

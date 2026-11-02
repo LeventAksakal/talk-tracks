@@ -1,4 +1,4 @@
-"""A recording as sliced tracks (decision 0012): what a looping demo room publishes and serves by FETCH.
+"""A recording as sliced tracks (decision 0012): what a demo session (switch off) and a recording room publish.
 
 A recording holds each agent's full-state snapshots; the wire carries MSF event-timeline records, cut in 4 s slices
 on the room clock (wiki/design/moq-track-system.md §4, ``contracts``). ``Template`` diffs each agent's snapshots once
@@ -15,9 +15,9 @@ of the agent's input watermark, §4.2) and works out each slice's carry-in:
 Each object is one ``CueObject``, ``SlideObject`` or ``OutlineObject``; a cue's id is its caption cue's id as a
 decimal string.
 
-``Room`` places loop k of the template on the room's clock: media time, ids and groups move by k periods, so a group
-is a pure function of its number. The looper writes it live and answers a FETCH of it from the same function, and
-both copies are byte-identical, as decision 0012 asks.
+``Room`` places the template on a room clock (session time 0 at the session's ``E``), so a group is a pure function
+of its number. A session writes it live and answers a FETCH of it from the same function, and the recording room's
+archived slices are the same bytes, as decision 0012 asks.
 """
 
 from __future__ import annotations
@@ -354,11 +354,12 @@ def slice_items(items: Sequence[Stamped], period_ms: int, empty: Carry) -> tuple
 
 @dataclass(frozen=True)
 class Template:
-    """One loop of a recording as sliced tracks, on the lecture clock (file time 0 to the period)."""
+    """A recording as sliced tracks, on the lecture clock (file time 0 to the period: ``duration_ms`` rounded up to
+    whole slices; a session passes the lecture plus its recorded tail)."""
 
     duration_ms: int
     period_ms: int
-    stride: int  # one more than the largest id anywhere: loop k moves ids by k * stride
+    stride: int  # one more than the largest id anywhere
     agents: tuple[SlicedAgent, ...]
 
     @classmethod
@@ -402,9 +403,12 @@ class Template:
         return cls(duration_ms, period, max(ids, default=-1) + 1, tuple(agents))
 
 
-def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int, now_ms: int) -> RoomCatalog:
-    """The room catalog of a looped recording: its tracks free and live, each agent's spend what generating it cost
-    once, its teacher broadcast (``clock_wall``) unshifted."""
+def room_catalog(
+    template: Template, room: str, epoch_ms: int, clock_wall: int, now_ms: int, *, recorded: bool = False
+) -> RoomCatalog:
+    """The room catalog of a recording's tracks: free, each agent's spend what generating it cost once, its teacher
+    broadcast (``clock_wall``) unshifted. In a live session (switch off) the tracks are live; in the recording room
+    (``recorded``) each label says it is recorded and no agent is producing."""
     agents = [(f"{agents_prefix(room)}/{a.info.name}", a) for a in template.agents]
     captions = [f"{ns}/{a.track}" for ns, a in agents if a.kind == "captions"]
     tracks = tuple(
@@ -413,7 +417,7 @@ def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int, 
             name=a.track,
             kind=a.kind,
             lang=a.body.lang,
-            label=a.info.label,
+            label=recorded_label(a.info.label) if recorded else a.info.label,
             lateness_ms=a.lateness_ms(),
             cost="free",
             depends_on=depends_on(room, a.kind, captions),
@@ -423,11 +427,24 @@ def room_catalog(template: Template, room: str, epoch_ms: int, clock_wall: int, 
     spend = {a.info.name: round(a.spend_usd(), 6) for _, a in agents}
     status = {
         name: TrackStatus(
-            status="live", producing=True, fetches_served=0, backfills=0, spend_usd=usd, updated_ms=now_ms
+            status="idle" if recorded else "live",
+            producing=not recorded,
+            fetches_served=0,
+            backfills=0,
+            spend_usd=usd,
+            updated_ms=now_ms,
         )
         for name, usd in spend.items()
     }
     return RoomCatalog(epoch_ms, tracks, shift={clock_wall: 0}, status=status)
+
+
+RECORDED = " (recorded)"
+
+
+def recorded_label(label: str) -> str:
+    """A recording room's track label: the agent's, saying it is recorded."""
+    return label if label.endswith(RECORDED) else f"{label}{RECORDED}"
 
 
 def body_ids(body: Carry | Item | OutlineSnapshot) -> list[int]:
@@ -442,30 +459,7 @@ def body_ids(body: Carry | Item | OutlineSnapshot) -> list[int]:
     return [c.id for c in body.chapters]
 
 
-def shift_body[B: Carry | Item | OutlineSnapshot](body: B, *, media_ms: int, ids: int) -> B:
-    """The same body with every media time moved by ``media_ms`` and every id by ``ids``."""
-    if media_ms == 0 and ids == 0:
-        return body
-
-    def line[L: CaptionLine | TranslatedLine](x: L) -> L:
-        return x.model_copy(update={"id": x.id + ids, "start_ms": x.start_ms + media_ms, "end_ms": x.end_ms + media_ms})
-
-    def note(s: SlideNote) -> SlideNote:
-        return s.model_copy(update={"id": s.id + ids, "at_ms": s.at_ms + media_ms})
-
-    if isinstance(body, CaptionItem | TranslationItem):
-        return body.model_copy(update={"line": line(body.line)})
-    if isinstance(body, CaptionsCarry | TranslationCarry):
-        return body.model_copy(update={"lines": [x.model_copy(update={"line": line(x.line)}) for x in body.lines]})
-    if isinstance(body, SlideItem):
-        return body.model_copy(update={"slide": note(body.slide)})
-    if isinstance(body, SlidesCarry):
-        return body.model_copy(update={"slide": note(body.slide) if body.slide else None})
-    chapters = [c.model_copy(update={"id": c.id + ids, "start_ms": c.start_ms + media_ms}) for c in body.chapters]
-    return body.model_copy(update={"chapters": chapters})
-
-
-# --- the room: loop after loop on the room clock ----------------------------------------------------------------
+# --- the room: the template on a session's room clock --------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -477,40 +471,25 @@ class Placed:
 
 
 class Room:
-    """The template looped on the room clock: loop k covers media time [k·period, (k+1)·period), and wall-clock time
-    is ``epoch_ms`` plus media time. Group g of a track is loop ``g // per_loop``, group ``g % per_loop`` of the
-    template; on an items track that makes g the slice of its media time."""
+    """The template on a room clock whose time 0 is wall time ``epoch_ms`` (a live session's start, or the recording
+    room's): group g of a track is the template's group g, so on an items track g is the slice of its media time and
+    a group is a pure function of its number, written live and answered to a FETCH from the same bytes."""
 
     def __init__(self, template: Template, epoch_ms: int) -> None:
         self.template = template
         self.epoch_ms = epoch_ms
         self.agents = {agent.info.name: agent for agent in template.agents}
 
-    def per_loop(self, agent: str) -> int:
+    def group_count(self, agent: str) -> int:
         return len(self.agents[agent].groups)
 
-    def locate(self, agent: str, group: int) -> tuple[int, int] | None:
-        """(loop, group in the template) of a room group, None for one the track never has."""
-        per = self.per_loop(agent)
-        if per == 0 or group < 0:
-            return None
-        return divmod(group, per)
-
-    @functools.lru_cache(maxsize=256)  # noqa: B019 - one Room per process, the cache is meant to live with it
+    @functools.lru_cache(maxsize=256)  # noqa: B019 - one Room per session, the cache is meant to live with it
     def group(self, agent: str, group: int) -> tuple[Placed, ...]:
-        """Every object of a room group, in object order."""
-        where = self.locate(agent, group)
-        if where is None:
-            return ()
-        loop, j = where
+        """Every object of a room group, in object order; none for a group the track never has."""
         track = self.agents[agent]
-        media = loop * self.template.period_ms
-        ids = loop * self.template.stride
-        out: list[Placed] = []
-        for s in track.groups[j]:
-            at = media + s.at_ms
-            out.append(Placed(at, encode(records(shift_body(s.body, media_ms=media, ids=ids), at))))
-        return tuple(out)
+        if not 0 <= group < len(track.groups):
+            return ()
+        return tuple(Placed(s.at_ms, encode(records(s.body, s.at_ms))) for s in track.groups[group])
 
     def published(self, agent: str, group: int, now_ms: int) -> tuple[Placed, ...]:
         """The objects of a group that are out by room media time ``now_ms``."""
@@ -519,24 +498,21 @@ class Room:
     def current(self, agent: str, now_ms: int) -> int | None:
         """The group open at ``now_ms`` (the newest one out), None before the first."""
         track = self.agents[agent]
+        if not track.groups:
+            return None
         if track.track == ITEMS_TRACK:
-            return slice_of(now_ms) if track.groups else None
-        loop, at = divmod(now_ms, self.template.period_ms)
-        for r in range(len(track.groups) - 1, -1, -1):
-            if track.groups[r][0].at_ms <= at:
-                return loop * len(track.groups) + r
-        return loop * len(track.groups) - 1 if loop > 0 and track.groups else None
+            return min(slice_of(now_ms), len(track.groups) - 1) if now_ms >= 0 else None
+        return next((r for r in range(len(track.groups) - 1, -1, -1) if track.groups[r][0].at_ms <= now_ms), None)
 
 
-def cues(template: Template, loop: int) -> Iterator[Cue]:
-    """Every object of loop ``loop``, in lecture-time order (object order within a group; stable across agents)."""
+def cues(template: Template) -> Iterator[Cue]:
+    """Every object of the template, in time order (object order within a group; stable across agents)."""
 
     def agent_cues(order: int, agent: SlicedAgent) -> Iterator[tuple[int, int, int, Cue]]:
-        per = len(agent.groups)
         n = 0
         for j, group in enumerate(agent.groups):
             for i, s in enumerate(group):
-                yield s.at_ms, order, n, Cue(s.at_ms, agent.info.name, loop * per + j, i)
+                yield s.at_ms, order, n, Cue(s.at_ms, agent.info.name, j, i)
                 n += 1
 
     streams = [agent_cues(order, agent) for order, agent in enumerate(template.agents)]

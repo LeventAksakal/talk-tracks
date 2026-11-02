@@ -84,9 +84,19 @@ working, as a demo generation needs.
 
 `--room R` (or `TT_ROOM`) serves one room, as before. `--rooms '*'` (or `TT_ROOMS`) serves every room whose speaker
 comes on air (`talk/<room>/teacher` announced); `--rooms a,b` only those. `TT_ROOMS_EXCLUDE` lists rooms never served:
-on the VM, the demo room, whose tracks the looper replays. Each room gets its own relay connection and agent
-instance. A room is served for `TT_ROOM_LINGER_S` (default 600 s) after its speaker leaves, so a reload keeps the
-agent and its history; a room that fails stops the process, and Docker restarts it with every room.
+on the VM, the demo rooms, whose session players publish the recorded tracks. Each room gets its own relay connection
+and agent instance. A room is served for `TT_ROOM_LINGER_S` (default 600 s) after its speaker leaves, so a reload
+keeps the agent and its history; a room that fails stops the process, and Docker restarts it with every room.
+
+**Demo rooms** (`TT_DEMO_ROOMS`, decision 0032, [demo rooms](demo-rooms.md)) run live sessions: each plays the lecture
+once on a room clock of its own (a new `E`), then its `room` track says `ended` and its broadcasts go, so the agents
+stop at once, with no linger. An agent serving a demo room waits for the session's `E` in the room catalog, removes
+the last session's slices (`TrackArchive.start_session`; an agent restarted in the same session keeps its own),
+serves the session from group 0, and starts again if a new `E` comes while it still serves (it missed an `ended`).
+Its slices never go to the bucket. With `TT_DEMO_LIVE_AGENTS=1` on the agents and the session players, the demo
+rooms leave `TT_ROOMS_EXCLUDE`: every live agent serves the sessions on their real audio, under each room's cap, and
+no recorded AI track is published. Unset, only `translate-any` serves them, for the languages without a recorded
+track.
 
 The agent token must let the agents publish under every room they serve (see [tokens](tokens.md)).
 

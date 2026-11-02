@@ -27,7 +27,6 @@ from talk_tracks.cores.translate import WINDOW
 from talk_tracks.llm.fake import FakeLlm
 from talk_tracks.llm.ledger import SpendLedger
 from talk_tracks.recording import MANIFEST, RecordedSnapshot, RecordingWriter, load_manifest
-from talk_tracks.replay import EPOCH_MS
 from talk_tracks.resegment import MAX_CUE_CHARS, cue_texts, resegment
 from talk_tracks.schema import CONTRACTS_DIR
 from talk_tracks.slicing import Room, Template, room_catalog
@@ -35,6 +34,8 @@ from talk_tracks.slideshow import Crop, Slide
 
 from .test_resegment import CAPTIONS
 from .test_resegment import recording as long_line
+
+EPOCH_MS = 1_790_812_800_000  # a session's E: any whole number of slices
 
 SLIDES = AgentInfo(name="describe", label="Slides", model="fake")
 
@@ -56,7 +57,7 @@ def note(i: int, at_ms: int) -> SlideNote:
     return SlideNote(id=i, at_ms=at_ms, description=f"slide {i}")
 
 
-def test_retranslate_saves_one_segment_per_cue_and_the_loop_uses_them(tmp_path: Path) -> None:
+def test_retranslate_saves_one_segment_per_cue_and_a_session_uses_them(tmp_path: Path) -> None:
     directory = write(tmp_path, long_line())
     saved = asyncio.run(revise.retranslate(directory, revise.FakeCueTranslator()))
     cues = cue_texts(revise.read_recording(directory))[0]
@@ -390,16 +391,16 @@ def test_offline_retranslate_and_resplit_add_es_and_ar_and_produce_valid_msf_tra
     cue_schema = _schema("cue-object.schema.json")
     cap_ids = {
         r.data.id
-        for g in range(room.per_loop("captions"))
+        for g in range(room.group_count("captions"))
         for p in room.group("captions", g)[1:]
         for r in CueObject.model_validate_json(p.payload).root
         if isinstance(r, CueRecord) and r.data.final
     }
     assert len(cap_ids) >= 4
     for agent_name in ("translate-tr", "translate-es", "translate-ar"):
-        assert room.per_loop(agent_name) == 9  # 36 s / 4 s slices
+        assert room.group_count(agent_name) == 9  # 36 s / 4 s slices
         seen_ids: set[str] = set()
-        for g in range(room.per_loop(agent_name)):
+        for g in range(room.group_count(agent_name)):
             placed = room.group(agent_name, g)
             fetched = room.published(agent_name, g, 36_000)
             assert [p.payload for p in placed] == [p.payload for p in fetched]

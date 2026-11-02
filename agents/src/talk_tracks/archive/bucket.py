@@ -18,7 +18,7 @@ import contextlib
 import logging
 import mimetypes
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -142,10 +142,21 @@ def content_type(name: str) -> str:
 
 
 class Uploader:
-    """Follows the archive's finished files (``notify``) and copies them to the bucket in the background."""
+    """Follows the archive's finished files (``notify``) and copies them to the bucket in the background.
 
-    def __init__(self, root: Path, bucket: Bucket | None, *, mutable_every_s: float = MUTABLE_EVERY_S) -> None:
-        self.root, self.bucket = root, bucket
+    ``rooms`` says which rooms' files are copied (default all): a skipped room, such as a demo room whose live
+    sessions write group 0 again each time (decision 0032), never reaches the bucket, where an agent would read an
+    earlier session's slice back as this one's."""
+
+    def __init__(
+        self,
+        root: Path,
+        bucket: Bucket | None,
+        *,
+        mutable_every_s: float = MUTABLE_EVERY_S,
+        rooms: Callable[[str], bool] | None = None,
+    ) -> None:
+        self.root, self.bucket, self._rooms = root, bucket, rooms
         self._every = mutable_every_s
         self._now: list[str] = []  # immutable files, in order
         self._later: dict[str, float] = {}  # mutable file -> when it may next go
@@ -155,8 +166,13 @@ class Uploader:
         self.failed = 0
         self.kept = 0  # create-only uploads another writer had already made
 
+    def _wanted(self, path: str) -> bool:
+        """A file at the archive's top level (``rooms.json``) always goes; a room's only when its room is wanted."""
+        room, sep, _ = path.partition("/")
+        return not sep or self._rooms is None or self._rooms(room)
+
     def notify(self, path: str, mutable: bool) -> None:
-        if self.bucket is None:
+        if self.bucket is None or not self._wanted(path):
             return
         if mutable:
             if path not in self._later:
@@ -180,6 +196,7 @@ class Uploader:
             for p in sorted(self.root.rglob("*"))
             if p.is_file()
             and not p.name.endswith((".tmp", ".part"))
+            and self._wanted(p.relative_to(self.root).as_posix())
             and remote.get(p.relative_to(self.root).as_posix()) != p.stat().st_size
         ]
         log.info("bucket copy: %d files to catch up", len(missing))

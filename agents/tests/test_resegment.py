@@ -1,4 +1,8 @@
+import os
 from itertools import pairwise
+from pathlib import Path
+
+import pytest
 
 from talk_tracks.contracts import (
     AgentInfo,
@@ -10,7 +14,18 @@ from talk_tracks.contracts import (
     Usage,
 )
 from talk_tracks.recording import RecordedSnapshot
-from talk_tracks.resegment import MAX_CUE_CHARS, MAX_CUE_MS, resegment, translations_with_captions
+from talk_tracks.resegment import (
+    MAX_CUE_CHARS,
+    MAX_CUE_MS,
+    MAX_CUE_MS_HARD,
+    breaks,
+    clause_end,
+    cue_report,
+    cut,
+    resegment,
+    strong_end,
+)
+from talk_tracks.revise import read_recording
 from talk_tracks.slicing import CaptionItem, Template, TranslationItem
 
 CAPTIONS = AgentInfo(name="captions", label="Captions", model="fake")
@@ -61,7 +76,7 @@ def test_a_long_line_becomes_subtitle_cues_over_its_own_time() -> None:
     assert len(cues) >= 4
     assert [c.id for c in cues] == list(range(len(cues)))
     assert " ".join(c.text for c in cues) == LINE
-    assert all(len(c.text) <= MAX_CUE_CHARS and c.end_ms - c.start_ms <= MAX_CUE_MS for c in cues)
+    assert all(len(c.text) <= MAX_CUE_CHARS and c.end_ms - c.start_ms <= MAX_CUE_MS_HARD for c in cues)
     assert cues[0].start_ms == START and cues[-1].end_ms == END
     assert all(a.end_ms == b.start_ms for a, b in pairwise(cues))
     assert any(c.text.endswith("themselves.") for c in cues)  # the sentence end is a cue end
@@ -109,20 +124,61 @@ def _published(template: Template, kind: type[CaptionItem] | type[TranslationIte
     return out
 
 
-def test_a_looped_room_shows_each_translated_cue_with_its_caption() -> None:
-    late = Template.build(resegment(recording()), 40_000)
-    looped = Template.build(translations_with_captions(resegment(recording())), 40_000)
-    captions = _published(looped, CaptionItem)
-    assert _published(late, TranslationItem).keys() == captions.keys()  # nothing lost
-    assert min(_published(late, TranslationItem).values()) >= FINAL  # as recorded: once the whole line was final
-    assert _published(looped, TranslationItem) == captions  # each with its caption, the early ones mid-line
-    assert min(captions.values()) < FINAL - 20_000
+def test_a_translation_goes_out_when_the_agent_published_it_never_with_its_caption() -> None:
+    template = Template.build(resegment(recording()), 40_000)
+    captions, translations = _published(template, CaptionItem), _published(template, TranslationItem)
+    assert translations.keys() == captions.keys()  # every cue has its part of the translation
+    assert min(captions.values()) < FINAL - 20_000  # captions cue by cue while the line is heard
+    assert min(translations.values()) >= 35_000  # the translation as the agent published it: after the whole line
 
 
-def test_moving_translations_earlier_keeps_what_they_cost() -> None:
-    caps, (info, tr) = recording()
-    paid = Usage(requests=1, input_tokens=900, output_tokens=300, cost_usd=0.004)
-    tr = [tr[0], tr[1].model_copy(update={"usage": paid})]
-    looped = Template.build(translations_with_captions(resegment([caps, (info, tr)])), 40_000)
-    translation = next(a for a in looped.agents if a.info.name == "translate-tr")
-    assert translation.spend_usd() == paid.cost_usd
+CLAUSES = (
+    "So what we found in the samples was that the virus had changed, and in a way nobody had "
+    "predicted at the time we started. That surprised us, and we spent a year on it."
+)
+LONG_SENTENCE = "one two three four five six seven eight nine ten eleven twelve thirteen. Fourteen fifteen."
+
+
+def test_a_cue_ends_at_a_sentence_or_a_clause_rather_than_mid_phrase() -> None:
+    words = CLAUSES.split()
+    spoken = [i * 300 for i in range(len(words) + 1)]  # 0.3 s a word: 7 s is about 23 words
+    cues = cut(words, spoken)
+    assert [(i, j) for i, j, _ in cues] == breaks(words, spoken)
+    for i, j, forced in cues[:-1]:
+        assert not forced and (strong_end(words[j - 1]) or clause_end(words[j - 1])), words[i:j]
+    assert all(spoken[j] - spoken[i] <= MAX_CUE_MS_HARD for i, j, _ in cues)
+
+
+def test_a_cue_runs_a_little_over_seven_seconds_to_reach_a_sentence_end() -> None:
+    words = LONG_SENTENCE.split()
+    spoken = [i * 580 for i in range(len(words) + 1)]  # 13 words is 7.5 s
+    (i, j, forced), *_ = cut(words, spoken)
+    assert (i, j, forced) == (0, 13, False)
+    assert MAX_CUE_MS < spoken[j] - spoken[i] <= MAX_CUE_MS_HARD
+
+
+def test_a_forced_break_says_so_and_does_not_end_on_a_function_word() -> None:
+    words = ("word " * 30 + "of the matter").split()
+    spoken = [i * 400 for i in range(len(words) + 1)]
+    cues = cut(words, spoken)
+    assert cues[0][2]  # no mark anywhere: forced
+    assert all(words[j - 1] not in ("of", "the") for _, j, _ in cues)
+
+
+DEMO_LECTURES = ("virus", "dataviz", "rsa", "qrcode")
+DEMO_DIR = Path(os.environ.get("TT_DEMO_DIR", Path(__file__).resolve().parents[2] / "data" / "demo"))
+
+
+@pytest.mark.parametrize("lecture", DEMO_LECTURES)
+def test_the_demo_recordings_break_at_sentences_and_clauses(lecture: str) -> None:
+    """Over each demo recording (``data/demo/<lecture>/``, or ``TT_DEMO_DIR``; not in git, so skipped where it is
+    missing): no cue ends without a sentence end or clause mark unless its break was forced. ``-s`` prints the
+    counts; ``python -m talk_tracks cue-report --recording DIR`` prints the same."""
+    folder = DEMO_DIR / lecture
+    if not (folder / "recording.json").exists():
+        pytest.skip(f"no recording in {folder}")
+    report = cue_report(read_recording(folder))  # the recorded ASR lines, as a session cuts them
+    print(f"{lecture}: {report}")
+    assert report.cues > 0
+    assert report.mid_phrase == 0
+    assert report.longest_chars <= MAX_CUE_CHARS

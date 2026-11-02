@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,7 +16,7 @@ import pytest
 
 from talk_tracks.archive.events import HistoryOut
 from talk_tracks.archive.listeners import LIMITS, Endpoint, Identities, Session
-from talk_tracks.archive.looped import LoopedRoom, with_room_service
+from talk_tracks.archive.looped import CHAT_EPOCH_MS, LoopedRoom, with_room_service
 from talk_tracks.archive.slices import NORMAL, Slice, TrackArchive, TrackInfo
 from talk_tracks.archive.stats import StatsOut
 from talk_tracks.contracts import SLICE_MS, ChatObject, ChatRecord, RoomStats, TrackStatus, slice_of
@@ -25,7 +26,7 @@ from talk_tracks.room_catalog import RoomCatalog, translation_track
 from talk_tracks.runtime import now_ms
 
 ROOM = "virus"
-E = 1_759_276_800_000  # the looper's EPOCH_MS: 2026-10-01
+E = CHAT_EPOCH_MS  # the chat clock: wall time minus it, in every session (the old looper's E)
 CHAT = f"talk/{ROOM}/chat"
 LOOP_MS = 40 * 60_000
 
@@ -242,6 +243,27 @@ async def test_listeners_chat_in_a_looped_room_on_the_room_clock_with_a_live_roo
     assert answers == ["ack"] * int(burst) + ["error"]
     room.clock += 1 / rate
     assert (await room.write(grace, "chat", {"text": "later"}))["type"] == "ack"
+
+
+async def test_the_chat_runs_on_through_the_gap_between_two_sessions_and_never_goes_back(tmp_path: Path) -> None:
+    room = Looped(tmp_path)
+    await room.on_air()
+    ada = await room.join("Ada")
+    first = await room.write(ada, "chat", {"text": "great session"})
+    room.room.announced(f"talk/{ROOM}/catalog", True)  # the session player's catalog stays up through the gap
+    room.room.announced(f"talk/{ROOM}/teacher", False)  # the session ended
+    await room.later(10_000)
+    between = await room.write(ada, "chat", {"text": "when is the next one?"})
+    assert between["type"] == "ack" and between["m"] > first["m"]
+    # the next session has a new E: the chat's clock is not the session's, so its groups never go back
+    room.room.feed_catalog(json.dumps(replace(looper_catalog(), epoch_ms=E + 3_600_000).to_json()).encode())
+    room.room.announced(f"talk/{ROOM}/teacher", True)
+    await room.later(10_000)
+    after = await room.write(ada, "chat", {"text": "it started"})
+    assert after["m"] == room.wall.ms - CHAT_EPOCH_MS > between["m"]
+    room.room.announced(f"talk/{ROOM}/catalog", False)
+    room.room.announced(f"talk/{ROOM}/teacher", False)  # no session player at all
+    assert (await room.write(ada, "chat", {"text": "anyone?"}))["code"] == "not-live"
 
 
 async def test_an_opened_chat_gets_the_recent_history_at_once_and_nobody_reading_writes_nothing(

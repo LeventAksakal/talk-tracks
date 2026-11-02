@@ -42,6 +42,7 @@ SLICE_MS = 4000
 NORMAL, DOES_NOT_EXIST, END_OF_GROUP, END_OF_TRACK = 0, 1, 3, 4  # MoQT object status (aiomoqt ObjectStatus)
 DEFAULT_PRIORITY = 128
 PART, FINISHED, TRACK_INFO = ".part", ".slice", "track.json"
+SESSION_INFO = "session.json"  # a demo room's live session the slices belong to (``start_session``)
 
 Status = Literal["idle", "live", "capped"]
 
@@ -354,6 +355,26 @@ class TrackArchive:
         """The newest slice on disk: where a restarted agent seeds itself (it continues at the next one)."""
         groups = self.groups()
         return groups[-1] if groups else None
+
+    def start_session(self, epoch_ms: int) -> bool:
+        """A demo room's new live session (decision 0032): its room clock starts again at 0 under a new ``E``, so the
+        slices of an earlier session are removed before this one writes group 0 again. ``session.json`` keeps the
+        session's ``E``: an agent restarted within the same session keeps its slices. True when it cleared any."""
+        marker = self.dir / SESSION_INFO
+        try:
+            if json.loads(marker.read_text(encoding="utf-8")).get("epoch_ms") == epoch_ms:
+                return False
+        except (FileNotFoundError, ValueError, AttributeError):
+            pass
+        cleared = False
+        for name in listdir(self.dir):
+            stem, dot, suffix = name.partition(".")
+            if dot and "." + suffix in (FINISHED, PART) and stem.isdigit():
+                (self.dir / name).unlink(missing_ok=True)
+                cleared = True
+        self.dir.mkdir(parents=True, exist_ok=True)
+        write_atomic(marker, (json.dumps({"epoch_ms": epoch_ms}) + "\n").encode())
+        return cleared
 
 
 def _encode(obj: SliceObject) -> str:

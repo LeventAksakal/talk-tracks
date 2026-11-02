@@ -1,5 +1,6 @@
-# The public VM (decision 0004, wiki/howto/deploy.md): Caddy, the relay behind the token auth server, the looping
-# demo room and, once the Meta key is on the box, live agents. Settings come from deploy/.env on the VM (not in git):
+# The public VM (decision 0004, wiki/howto/deploy.md): Caddy, the relay behind the token auth server, the demo rooms'
+# live sessions and recording rooms and, once the Meta key is on the box, live agents. Settings come from
+# deploy/.env on the VM (not in git):
 #   TT_HOST          the public hostname (Caddy gets its certificate; the relay reuses it)
 #   TT_KEYS          folder with public.jwk and private.jwk (the signing key never leaves the VM; only the room
 #                    service reads it, to sign the speaker token of a room created by access code)
@@ -11,9 +12,13 @@
 #   TT_ROOM_CAP_USD  spend cap of any room (default 2); judge rooms take theirs from $TT_DATA/caps/ (mint script)
 #   TT_IDLE_GRACE_S  how long a track goes without demand before its agent pauses (default 10)
 #   TT_ARCHIVE_BUCKET the Cloud Storage bucket the track archive is copied to (optional); TT_ARCHIVE_SKIP rooms
-#                    not archived (default: the demo rooms); TT_ARCHIVE_TOKEN the room service's relay token
+#                    not archived (default: the demo rooms and *-recording); TT_ARCHIVE_TOKEN the room service's token
+#   TT_DEMO_LIVE_AGENTS 1: the demo rooms' AI tracks come from the live agents only (default unset: the recordings',
+#                    at their real delays); TT_DEMO_SESSION_GAP_S the gap between two sessions (default 30)
+#   TT_RECORDINGS_TOKEN signed for the four recording rooms (wiki/howto/demo-rooms.md)
 #   docker compose -f deploy/compose.vm.yml up -d
-#   docker compose -f deploy/compose.vm.yml --profile live up -d      # live agents
+#   docker compose -f deploy/compose.vm.yml --profile live up -d        # live agents
+#   docker compose -f deploy/compose.vm.yml --profile recordings up -d  # the recording rooms, once built
 # Agents reach the relay inside the compose network, where the certificate's name does not match, hence --insecure.
 name: talk-tracks
 
@@ -37,7 +42,8 @@ x-agent: &agent
 
 # Live agents call the Meta API: only they get the key, and the ledger in $TT_DATA holds them under the ceiling and
 # each room under its cap. They are lazy (wiki/howto/lazy-agents.md): each serves every wanted room a speaker opens,
-# and pays only while someone subscribes to its track. The demo room is the looper's, never theirs.
+# and pays only while someone subscribes to its track. The demo rooms are theirs only with TT_DEMO_LIVE_AGENTS=1 in
+# .env (decision 0032): then the demo rooms leave TT_ROOMS_EXCLUDE and each live session is served on its own clock.
 x-live: &live
   <<: *agent
   profiles: [live]
@@ -45,8 +51,9 @@ x-live: &live
   environment:
     <<: *agent-env
     TT_ROOMS: ${TT_LIVE_ROOMS:-*}
-    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # the looped demo rooms are the loopers'
-    TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # and never back-filled
+    TT_ROOMS_EXCLUDE: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # the demo rooms, unless TT_DEMO_LIVE_AGENTS
+    TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # served session by session, never back-filled
+    TT_DEMO_LIVE_AGENTS: ${TT_DEMO_LIVE_AGENTS:-}
     TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
     TT_CAPS_DIR: /data/caps
     TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
@@ -100,37 +107,74 @@ services:
         --public-subscribe 'talk/**'
     volumes: ["${TT_KEYS:?}/public.jwk:/keys/public.jwk:ro", "auth_sock:/run/auth"]
 
-  # One looping demo room per lecture (ticket 0001), named after it: the recording is $TT_DATA/demo/<room>/.
-  # TT_LOOPER_TOKEN is signed for all four rooms (wiki/howto/tokens.md). --slides is the EMF slide area: the looper
-  # finds the slides in the video at start (about a minute) and sends them as the speaker's deck and slide tracks.
-  looper-virus:
+  # One demo room per lecture (ticket 0001, decision 0032), named after it: the recording is $TT_DATA/demo/<room>/.
+  # Each runs live sessions one after the other (wiki/howto/demo-rooms.md): the lecture once from 00:00, the room
+  # ends, and after TT_DEMO_SESSION_GAP_S (default 30) the next session starts from 00:00. TT_DEMO_LIVE_AGENTS=1 in
+  # .env: no recorded AI track goes out, the live agents (profile live) make them, under each room's spend cap; unset,
+  # the recording's tracks go out at the delay their agents really had. TT_LOOPER_TOKEN is signed for all four rooms
+  # (wiki/howto/tokens.md). --slides is the EMF slide area: the player finds the slides in the video at start (about a
+  # minute) and sends them as the speaker's deck and slide tracks (and, live, the frames the describe agent reads).
+  looper-virus: &looper
     <<: *agent
-    environment:
+    environment: &looper-env
       <<: *agent-env
       TT_ROOM: virus
       TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/virus", "--slides", "0,0,0.77,0.77"]
+      TT_DEMO_LIVE_AGENTS: ${TT_DEMO_LIVE_AGENTS:-}
+      TT_DEMO_SESSION_GAP_S: ${TT_DEMO_SESSION_GAP_S:-30}
+      TT_CAPS_DIR: /data/caps  # read for the catalog's capped status of the live agents' tracks
+      TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
+    command: ["session", "--insecure", "--recording", "/data/demo/virus", "--slides", "0,0,0.77,0.77"]
   looper-dataviz:
-    <<: *agent
+    <<: *looper
     environment:
-      <<: *agent-env
+      <<: *looper-env
       TT_ROOM: dataviz
-      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/dataviz", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/dataviz", "--slides", "0,0,0.77,0.77"]
   looper-rsa:
-    <<: *agent
+    <<: *looper
     environment:
-      <<: *agent-env
+      <<: *looper-env
       TT_ROOM: rsa
-      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/rsa", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/rsa", "--slides", "0,0,0.77,0.77"]
   looper-qrcode:
-    <<: *agent
+    <<: *looper
     environment:
-      <<: *agent-env
+      <<: *looper-env
       TT_ROOM: qrcode
-      TT_TOKEN: ${TT_LOOPER_TOKEN:-}
-    command: ["loop", "--insecure", "--recording", "/data/demo/qrcode", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/qrcode", "--slides", "0,0,0.77,0.77"]
+
+  # Each demo lecture's recording room, <room>-recording (decision 0032): an ended room of the archive that
+  # `record-archive` built once (wiki/howto/demo-rooms.md), whose media Caddy serves as HLS. This serves its catalog,
+  # room track and recorded AI tracks by FETCH from the archived slices, and its slides from memory. Profile
+  # recordings, once the rooms are built. TT_RECORDINGS_TOKEN may publish talk/<room>-recording/catalog, /agents/**,
+  # /slides and /archive/** of the four rooms (wiki/howto/demo-rooms.md).
+  recording-virus: &recording
+    <<: *agent
+    profiles: [recordings]
+    environment: &recording-env
+      <<: *agent-env
+      TT_ROOM: virus-recording
+      TT_TOKEN: ${TT_RECORDINGS_TOKEN:-}
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/virus/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+  recording-dataviz:
+    <<: *recording
+    environment:
+      <<: *recording-env
+      TT_ROOM: dataviz-recording
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/dataviz/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+  recording-rsa:
+    <<: *recording
+    environment:
+      <<: *recording-env
+      TT_ROOM: rsa-recording
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/rsa/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+  recording-qrcode:
+    <<: *recording
+    environment:
+      <<: *recording-env
+      TT_ROOM: qrcode-recording
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/qrcode/lecture.mp4", "--slides", "0,0,0.77,0.77"]
 
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
   # serves under /archive/. It records the speaker's media, slide frames and event tracks (deck, slide, ink, marks,
@@ -146,9 +190,10 @@ services:
   # Agents write their own slices into the same folder
   # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
   # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
-  # leaves the VM. Looped demo rooms are skipped: their recording already is their archive. The room service publishes
-  # only their chat and stats tracks (TT_LOOPED_ROOMS, archive.looped) and keeps their chat, capped, in
-  # $TT_DATA/looped/, outside the archive Caddy serves and the bucket copy.
+  # leaves the VM. Demo rooms are skipped (nothing of them is archived or copied): each session player publishes its
+  # room's catalog. The room service publishes only their chat and stats tracks (TT_LOOPED_ROOMS, archive.looped) and
+  # keeps their chat, capped, in $TT_DATA/looped/, outside the archive Caddy serves and the bucket copy. The recording
+  # rooms (<room>-recording) are in the archive, but skipped here too: the recordings services serve them.
   archive:
     image: talk-tracks-agents:${TT_AGENTS_TAG:-dev}
     build: ../agents
@@ -178,8 +223,10 @@ services:
       TT_CAPS_DIR: /data/caps
       TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
       TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
-      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}}
-      TT_LOOPED_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # chat and stats only, never archived
+      # The demo rooms, and their recording rooms, whose catalog the recordings services publish (built once by
+      # record-archive: stop this service while it runs, it rewrites rooms.json)
+      TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo},*-recording}
+      TT_LOOPED_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # the demo rooms: chat and stats only
       TT_LOOPED_DIR: /data/looped  # their chat, beside the archive, never in it
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
       TT_RELAY_STATS: .stats/node  # the relay's --stats-enabled counters (Stats for nerds); empty: counts unknown
@@ -199,16 +246,18 @@ services:
     <<: *live
     command: ["translate", "--lang", "ar", "--insecure"]
   # Any other language a listener picks (decision 0019): one lazy track per supported language in each room, which
-  # spends only while someone subscribes, against the room's cap. tr, es and ar stay with the agents above (and the
-  # demo rooms' pre-made tracks), so no track has two publishers. Unlike the others it also serves the demo rooms,
-  # where another language is translated live against that room's cap; TT_ANY_LANG_SKIP_ROOMS lists rooms it skips.
+  # spends only while someone subscribes, against the room's cap. tr, es and ar stay with the agents above (or the
+  # demo rooms' recorded tracks), so no track has two publishers. Unlike the others it also serves the demo rooms,
+  # session by session, where another language is translated live against that room's cap; TT_ANY_LANG_SKIP_ROOMS
+  # lists rooms it skips.
   translate-any:
     <<: *live
     environment:
       <<: *agent-env
       TT_ROOMS: ${TT_LIVE_ROOMS:-*}
       TT_ROOMS_EXCLUDE: ${TT_ANY_LANG_SKIP_ROOMS:-}
-      TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # their tr, es, ar are pre-made; no back-fill
+      TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # their tr, es, ar are not its; no back-fill
+      TT_DEMO_LIVE_AGENTS: ${TT_DEMO_LIVE_AGENTS:-}
       TT_LANG_EXCLUDE: tr,es,ar
       TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
       TT_CAPS_DIR: /data/caps
