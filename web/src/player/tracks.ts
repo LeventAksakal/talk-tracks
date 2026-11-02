@@ -4,6 +4,8 @@
 // it is open; the sound "with slide descriptions" subscribes the descriptions. A track let go stays subscribed for
 // LINGER_MS, so changing back is free and the old line stays up until the new one lands.
 
+import { agentPath } from "../contracts/names";
+import { type LanguageGuard, whyFree } from "../package/languages";
 import type { TrackView } from "../playback/aiTracks";
 import type { PanelTab, Prefs } from "./prefs";
 import { AUDIENCE_TRACKS, SPEAKER_TRACKS, type TrackId } from "./slideTracks";
@@ -31,6 +33,31 @@ export function translationFor(room: RoomTracks, lang: string): TrackView | unde
     room.translations.find((t) => t.lang?.toLowerCase() === lang.toLowerCase()) ??
     room.translations.find((t) => base(t.lang ?? "") === base(lang))
   );
+}
+
+/**
+ * How ready a subtitle language is (decisions 0026, 0028): `running` (produced now: this listener has it, the room
+ * catalog says its agent is live, or the room's stats track lists it running), `recorded` (a looped room's track, made
+ * once), `on-request` (the room lists it, and its agent starts only once someone picks it, so the first lines take a
+ * while) or `absent` (the room has no such track). Picking any of them still just subscribes it.
+ */
+export type LanguageReadiness = "running" | "recorded" | "on-request" | "absent";
+
+export function languageReadiness(
+  track: TrackView | undefined,
+  guard: LanguageGuard,
+  /** `<namespace>/<name>` of every track the stats track lists as running; undefined before it says. */
+  statsRunning?: ReadonlySet<string>,
+): LanguageReadiness {
+  if (!track) return "absent";
+  switch (whyFree(track, guard)) {
+    case "free":
+      return "recorded";
+    case undefined:
+      return statsRunning?.has(`${agentPath(guard.room, track.agent)}/${track.track}`) ? "running" : "on-request";
+    default:
+      return "running";
+  }
 }
 
 /** The side panel tab on screen, or undefined while the panel is closed. */

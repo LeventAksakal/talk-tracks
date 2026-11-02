@@ -3,7 +3,7 @@ import { agentPath, ITEMS_TRACK } from "../contracts/names";
 import type { RoomCatalog } from "../contracts/types";
 import type { TrackView } from "../playback/aiTracks";
 import { offeredTranslation } from "./LanguageOffer";
-import { roomTracks } from "./tracks";
+import { languageReadiness, roomTracks, translationFor } from "./tracks";
 
 const ROOM = "r1";
 const NOW = 1_000_000;
@@ -53,5 +53,30 @@ describe("the language offer", () => {
     expect(
       offeredTranslation(room, { cc: true, subtitleLang: "tr" }, "es", guard(["translate-es"]), []),
     ).toBeUndefined();
+  });
+});
+
+describe("the subtitles menu's languages", () => {
+  const free: RoomCatalog = {
+    ...running([]),
+    tracks: [{ name: ITEMS_TRACK, namespace: agentPath(ROOM, "translate-tr"), packaging: "x", tt: { cost: "free" } }],
+  };
+  const es = translationFor(room, "es");
+  const tr = translationFor(room, "tr");
+
+  it("tells a language ready now (running or recorded) from one that starts on request, and one the room lacks", () => {
+    expect(languageReadiness(es, guard(["translate-es"]))).toBe("running");
+    // Listed by the room, but nobody runs it: picking it wakes its agent.
+    expect(languageReadiness(tr, guard(["translate-es"]))).toBe("on-request");
+    expect(languageReadiness(tr, { catalog: free, room: ROOM, offline: false, now: NOW })).toBe("recorded");
+    expect(languageReadiness(translationFor(room, "de"), guard([]))).toBe("absent");
+    // This listener's own subscription is running, whatever the catalog says.
+    expect(languageReadiness({ ...tr!, enabled: true }, guard([]))).toBe("running");
+  });
+
+  it("takes the stats track's running list as running too (decision 0028)", () => {
+    const stats = new Set([`${agentPath(ROOM, "translate-tr")}/${ITEMS_TRACK}`]);
+    expect(languageReadiness(tr, guard([]), stats)).toBe("running");
+    expect(languageReadiness(es, guard([]), stats)).toBe("on-request");
   });
 });
