@@ -2,7 +2,7 @@
 // archive's HLS. Every position is room time: the wall time of a media timestamp − E. A room with no
 // archived media still rewinds its AI tracks: the playhead then runs on a clock of its own, silent.
 
-import { teacherPath } from "../contracts/names";
+import { agentsPrefix, teacherPath } from "../contracts/names";
 import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
@@ -158,6 +158,20 @@ export interface RoomMediaOptions {
    * loops (a looped room has no playlist), ms. A room whose speaker has left never sends one.
    */
   loopWaitMs?: number;
+  /** The longest that wait runs while the relay has not answered or the room catalog says it is a recording, ms. */
+  loopWaitCapMs?: number;
+}
+
+/** See `loopWaitCapMs`. */
+const LOOP_WAIT_CAP_MS = 20_000;
+
+/**
+ * The room catalog of a recording (a looped demo room): it lists agent tracks and every one is free. A live room's
+ * agents are paid, so this is the looper's catalog (agents' slicing.room_catalog).
+ */
+export function recordedRoom(catalog: RoomCatalog, room: string): boolean {
+  const agents = catalog.tracks.filter((t) => t.namespace.startsWith(`${agentsPrefix(room)}/`));
+  return agents.length > 0 && agents.every((t) => t.tt?.cost === "free");
 }
 
 /**
@@ -201,6 +215,7 @@ export class RoomMedia implements SpeakerMedia {
   };
   /** The archive's playlist as last read: wall-time ranges, and whether it has ended. */
   #playlist: ArchiveState | undefined;
+  #loading: Promise<void> | undefined;
   /** A clock for rooms with no archived media. */
   #clock: ClockMedia | undefined;
   #subs: Closable[] = [];
@@ -218,7 +233,22 @@ export class RoomMedia implements SpeakerMedia {
     this.#loopUrl = loopUrl(room, options.archiveBase);
     this.#fetch = options.fetchFn ?? ((...args) => fetch(...args));
     this.#loopKnown = new Promise((resolve) => (this.#setLoopKnown = resolve));
-    const loopWait = setTimeout(() => this.#setLoopKnown(), options.loopWaitMs ?? 3_000);
+    // No teacher catalog after the short wait: the room does not loop (its speaker left), unless the relay has not
+    // answered yet (no room catalog either) or the room catalog says the room is a recording, whose looper sends
+    // the teacher catalog every 2 s. Then wait on, up to a cap.
+    const step = options.loopWaitMs ?? 3_000;
+    const cap = Math.max(step, options.loopWaitCapMs ?? LOOP_WAIT_CAP_MS);
+    let waited = 0;
+    let loopWait: ReturnType<typeof setTimeout>;
+    const waitForLoop = () => {
+      loopWait = setTimeout(() => {
+        waited += step;
+        const unsure = !this.#catalog || recordedRoom(this.#catalog, room);
+        if (unsure && waited + step <= cap) waitForLoop();
+        else this.#setLoopKnown();
+      }, step);
+    };
+    waitForLoop();
     this.#subs.push(
       { close: () => clearTimeout(loopWait) },
       watchRoomCatalog(transport, room, (catalog) => {
@@ -247,6 +277,15 @@ export class RoomMedia implements SpeakerMedia {
   /** The newest room catalog, once it has arrived. */
   catalog(): RoomCatalog | undefined {
     return this.#catalog;
+  }
+
+  /**
+   * Whether the room is a looped recording, once that is known (its teacher catalog, or the wait for one). A looped
+   * room has no HLS archive (the archiver skips it): nothing should ask the archive for its playlists.
+   */
+  async looping(): Promise<boolean> {
+    await this.#loopKnown;
+    return this.#loop !== undefined;
   }
 
   /** Give the media its elements (from React refs). */
@@ -409,7 +448,13 @@ export class RoomMedia implements SpeakerMedia {
     return loop && loopInfo(loop, shiftOf(this.#catalog?.tt.shift, loop.clock));
   }
 
-  async #loadArchived(): Promise<void> {
+  /** One playlist read at a time: refreshes asked for while one waits or runs share it. */
+  #loadArchived(): Promise<void> {
+    this.#loading ??= this.#readPlaylist().finally(() => (this.#loading = undefined));
+    return this.#loading;
+  }
+
+  async #readPlaylist(): Promise<void> {
     // Not before the room is known to loop or not: a looped room has no playlist (the archiver skips it).
     await this.#loopKnown;
     if (this.#loop || this.#closed) return;

@@ -11,12 +11,13 @@ const E = 1_800_000_000_000;
 const ROOM = "physics-101";
 
 /** The speaker's media as the screen reads it: its mode, the frame shown (room ms) and the room catalog's E. */
-function fakeMedia(state: { mode: Mode; at: number | undefined }): RoomMedia {
+function fakeMedia(state: { mode: Mode; at: number | undefined; looping?: boolean }): RoomMedia {
   return {
     mode: () => state.mode,
     frameTime: () => state.at,
     status: () => "playing",
     catalog: () => ({ tt: { E } }),
+    looping: async () => state.looping === true,
   } as unknown as RoomMedia;
 }
 
@@ -67,6 +68,17 @@ describe("the shared screen in the player", () => {
     expect(screen.shown()).toBe(true);
     state.at = 16_000;
     expect(screen.shown()).toBe(false); // after it
+    screen.close();
+  });
+
+  it("never asks a looped room's archive for a screen playlist (it has none)", async () => {
+    const urls: string[] = [];
+    const fetchFn = (async (url: string) => (urls.push(url), new Response(PLAYLIST))) as unknown as typeof fetch;
+    const state = { mode: "rewound" as Mode, at: 10_000, looping: true };
+    const screen = new ScreenMedia(undefined, ROOM, fakeMedia(state), { fetchFn, tickMs: 0 });
+    await screen.refresh();
+    expect(urls).toEqual([]);
+    expect(screen.shown()).toBe(false);
     screen.close();
   });
 

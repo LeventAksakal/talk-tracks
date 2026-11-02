@@ -69,6 +69,7 @@ export class ScreenMedia {
   #liveGeneration = 0;
   #archive: ArchivePlayback | undefined;
   #archiveOpening = false;
+  #refreshing: Promise<void> | undefined;
   #closed = false;
 
   constructor(transport: Transport | undefined, room: string, media: RoomMedia, options: ScreenMediaOptions = {}) {
@@ -133,7 +134,15 @@ export class ScreenMedia {
   }
 
   /** Read the screen playlist again. */
-  async refresh(): Promise<void> {
+  refresh(): Promise<void> {
+    // One read at a time: refreshes asked for while one waits (to know whether the room loops) or runs share it.
+    this.#refreshing ??= this.#read().finally(() => (this.#refreshing = undefined));
+    return this.#refreshing;
+  }
+
+  async #read(): Promise<void> {
+    // A looped room has no archive (the archiver skips the demo rooms): never ask it for a screen playlist.
+    if (await this.#media.looping()) return;
     try {
       const state = await archiveState(this.#url, this.#fetch);
       if (this.#closed) return;
