@@ -43,14 +43,14 @@ def test_a_cue_ids_highest_rev_wins_and_the_newest_open_cue_is_the_interim() -> 
     assert f.accept(cue("4", 0, False, "hel")) is None  # an older revision arriving late
 
 
-def test_a_whole_loop_of_room_objects_rebuilds_each_agents_last_state() -> None:
+def test_a_whole_session_of_room_objects_rebuilds_each_agents_last_state() -> None:
     room = Room(template(), EPOCH)
     doc = room_catalog(room.template, "r", EPOCH, 7, 0).to_json()
     states: dict[str, State | None] = {}
     for track in catalog_tracks(RoomCatalog.model_validate(doc)):
         f = TrackFollower(track.kind, track.lang)
         agent = next(a for a in room.template.agents if a.info.name == track.agent)
-        for g in range(room.per_loop(agent.info.name)):
+        for g in range(room.group_count(agent.info.name)):
             for placed in room.group(agent.info.name, g):
                 states[track.agent] = f.accept(placed.payload) or states.get(track.agent)
     captions = states["captions"]

@@ -25,7 +25,7 @@ from talk_tracks.resegment import (
     resegment,
     strong_end,
 )
-from talk_tracks.revise import read_recording, with_patches
+from talk_tracks.revise import read_recording
 from talk_tracks.slicing import CaptionItem, Template, TranslationItem
 
 CAPTIONS = AgentInfo(name="captions", label="Captions", model="fake")
@@ -177,7 +177,7 @@ def test_the_demo_recordings_break_at_sentences_and_clauses(lecture: str) -> Non
     folder = DEMO_DIR / lecture
     if not (folder / "recording.json").exists():
         pytest.skip(f"no recording in {folder}")
-    report = cue_report(resegment(with_patches(folder, read_recording(folder))))
+    report = cue_report(read_recording(folder))  # the recorded ASR lines, as a session cuts them
     print(f"{lecture}: {report}")
     assert report.cues > 0
     assert report.mid_phrase == 0

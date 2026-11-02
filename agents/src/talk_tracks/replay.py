@@ -1,15 +1,9 @@
-"""Replaying a recording as a looping live room: the room clock, the loops on it, and the schedule. Transport-free.
+"""Replaying a recording as a demo lecture's live session: the speaker's media clock and the schedule. Transport-free.
 
-The room clock is wall-clock time since ``EPOCH_MS``: media time m happens at wall time ``EPOCH_MS + m``. Loop k
-covers media time [k·period, (k+1)·period), where the period is the lecture rounded up to whole 4 s slices, so a
-loop always starts a slice. Within loop k, file time t of the lecture plays at media time ``k·period + t``.
-
-Anchoring loops to the wall clock gives a looper that restarts (a deploy, a crash) the same room it left: it joins the
-loop in progress at the same position, and every group number, id and media time it publishes is the one its
-predecessor published or would have. Nothing repeats in the room's life (decision 0012: group numbers come from the
-media clock), and the teacher broadcast's media time only ever rises, so neither the browser player nor an agent's
-audio reader sees the clock jump back. Each loop moves ids by k·stride (``slicing.Template``), so a viewer that keeps
-scrollback keyed by line id never mixes two loops' lines.
+A live session (``session``, decision 0032) plays the lecture once on a room clock of its own: media time t is
+session time t, at wall time ``E + t``, where ``E`` is the session's start. Its schedule is the lecture's media
+packets and the recording's agent objects (``Cue``) merged on that one clock (``session_events``). The next session
+has a new ``E``, so every group number, id and media time starts again from 0 on freshly announced broadcasts.
 """
 
 from __future__ import annotations
@@ -17,12 +11,9 @@ from __future__ import annotations
 import heapq
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from .audio import MAX_FILL_US, read_varint
 from .lecture import MediaPacket
-
-EPOCH_MS = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp() * 1000)  # media time 0 of every looped room
 
 
 class MediaClock:
@@ -49,35 +40,9 @@ class MediaClock:
 
 
 @dataclass(frozen=True)
-class LoopPlan:
-    """Where loop ``index`` sits on the room's media clock and in id space."""
-
-    index: int
-    period_ms: int
-    stride: int
-
-    @property
-    def media_offset_ms(self) -> int:
-        return self.index * self.period_ms
-
-    @property
-    def id_offset(self) -> int:
-        return self.index * self.stride
-
-    def media_us(self, file_us: int) -> int:
-        """Media time (µs) of a lecture frame at ``file_us``."""
-        return self.media_offset_ms * 1000 + file_us
-
-
-def position(media_ms: int, period_ms: int) -> tuple[int, int]:
-    """(loop, file time in ms) at room media time ``media_ms``."""
-    return divmod(max(0, media_ms), period_ms)
-
-
-@dataclass(frozen=True)
 class Cue:
-    """Publish object ``index`` of ``group`` on ``agent``'s track when the lecture reaches ``at_ms`` (file time).
-    Object 0 opens the group."""
+    """Publish object ``index`` of ``group`` on ``agent``'s track when the session reaches ``at_ms``. Object 0 opens
+    the group."""
 
     at_ms: int
     agent: str
@@ -89,13 +54,13 @@ Event = MediaPacket | Cue
 
 
 def event_us(event: Event) -> int:
-    """Lecture time of an event in µs."""
+    """Session time of an event in µs."""
     return event.file_us if isinstance(event, MediaPacket) else event.at_ms * 1000
 
 
-def loop_events(media: Iterable[MediaPacket], cues: Iterable[Cue]) -> Iterator[Event]:
-    """One loop's media packets and cues on one lecture clock. A cue goes before media of the same instant, so a
-    track's state is out before the frame it belongs to."""
+def session_events(media: Iterable[MediaPacket], cues: Iterable[Cue]) -> Iterator[Event]:
+    """A session's media packets and cues on one clock. A cue goes before media of the same instant, so a track's
+    state is out before the frame it belongs to."""
     tagged_cues = ((cue.at_ms * 1000, 0, n, cue) for n, cue in enumerate(cues))
     tagged_media = ((packet.file_us, 1, n, packet) for n, packet in enumerate(media))
     for *_, event in heapq.merge(tagged_cues, tagged_media, key=lambda item: item[:3]):

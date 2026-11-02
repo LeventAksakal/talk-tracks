@@ -11,7 +11,7 @@ from talk_tracks.contracts import (
     Usage,
 )
 from talk_tracks.recording import RecordingWriter, load_manifest, read_snapshots
-from talk_tracks.replay import EPOCH_MS, LoopPlan, MediaClock, position
+from talk_tracks.replay import MediaClock
 
 CAPTIONS = AgentInfo(name="captions", label="Captions (English)", model="fake")
 TRANSLATE = AgentInfo(name="translate-tr", label="Turkish translation", model="fake")
@@ -82,11 +82,3 @@ def test_media_clock_reads_the_legacy_timestamp_and_keeps_the_newest() -> None:
     clock.observe(write_varint(400_000_000) + b"x")
     clock.observe(write_varint(20_000) + b"x")  # the looper or the speaker's browser restarted
     assert clock.ms == 20
-
-
-def test_loops_sit_on_the_room_clock() -> None:
-    assert EPOCH_MS == 1_790_812_800_000  # 2026-10-01 00:00 UTC
-    plan = LoopPlan(index=3, period_ms=8000, stride=5)
-    assert (plan.media_offset_ms, plan.id_offset, plan.media_us(1_000)) == (24_000, 15, 24_001_000)
-    assert position(25_500, 8000) == (3, 1500)
-    assert position(-5, 8000) == (0, 0)

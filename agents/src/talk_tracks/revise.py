@@ -442,9 +442,12 @@ async def redescribe(
     return patch
 
 
-def with_slide_notes(snapshots: Sequence[RecordedSnapshot], notes: Sequence[SlideNote]) -> list[RecordedSnapshot]:
-    """The slides track as if each patched note had arrived ``NOTE_DELAY_MS`` after its slide: one snapshot more per
-    note, and the note in every later state."""
+def with_slide_notes(
+    snapshots: Sequence[RecordedSnapshot], notes: Sequence[SlideNote], *, delay_ms: int = NOTE_DELAY_MS
+) -> list[RecordedSnapshot]:
+    """The slides track as if each patched note had arrived ``delay_ms`` after its slide (a demo session passes the
+    describe agent's measured delay, ``session.describe_delay_ms``): one snapshot more per note, and the note in
+    every later state."""
     out: list[RecordedSnapshot] = []
     pending = sorted(notes, key=lambda n: n.at_ms)
     added: list[SlideNote] = []
@@ -456,31 +459,33 @@ def with_slide_notes(snapshots: Sequence[RecordedSnapshot], notes: Sequence[Slid
     for snap in snapshots:
         state = snap.state
         assert isinstance(state, SlidesState)
-        while pending and pending[0].at_ms + NOTE_DELAY_MS <= snap.media_ms:
+        while pending and pending[0].at_ms + delay_ms <= snap.media_ms:
             note = pending.pop(0)
             added.append(note)
             prior = out[-1] if out else snap
             assert isinstance(prior.state, SlidesState)
-            at = note.at_ms + NOTE_DELAY_MS
+            at = note.at_ms + delay_ms
             out.append(prior.model_copy(update={"media_ms": at, "state": merged(prior.state)}))
         out.append(snap.model_copy(update={"state": merged(state)}))
     for note in pending:  # after the last recorded snapshot
         added.append(note)
         last = out[-1]
         assert isinstance(last.state, SlidesState)
-        out.append(last.model_copy(update={"media_ms": note.at_ms + NOTE_DELAY_MS, "state": merged(last.state)}))
+        out.append(last.model_copy(update={"media_ms": note.at_ms + delay_ms, "state": merged(last.state)}))
     return out
 
 
-def with_patches(recording: Path, recorded: Recorded) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
-    """The recording with any saved slide patch merged in."""
+def with_patches(
+    recording: Path, recorded: Recorded, *, delay_ms: int = NOTE_DELAY_MS
+) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
+    """The recording with any saved slide patch merged in, each note ``delay_ms`` after its slide."""
     out: list[tuple[AgentInfo, list[RecordedSnapshot]]] = []
     for info, snapshots in recorded:
         path = patch_path(recording, info.name)
         if path.exists() and snapshots and isinstance(snapshots[0].state, SlidesState):
             patch = SlidePatch.model_validate_json(path.read_text(encoding="utf-8"))
             log.info("%s: %d notes from %s", info.name, len(patch.notes), path.name)
-            out.append((info, with_slide_notes(snapshots, patch.notes)))
+            out.append((info, with_slide_notes(snapshots, patch.notes, delay_ms=delay_ms)))
         else:
             out.append((info, list(snapshots)))
     return out

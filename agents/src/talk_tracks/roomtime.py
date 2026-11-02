@@ -100,6 +100,13 @@ class RoomTime:
         epoch, shift = self.epoch, self.shift[clock.key]
         return lambda pts_ms: room_ms(wall_unix_ms(clock.wall, clock.timescale, pts_ms), epoch, shift)
 
+    async def wait_epoch(self, other_than: int | None = None) -> int:
+        """The room catalog's ``E`` once it is known and not ``other_than`` (a demo room's next live session)."""
+        async with self._changed:
+            await self._changed.wait_for(lambda: self.epoch is not None and self.epoch != other_than)
+        assert self.epoch is not None
+        return self.epoch
+
     async def wait_mapping(self, clock: HangClock) -> Mapping:
         async with self._changed:
             await self._changed.wait_for(lambda: self.mapping(clock) is not None)

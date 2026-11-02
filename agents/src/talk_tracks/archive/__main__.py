@@ -76,7 +76,8 @@ async def main_async(args: argparse.Namespace) -> None:
     from .store import Archive, RoomFilter
 
     bucket = GcsBucket(args.bucket) if args.bucket else None
-    uploader = Uploader(args.out, bucket)
+    rooms = RoomFilter(args.rooms, args.skip)
+    uploader = Uploader(args.out, bucket, rooms=rooms)  # a skipped room (a demo room's sessions) stays on the VM
     archive = Archive(args.out, on_file=uploader.notify)
     log.info(
         "archiving into %s, %s",
@@ -106,7 +107,6 @@ async def main_async(args: argparse.Namespace) -> None:
                 for path, mutable in slices.poll():
                     uploader.notify(path, mutable)
 
-            rooms = RoomFilter(args.rooms, args.skip)
             budget = Budget(
                 Path(os.environ.get("TT_LEDGER", "data/ledger.jsonl")),
                 Path(os.environ.get("TT_CAPS_DIR", "data/caps")),
