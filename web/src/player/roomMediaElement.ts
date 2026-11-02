@@ -217,6 +217,10 @@ export class RoomMediaElement extends HTMLElement {
     if (wasPlaying) {
       playback.media.play?.();
       this.#fire("play");
+    } else if (playback.media.status() !== "idle") {
+      // Already running (the offline demo's scripted talk): it plays; only an idle room waits for a tap.
+      this.#paused = false;
+      this.#fire("play");
     }
     this.#onChange();
   }

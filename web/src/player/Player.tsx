@@ -340,12 +340,27 @@ export function Player(props: PlayerProps) {
     e.addEventListener("pause", onPlayState);
     e.addEventListener("ttsubtitles", onSubtitles);
     e.addEventListener("ttvolume", onVolume);
+    // Media Chrome fades the controls only for a pointer resting on the media element itself, not on what it holds
+    // (the stage): a move over the stage is handed on as the element's own, a frame later (once the original has
+    // reached the controller, which would otherwise cancel the fade it schedules), at most once a frame.
+    let frame = 0;
+    const onPointer = (ev: PointerEvent) => {
+      if (!ev.isTrusted || ev.target === e || frame) return;
+      const { pointerType, clientX, clientY } = ev;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        e.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType, clientX, clientY }));
+      });
+    };
+    e.addEventListener("pointermove", onPointer);
     onPlayState();
     return () => {
       e.removeEventListener("play", onPlayState);
       e.removeEventListener("pause", onPlayState);
       e.removeEventListener("ttsubtitles", onSubtitles);
       e.removeEventListener("ttvolume", onVolume);
+      e.removeEventListener("pointermove", onPointer);
+      cancelAnimationFrame(frame);
     };
   }, [el, playback, setUi, update]);
   // What the element tells Media Chrome: the talk's 00:00 and span, the subtitle choices, the chapters, the volume.

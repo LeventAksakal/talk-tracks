@@ -67,9 +67,10 @@ const paths = {
 
 export type IconName = keyof typeof paths;
 
-export function Icon({ name }: { name: IconName }) {
+/** One of the player's icons; `slot` places it in a Media Chrome button's icon slot. */
+export function Icon({ name, slot }: { name: IconName; slot?: string }) {
   return (
-    <svg className="tt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className="tt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" slot={slot}>
       {paths[name]}
     </svg>
   );

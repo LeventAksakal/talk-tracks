@@ -121,9 +121,11 @@
   --media-range-bar-color: var(--tt-color-live-fill);
   --media-range-thumb-background: var(--tt-color-live);
 }
+/* Its own stacking context: the stage's overlays (subtitles, cards) stay under the title, the dock and the menus. */
 .tt-media-element {
   display: block;
   position: relative;
+  isolation: isolate;
   width: 100%;
   height: 100%;
 }
@@ -1218,9 +1220,11 @@ img.tt-preview-thumb {
 
 /* Media Chrome's settings menu, in the dock's glass. */
 .tt-settings {
+  right: var(--player-dock-gap);
+  bottom: calc(var(--player-dock-reach) - 8px);
+  z-index: 2;
   backdrop-filter: var(--player-blur);
   box-shadow: var(--tt-shadow-3);
-  margin-bottom: 8px;
 }
 
 /* --- menus --- */
@@ -1465,12 +1469,13 @@ img.tt-preview-thumb {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 6px 4px;
+  padding: 6px 1px;
   border: 0;
   border-radius: var(--tt-radius-md);
   background: none;
   color: var(--tt-color-text-muted);
-  font: var(--tt-weight-strong) var(--tt-text-micro) var(--tt-font-ui);
+  font: var(--tt-weight-strong) 11px var(--tt-font-ui);
+  letter-spacing: -0.01em;
   cursor: pointer;
   transition:
     background var(--tt-duration-fast) var(--tt-ease-standard),

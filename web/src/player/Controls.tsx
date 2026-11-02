@@ -93,7 +93,9 @@ export function Controls({ quality }: { quality: boolean }) {
           >
             <Icon name="panel" />
           </button>
-          <media-settings-menu-button className="tt-mc-button" />
+          <media-settings-menu-button className="tt-mc-button">
+            <Icon name="gear" slot="icon" />
+          </media-settings-menu-button>
           <media-pip-button className="tt-mc-button" />
           <media-fullscreen-button className="tt-mc-button" />
           {ui.menu === "cc" ? <CaptionsMenu /> : null}
