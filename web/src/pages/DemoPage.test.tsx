@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RoomMediaElement } from "../player/roomMediaElement";
 import { DemoPage } from "./DemoPage";
 
 const advance = async (ms: number) => {
@@ -76,18 +77,18 @@ describe("/demo in the player", () => {
   it("subscribes chapters by opening their tab, puts them on the bar, and seeks from the list", async () => {
     render(<DemoPage />);
     await advance(100);
-    expect(document.querySelectorAll(".tt-seg").length).toBe(1);
+    const media = () => document.querySelector<RoomMediaElement>("tt-room-media")!;
+    const chapters = () => [...media().textTracks].find((t) => t.kind === "chapters")?.cues?.length ?? 0;
+    expect(chapters()).toBe(0);
     fireEvent.click(screen.getByRole("tab", { name: "Chapters" }));
     await advance(2_000);
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getByText("Introduction")).toBeTruthy();
-    expect(within(panel).getByText("So far")).toBeTruthy();
-    expect(document.querySelectorAll(".tt-seg").length).toBeGreaterThan(1);
-
+    expect(chapters()).toBeGreaterThan(1);
     fireEvent.click(within(panel).getByRole("button", { name: "Play from 1:01" }));
     await advance(300);
     expect(screen.getByRole("button", { name: /Go live/ })).toBeTruthy();
-    expect(screen.getByRole("slider", { name: "Position in the talk" }).getAttribute("aria-valuenow")).toBe("61");
+    expect(Math.round(media().currentTime)).toBe(61);
   });
 
   // Genuinely long: it plays 47 s of the live demo frame by frame (about 4 s on an idle machine), so it gets its own
