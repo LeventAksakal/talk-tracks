@@ -45,25 +45,26 @@ async function settle(page) {
  * `record` is shared across the run so the report can list everything in one place.
  */
 async function runTheme({ name, browser, theme, journeys, opts, outDir, record }) {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-    deviceScaleFactor: 1,
-    colorScheme: theme,
-    reducedMotion: "reduce",
-    locale: "en-US",
-    timezoneId: "Europe/Istanbul",
-    permissions: name === "firefox" || name === "webkit" ? [] : ["camera", "microphone"],
-  });
-  // Never create a room on the deployed site: no journey submits a valid form, and this aborts one if it did.
-  await context.route("**/api/rooms**", (route) => {
-    if (route.request().method() === "POST") {
-      record.failures.push({ browser: name, theme, journey: "guard", step: "room creation blocked", error: "a POST to /api/rooms was attempted and aborted" });
-      return route.abort();
-    }
-    return route.continue();
-  });
-
   for (const journey of journeys) {
+    // A fresh context per journey: the player keeps prefs in localStorage, and a translation picked in one room
+    // must not follow the harness into the next (one world per journey).
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      deviceScaleFactor: 1,
+      colorScheme: theme,
+      reducedMotion: "reduce",
+      locale: "en-US",
+      timezoneId: "Europe/Istanbul",
+      permissions: name === "firefox" || name === "webkit" ? [] : ["camera", "microphone"],
+    });
+    // Never create a room on the deployed site: no journey submits a valid form, and this aborts one if it did.
+    await context.route("**/api/rooms**", (route) => {
+      if (route.request().method() === "POST") {
+        record.failures.push({ browser: name, theme, journey: "guard", step: "room creation blocked", error: "a POST to /api/rooms was attempted and aborted" });
+        return route.abort();
+      }
+      return route.continue();
+    });
     const page = await context.newPage();
     let errors = [];
     page.on("console", (m) => {
@@ -101,9 +102,8 @@ async function runTheme({ name, browser, theme, journeys, opts, outDir, record }
     }
     if (errors.length) record.captures.push({ browser: name, theme, journey: journey.id, state: "(after last capture)", file: "", intent: "", errors });
     record.timings.push({ browser: name, theme, journey: journey.id, seconds: Math.round((Date.now() - t0) / 1000) });
-    await page.close();
+    await context.close();
   }
-  await context.close();
 }
 
 export async function captureJourneys({ runDir, browsers, themes, journeyIds, opts, log }) {
