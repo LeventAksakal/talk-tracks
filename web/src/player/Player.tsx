@@ -118,6 +118,7 @@ export function Player(props: PlayerProps) {
   const root = useRef<HTMLDivElement>(null);
   const controller = useRef<HTMLElement>(null);
   const [el, setEl] = useState<RoomMediaElement | null>(null);
+  const bindEl = useCallback((node: HTMLElement | null) => setEl(node as RoomMediaElement | null), []);
   // Compile the track validators in idle moments before the room's first objects need them.
   useEffect(() => prewarmValidators(), []);
   const [fullscreen, setFullscreen] = useState(false);
@@ -490,7 +491,7 @@ export function Player(props: PlayerProps) {
             defaultstreamtype="live"
             noautohide={ui.menu ? "" : undefined}
           >
-            <tt-room-media ref={setEl} slot="media" className="tt-media-element">
+            <tt-room-media ref={bindEl} slot="media" className="tt-media-element">
               <Stage onToggle={togglePlay} onFullscreen={toggleFullscreen} />
             </tt-room-media>
             <header slot="top-chrome" className="tt-titlebar">
