@@ -89,7 +89,7 @@ export interface PlayerCtx {
   listening: Listening | undefined;
   /** The room service's session for the chat; set even where the listener tools are off (a looped demo room). */
   roomService: RoomService | undefined;
-  /** A recorded talk looped as if live (a demo room). */
+  /** A demo room: a live session of a recorded lecture (decision 0032; the old name kept). */
   looped: boolean;
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
