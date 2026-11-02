@@ -26,6 +26,7 @@ if (args.help) {
   --journeys <list>     ${JOURNEYS.map((j) => j.id).join(",")} (default: all)
   --offline             only what needs no relay: journeys demo, hub, create; Lighthouse and trace on /demo
   --room <name>         the demo room to watch (default: dataviz)
+  --translation <name>  the translation to pick, only if the room lists it as running (default: Arabic)
   --trace-path <path>   the page to trace (default: /watch/<room>, or /demo with --offline)
   --trace-seconds <n>   seconds of playback in the trace (default: 60)
   --lighthouse-pages <list>  hub,watch,demo (default: all three; watch is dropped with --offline)
@@ -47,7 +48,7 @@ const tracePath = args["trace-path"] ?? (offline ? "/demo" : `/watch/${room}`);
 const lhPages = list(args["lighthouse-pages"], offline ? "hub,demo" : "hub,watch,demo");
 const run = args.run ?? `${stamp()}-${isLocal(baseUrl) ? "local" : "deployed"}`;
 const runDir = ensureDir(resolve(here, "out", run));
-const opts = { base: baseUrl, room, redact };
+const opts = { base: baseUrl, room, redact, translation: args.translation ?? "Arabic" };
 const log = (s) => console.log(redact(s));
 
 // A base that does not answer would turn every step into the same failure: stop with one clear line instead.

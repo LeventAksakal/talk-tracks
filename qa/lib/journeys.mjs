@@ -93,17 +93,24 @@ async function walkPlayer(j, { live }) {
     await page.getByRole("button", { name: "Subtitles", exact: true }).click();
     await sleep(500);
     // Only a language the room already lists as running: never wake a paid agent.
-    const running = page.getByRole("group", { name: "Languages" }).getByRole("button").filter({ hasText: "in this room" });
+    // And of those, the one asked for (--translation, default Arabic: generated once for every demo room), so a
+    // language another viewer happened to wake is never the one the harness keeps subscribed.
+    const want = new RegExp(j.opts.translation, "i");
+    const running = page
+      .getByRole("group", { name: "Languages" })
+      .getByRole("button")
+      .filter({ hasText: "in this room" })
+      .filter({ hasText: want });
     const n = await running.count();
     if (n === 0) {
       await closeMenus(page);
-      throw new Error("skipped: the room lists no running translation");
+      throw new Error(`skipped: the room does not list ${j.opts.translation} as running`);
     }
     const choice = running.first();
     const label = ((await choice.textContent()) ?? "").replace("in this room", "").trim();
     await choice.click();
     await closeMenus(page);
-    await sleep(7_000);
+    await sleep(10_000);
     await shot(`translation-${slug(label).slice(0, 24) || "picked"}`, `watch + translation: subtitles in ${label}, a language the room already runs`);
   });
 

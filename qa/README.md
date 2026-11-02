@@ -59,7 +59,8 @@ qa/out/<run>/
 
 ## Cost and safety guards
 
-- Subtitles and translations are picked only from what the room lists as running ("in this room"). A language the
+- Subtitles and translations are picked only from what the room lists as running ("in this room"), and of those only
+  `--translation` (default Arabic, generated once for every demo room). A language the
   room does not run would wake a paid translation agent; the harness never picks one.
 - No room is created: no journey submits a valid Create talk form, and every context aborts a POST to `/api/rooms`
   (a tripped guard shows up as a failed step).
