@@ -14,6 +14,7 @@ import { type ExtraTab, INITIAL_UI, type PlayerCtx, PlayerContext, type UiState 
 import { ControlBar } from "./ControlBar";
 import { Discussion } from "./Discussion";
 import { FrameClock } from "./frameClock";
+import { LanguageOffer } from "./LanguageOffer";
 import { Listening, useListening, useRoomService } from "./listening";
 import { useNotes } from "./notes";
 import "./player.css";
@@ -395,6 +396,7 @@ export function Player(props: PlayerProps) {
         </header>
         <div className="tt-main">
           <Stage />
+          <LanguageOffer />
           <div className="tt-chrome">
             <ProgressBar />
             <ControlBar fullscreen={fullscreen} onFullscreen={toggleFullscreen} />

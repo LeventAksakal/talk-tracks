@@ -1,0 +1,47 @@
+/* The lecture package in the Download popover (TranscriptDownload.tsx) and the language offer (LanguageOffer.tsx). */
+.tt-download-package {
+  padding-top: var(--tt-space-3);
+  border-top: 1px solid var(--tt-color-line);
+}
+.tt-download-popover > .tt-download-package:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.tt-download-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tt-space-1);
+}
+.tt-download-progress progress {
+  width: 100%;
+  accent-color: var(--tt-color-accent);
+}
+
+.tt-lang-offer {
+  position: absolute;
+  left: var(--tt-space-3);
+  top: var(--tt-space-3);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-2) var(--tt-space-2) var(--tt-space-3);
+  background: var(--tt-color-raised);
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-md);
+  box-shadow: var(--tt-shadow-2);
+  font-size: var(--tt-text-small);
+}
+.tt-lang-offer-close {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tt-radius-sm);
+  background: none;
+  color: var(--tt-color-text-muted);
+  cursor: pointer;
+}
