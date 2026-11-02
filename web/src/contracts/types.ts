@@ -247,10 +247,11 @@ export interface InkStroke extends InkStyle {
   /** False while still being drawn: points and end follow. */
   done: boolean;
 }
-export type ShapeKind = "rect" | "ellipse" | "line" | "arrow";
+export type ShapeKind = "rect" | "ellipse" | "diamond" | "line" | "arrow";
 /**
- * A shape, whole: a rectangle or ellipse in the box from `start` to `end`, or a line or arrow from `start` to
- * `end` (the arrow's head). Sent again with the same id while dragged (the last one wins), re-sent like a stroke.
+ * A shape, whole: a rectangle, ellipse or diamond in the box from `start` to `end` (a diamond's corners at the
+ * middles of the box's sides), or a line or arrow from `start` to `end` (the arrow's head). Sent again with the same
+ * id while dragged (the last one wins), re-sent like a stroke.
  */
 export interface InkShape {
   kind: "shape";

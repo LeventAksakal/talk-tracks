@@ -924,12 +924,51 @@
               "name": "Levent",
               "speaker": true
             },
+            "color": "#1e88e5",
+            "deck": 2,
+            "end": [
+              0.75,
+              0.7
+            ],
+            "index": 1,
+            "kind": "shape",
+            "shape": "diamond",
+            "start": [
+              0.55,
+              0.5
+            ],
+            "stroke": "s8",
+            "width": 0.003
+          },
+          "m": 11620
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "kind": "erase",
             "strokes": [
               "s7"
             ]
           },
           "m": 11650
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "kind": "erase",
+            "strokes": [
+              "s8"
+            ]
+          },
+          "m": 11660
         }
       ]
     },
@@ -2223,12 +2262,51 @@
               "name": "Levent",
               "speaker": true
             },
+            "color": "#1e88e5",
+            "deck": 2,
+            "end": [
+              0.75,
+              0.7
+            ],
+            "index": 1,
+            "kind": "shape",
+            "shape": "diamond",
+            "start": [
+              0.55,
+              0.5
+            ],
+            "stroke": "s8",
+            "width": 0.003
+          },
+          "m": 11620
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
             "kind": "erase",
             "strokes": [
               "s7"
             ]
           },
           "m": 11650
+        },
+        {
+          "data": {
+            "by": {
+              "id": "speaker",
+              "name": "Levent",
+              "speaker": true
+            },
+            "kind": "erase",
+            "strokes": [
+              "s8"
+            ]
+          },
+          "m": 11660
         },
         {
           "data": {

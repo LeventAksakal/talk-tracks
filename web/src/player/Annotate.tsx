@@ -43,6 +43,7 @@ const TOOLS: { tool: ListenerTool; label: string; title: string }[][] = [
     { tool: "ellipse", label: SHAPE_LABELS.ellipse, title: "Draw an ellipse (Shift: a circle)" },
     { tool: "arrow", label: SHAPE_LABELS.arrow, title: "Draw an arrow (Shift: in 45° steps)" },
     { tool: "line", label: SHAPE_LABELS.line, title: "Draw a line (Shift: in 45° steps)" },
+    { tool: "diamond", label: SHAPE_LABELS.diamond, title: "Draw a diamond (Shift: even sides)" },
   ],
   [
     { tool: "underline", label: "Underline", title: "Underline text: drag across it or click a word" },

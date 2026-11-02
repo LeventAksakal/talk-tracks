@@ -182,6 +182,13 @@ function drawShape(ctx: Ctx2D, s: InkShape, width: number, height: number, lw: n
     ctx.rect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
   } else if (s.shape === "ellipse") {
     ctx.ellipse((ax + bx) / 2, (ay + by) / 2, Math.abs(bx - ax) / 2, Math.abs(by - ay) / 2, 0, 0, Math.PI * 2);
+  } else if (s.shape === "diamond") {
+    const [cx, cy] = [(ax + bx) / 2, (ay + by) / 2];
+    ctx.moveTo(cx, ay);
+    ctx.lineTo(bx, cy);
+    ctx.lineTo(cx, by);
+    ctx.lineTo(ax, cy);
+    ctx.closePath();
   } else {
     ctx.moveTo(ax, ay);
     ctx.lineTo(bx, by);
@@ -233,7 +240,7 @@ export function shapeEnd(kind: InkShape["shape"], start: Point, end: Point, aspe
   const dy = end[1] - start[1];
   let ex: number;
   let ey: number;
-  if (kind === "rect" || kind === "ellipse") {
+  if (kind === "rect" || kind === "ellipse" || kind === "diamond") {
     const side = Math.max(Math.abs(dx), Math.abs(dy));
     ex = Math.sign(dx || 1) * side;
     ey = Math.sign(dy || 1) * side;

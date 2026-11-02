@@ -13,10 +13,11 @@ export const WIDTHS: Record<"pen" | "highlighter" | "shape", readonly [number, n
 export const WIDTH_NAMES: Record<WidthStep, string> = { 0: "Thin", 1: "Medium", 2: "Bold" };
 
 /** The shapes in toolbar order. */
-export const SHAPES: readonly ShapeKind[] = ["rect", "ellipse", "arrow", "line"];
+export const SHAPES: readonly ShapeKind[] = ["rect", "ellipse", "arrow", "line", "diamond"];
 export const SHAPE_LABELS: Record<ShapeKind, string> = {
   rect: "Rectangle",
   ellipse: "Ellipse",
+  diamond: "Diamond",
   arrow: "Arrow",
   line: "Line",
 };

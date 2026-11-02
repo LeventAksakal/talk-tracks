@@ -67,6 +67,34 @@ describe("the ink casing (brand.md §3)", () => {
     }
   });
 
+  it("draws a diamond with its corners at the middles of its box's sides", () => {
+    const path: number[][] = [];
+    const ctx = new Proxy({} as Record<string, unknown>, {
+      get: (_, name: string) =>
+        name === "moveTo" || name === "lineTo" ? (x: number, y: number) => path.push([x, y]) : () => undefined,
+      set: () => true,
+    }) as unknown as Ctx2D;
+    const diamond: InkElement = {
+      kind: "shape",
+      stroke: "d",
+      deck: 0,
+      index: 0,
+      shape: "diamond",
+      start: [0.2, 0.2],
+      end: [0.6, 0.6],
+      color: chalk,
+      width: 0.004,
+      by,
+    };
+    drawElements(ctx, [diamond], 1000, 500, null);
+    expect(path).toEqual([
+      [400, 100],
+      [600, 200],
+      [400, 300],
+      [200, 200],
+    ]);
+  });
+
   it("leaves the marker without one, and draws none when asked for none", () => {
     const marker: InkElement = { ...pen, tool: "highlighter", width: 0.022 };
     const a = recorder();

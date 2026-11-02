@@ -79,6 +79,7 @@ const TOOLS: { tool: Tool; label: string; key: string }[][] = [
     { tool: "ellipse", label: "Ellipse", key: "O" },
     { tool: "arrow", label: "Arrow", key: "A" },
     { tool: "line", label: "Line", key: "I" },
+    { tool: "diamond", label: "Diamond", key: "G" },
   ],
   [
     { tool: "underline", label: "Underline text", key: "U" },
