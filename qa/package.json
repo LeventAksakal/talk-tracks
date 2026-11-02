@@ -1,0 +1,15 @@
+{
+  "name": "talk-tracks-qa",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Automated QA harness: journey screenshots across browsers, Lighthouse, and a Chrome performance trace.",
+  "scripts": {
+    "qa": "node run.mjs"
+  },
+  "dependencies": {
+    "chrome-launcher": "1.2.2",
+    "lighthouse": "13.5.0",
+    "playwright": "1.64.0"
+  }
+}
