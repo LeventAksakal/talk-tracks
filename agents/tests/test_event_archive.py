@@ -422,8 +422,8 @@ def picture(shade: int) -> bytes:
 
 def test_a_demo_rooms_slides_are_a_deck_and_a_sliced_slide_track() -> None:
     slides = [Slide(0, picture(10)), Slide(3_000, picture(120)), Slide(9_000, picture(240))]
-    period = 12_000  # a 10 s lecture, rounded up to whole slices
-    deck = LectureSlides.of(slides, period)
+    length = 12_000  # a 10 s lecture, rounded up to whole slices
+    deck = LectureSlides.of(slides, length)
 
     objects = [r for p in deck.deck_group(DECK_GROUP) for r in DeckObject.model_validate_json(p.payload).root]
     info, *images = [r.data for r in objects]
@@ -439,12 +439,13 @@ def test_a_demo_rooms_slides_are_a_deck_and_a_sliced_slide_track() -> None:
         assert shown is None or shown.deck == DECK_GROUP
         return None if shown is None else shown.index
 
-    # loop 0, then loop 1 (12-24 s): its first slice carries the previous loop's last slide in
-    expected = {1_000: 0, 3_500: 1, 8_999: 1, 9_000: 2, 11_999: 2, 12_000: 0, 15_000: 1, 23_000: 2}
+    # one pass (a session or the recording room): each slide at its lecture time, the last one held to the end
+    expected = {1_000: 0, 3_500: 1, 8_999: 1, 9_000: 2, 11_999: 2}
     assert {t: on_screen(t) for t in expected} == expected
-    carry = CurrentSlideObject.model_validate_json(deck.slide_group(3)[0].payload).root  # 12-16 s
-    assert [(r.m, r.data) for r in carry] == [(9_000, ShowSlide(deck=0, index=2))]
-    assert deck.slide_group(3) == deck.slide_group(3)  # a pure function of the group: live and FETCH agree
+    carry = CurrentSlideObject.model_validate_json(deck.slide_group(2)[0].payload).root  # 8-12 s
+    assert [(r.m, r.data) for r in carry] == [(3_000, ShowSlide(deck=0, index=1))]
+    assert deck.slide_group(2) == deck.slide_group(2)  # a pure function of the group: live and FETCH agree
+    assert deck.slide_group(3) == () and deck.slide_group(-1) == ()  # nothing after the room's end
 
 
 def test_a_demo_rooms_catalog_carries_its_slide_tracks() -> None:

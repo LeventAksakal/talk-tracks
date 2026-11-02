@@ -40,8 +40,7 @@ GAP_ENV = "TT_DEMO_SESSION_GAP_S"
 GAP_S = 30.0  # between a session's end and the next one's start
 TAIL_MAX_MS = 30_000  # recorded items after the lecture's end still go out, up to this long after it
 NOTE_DELAY_FALLBACK_MS = 10_000  # a patched slide note's delay when the recording has no live note to measure
-RECORDING_SUFFIX = "-recording"
-RECORDED_LABEL = " (recorded)"
+RECORDING_SUFFIX = "-recording"  # the recording room's labels end in ``slicing.RECORDED``
 
 Recorded = list[tuple[AgentInfo, list[RecordedSnapshot]]]
 
