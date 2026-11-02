@@ -282,6 +282,38 @@ describe("the speaker console", () => {
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);
   });
+  it("says Ending… until the room service acknowledges the end, trying again while the message is lost", async () => {
+    const media = fakeMedia();
+    const answers = [false, false, true]; // the socket is down twice, then the service acknowledges
+    let tries = 0;
+    let forgotten = 0;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    setup({
+      createMedia: async () => media,
+      endRoom: async () => {
+        if (tries === 2) await held; // the third try waits for the service
+        return answers[tries++]!;
+      },
+      endRetryMs: 1,
+      onEnded: () => forgotten++,
+    });
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await waitFor(() => expect(goLive.hasAttribute("disabled")).toBe(false));
+    await act(async () => fireEvent.click(goLive));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "End talk" })));
+    const dialog = await screen.findByRole("alertdialog");
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "End talk" })));
+
+    await waitFor(() => expect(tries).toBe(2));
+    expect(screen.getByRole("status").textContent).toContain("Ending…");
+    expect(forgotten).toBe(0); // the link is kept until the end is said
+    await act(async () => release());
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Ended"));
+    expect(tries).toBe(3);
+    expect(forgotten).toBe(1);
+  });
+
   it("lists the audience's questions, counts them per slide, and replies to or hides one as the speaker", async () => {
     const ada = { id: "u1", name: "Ada" };
     const service = new FakeRoomService({

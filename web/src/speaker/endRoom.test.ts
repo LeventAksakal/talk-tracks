@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WebSocketLike } from "../annotate/client";
-import { endRoom } from "./endRoom";
+import { type EndOutcome, endRoom, endRoomOnce, untilAnswered } from "./endRoom";
 
 /** A room service that answers hello with welcome (or an error) and end with ack. */
 function service(answer: { hello: object; end?: object }) {
@@ -59,5 +59,40 @@ describe("ending the talk at the room service", () => {
       throw new Error("no sockets here");
     };
     expect(await endRoom("physics-101", "tok", { base: "ws://svc/api/", socket: broken })).toBe(false);
+  });
+
+  it("tells a refusal, a room that never went live and a busy service apart", async () => {
+    const answer = (end: object) =>
+      endRoomOnce("physics-101", "tok", {
+        base: "ws://svc/api/",
+        socket: service({ hello: { type: "welcome", id: "speaker", speaker: true }, end }).socket,
+      });
+    expect(await answer({ type: "error", seq: 1, code: "forbidden" })).toBe("refused");
+    expect(await answer({ type: "error", seq: 1, code: "not-live" })).toBe("nothing");
+    expect(await answer({ type: "error", seq: 1, code: "rate" })).toBe("lost");
+  });
+});
+
+describe("ending the talk until the room service answers", () => {
+  it("tries a lost message again until it is acknowledged", async () => {
+    const answers: (boolean | EndOutcome)[] = [false, "lost", true];
+    let tries = 0;
+    const outcome = await untilAnswered(async () => answers[tries++]!, { firstDelayMs: 1 });
+    expect(outcome).toBe("acked");
+    expect(tries).toBe(3);
+  });
+
+  it("stops at a refusal, and when the page goes away", async () => {
+    let tries = 0;
+    expect(await untilAnswered(async () => (tries++, "refused"), { firstDelayMs: 1 })).toBe("refused");
+    expect(tries).toBe(1);
+
+    const abort = new AbortController();
+    let lost = 0;
+    const stopped = untilAnswered(async () => (lost++, false), { firstDelayMs: 60_000, signal: abort.signal });
+    await Promise.resolve();
+    abort.abort();
+    expect(await stopped).toBe("lost");
+    expect(lost).toBe(1);
   });
 });

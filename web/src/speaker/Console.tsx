@@ -21,7 +21,7 @@ import { Audience } from "./Audience";
 import { type ClockState, clockState, roomNowFn, wallNowMs } from "./clock";
 import type { Deck, RenderedSlide } from "./deck";
 import { type Echo, watchEcho } from "./echo";
-import { endRoom } from "./endRoom";
+import { type EndOutcome, endRoomOnce, untilAnswered } from "./endRoom";
 import { Invite, watchUrl } from "./Invite";
 import { type Tool, isShapeTool, keyAction } from "./keys";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
@@ -52,9 +52,19 @@ export interface ConsoleDeps {
   localEpochMs?: number;
   /** The room service's endpoint as the speaker (decision 0024): the audience's questions, reply and hide. */
   makeRoomService?: (name: string) => RoomService;
-  /** Tell the room service the talk ended (its state says "ended"); default: `endRoom` when there is a room service. */
-  endRoom?: () => Promise<boolean>;
+  /**
+   * Tell the room service the talk ended (its state says "ended"), one try: true or `acked` once it acknowledged.
+   * Default: `endRoomOnce` when there is a room service. End talk tries again until the service answers.
+   */
+  endRoom?: () => Promise<boolean | EndOutcome>;
+  /** The pause before End talk's second try, ms (it doubles, up to 10 s); default 1 s. */
+  endRetryMs?: number;
+  /** The talk's end is settled at the room service (or there is none): the speaker link is no longer kept. */
+  onEnded?: () => void;
 }
+
+/** End talk at the room service: being said, said (or nothing to end), or refused. */
+type Ending = "ending" | "ended" | "refused";
 
 type Phase = "preflight" | "on-air" | "paused" | "ended";
 
@@ -430,10 +440,30 @@ function ConsoleView({
     setPhase("on-air");
   };
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [ending, setEnding] = useState<Ending>("ended");
+  // Stops End talk's retries when the console goes away.
+  const endAbort = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => endAbort.current?.abort(), []);
+  const sayEnded = () => {
+    const end = deps.endRoom ?? (deps.makeRoomService ? () => endRoomOnce(room, token ?? "local") : undefined);
+    if (!end) {
+      setEnding("ended");
+      deps.onEnded?.();
+      return;
+    }
+    endAbort.current?.abort();
+    const abort = (endAbort.current = new AbortController());
+    setEnding("ending");
+    // A lost message or a socket that is down is tried again until the room service answers.
+    void untilAnswered(end, { firstDelayMs: deps.endRetryMs, signal: abort.signal }).then((outcome) => {
+      if (abort.signal.aborted) return;
+      setEnding(outcome === "refused" ? "refused" : "ended");
+      deps.onEnded?.();
+    });
+  };
   const endTalk = () => {
-    // Said first, so the room service hears "ended" before it sees the broadcast go; never waited on.
-    const end = deps.endRoom ?? (deps.makeRoomService ? () => endRoom(room, token ?? "local") : undefined);
-    void end?.();
+    // Said first, so the room service hears "ended" before it sees the broadcast go.
+    sayEnded();
     publisher.pointerOff();
     publisher.stop();
     media?.close();
@@ -444,7 +474,7 @@ function ConsoleView({
     setPhase("ended");
   };
 
-  if (phase === "ended") return <Ended room={room} />;
+  if (phase === "ended") return <Ended room={room} ending={ending} retry={sayEnded} />;
 
   const current = slides[index];
   const next = deck && index + 1 < deck.count ? slides[index + 1] : undefined;
@@ -1097,7 +1127,7 @@ function DevicePicker({
   );
 }
 
-function Ended({ room }: { room: string }) {
+function Ended({ room, ending, retry }: { room: string; ending: Ending; retry: () => void }) {
   const url = watchUrl(room);
   return (
     <div className="console console-ended">
@@ -1111,9 +1141,19 @@ function Ended({ room }: { room: string }) {
           </h1>
         </div>
         <span role="status">
-          <Badge variant="neutral" label="Ended" />
+          {/* Until the room service acknowledges, viewers may still see "Paused". */}
+          <Badge variant="neutral" label={ending === "ending" ? "Ending…" : "Ended"} />
         </span>
       </header>
+      {ending === "refused" ? (
+        <Banner
+          status="warning"
+          title="The room service did not take the end of the talk"
+          description="Viewers may see the talk as paused. This link may not be the speaker's, or it expired."
+          role="alert"
+          endContent={<Button label="Try again" size="sm" variant="secondary" onClick={retry} />}
+        />
+      ) : null}
       <section className="panel ended-panel">
         <h2 className="panel-title">What is kept</h2>
         <ul>
