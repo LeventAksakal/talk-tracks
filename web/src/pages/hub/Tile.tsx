@@ -11,14 +11,23 @@ export const PRELOAD_WATCH = { onMouseEnter: preloadWatch, onFocus: preloadWatch
 export const watchHref = (room: string) => `/watch/${room}`;
 
 /** What the card's one main action says, by what it opens. */
-export function playLabel(item: HubItem): { short: string; name: string } {
-  if (item.kind === "recording") return { short: "Play", name: `Play the recording of ${item.title}` };
-  if (item.onAir === false)
-    return {
-      short: "Open",
-      name: item.kind === "live" ? `Open the live session of ${item.title}` : `Open ${item.title}`,
-    };
-  return { short: "Watch live", name: `Watch ${item.title} live` };
+export function playLabel(item: HubItem): string {
+  if (item.kind === "recording") return "Play";
+  if (item.onAir === false) return "Open";
+  return "Watch live";
+}
+
+/**
+ * A link's words: what it does, seen, then the talk's title for assistive tech only. The accessible name starts
+ * with the visible words (WCAG 2.5.3), so "Watch live" names it for voice control too.
+ */
+export function Named({ label, title }: { label: string; title: string }) {
+  return (
+    <>
+      {label}
+      <span className="sr-only">: {title}</span>
+    </>
+  );
 }
 
 /** The other version of a demo lecture, as a link. */
@@ -26,14 +35,9 @@ export function AlsoLink({ item, className }: { item: HubItem; className?: strin
   if (!item.also) return null;
   const toRecording = item.also.kind === "recording";
   return (
-    <Link
-      href={watchHref(item.also.room)}
-      className={className}
-      aria-label={toRecording ? `Play ${item.title} from the start` : `Watch the live session of ${item.title}`}
-      {...PRELOAD_WATCH}
-    >
+    <Link href={watchHref(item.also.room)} className={className} {...PRELOAD_WATCH}>
       {toRecording ? <RestartIcon /> : <LiveIcon />}
-      {toRecording ? "From the start" : "Live session"}
+      <Named label={toRecording ? "From the start" : "Live session"} title={item.title} />
     </Link>
   );
 }
@@ -99,9 +103,9 @@ export function Tile({ item }: { item: HubItem }) {
             </div>
           </dl>
           <div className="tile-actions">
-            <Link href={watchHref(item.room)} className="tile-play" aria-label={play.name} {...PRELOAD_WATCH}>
+            <Link href={watchHref(item.room)} className="tile-play" {...PRELOAD_WATCH}>
               <PlayIcon />
-              {play.short}
+              <Named label={play} title={item.title} />
             </Link>
             <AlsoLink item={item} className="tile-also" />
           </div>

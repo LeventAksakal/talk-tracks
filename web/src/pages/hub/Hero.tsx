@@ -3,7 +3,7 @@ import { Link } from "../../router";
 import { Art } from "./Art";
 import { PlayIcon } from "./icons";
 import type { HubItem } from "./items";
-import { AlsoLink, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
+import { AlsoLink, Named, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
 
 /** How long the hero shows one talk before the next, ms (not under reduced motion, nor while pointed at). */
 export const HERO_CYCLE_MS = 9_000;
@@ -79,14 +79,9 @@ export function Hero({ items, paused = false }: { items: HubItem[]; paused?: boo
           </p>
           {item.description ? <p className="hero-desc">{item.description}</p> : null}
           <div className="hero-actions">
-            <Link
-              href={watchHref(item.room)}
-              className="hub-btn hub-btn-play"
-              aria-label={play.name}
-              {...PRELOAD_WATCH}
-            >
+            <Link href={watchHref(item.room)} className="hub-btn hub-btn-play" {...PRELOAD_WATCH}>
               <PlayIcon />
-              {play.short}
+              <Named label={play} title={item.title} />
             </Link>
             <AlsoLink item={item} className="hub-btn hub-btn-glass" />
           </div>

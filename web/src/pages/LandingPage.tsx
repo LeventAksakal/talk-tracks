@@ -140,11 +140,14 @@ function JoinRoom() {
   };
   return (
     <form className="hub-join" onSubmit={join} aria-label="Join a room" role="search">
-      <label className="hub-join-field">
+      <div className="hub-join-field" onClick={() => input.current?.focus()}>
         <SearchIcon />
-        <span className="sr-only">Room name or link</span>
+        <label className="sr-only" htmlFor="hub-join-input">
+          Room name or link
+        </label>
         <input
           ref={input}
+          id="hub-join-input"
           name="room"
           value={text}
           placeholder="Join a room: name or link"
@@ -160,7 +163,7 @@ function JoinRoom() {
         <kbd className="hub-join-kbd" aria-hidden="true">
           Ctrl K
         </kbd>
-      </label>
+      </div>
       <button type="submit" className="hub-join-go">
         Join
       </button>
