@@ -13,6 +13,7 @@
 	handle /api/* {
 		@create path /api/rooms /api/rooms/
 		handle @create {
+			encode zstd gzip
 			reverse_proxy archive:8092
 		}
 		handle {
@@ -60,7 +61,14 @@
 		# Same origin for everything, so cross-origin isolation costs nothing and gives the player SharedArrayBuffer.
 		header Cross-Origin-Opener-Policy same-origin
 		header Cross-Origin-Embedder-Policy require-corp
-		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		# Vite hashes /assets/ names; fonts and brand files keep their names, so a changed one needs a new name.
+		# Everything else (index.html above all) is revalidated by ETag, so a redeploy shows at once.
+		@immutable path /assets/* /fonts/* /brand/*
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		@revalidate not path /assets/* /fonts/* /brand/*
+		header @revalidate Cache-Control no-cache
+		# Caddy compresses only text-like types by default (JS, CSS, HTML, JSON, SVG); woff2 and PNG stay as they are.
+		encode zstd gzip
 		root * /srv
 		try_files {path} /index.html
 		file_server

@@ -71,6 +71,15 @@ ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml --profile l
 `--profile live` matters: without it compose leaves the live agents (`captions`, `translate-tr`, `describe`,
 `chapters`) on the old image.
 
+If the release changes `deploy/Caddyfile`, restart Caddy after the `git pull`:
+`ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml restart caddy'`. The Caddyfile is a single-file
+bind mount, and `git pull` replaces the file rather than editing it in place, so the running container keeps reading
+the old one; `up -d` does not notice either, since the compose file did not change. Then check a header the change
+added, for example `curl -sI -H 'Accept-Encoding: zstd, gzip' https://$SITE/ | grep -i content-encoding`.
+
+Files under `/fonts/` and `/brand/` are cached for a year as immutable, like Vite's hashed `/assets/`, but their names
+carry no hash: a changed font or brand image needs a new file name, or returning visitors keep the old one.
+
 If the release changes the demo rooms, also re-sign `TT_LOOPER_TOKEN` (it must cover rooms `virus` and `dataviz`) and
 remove the old `talk-tracks-looper-1` container, as in [demo rooms](demo-rooms.md#the-two-public-rooms). Do this
 before the `up -d` above, or run `up -d looper-virus looper-dataviz` afterwards.
