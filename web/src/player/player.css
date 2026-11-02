@@ -317,6 +317,7 @@
 }
 .tt-marks,
 .tt-ink,
+.tt-laser-trail,
 .tt-laser {
   position: absolute;
   inset: 0;

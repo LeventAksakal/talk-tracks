@@ -3,6 +3,7 @@
 
 import { rangeBoxes } from "../annotate/geometry";
 import { HIGHLIGHT_ALPHA } from "../canvas/ink";
+import { drawLaserTrail, type LaserTrail } from "../canvas/laser";
 import type { PointerRecord, TextRange, TextRun } from "../contracts/types";
 import { laserColor } from "../theme/ink";
 
@@ -33,14 +34,33 @@ export function drawRange(
   ctx.restore();
 }
 
-export function drawLaser(ctx: CanvasRenderingContext2D, p: PointerRecord | undefined, w: number, h: number): void {
-  if (!p || p.data.kind !== "at") return;
-  const x = p.data.x * w;
-  const y = p.data.y * h;
+/**
+ * The laser's dot at `p`, and with `trail`, its fading trail behind it (canvas/laser.ts): the position is added to
+ * the trail at `now`. True while a trail is still fading, so the caller draws another frame.
+ */
+export function drawLaser(
+  ctx: CanvasRenderingContext2D,
+  p: PointerRecord | undefined,
+  w: number,
+  h: number,
+  trail?: LaserTrail,
+  now: number = performance.now(),
+): boolean {
+  const laser = laserColor();
+  const on = p?.data.kind === "at" ? p.data : undefined;
+  let fading = false;
+  if (trail) {
+    if (on) trail.add(on.x, on.y, now);
+    const points = trail.points(now);
+    drawLaserTrail(ctx, points, now, w, h, laser);
+    fading = points.length > 1 || (!on && points.length > 0);
+  }
+  if (!on) return fading;
+  const x = on.x * w;
+  const y = on.y * h;
   const r = Math.max(5, w * 0.007);
   ctx.save();
   const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
-  const laser = laserColor();
   glow.addColorStop(0, `color-mix(in srgb, ${laser} 55%, transparent)`);
   glow.addColorStop(1, `color-mix(in srgb, ${laser} 0%, transparent)`);
   ctx.fillStyle = glow;
@@ -52,6 +72,7 @@ export function drawLaser(ctx: CanvasRenderingContext2D, p: PointerRecord | unde
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+  return fading;
 }
 
 export { marksAt, strokesAt } from "../annotate/geometry";

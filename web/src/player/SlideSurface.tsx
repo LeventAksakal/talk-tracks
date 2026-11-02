@@ -1,5 +1,7 @@
 import { type CSSProperties, type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
+import { drawLaserTrail } from "../canvas/laser";
 import type { Region } from "../contracts/types";
+import { laserColor } from "../theme/ink";
 import { dirOf } from "../viewer/lang";
 import { AnnotateBar, AnnotateSurface, CommentMarks } from "./Annotate";
 import { usePlayer } from "./context";
@@ -189,12 +191,16 @@ function InkLayer({ slides }: { slides: SlideTracks }) {
 
 /**
  * The laser (decision 0020): one element the size of the slide, translated by the pointer's fractions on the
- * compositor (a percentage of its own size is a fraction of the slide), shown only while the laser is on.
+ * compositor (a percentage of its own size is a fraction of the slide), shown only while the laser is on. Behind it
+ * a canvas draws its fading trail from the pointer track at the frame's time (canvas/laser.ts), so a replay shows
+ * the trail the room saw; the canvas is redrawn only while a trail is showing.
  */
 function LaserPointer({ slides }: { slides: SlideTracks }) {
   const { clock } = usePlayer();
   const slideTime = useSlideTime();
   const el = useRef<HTMLDivElement>(null);
+  const trailCanvas = useRef<HTMLCanvasElement>(null);
+  useDevicePixels(trailCanvas);
   const time = useRef(slideTime);
   useEffect(() => {
     time.current = slideTime;
@@ -202,22 +208,37 @@ function LaserPointer({ slides }: { slides: SlideTracks }) {
   useEffect(() => {
     const d = el.current;
     if (!d) return;
+    const c = trailCanvas.current;
+    const ctx = c?.getContext("2d", { alpha: true });
+    const color = laserColor();
     let last = "";
+    let trailShown = false;
     const move = (t: number | undefined) => {
-      const p = slides.pointerAt(time.current(t));
+      const at = time.current(t);
+      const p = slides.pointerAt(at);
       const key = p ? `${p.x.toFixed(4)},${p.y.toFixed(4)}` : "off";
-      if (key === last) return;
-      last = key;
-      d.dataset.on = p ? "true" : "false";
-      if (p) d.style.transform = `translate(${p.x * 100}%, ${p.y * 100}%)`;
+      if (key !== last) {
+        last = key;
+        d.dataset.on = p ? "true" : "false";
+        if (p) d.style.transform = `translate(${p.x * 100}%, ${p.y * 100}%)`;
+      }
+      if (!c || !ctx) return;
+      const trail = slides.pointerTrail(at);
+      if (trail.length < 2 && !trailShown) return;
+      ctx.clearRect(0, 0, c.width, c.height);
+      trailShown = trail.length >= 2;
+      if (trailShown) drawLaserTrail(ctx, trail, at ?? trail.at(-1)!.t, c.width, c.height, color);
     };
     move(clock.now());
     return clock.subscribe(move);
   }, [slides, clock]);
   return (
-    <div ref={el} className="tt-laser" data-on="false" aria-hidden="true">
-      <span />
-    </div>
+    <>
+      <canvas ref={trailCanvas} className="tt-laser-trail" aria-hidden="true" />
+      <div ref={el} className="tt-laser" data-on="false" aria-hidden="true">
+        <span />
+      </div>
+    </>
   );
 }
 
