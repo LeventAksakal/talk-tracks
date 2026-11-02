@@ -3,7 +3,7 @@
 // look. The intent says what the frame should show, so a reviewer measures the frame against a claim, not taste.
 //
 // Cost guard (deployed site): subtitles and translations are picked only from what the room already lists as running
-// ("in this room"); a new language would wake a paid translation agent. Nothing here submits a valid Create talk
+// ("in this room"); a new language would wake a paid translation agent. Nothing here submits a valid Start a talk
 // form, and capture.mjs aborts any POST to /api/rooms on top of that.
 
 import { sleep } from "./util.mjs";
@@ -179,56 +179,62 @@ export const JOURNEYS = [
       const { page, go, shot, step } = j;
       await step("hub loads", async () => {
         await go("/");
-        await page
-          .getByText("Checking what is on air…")
-          .waitFor({ state: "detached", timeout: 12_000 })
-          .catch(() => {});
-        await shot("top", "hub: one way in (room name or link), Live now, demo lectures; first screen says what this is");
-        await shot("full", "hub full page: every section reachable, demo cards with live state and credit", { fullPage: true });
+        await page.getByRole("region", { name: "Live now" }).waitFor({ timeout: 12_000 });
+        await sleep(1500);
+        await shot("top", "hub: on-air hero, one way in (room name or link), Start a talk, Live now row");
+        await shot("full", "hub full page: Live now, Continue watching and Recordings rows of glass cards", { fullPage: true });
+      });
+      await step("card expands", async () => {
+        const card = page.getByRole("region", { name: "Live now" }).locator("article.tile-card").first();
+        await card.hover();
+        await sleep(900);
+        await shot("card-hover", "hub card on hover: extended view with description, speaker, languages, tracks and a play button");
+      });
+      await step("card by keyboard", async () => {
+        await page.mouse.move(0, 0);
+        await page.getByRole("region", { name: "Live now" }).getByRole("link").first().focus();
+        await sleep(600);
+        await shot("card-focus", "hub card by keyboard: the same extended view on focus, play button named with the talk");
       });
     },
   },
   {
     id: "create",
-    title: "Create talk and join errors (J5)",
+    title: "Start a talk and join errors (J5)",
     relay: false,
     async run(j) {
       const { page, go, shot, step } = j;
       await go("/");
-      const form = page.getByRole("form", { name: "Create talk" });
-      await step("form", async () => {
-        await form.scrollIntoViewIfNeeded();
-        await sleep(300);
-        await shot("form", "create talk: title, speaker, room name and access code, one primary button");
+      const form = page.getByRole("form", { name: "Start a talk" });
+      await step("modal", async () => {
+        await page.getByRole("button", { name: "Start a talk" }).click();
+        await form.waitFor({ timeout: 5_000 });
+        await sleep(400);
+        await shot("form", "Start a talk modal: title, speaker, room name and access code, one primary button");
       });
       await step("errors empty", async () => {
-        await form.getByRole("button", { name: "Create talk" }).click();
+        await form.getByRole("button", { name: "Start" }).click();
         await sleep(400);
-        await shot("errors-empty", "create talk + errors: each empty field says what it needs, at the field");
+        await shot("errors-empty", "Start a talk + errors: each empty field says what it needs, at the field");
       });
       await step("errors bad room", async () => {
         await form.getByLabel("Talk title").fill("QA harness check");
         await form.getByLabel("Speaker").fill("QA");
         await form.getByLabel("Room name").fill("x!");
-        await form.getByRole("button", { name: "Create talk" }).click();
+        await form.getByRole("button", { name: "Start" }).click();
         await sleep(400);
-        await shot("errors-room", "create talk + errors: a bad room name and a missing code are refused before any request");
+        await shot("errors-room", "Start a talk + errors: a bad room name and a missing code are refused before any request");
+      });
+      await step("modal closes", async () => {
+        await page.keyboard.press("Escape");
+        await form.waitFor({ state: "detached", timeout: 5_000 });
       });
       await step("join error", async () => {
-        await page.evaluate(() => window.scrollTo(0, 0));
-        const join = page.getByRole("form", { name: "Join a room" });
+        const join = page.getByRole("search", { name: "Join a room" });
         await join.getByLabel("Room name or link").fill("!");
         await join.getByRole("button", { name: "Join" }).click();
         await sleep(400);
-        await shot("join-error", "join + error: a bad room name says what a room name looks like");
-      });
-      await step("speaker link error", async () => {
-        const paste = page.getByRole("form", { name: "Open a speaker link" });
-        await paste.getByLabel("Paste your speaker link").fill("not a link");
-        await paste.getByRole("button", { name: "Open speaker link" }).click();
-        await sleep(400);
-        await paste.scrollIntoViewIfNeeded();
-        await shot("speaker-link-error", "paste speaker link + error: says what a speaker link looks like");
+        await shot("join-error", "join + error: a bad room name says what a room name or link looks like");
       });
     },
   },
