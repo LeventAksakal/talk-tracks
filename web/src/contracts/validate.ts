@@ -64,6 +64,42 @@ const roomCatalogValidator = lazy<RoomCatalog>(roomCatalogSchema);
 const slideFrameValidator = lazy<SlideFrame>(slideFrameSchema);
 const legacyValidator = lazy<LegacyEnvelope>(legacyEnvelopeSchema);
 
+/** In the order a watch page first needs them: the room catalog and state, then the tracks a viewer sees first. */
+const WARM_ORDER: (() => unknown)[] = [
+  roomCatalogValidator,
+  roomStateObjectValidator,
+  deckObjectValidator,
+  currentSlideObjectValidator,
+  cueObjectValidator,
+  outlineObjectValidator,
+  slideObjectValidator,
+  inkObjectValidator,
+  pointerObjectValidator,
+  chatObjectValidator,
+  roomStatsValidator,
+  marksObjectValidator,
+  commentsObjectValidator,
+  slideFrameValidator,
+];
+
+/**
+ * Compile the validators ahead of their first use, one per idle moment (about 15 ms each), so the room's first
+ * objects, which arrive together, do not compile five or six of them in one long task (QA 2026-11-02: an 814 ms task
+ * on the watch page's load). Where the browser has no idle callbacks it does nothing; first use still compiles.
+ */
+export function prewarmValidators(): () => void {
+  const idle = globalThis.requestIdleCallback;
+  if (typeof idle !== "function") return () => {};
+  let i = 0;
+  let handle = 0;
+  const step = () => {
+    WARM_ORDER[i++]?.();
+    if (i < WARM_ORDER.length) handle = idle(step, { timeout: 3_000 });
+  };
+  handle = idle(step, { timeout: 3_000 });
+  return () => globalThis.cancelIdleCallback?.(handle);
+}
+
 // The agents check these too (pydantic model validators); JSON Schema cannot express them.
 function timelineConsistent(records: (CueObject | SlideObject)[number][]): string | null {
   for (const [i, r] of records.entries()) {

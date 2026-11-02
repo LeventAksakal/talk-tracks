@@ -20,7 +20,6 @@
     "@moq/watch": "0.6.6",
     "@stylexjs/stylex": "0.19.1",
     "ajv": "8.20.0",
-    "hls-video-element": "1.5.11",
     "hls.js": "1.7.3",
     "media-chrome": "4.19.3",
     "pdfjs-dist": "6.4.299",

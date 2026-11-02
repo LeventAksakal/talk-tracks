@@ -42,7 +42,6 @@ declare module "react" {
       "media-chrome-menu-item": Tag;
       "media-tooltip": Tag;
       "tt-room-media": Tag;
-      "hls-video": Tag;
     }
   }
 }

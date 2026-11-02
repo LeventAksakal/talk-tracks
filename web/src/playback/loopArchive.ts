@@ -27,14 +27,26 @@ export interface LoopInfo {
   durationMs: number;
 }
 
-/** The loop of a teacher hang catalog (parsed JSON), or undefined when the room does not loop. */
+/**
+ * The loop of a teacher hang catalog (parsed JSON), or undefined when the room plays no recording. A demo session
+ * (decision 0032: `talk_tracks: {session, duration_ms, session_ms}`, no `period_ms`) plays the lecture once: its
+ * period is infinite, so session time t is lecture time t, with no modulo.
+ */
 export function loopOf(catalog: unknown): { clock: HangClock; periodMs: number; durationMs: number } | undefined {
   const clock = hangClockOf(catalog);
   const tt = (catalog as { talk_tracks?: unknown } | undefined)?.talk_tracks;
   if (!clock || !tt || typeof tt !== "object") return undefined;
-  const { period_ms: period, duration_ms: duration } = tt as { period_ms?: unknown; duration_ms?: unknown };
-  if (typeof period !== "number" || !Number.isFinite(period) || period <= 0) return undefined;
-  const durationMs = typeof duration === "number" && duration > 0 ? Math.min(duration, period) : period;
+  const {
+    period_ms: period,
+    duration_ms: duration,
+    session,
+  } = tt as { period_ms?: unknown; duration_ms?: unknown; session?: unknown };
+  const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+  if (!positive(period)) {
+    if (session === undefined || !positive(duration)) return undefined;
+    return { clock, periodMs: Infinity, durationMs: duration };
+  }
+  const durationMs = positive(duration) ? Math.min(duration, period) : period;
   return { clock, periodMs: period, durationMs };
 }
 
@@ -46,13 +58,14 @@ export function loopInfo(loop: NonNullable<ReturnType<typeof loopOf>>, shiftMs =
 /** Where wall time `wallMs` falls: the loop, and the file time in it (ms, may lie in the silent tail). */
 export function loopPlace(info: LoopInfo, wallMs: number): { loop: number; fileMs: number } {
   const media = Math.max(0, wallMs - info.wallZeroMs);
+  if (!Number.isFinite(info.periodMs)) return { loop: 0, fileMs: media }; // a session: time t is lecture time t
   const loop = Math.floor(media / info.periodMs);
   return { loop, fileMs: media - loop * info.periodMs };
 }
 
 /** Wall time of file time `fileMs` in loop `loop`. */
 export function loopWall(info: LoopInfo, loop: number, fileMs: number): number {
-  return info.wallZeroMs + loop * info.periodMs + fileMs;
+  return info.wallZeroMs + (loop > 0 ? loop * info.periodMs : 0) + fileMs;
 }
 
 /**
@@ -167,6 +180,8 @@ export class LoopPlayback implements ArchivePlayback {
     this.#wantPlay = wasPlaying;
     if (!this.element.paused) this.element.pause();
     this.#tail = { fileMs, at: this.#now() };
+    // A demo session plays the lecture once: its tail runs to the session's end, no next loop.
+    if (!Number.isFinite(this.#info.periodMs)) return;
     this.#tailTimer = setTimeout(
       () => {
         this.#leaveTail();

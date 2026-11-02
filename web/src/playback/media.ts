@@ -449,8 +449,9 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   onAir(): boolean | undefined {
     const now = this.#toRoom(this.#now());
     if (this.#live && this.#lastLive && now !== undefined) return sliceOf(this.#lastLive.room) >= sliceOf(now);
-    // A looper repeats the teacher catalog every 2 s while it plays.
-    if (this.#loop) return this.#now() - this.#loop.seen < STATUS_FRESH_MS;
+    // A looper repeats the teacher catalog every 2 s while it plays. A demo session need not: its live media and the
+    // room track say whether it is on air.
+    if (this.#loop && !this.#session) return this.#now() - this.#loop.seen < STATUS_FRESH_MS;
     return this.#playlist ? !this.#playlist.ended : undefined;
   }
 

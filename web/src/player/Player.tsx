@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Loading } from "../brand/states";
+import { prewarmValidators } from "../contracts/validate";
 import { RoomMedia } from "../playback/media";
 import type { Playback } from "../playback/playback";
 import { useRoomStatus } from "../playback/roomStatus";
@@ -117,6 +118,8 @@ export function Player(props: PlayerProps) {
   const root = useRef<HTMLDivElement>(null);
   const controller = useRef<HTMLElement>(null);
   const [el, setEl] = useState<RoomMediaElement | null>(null);
+  // Compile the track validators in idle moments before the room's first objects need them.
+  useEffect(() => prewarmValidators(), []);
   const [fullscreen, setFullscreen] = useState(false);
   const [everConnected, setEverConnected] = useState(false);
   const [announcement, setAnnouncement] = useState("");

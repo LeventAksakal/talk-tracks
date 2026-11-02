@@ -46,7 +46,7 @@ export interface SessionSource {
 }
 
 /** How long the end card stays before the new session is joined, ms. */
-export const END_CARD_MS = 5_000;
+export const END_CARD_MS = 2_000;
 
 /**
  * Watch a playback's sessions: the first E and session id seen are this playback's; either one changing later means
