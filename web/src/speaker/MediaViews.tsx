@@ -55,15 +55,37 @@ export function LevelMeter({ level, label }: { level: number; label: string }) {
   );
 }
 
-/** The camera as the speaker sees themself (mirrored, like a mirror; viewers see it unmirrored). */
-export function SelfView({ track, className }: { track: MediaStreamTrack | undefined; className?: string }) {
+function useTrackVideo(track: MediaStreamTrack | undefined) {
   const video = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const v = video.current;
     if (!v) return;
-    v.srcObject = track ? new MediaStream([track]) : null;
-    if (track) void v.play().catch(() => undefined);
+    // jsdom has no MediaStream: the preview stays empty there.
+    v.srcObject = track && typeof MediaStream !== "undefined" ? new MediaStream([track]) : null;
+    if (track) void v.play?.()?.catch(() => undefined);
   }, [track]);
+  return video;
+}
+
+/** The camera as the speaker sees themself (mirrored, like a mirror; viewers see it unmirrored). */
+export function SelfView({ track, className }: { track: MediaStreamTrack | undefined; className?: string }) {
+  const video = useTrackVideo(track);
   if (!track) return null;
   return <video ref={video} className={className ?? "self-view"} muted playsInline autoPlay aria-label="Your camera" />;
+}
+
+/** The shared screen as viewers get it (not mirrored). */
+export function ScreenPreview({ track, className }: { track: MediaStreamTrack | undefined; className?: string }) {
+  const video = useTrackVideo(track);
+  if (!track) return null;
+  return (
+    <video
+      ref={video}
+      className={className ?? "screen-view"}
+      muted
+      playsInline
+      autoPlay
+      aria-label="Your shared screen"
+    />
+  );
 }

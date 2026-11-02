@@ -25,7 +25,7 @@ import { endRoom } from "./endRoom";
 import { Invite, watchUrl } from "./Invite";
 import { type Tool, isShapeTool, keyAction } from "./keys";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
-import { LevelMeter, SelfView, useLevel } from "./MediaViews";
+import { LevelMeter, ScreenPreview, SelfView, useLevel } from "./MediaViews";
 import { useNotes } from "./notes";
 import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
@@ -568,7 +568,10 @@ function ConsoleView({
             </span>
           </div>
           <div className="stage-wrap" onPointerDownCapture={() => setOptionsOpen(false)}>
-            {deck ? (
+            {snap?.screenTrack ? (
+              // While a screen is shared, viewers see it in place of the slides (the camera stays in the corner).
+              <ScreenPreview track={snap.screenTrack} className="stage stage-screen" />
+            ) : deck ? (
               <Stage
                 publisher={publisher}
                 slide={current}
@@ -961,6 +964,7 @@ function Sources(props: {
           />
           {snap?.cameraError ? <p className="alert small">{snap.cameraError}</p> : null}
         </Check>
+        <ScreenCheck media={media} snap={snap} />
         <Check
           state={props.deckError ? "bad" : deck ? (props.rendered >= deck.count ? "ok" : "wait") : "off"}
           title="Slides"
@@ -1023,6 +1027,44 @@ function Sources(props: {
         />
       </label>
     </section>
+  );
+}
+
+/** Share a screen, window or tab, optionally with its sound; stop it here or from the browser's own bar. */
+function ScreenCheck({ media, snap }: { media: SpeakerMedia | undefined; snap: MediaSnapshot | undefined }) {
+  const [withAudio, setWithAudio] = useState(false);
+  const sharing = !!snap?.screenTrack;
+  const canShare = !!media?.shareScreen;
+  return (
+    <Check state={snap?.screenError ? "bad" : sharing ? "ok" : snap?.screenStarting ? "wait" : "off"} title="Screen">
+      <div className="row">
+        {sharing ? (
+          <Button label="Stop sharing" size="sm" variant="secondary" onClick={() => media?.stopScreen?.()} />
+        ) : (
+          <Button
+            label="Share screen"
+            size="sm"
+            variant="secondary"
+            isDisabled={!canShare || snap?.screenStarting}
+            onClick={() => void media?.shareScreen?.(withAudio)}
+          />
+        )}
+        <Switch
+          label="With its sound"
+          value={withAudio}
+          isDisabled={!canShare || sharing || snap?.screenStarting}
+          onChange={setWithAudio}
+        />
+      </div>
+      <p className="muted small">
+        {snap?.screenError ??
+          (sharing
+            ? `Viewers see your screen in place of the slides${snap?.screenAudio ? ", and hear its sound" : ""}.`
+            : snap?.screenStarting
+              ? "Pick what to share in your browser's window."
+              : "Optional: a demo or code. Its sound goes out only with a tab, or a whole screen on Windows.")}
+      </p>
+    </Check>
   );
 }
 

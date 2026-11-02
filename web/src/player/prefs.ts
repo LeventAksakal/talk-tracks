@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 export type LayoutKind = "single" | "split" | "pip";
-export type SourceKind = "camera" | "slides";
+/** A picture on the stage. A shared screen takes the slides' place while it is shared (Stage.stageSources). */
+export type SourceKind = "camera" | "slides" | "screen";
 export type SubtitlePreset = "default" | "large" | "contrast" | "light";
 export type PanelTab = "transcript" | "chapters" | "glossary" | "descriptions" | "notes" | (string & {});
 /** What you hear: the speaker, or the speaker with each new slide's description read aloud. */

@@ -4,6 +4,7 @@ import type { Playback } from "../playback/playback";
 import { useRoomStatus } from "../playback/roomStatus";
 import { formatClock } from "../playback/timeline";
 import { usePlaybackView } from "../playback/usePlayback";
+import { useResource } from "../useResource";
 import { Link } from "../router";
 import type { Transport } from "../transport/types";
 import type { RoomService, ServiceStatus } from "../annotate/client";
@@ -17,6 +18,7 @@ import { useNotes } from "./notes";
 import "./player.css";
 import { type PanelTab, type SourceKind, usePrefs } from "./prefs";
 import { ProgressBar } from "./ProgressBar";
+import { ScreenMedia } from "./screenMedia";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SidePanel } from "./SidePanel";
 import type { SlideTracks } from "./slideTracks";
@@ -123,15 +125,21 @@ export function Player(props: PlayerProps) {
   if (status?.status === "connected" && !everConnected) setEverConnected(true);
 
   const tracks = useMemo(() => roomTracks(view?.tracks.tracks ?? []), [view?.tracks.tracks]);
+  // The shared screen: live from the teacher's catalog, rewound from the archive's screen playlist.
+  const screen = useResource(
+    () => (media ? new ScreenMedia(transport, room, media) : undefined),
+    [media, transport, room],
+  );
   const sources = useMemo<SourceKind[]>(() => {
     if (props.sources) return props.sources;
     const listed = media?.catalog()?.tt.sources?.map((s) => s.kind);
     const out: SourceKind[] = [];
     if (!listed || listed.includes("camera") || listed.includes("audio")) out.push("camera");
     if (listed?.includes("slides") || status?.slidesLive) out.push("slides");
+    if (screen?.shown()) out.push("screen");
     return out;
     // The catalog arrives with media changes, which re-render through the view.
-  }, [props.sources, media, status?.slidesLive, view]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [props.sources, media, screen, status?.slidesLive, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // What is picked and open decides what is subscribed (decisions 0010, 0026), and a track let go lingers 30 s.
   // The slides count as on while the layout shows them; the audience's ink and marks while the listener shows
@@ -321,6 +329,7 @@ export function Player(props: PlayerProps) {
           view,
           media,
           transport,
+          screen,
           roomName: room,
           title,
           tracks,

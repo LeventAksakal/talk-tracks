@@ -940,6 +940,7 @@ def teacher_path(room: str) -> str:
 
 
 HANG_CATALOG_TRACK = "catalog.json"  # names the media tracks of teacher_path(room)
+SCREEN_TRACK = "screen"  # the shared screen's video rendition in teacher_path(room), only while shared
 
 
 def slides_path(room: str) -> str:

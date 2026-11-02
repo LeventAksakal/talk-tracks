@@ -27,7 +27,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ..contracts import ROOT, SlideFrame, slides_path, teacher_path
+from ..contracts import ROOT, SCREEN_TRACK, SlideFrame, slides_path, teacher_path
 from ..lecture import AUDIO_TRACK, CATALOG_TRACK
 from ..moq import AUDIO_IDLE_S, Relay, TrackWriter
 from ..room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
@@ -176,9 +176,14 @@ class Archiver:
         cat, archived = room.catalog, self.archive.room(name)
         cat.epoch_ms, cat.shift = archived.epoch_ms, archived.shift
         cat.event_tracks = room.events.catalog_tracks()
-        kinds = {config.kind for config in archived.teacher.catalog.values()} if archived.live else set[str]()
+        media = archived.teacher.catalog if archived.live else {}
+        kinds = {config.kind for track, config in media.items() if track != SCREEN_TRACK}
         cat.sources = speaker_sources(
-            name, audio="audio" in kinds, camera="video" in kinds, slides=room.events.slides_on_air()
+            name,
+            audio="audio" in kinds,
+            camera="video" in kinds,
+            slides=room.events.slides_on_air(),
+            screen=SCREEN_TRACK in media,
         )
         data = cat.changed()
         now = time.monotonic()

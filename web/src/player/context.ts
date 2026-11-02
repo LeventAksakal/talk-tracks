@@ -9,6 +9,7 @@ import type { FrameClock } from "./frameClock";
 import type { Listening } from "./listening";
 import type { NotesApi } from "./notes";
 import type { PanelTab, Prefs, SourceKind } from "./prefs";
+import type { ScreenMedia } from "./screenMedia";
 import type { SlideTracks } from "./slideTracks";
 import type { PlayerState } from "./state";
 import type { RoomTracks } from "./tracks";
@@ -54,6 +55,8 @@ export interface PlayerCtx {
   /** RoomMedia when the room has real speaker media; undefined in the offline demo. */
   media: RoomMedia | undefined;
   transport: Transport | undefined;
+  /** The speaker's shared screen, live and rewound; undefined in the offline demo. */
+  screen?: ScreenMedia | undefined;
   roomName: string;
   title: string;
   tracks: RoomTracks;
@@ -64,6 +67,7 @@ export interface PlayerCtx {
   state: PlayerState;
   clock: FrameClock;
   notes: NotesApi;
+  /** What the speaker sends at the frame shown (camera, slides, a shared screen); Stage lays out stageSources(sources). */
   sources: SourceKind[];
   /** The speaker's slide tracks, the audience's annotations and the room's state; undefined with no relay. */
   slides: SlideTracks | undefined;

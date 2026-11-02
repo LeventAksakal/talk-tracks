@@ -72,6 +72,9 @@ function fakeMedia(): SpeakerMedia & { closed: boolean } {
     chooseCamera: () => undefined,
     goOnAir: () => set({ onAir: true }),
     goOffAir: () => set({ onAir: false }),
+    shareScreen: async (withAudio) =>
+      set({ screenTrack: { kind: "video" } as MediaStreamTrack, screenAudio: withAudio }),
+    stopScreen: () => set({ screenTrack: undefined, screenAudio: false }),
     close() {
       this.closed = true;
     },
@@ -234,6 +237,23 @@ describe("the speaker console", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Resume" })));
     expect(media.snapshot().onAir).toBe(true);
     expect(screen.getByRole("button", { name: "End talk" })).toBeTruthy();
+  });
+
+  it("shares a screen with its sound in place of the slides, and stops sharing", async () => {
+    const media = fakeMedia();
+    setup({ createMedia: async () => media });
+    await loadDeck();
+    const share = await screen.findByRole("button", { name: "Share screen" });
+    await waitFor(() => expect(share.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("switch", { name: "With its sound" }));
+    await act(async () => fireEvent.click(share));
+    expect(media.snapshot()).toMatchObject({ screenAudio: true });
+    expect(screen.getByLabelText("Your shared screen")).toBeTruthy(); // what viewers see now
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Stop sharing" })));
+    expect(media.snapshot().screenTrack).toBeUndefined();
+    expect(screen.queryByLabelText("Your shared screen")).toBeNull();
+    expect(screen.getByTestId("stage")).toBeTruthy(); // the slides are back
   });
 
   it("shows the invitation with the room's watch link", () => {

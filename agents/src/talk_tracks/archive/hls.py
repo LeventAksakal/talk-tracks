@@ -4,7 +4,9 @@ Per room, beside ``room.json``:
 
 * ``index.m3u8``: the multivariant playlist, video with the speaker's audio as its own rendition (an audio group), or
   audio alone;
-* ``video.m3u8`` and ``audio.m3u8``: every run's segments in room time, one rendition of each kind per run.
+* ``video.m3u8`` and ``audio.m3u8``: every run's segments in room time, one rendition of each kind per run;
+* ``screen.m3u8``: the shared screen's segments (the teacher's ``screen`` rendition), only where the speaker shared it;
+  the player plays it beside the camera, never in ``index.m3u8``.
 
 Every segment carries ``EXT-X-PROGRAM-DATE-TIME`` = E + room time (the broadcast's shift included), so a player maps
 its playhead to room time by subtracting E. Each new teacher broadcast starts with ``EXT-X-DISCONTINUITY`` and its own
@@ -19,6 +21,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
+from ..contracts import SCREEN_TRACK
+
 if TYPE_CHECKING:
     from .store import RunIndex, SegmentEntry, TrackEntry
 
@@ -26,16 +30,20 @@ GAP_MIN_MS = 1_000
 HOLE_GAP_MAX_MS = 600_000
 GAP_STEP_MS = 4_000
 MIN_TARGET_S = 6
-INDEX, AUDIO, VIDEO = "index.m3u8", "audio.m3u8", "video.m3u8"
+INDEX, AUDIO, VIDEO, SCREEN = "index.m3u8", "audio.m3u8", "video.m3u8", "screen.m3u8"
+Kind = Literal["audio", "video", "screen"]
 
 
 def pdt(wall_ms: int) -> str:
     return datetime.fromtimestamp(wall_ms / 1000, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def pick(run: RunIndex, kind: Literal["audio", "video"]) -> TrackEntry | None:
-    """The run's rendition of ``kind``: the largest video, the audio track named ``audio`` first."""
-    found = [t for t in run.tracks if t.kind == kind and t.segments]
+def pick(run: RunIndex, kind: Kind) -> TrackEntry | None:
+    """The run's rendition of ``kind``: the largest camera video (never the shared screen), the audio track named
+    ``audio`` first, the ``screen`` video."""
+    if kind == "screen":
+        return next((t for t in run.tracks if t.kind == "video" and t.track == SCREEN_TRACK and t.segments), None)
+    found = [t for t in run.tracks if t.kind == kind and t.track != SCREEN_TRACK and t.segments]
     if not found:
         return None
     if kind == "video":
@@ -47,9 +55,7 @@ def _seconds(ms: int) -> str:
     return f"{ms / 1000:.3f}"
 
 
-def media_playlist(
-    epoch_ms: int, runs: Sequence[RunIndex], kind: Literal["audio", "video"], *, live: bool
-) -> str | None:
+def media_playlist(epoch_ms: int, runs: Sequence[RunIndex], kind: Kind, *, live: bool) -> str | None:
     chosen = [(run, track) for run in runs if (track := pick(run, kind)) is not None]
     if not chosen:
         return None
@@ -100,7 +106,7 @@ def _gap(epoch_ms: int, prev: tuple[int, str], segment: SegmentEntry) -> list[st
     return lines
 
 
-def _peak_bps(runs: Sequence[RunIndex], kind: Literal["audio", "video"]) -> int:
+def _peak_bps(runs: Sequence[RunIndex], kind: Kind) -> int:
     peak = 0
     for run in runs:
         track = pick(run, kind)
@@ -140,5 +146,6 @@ def playlists(epoch_ms: int, runs: Sequence[RunIndex], *, live: bool) -> dict[st
         INDEX: master_playlist(runs),
         AUDIO: media_playlist(epoch_ms, runs, "audio", live=live),
         VIDEO: media_playlist(epoch_ms, runs, "video", live=live),
+        SCREEN: media_playlist(epoch_ms, runs, "screen", live=live),
     }
     return {name: text for name, text in files.items() if text is not None}
