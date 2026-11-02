@@ -69,6 +69,11 @@ export interface PlayerCtx {
   notes: NotesApi;
   /** What the speaker sends at the frame shown (camera, slides, a shared screen); Stage lays out stageSources(sources). */
   sources: SourceKind[];
+  /**
+   * The room has not said yet what it sends: the stage draws no picture until it has, so the camera never opens full
+   * size and then jumps to its corner once the slides turn up (a layout shift).
+   */
+  sourcesPending: boolean;
   /** The speaker's slide tracks, the audience's annotations and the room's state; undefined with no relay. */
   slides: SlideTracks | undefined;
   /** The slides are on screen in the current layout, so their tracks are subscribed (decision 0010). */

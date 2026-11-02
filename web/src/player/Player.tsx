@@ -63,6 +63,9 @@ const zero = () => 0;
 /** A connected relay that shows nothing of a room for this long means there is no such room. */
 const UNKNOWN_AFTER_MS = 6_000;
 
+/** A connected relay has announced the room's slides by now, if it has any (the first announcements come at once). */
+const SOURCES_WAIT_MS = 1_500;
+
 /** Controls hide after this long without the pointer moving, in full screen while playing. */
 const IDLE_MS = 3_000;
 
@@ -142,6 +145,16 @@ export function Player(props: PlayerProps) {
     return out;
     // The catalog arrives with media changes, which re-render through the view.
   }, [props.sources, media, screen, status?.slidesLive, view]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What the room sends is known from the page, the room catalog's sources or the slides' announcement; a room that
+  // says nothing (a looped room's catalog lists no sources, and a room with no slides announces none) is taken as it
+  // is shortly after the relay connects.
+  const sourcesTold =
+    props.sources !== undefined ||
+    media === undefined ||
+    media.catalog()?.tt.sources !== undefined ||
+    status?.slidesLive === true;
+  const sourcesWaited = useHeldFor(status?.status === "connected", SOURCES_WAIT_MS);
+  const sourcesPending = !sourcesTold && !sourcesWaited;
 
   // What is picked and open decides what is subscribed (decisions 0010, 0026), and a track let go lingers 30 s.
   // The slides count as on while the layout shows them; the audience's ink and marks while the listener shows
@@ -257,18 +270,19 @@ export function Player(props: PlayerProps) {
   // Seen on air here, an end reads "Talk ended"; opened after it, "Recorded session".
   const [sawLive, setSawLive] = useState(false);
   if (!sawLive && (roomNow === "on_air" || (roomNow === undefined && onAir === true))) setSawLive(true);
-  // Nothing of the room on a connected relay for a while: no speaker, slides, agents, room catalog, room state or
-  // archive. A room created but not started has its catalog from the room service, so it reads "Not started".
+  // Nothing of the room on a connected relay for a while: no speaker broadcast or slides, no room catalog, room state
+  // or archive. A room created but not started has its `waiting` record from the room service, so it reads "Not
+  // started". Agents announcing are not the room (they can answer for any name).
   const nothing =
     status?.status === "connected" &&
     !status.teacherLive &&
     !status.slidesLive &&
-    status.agents.length === 0 &&
     roomNow === undefined &&
     info === undefined &&
     media?.catalog() === undefined &&
     timeline?.liveEdge === undefined;
   const unknown = useHeldFor(nothing, UNKNOWN_AFTER_MS);
+  const known = unknown ? false : status?.status === "connected" && !nothing ? true : undefined;
   const real = {
     connection: status?.status,
     everConnected: everConnected || status?.status === "connected",
@@ -283,7 +297,7 @@ export function Player(props: PlayerProps) {
     roomAt: timeline?.mode === "rewound" ? slides?.roomAt(timeline.position) : undefined,
     sawLive,
     looped: props.looped,
-    known: !unknown,
+    known,
     roomName: room,
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
@@ -343,6 +357,7 @@ export function Player(props: PlayerProps) {
           clock,
           notes,
           sources,
+          sourcesPending,
           slides,
           slidesShown,
           audienceShown,
@@ -365,13 +380,17 @@ export function Player(props: PlayerProps) {
 
   useShortcuts(ctx, toggleFullscreen);
 
-  if (!ctx) return <ChalkyLoading className="tt-loading">Connecting…</ChalkyLoading>;
+  if (!ctx)
+    return (
+      <main id="main">
+        <ChalkyLoading className="tt-loading">Connecting…</ChalkyLoading>
+      </main>
+    );
 
   return (
     <PlayerContext.Provider value={ctx}>
       <div
         ref={root}
-        id="main"
         className={`tt-player${prefs.panel ? " tt-with-panel" : ""}${fullscreen ? " tt-fullscreen" : ""}${
           idle && !ui.menu ? " tt-idle" : ""
         }`}
@@ -386,7 +405,8 @@ export function Player(props: PlayerProps) {
             <span className="tt-credit">{[speaker, props.credit].filter(Boolean).join(" · ")}</span>
           ) : null}
           <span className="tt-notices">
-            {serviceDown ? (
+            {/* The room service has no such room either: the unknown-room card says so, not an outage. */}
+            {serviceDown && state.kind !== "unknown" && state.kind !== "connecting" ? (
               <span className="tt-notice tt-notice-degraded" role="status" title={toolsOff}>
                 Room service unreachable
               </span>
@@ -394,14 +414,15 @@ export function Player(props: PlayerProps) {
             {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
           </span>
         </header>
-        <div className="tt-main">
+        {/* The skip link's target: the talk itself, its canvas and controls (the title bar and the side panel beside). */}
+        <main className="tt-main" id="main" tabIndex={-1}>
           <Stage />
           <LanguageOffer />
           <div className="tt-chrome">
             <ProgressBar />
             <ControlBar fullscreen={fullscreen} onFullscreen={toggleFullscreen} />
           </div>
-        </div>
+        </main>
         {prefs.panel ? <SidePanel /> : null}
         {ui.shortcuts ? <ShortcutsDialog onClose={() => setUi({ shortcuts: false })} /> : null}
         <div className="sr-only" aria-live="polite">

@@ -47,7 +47,10 @@ export interface PlayerStateInput {
   sawLive?: boolean;
   /** A recorded talk looped as if live (a demo room). */
   looped?: boolean;
-  /** False once the relay has had time to show the room and nothing of it exists: no such room. */
+  /**
+   * Whether the room exists: false once a connected relay has shown nothing of it for a while (no such room), true
+   * once something of it shows (the speaker's broadcast, its room track, its catalog), undefined while still looking.
+   */
   known?: boolean;
   /** The room name, for the unknown-room card. */
   roomName?: string;
@@ -171,7 +174,17 @@ export function playerState(input: PlayerStateInput): PlayerState {
       canGoLive: false,
       card: { title: "Paused by the speaker", body: "The talk carries on when the speaker comes back.", dim: true },
     };
-  if (input.room === "waiting" || (input.room === undefined && input.onAir !== true && input.liveEdge === undefined))
+  // Silence (no room record and no media) is not a talk about to start: it is a room still being looked for, and in
+  // the end no room at all (above). Only the room service's `waiting` record, published once the room is created,
+  // says Not started.
+  if (input.room === undefined && input.onAir !== true && input.liveEdge === undefined)
+    return {
+      kind: "connecting",
+      pill: "Looking…",
+      canGoLive: false,
+      card: { title: "Looking for the room…", body: "" },
+    };
+  if (input.room === "waiting")
     return {
       kind: "not-started",
       pill: "Not started",
