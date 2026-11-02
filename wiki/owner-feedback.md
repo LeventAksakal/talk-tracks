@@ -1,0 +1,19 @@
+# Owner feedback ledger
+
+Every issue the owner raises in chat, in their words, with a measurable target, its status and how to check it.
+"Shipped, not measured" is a status, not done. Sessions read this before asking the owner anything.
+
+## 2026-11-02, on the freeze build (d8175cf)
+
+| Issue | Owner's words | Target | Status | How to check | Where |
+|---|---|---|---|---|---|
+| Live translation looks fake (demo rooms) | "translation feels faked for live content" | With `TT_DEMO_LIVE_AGENTS` on, every live AI track comes from a running agent; off, recorded tracks go out at their real delay, never with or before the speech | open | VM: spend ledger shows live calls per room; a translated cue appears ≥ the agent's recorded delay after its caption | [0032](decisions/0032-each-demo-lecture-has-a-recording-and-a-live-session.md), lane demo-sessions |
+| Caption breaks land mid-phrase | "transcript sentencing feels off like cut in arbitrary positions" | Cues end on a sentence end or clause mark; none ends mid-phrase to meet a length | open | Resegment test over the four demo recordings: 0 cues ending without punctuation unless over 7 s | 0032, lane demo-sessions |
+| Player lacks the basics | "click to pause play; double click to full screen etc." | Click toggles play, double-click toggles fullscreen, Space/K/J/L/F/M/C keys, speed and quality menus | open | QA harness steps per browser | [0031](decisions/0031-the-player-is-built-on-media-chrome.md), lane player |
+| Toolbar buttons unlabeled and placed at random; settings has no settings | "right toolbar buttons have no aria ... there is a setting icon an don setting ot configure the quality rate or speed" | Every button has an accessible name; controls grouped as in a standard player; settings opens speed, quality, subtitle style | open | Lighthouse accessibility 100 on watch; axe 0 unnamed buttons | 0031, lane player |
+| Use an existing open-source player | "wasnt there already finished open source players for web?" | Player built on Media Chrome | open | `media-chrome` in web/package.json; our player controls removed | 0031, lane player |
+| Replace the loop with recording + live session | "strip loopback instead have VOD + live version of each stuff. live one after end stops then starts from 00:00 again" | Each demo lecture has a seekable recording and a live session that ends and restarts from 00:00 | open | VM: the live session's clock reads 00:00 after its end card; the recording plays the whole lecture | 0032, lane demo-sessions |
+| Side drawer has no intent | "everything is chucked into the right drawer without intent and care" | Each panel has one job; no panel without a viewer need | open | Owner's human QA (Tue evening) | [0033](decisions/0033-the-look-is-a-streaming-platform.md), lane player |
+| Remove the mascot | "The mascot is terrible remove that entirely" | No Chalky in web/src, web/public or the site | open | `grep -ri chalky web/src web/public` returns nothing | 0033, lane site |
+| Redundant copy; Start a talk is a modal | "Web page content is garbage and redundant 'create'->'start a talk' and should open a modal" | One "Start a talk" action opening a modal; each fact said once | open | Hub has one start action; the modal opens with focus inside | 0033, lane site |
+| Streaming-platform look | "I asked for a Streming platform UI look. Glass card with on:dselect extended view view descriptions be creatiev suprise me" | Hero + rows of glass cards; a card expands on hover/focus to description, speaker, languages, play | open | Owner's human QA; contact sheet | 0033, lane site |

@@ -12,6 +12,8 @@ What the product does, how it is built, how to use it, and why it is the way it 
 
 Open questions for the owner are ticket files in [`../tickets/`](../tickets/). The dated plan is [plan.md](plan.md); from 2026-10-31 the [roadmap](roadmap.md) and its [workstreams](workstreams/README.md) lead. Agreed but unscheduled work is in [backlog.md](backlog.md).
 
+- [Owner feedback ledger](owner-feedback.md): every issue the owner raised, with target, status and check.
+
 ## Decisions
 
 | Decision | Record |
@@ -45,3 +47,6 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | The room service publishes a stats track | [0028](decisions/0028-the-room-service-publishes-a-stats-track.md) |
 | The lecture package is a zip built in the browser | [0029](decisions/0029-the-lecture-package-is-a-zip-built-in-the-browser.md) |
 | Stay on MoQT draft-18 for the hackathon | [0030](decisions/0030-stay-on-moqt-draft-18-for-the-hackathon.md) |
+| The player is built on Media Chrome | [0031](decisions/0031-the-player-is-built-on-media-chrome.md) |
+| Each demo lecture has a recording and a live session; demo AI tracks are honest | [0032](decisions/0032-each-demo-lecture-has-a-recording-and-a-live-session.md) |
+| The look is a streaming platform; the mascot is removed | [0033](decisions/0033-the-look-is-a-streaming-platform.md) |
