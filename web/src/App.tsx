@@ -1,5 +1,5 @@
 import { type ComponentType, lazy, Suspense } from "react";
-import { ChalkyLoading } from "./brand/states";
+import { Loading } from "./brand/states";
 import { LandingPage } from "./pages/LandingPage";
 import { NotFound } from "./pages/NotFound";
 import { matchRoute, useLocation } from "./router";
@@ -42,7 +42,7 @@ export function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <Suspense fallback={<ChalkyLoading>Loading…</ChalkyLoading>}>
+      <Suspense fallback={<Loading>Loading…</Loading>}>
         {route.page === "landing" ? <LandingPage /> : null}
         {route.page === "watch" ? <WatchPage key={route.room} room={route.room} /> : null}
         {route.page === "talk" ? <TalkPage key={route.room} room={route.room} /> : null}

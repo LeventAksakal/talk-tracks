@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { RoomServiceClient, roomServiceBase } from "../annotate/client";
-import { ChalkyLoading } from "../brand/states";
+import { Loading } from "../brand/states";
 import { isValidRoom } from "../contracts/names";
 import { RoomMedia } from "../playback/media";
 import { MoqHistorySource } from "../playback/moqSource";
@@ -10,7 +10,7 @@ import { SlideTracks } from "../player/slideTracks";
 import { MoqTransport } from "../transport/moq";
 import { useMoqTransport } from "../transport/useTransport";
 import { useResource } from "../useResource";
-import { DEMO_CREDIT, DEMO_NO_ROOM_SERVICE, demoRoom } from "./demoRooms";
+import { DEMO_CREDIT, DEMO_NO_ROOM_SERVICE, demoRoom, lectureOf } from "./demoRooms";
 import { NotFound } from "./NotFound";
 import { rememberRoom } from "./recentRooms";
 
@@ -35,16 +35,18 @@ function WatchRoom({ room }: { room: string }) {
   // Listeners draw, mark, comment and chat through the room service (decision 0024), never the relay. In a looped
   // demo room it takes chat only (archive.looped), so the threads are not asked for there.
   const demo = demoRoom(room);
+  // A demo lecture's live session or its recording (decision 0032): either way the lecture's title and credit.
+  const lecture = lectureOf(room)?.lecture;
   const roomService = useResource(
     () => new RoomServiceClient(roomServiceBase(), room, { comments: !demo }),
     [room, demo],
   );
   // The hub lists it under "Continue watching".
-  useEffect(() => rememberRoom({ room, title: demo?.title, at: Date.now() }), [room, demo]);
+  useEffect(() => rememberRoom({ room, title: lecture?.title, at: Date.now() }), [room, lecture]);
   if (!playback)
     return (
       <main id="main">
-        <ChalkyLoading>Connecting…</ChalkyLoading>
+        <Loading>Connecting…</Loading>
       </main>
     );
   return (
@@ -54,9 +56,9 @@ function WatchRoom({ room }: { room: string }) {
       transport={transport}
       slides={slides}
       roomService={roomService}
-      title={demo?.title}
-      speaker={demo?.speaker}
-      credit={demo ? DEMO_CREDIT : undefined}
+      title={lecture?.title}
+      speaker={lecture?.speaker}
+      credit={lecture ? DEMO_CREDIT : undefined}
       noRoomService={demo ? DEMO_NO_ROOM_SERVICE : undefined}
       looped={demo !== undefined}
     />

@@ -1,0 +1,128 @@
+/* Loading and empty states: the three-lane spinner and a centred note. No mascot (decision 0033). */
+
+.tt-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tt-space-4);
+  min-height: 50vh;
+  padding: var(--tt-space-10) var(--tt-space-6);
+  text-align: center;
+  color: var(--tt-color-text-muted);
+}
+.tt-state-line {
+  margin: 0;
+  animation: tt-state-late var(--tt-duration-slow) var(--tt-ease-standard) 600ms both;
+}
+.tt-state-note {
+  color: var(--tt-color-text);
+}
+.tt-state-note p {
+  margin: 0;
+  color: var(--tt-color-text-muted);
+}
+.tt-state-title {
+  margin: 0;
+  font: var(--tt-weight-display) var(--tt-text-h1) / var(--tt-leading-tight) var(--tt-font-display);
+  letter-spacing: var(--tt-tracking-tight);
+}
+/* The logomark's lanes as a quiet emblem above an empty state. */
+.tt-state-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--tt-radius-lg);
+  background:
+    linear-gradient(var(--tt-lane-1), var(--tt-lane-1)) 14px 14px / 16px 5px no-repeat,
+    linear-gradient(var(--tt-lane-2), var(--tt-lane-2)) 14px 26px / 28px 5px no-repeat,
+    linear-gradient(var(--tt-lane-3), var(--tt-lane-3)) 14px 38px / 16px 5px no-repeat,
+    var(--tt-glass-bg);
+  border: 1px solid var(--tt-glass-border);
+}
+
+.tt-spinner {
+  display: inline-grid;
+  align-content: center;
+  gap: 18%;
+  padding: 14%;
+  box-sizing: border-box;
+  animation: tt-state-late var(--tt-duration-slow) var(--tt-ease-standard) 400ms both;
+}
+.tt-spinner > span {
+  display: block;
+  height: 12%;
+  min-height: 3px;
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-color-line);
+  transform-origin: left center;
+  position: relative;
+  overflow: hidden;
+}
+.tt-spinner > span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: tt-lane-fill 1.4s var(--tt-ease-standard) infinite;
+}
+.tt-spinner > span:nth-child(1) {
+  width: 60%;
+}
+.tt-spinner > span:nth-child(2) {
+  width: 100%;
+}
+.tt-spinner > span:nth-child(3) {
+  width: 60%;
+}
+.tt-spinner > span:nth-child(1)::after {
+  background: var(--tt-lane-1);
+}
+.tt-spinner > span:nth-child(2)::after {
+  background: var(--tt-lane-2);
+  animation-delay: 160ms;
+}
+.tt-spinner > span:nth-child(3)::after {
+  background: var(--tt-lane-3);
+  animation-delay: 320ms;
+}
+
+@keyframes tt-lane-fill {
+  0% {
+    transform: scaleX(0);
+    transform-origin: left center;
+  }
+  45% {
+    transform: scaleX(1);
+    transform-origin: left center;
+  }
+  55% {
+    transform: scaleX(1);
+    transform-origin: right center;
+  }
+  100% {
+    transform: scaleX(0);
+    transform-origin: right center;
+  }
+}
+@keyframes tt-state-late {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-spinner > span::after {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 0.8;
+  }
+  .tt-state-line,
+  .tt-spinner {
+    animation: none;
+  }
+}

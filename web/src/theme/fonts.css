@@ -1,17 +1,7 @@
-/* Self-hosted Latin subsets (wiki/product/brand.md §4), both under the SIL Open Font License 1.1; the licences sit
-   beside the files in public/fonts/.
-   - Titles: a subset of Cabin Sketch Bold (printable ASCII and a few punctuation marks). Cabin Sketch is a Reserved
-     Font Name, so the subset carries its own name, "Talk Tracks Title"; other characters fall back to Atkinson.
-   - Interface, captions and numbers: Atkinson Hyperlegible Next 400, 600 and 700, Latin, as published. */
-
-@font-face {
-  font-family: "Talk Tracks Title";
-  src: url("/fonts/tt-title-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+0020-007E, U+00A0, U+00B7, U+2013-2014, U+2018-2019, U+201C-201D, U+2026;
-}
+/* Self-hosted Latin subset, under the SIL Open Font License 1.1 (the licence sits beside the files in public/fonts/):
+   Atkinson Hyperlegible Next 400, 600 and 700, as published, for titles, interface, captions and numbers.
+   The chalk title face (tt-title-700.woff2) is no longer loaded by the app (decision 0033); only the wordmark
+   outlines in web/scripts/brand/wordmark.json still come from it. */
 
 @font-face {
   font-family: "Atkinson Hyperlegible Next";
