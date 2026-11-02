@@ -6,6 +6,7 @@ import type { ChatRecord } from "../contracts/types";
 import { FakeHistorySource } from "../playback/fakeSource";
 import { Chat, type ChatProps } from "./Chat";
 import { randomName } from "./chatFeed";
+import { listenerToolsOff } from "./Player";
 
 const ROOM = "talk1";
 const PATH = chatPath(ROOM);
@@ -129,8 +130,34 @@ describe("the chat drawer", () => {
     expect(screen.getByRole("status").textContent).toMatch(/Nothing said/);
   });
 
+  it("in a looped demo room, a rewind keeps the chat live: nothing is fetched and new messages still show", async () => {
+    const { source, service, rerender } = setup({ looped: true });
+    act(() => source.publish(PATH, CHAT_TRACK, 7, json([msg(28_000, "m1", "Ada", "Hello from Lisbon")])));
+    await advance(10);
+    rerender({ looped: true, rewound: true, at: 9_000 });
+    await advance(10);
+    expect(source.fetchedGroups(PATH, CHAT_TRACK)).toEqual([]);
+    expect(texts()).toEqual(["Hello from Lisbon"]);
+    act(() => source.publish(PATH, CHAT_TRACK, 7, json([msg(31_000, "m2", "Grace", "Merhaba!")])));
+    expect(texts()).toEqual(["Hello from Lisbon", "Merhaba!"]);
+
+    // a listener still writes there, live
+    const box = screen.getByRole("textbox", { name: "Chat message" });
+    fireEvent.change(box, { target: { value: "Hi" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await advance(10);
+    expect(service.writes.map((w) => w.track)).toEqual(["chat"]);
+  });
+
   it("names a listener with two words", () => {
     expect(randomName(() => 0)).toMatch(/^\S+ \S+$/);
     expect(randomName(() => 0.999)).toMatch(/^\S+ \S+$/);
+  });
+});
+
+describe("a looped demo room's room service", () => {
+  it("takes chat while drawing, marks and comments stay off, even with its session open", () => {
+    expect(listenerToolsOff("open", "looped")).toBeDefined();
+    expect(listenerToolsOff("open", undefined)).toBeUndefined();
   });
 });

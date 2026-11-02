@@ -37,9 +37,11 @@ services:
   # credentials, so leave it unset on a laptop).
   # Listeners write through it on ws://localhost:8091/api/rooms/<room> (decision 0024); with no room key locally,
   # TT_OPEN_SPEAKER lets the console's session be the speaker's whatever its token.
+  # The looped demo room (TT_LOOPED_ROOMS) is the looper's: nothing of it is archived; the room service publishes only
+  # its chat and stats tracks there and keeps its chat in data/looped/ (archive.looped).
   archive:
     <<: *agent
-    volumes: ["../data/archive:/data/archive"]
+    volumes: ["../data/archive:/data/archive", "../data/looped:/data/looped"]
     ports: ["${TT_LISTEN_PORT:-8091}:8091/tcp", "${TT_CREATE_PORT:-8092}:8092/tcp"]
     environment:
       TT_RELAY: moqt://relay:4443
@@ -50,6 +52,8 @@ services:
       TT_ROOMS_DIR: /data/rooms
       TT_OPEN_SPEAKER: "1"
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOM:-demo}}
+      TT_LOOPED_ROOMS: ${TT_DEMO_ROOM:-demo}  # chat and stats only (archive.looped)
+      TT_LOOPED_DIR: /data/looped
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
     entrypoint: ["python", "-m", "talk_tracks.archive"]
     command: ["--insecure"]

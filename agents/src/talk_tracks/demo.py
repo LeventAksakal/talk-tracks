@@ -13,7 +13,9 @@ transport-free modules ``replay``, ``recording`` and ``lecture``.
   under stable names (``slicing``, decision 0012), each answering a FETCH of any of its groups (``origin``), with
   long caption lines cut into subtitle cues first (``resegment``); with ``slides``, also the lecture's slides as the
   speaker's ``deck`` and ``slide`` tracks (``demo_slides``), live on ``talk/<room>/slides`` and for FETCH on
-  ``talk/<room>/archive/slides`` too, where a player fetches the past of every speaker track (decision 0022).
+  ``talk/<room>/archive/slides`` too, where a player fetches the past of every speaker track (decision 0022). The
+  room catalog also lists the room service's chat and stats tracks, which the room service publishes there
+  (``archive.looped``).
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from pathlib import Path
 from typing import cast
 
 from .archive.events import history_path
+from .archive.looped import with_room_service
 from .contracts import (
     DECK_TRACK,
     SLICE_MS,
@@ -542,6 +545,7 @@ async def loop(
             speaker = SpeakerSlides(relay, room, deck)
             await speaker.start()
             log.info("slides: a deck of %d, shown on the slide track", len(deck.slides))
+        built = with_room_service(built, room)  # the room service's chat and stats, which it publishes here
         room_catalog_track = RoomCatalogTrack(relay, room, built)
         await room_catalog_track.start()
         start = room_ms()

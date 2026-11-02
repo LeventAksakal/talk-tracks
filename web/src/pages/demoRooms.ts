@@ -42,6 +42,6 @@ export function demoRoom(room: string): DemoRoom | undefined {
   return DEMO_ROOMS.find((d) => d.room === room);
 }
 
-/** What a demo room's Discussion tab says: a looped recording has no room service to draw or comment through. */
+/** What a demo room's Discussion tab says: in a looped recording the room service takes chat only. */
 export const DEMO_NO_ROOM_SERVICE =
-  "This is a looped demo lecture with no live room service, so drawing on slides, marking text and comments are off here. They work in a live talk.";
+  "This is a looped demo lecture, so drawing on slides, marking text and comments are off here; the chat is open. They work in a live talk.";

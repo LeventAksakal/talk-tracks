@@ -49,8 +49,8 @@ export interface PlayerProps {
   /** The room service's endpoint for listeners: annotation tools and the Discussion tab (decision 0024). */
   roomService?: RoomService;
   /**
-   * Why this room has no room service (a looped demo room): the Discussion tab says so in place of the
-   * discussion, and the annotation tools stay hidden.
+   * Why this room's listener tools are off (a looped demo room, whose room service takes chat only): the Discussion
+   * tab says so in place of the discussion, and the annotation tools stay hidden, even with the service open.
    */
   noRoomService?: string;
   /** A recorded talk looped as if live (a demo room): its live state says so. */
@@ -350,6 +350,8 @@ export function Player(props: PlayerProps) {
           extraTabs,
           // Listener tools only while the room service can take writes (or is still connecting).
           listening: toolsOff ? undefined : listening,
+          roomService,
+          looped: props.looped ?? false,
           at,
           talkClock,
           seek: (ms) => seekWith(() => playback.seek(ms)),
@@ -423,7 +425,7 @@ function recordingSpan(t: { start: number; available: { end: number }[]; liveEdg
  * reached). Drawing, marks and comments all go through the room service (decision 0024).
  */
 export function listenerToolsOff(status: ServiceStatus | undefined, noService: string | undefined): string | undefined {
-  if (status === undefined) return noService;
+  if (status === undefined || noService !== undefined) return noService;
   switch (status) {
     case "open":
     case "connecting":

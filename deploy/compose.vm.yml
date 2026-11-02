@@ -146,7 +146,9 @@ services:
   # Agents write their own slices into the same folder
   # (/data/archive in their mount; decision 0012); the archiver never subscribes to them. Finished files, slices
   # included, are copied to the Cloud Storage bucket $TT_ARCHIVE_BUCKET with the VM's service account; unset, nothing
-  # leaves the VM. Looped demo rooms are skipped: their recording already is their archive.
+  # leaves the VM. Looped demo rooms are skipped: their recording already is their archive. The room service publishes
+  # only their chat and stats tracks (TT_LOOPED_ROOMS, archive.looped) and keeps their chat, capped, in
+  # $TT_DATA/looped/, outside the archive Caddy serves and the bucket copy.
   archive:
     image: talk-tracks-agents:${TT_AGENTS_TAG:-dev}
     build: ../agents
@@ -177,6 +179,8 @@ services:
       TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
       TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}}
+      TT_LOOPED_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # chat and stats only, never archived
+      TT_LOOPED_DIR: /data/looped  # their chat, beside the archive, never in it
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
       TT_RELAY_STATS: .stats/node  # the relay's --stats-enabled counters (Stats for nerds); empty: counts unknown
     entrypoint: ["python", "-m", "talk_tracks.archive"]

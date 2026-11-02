@@ -24,11 +24,16 @@ export interface ChatProps {
   talkClock: (ms: number) => string;
   /** Show the conversation only (the speaker console's audience area). */
   readOnly?: boolean;
+  /**
+   * A looped demo room: its room clock runs on across loops, so a rewind within the loop has no chat of its own.
+   * The chat stays live while rewound, and says so.
+   */
+  looped?: boolean;
 }
 
 /** The chat drawer of the side panel, wired to the player. */
 export function ChatTab() {
-  const { transport, roomName, listening, view, at, talkClock } = usePlayer();
+  const { transport, roomName, roomService, looped, view, at, talkClock } = usePlayer();
   const source = useMemo(
     () => (transport instanceof MoqTransport ? new MoqHistorySource(transport) : undefined),
     [transport],
@@ -37,10 +42,11 @@ export function ChatTab() {
     <Chat
       source={source}
       room={roomName}
-      service={listening?.service}
+      service={roomService}
       rewound={view.timeline.mode === "rewound"}
       at={at}
       talkClock={talkClock}
+      looped={looped}
     />
   );
 }
@@ -51,14 +57,16 @@ export function ChatTab() {
  * it shows the last 50 messages and every new one; rewound, the chat as it was at the playhead. A listener without a
  * name gets a random one, which "Change name" replaces.
  */
-export function Chat({ source, room, service, rewound, at, talkClock, readOnly }: ChatProps) {
+export function Chat({ source, room, service, rewound, at, talkClock, readOnly, looped }: ChatProps) {
   const feed = useMemo(() => (source ? new ChatFeed(source, room) : undefined), [source, room]);
   useEffect(() => {
     if (!feed) return;
     feed.start();
     return () => feed.stop();
   }, [feed]);
-  useEffect(() => feed?.setTime(at, rewound), [feed, at, rewound]);
+  // A looped room's chat is never replayed: rewound, it stays live (wiki/howto/chat-and-stats.md).
+  const replay = rewound && !looped;
+  useEffect(() => feed?.setTime(at, replay), [feed, at, replay]);
   useSyncExternalStore(feed?.subscribe ?? noop, feed?.getVersion ?? zero);
   useSyncExternalStore(service?.subscribe ?? noop, service?.version ?? zero);
 
@@ -75,15 +83,17 @@ export function Chat({ source, room, service, rewound, at, talkClock, readOnly }
   if (!feed || !shown) return <p className="tt-empty">Chat needs a connection to the relay.</p>;
 
   const status =
-    shown.phase === "loading"
-      ? rewound
-        ? "Loading the chat at this point…"
-        : "Loading the chat so far…"
-      : messages.length === 0
-        ? rewound
-          ? "Nothing said up to here."
-          : "Starting from now: messages show here as people write."
-        : undefined;
+    rewound && looped
+      ? "The chat stays live while you rewind a looped talk."
+      : shown.phase === "loading"
+        ? replay
+          ? "Loading the chat at this point…"
+          : "Loading the chat so far…"
+        : messages.length === 0
+          ? replay
+            ? "Nothing said up to here."
+            : "Starting from now: messages show here as people write."
+          : undefined;
 
   return (
     <div className="tt-chat">
