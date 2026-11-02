@@ -123,8 +123,11 @@ export function playerState(input: PlayerStateInput): PlayerState {
       },
     };
 
+  // A looped room is never ended: it plays its recording again. Any other room ends by its room track's newest
+  // record (the live edge's, never one at the playhead); without a room track, when its media says the speaker left.
   const ended =
-    input.room !== undefined ? input.room === "ended" : input.onAir === false && input.liveEdge !== undefined;
+    !input.looped &&
+    (input.room !== undefined ? input.room === "ended" : input.onAir === false && input.liveEdge !== undefined);
   // Rewound into a stretch where the speaker had paused (or nobody published): say so over that moment.
   const pausedThen =
     mode === "rewound" && (input.roomAt === "paused" || input.roomAt === "waiting")

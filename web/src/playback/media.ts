@@ -542,6 +542,9 @@ export class RoomMedia implements SpeakerMedia {
     if (!canvas || this.#live || this.#closed) return;
     const generation = ++this.#liveGeneration;
     this.#status = "loading";
+    // The playhead of an earlier live session (before a seek back) is no news of this one: kept, it would read as
+    // live media a minute behind now, so a speaker who left (onAir false), until this player shows a frame.
+    this.#lastLive = undefined;
     const cleanup: (() => void)[] = [];
     this.#live = { close: () => cleanup.forEach((fn) => fn()) };
     import("@moq/watch")
