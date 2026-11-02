@@ -26,6 +26,10 @@ Stats for nerds (ticket 0022): each room's ``talk/<room>/stats`` track lists its
 from moq-relay's stats feed (the relay runs with ``--stats-enabled``). TT_RELAY_STATS is that feed's broadcast
 (default ``.stats/node``; empty: not read, counts unknown). On a relay with auth, TT_TOKEN needs subscribe rights on
 ``.stats/**`` and publish rights on ``talk/*/stats`` and ``talk/*/chat``.
+
+Looped demo rooms (``archive.looped``): TT_LOOPED_ROOMS (patterns, comma-separated, default none) are the loopers'
+rooms. Nothing of them is archived and the looper publishes their catalog; the room service publishes only their chat
+and stats tracks there, and keeps their chat in TT_LOOPED_DIR (default looped/ beside the archive folder, never in it).
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out", type=Path, default=Path(os.environ.get("TT_ARCHIVE_DIR", "data/archive")))
     p.add_argument("--rooms", default=os.environ.get("TT_ARCHIVE_ROOMS", "*"), help="room patterns to archive")
     p.add_argument("--skip", default=os.environ.get("TT_ARCHIVE_SKIP", ""), help="room patterns not to archive")
+    p.add_argument("--looped", default=os.environ.get("TT_LOOPED_ROOMS", ""), help="looped demo room patterns")
     p.add_argument("--bucket", default=os.environ.get("TT_ARCHIVE_BUCKET") or None, help="Cloud Storage bucket")
     p.add_argument("--no-catalog", action="store_true", help="record only; do not publish the room catalogs")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
@@ -118,6 +123,8 @@ async def main_async(args: argparse.Namespace) -> None:
                 listeners=listeners,
                 creation=creation,
                 relay_stats=os.environ.get("TT_RELAY_STATS", RELAY_STATS) or None,
+                looped=RoomFilter(args.looped) if args.looped.strip() else None,
+                looped_root=Path(os.environ.get("TT_LOOPED_DIR") or args.out.parent / "looped"),
             )
             await until_closed(relay, work)
     finally:

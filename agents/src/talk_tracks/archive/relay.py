@@ -14,6 +14,9 @@ Runs in the agents' Docker image (aiomoqt). One namespace subscription on ``talk
   by the speaker), which the room service archives and serves by FETCH like an agent's track;
 * ``<room>/stats``: Stats for nerds (``archive.stats``), a snapshot of every track of the room every 5 s while
   someone reads it, with subscriber counts from the relay's own stats feed (``counts``).
+
+A looped demo room (``looped``, ``TT_LOOPED_ROOMS``) is the looper's: nothing of it is archived and its catalog is the
+looper's. The room service publishes only its chat and its stats track there (``archive.looped``).
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from .catalog import REFRESH_S, CatalogFeed
 from .create import CreateConfig, CreatedRoom
 from .events import RoomEvents
 from .listeners import EndpointConfig
+from .looped import LoopedRoom
 from .stats import RelayCounts, StatsTrack, snapshot
 from .store import Archive, RoomArchive, RoomFilter
 
@@ -72,8 +76,15 @@ class Archiver:
         capped: Callable[[str], bool] | None = None,
         described: Callable[[str], tuple[str | None, str | None] | None] | None = None,
         counts: RelayCounts | None = None,
+        looped: Callable[[str], bool] | None = None,
+        looped_root: Path | None = None,
     ) -> None:
-        self.relay, self.archive, self.wanted = relay, archive, rooms
+        # The looped demo rooms: chat and stats only, never archived, whatever ``rooms`` says.
+        self.looped: Callable[[str], bool] = looped or (lambda _room: False)
+        self.relay, self.archive = relay, archive
+        self.wanted: Callable[[str], bool] = lambda room: rooms(room) and not self.looped(room)
+        self.looped_root = looped_root or archive.root.parent / "looped"
+        self.looped_rooms: dict[str, LoopedRoom] = {}
         self.on_tick, self.publish_catalog, self.capped = on_tick, publish_catalog, capped
         self.described = described  # a created room's title and speaker (decision 0025)
         self.counts = counts  # subscriber counts from the relay's stats feed; None: not read
@@ -103,6 +114,9 @@ class Archiver:
                 self.announced(path, active)
         finally:
             ticker.cancel()
+            for looped in self.looped_rooms.values():
+                if looped.reader is not None:
+                    looped.reader.cancel()
             for room in self.rooms.values():
                 for task in [*room.teacher.values(), *([room.slides] if room.slides else [])]:
                     task.cancel()
@@ -124,6 +138,15 @@ class Archiver:
                     await self._events(name, room)
                 except Exception:
                     log.exception("room %s: its event tracks failed", name)
+            for name, looped in list(self.looped_rooms.items()):
+                try:
+                    await looped.tick()
+                except Exception:
+                    log.exception("looped room %s: its chat failed", name)
+                try:
+                    await looped.tick_stats(self.counts, self.listeners)
+                except Exception:
+                    log.exception("looped room %s: publishing the stats failed", name)
             if self.publish_catalog:
                 for name, room in list(self.rooms.items()):
                     try:
@@ -153,7 +176,10 @@ class Archiver:
 
     async def audience(self, room: str) -> Audience | None:
         """A room's listener writes (the endpoint's lookup): only for a room this service holds, one a speaker has
-        opened or the archive keeps; never a folder made for any name a stranger tries."""
+        opened or the archive keeps, or a looped room the looper is announcing; never a folder made for any name a
+        stranger tries."""
+        if (looped := self.looped_rooms.get(room)) is not None:
+            return await looped.audience_tracks()
         state = self.rooms.get(room)
         if state is None or not self.wanted(room):
             return None
@@ -161,7 +187,7 @@ class Archiver:
 
     def holds(self, room: str) -> bool:
         """The room is in use: a speaker opened it or the archive keeps it (room creation's ``taken``)."""
-        return room in self.rooms or room in self.archive.known_rooms()
+        return room in self.rooms or room in self.looped_rooms or room in self.archive.known_rooms()
 
     def created(self, room: str, title: str, speaker: str | None) -> None:
         """A room was created (or re-issued) with this title and speaker: its state track carries them, and says at
@@ -242,6 +268,9 @@ class Archiver:
 
     def announced(self, path: str, active: bool) -> None:
         parts = path.split("/")
+        if len(parts) >= 2 and self.looped(parts[0]):
+            self._looped(parts[0]).announced(f"{ROOT}/{path}", active)
+            return
         if len(parts) < 2 or not self.wanted(parts[0]):
             return
         room, kind = parts[0], parts[1]
@@ -270,6 +299,14 @@ class Archiver:
             else:
                 paths.discard(path)
             state.catalog.agents = {agent for agent, held in state.agents.items() if held}
+
+    def _looped(self, room: str) -> LoopedRoom:
+        looped = self.looped_rooms.get(room)
+        if looped is None:
+            looped = self.looped_rooms[room] = LoopedRoom(room, self.relay, self.looped_root)
+            looped.reader = self._spawn(looped.run(), f"{room}/looped")
+            log.info("looped room %s: its chat and stats only", room)
+        return looped
 
     async def _catalog(self, room: str, state: _Room) -> None:
         async for payload in self.relay.objects(teacher_path(room), CATALOG_TRACK):
@@ -332,9 +369,12 @@ async def archive_rooms(
     listeners: EndpointConfig | None = None,
     creation: CreateConfig | None = None,
     relay_stats: str | None = None,
+    looped: Callable[[str], bool] | None = None,
+    looped_root: Path | None = None,
 ) -> None:
     """``relay_stats``: the broadcast of moq-relay's stats feed (``.stats/node``) for the subscriber counts of Stats
-    for nerds; None: not read, counts unknown."""
+    for nerds; None: not read, counts unknown. ``looped``: the looped demo rooms, whose chat and stats only this
+    service publishes, their chat kept under ``looped_root`` (default ``looped`` beside the archive)."""
     registry = creation.registry() if creation is not None else None
 
     def described(room: str) -> tuple[str | None, str | None] | None:
@@ -351,6 +391,8 @@ async def archive_rooms(
         capped=capped,
         described=described,
         counts=counts,
+        looped=looped,
+        looped_root=looped_root,
     )
     servers: list[asyncio.Task[None]] = []
     if counts is not None and relay_stats:
