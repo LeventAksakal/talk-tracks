@@ -1,9 +1,13 @@
-/* The speaker console (ui-design §7): desktop first. The Chalk tokens; red only for on air. */
+/* The speaker console (ui-design §7): desktop first. The hub's language (decision 0033): glass panels over a dark
+   ground lit by the three lanes; red only for on air. The glass rules are at the end of this file. */
 
 .console {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background:
+    radial-gradient(1000px 560px at 88% -10%, rgb(79 139 255 / 0.13), transparent 62%),
+    radial-gradient(800px 520px at -10% 60%, rgb(255 79 139 / 0.07), transparent 60%), var(--tt-color-ground);
 }
 
 .console-bar {
@@ -14,9 +18,26 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--tt-space-4);
-  padding: 10px var(--tt-space-4);
-  background: var(--tt-color-surface);
-  border-bottom: 1px solid var(--tt-color-line);
+  min-height: 60px;
+  padding: 8px var(--tt-space-6);
+  background: var(--tt-glass-bg-strong);
+  border-bottom: 1px solid var(--tt-glass-border);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .console-bar {
+    background: var(--tt-glass-bg);
+    backdrop-filter: blur(var(--tt-glass-blur)) saturate(var(--tt-glass-saturate));
+  }
+}
+.console .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  letter-spacing: var(--tt-tracking-tight);
+}
+.console .brand .logomark {
+  color: var(--tt-lane-2);
+  filter: drop-shadow(0 0 10px rgb(79 139 255 / 0.55));
 }
 .console[data-phase="on-air"] .console-bar {
   border-bottom: 3px solid var(--tt-color-live);
@@ -696,4 +717,69 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
+}
+
+/* --- glass (decision 0033) ----------------------------------------------------------------------------------- */
+.console .panel {
+  border-radius: var(--tt-radius-xl);
+  background: var(--tt-glass-bg-strong);
+  border: 1px solid var(--tt-glass-border);
+  box-shadow: inset 0 1px 0 var(--tt-glass-highlight);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .console .panel {
+    background: var(--tt-glass-bg);
+    backdrop-filter: blur(var(--tt-glass-blur)) saturate(var(--tt-glass-saturate));
+  }
+}
+.console .panel-title {
+  font-weight: var(--tt-weight-display);
+  letter-spacing: var(--tt-tracking-tight);
+}
+.console .stage {
+  border-radius: var(--tt-radius-lg);
+  border-color: var(--tt-glass-border);
+  box-shadow: var(--tt-shadow-3);
+}
+/* On air, the stage is ringed in live red: what viewers see now. */
+.console[data-phase="on-air"] .stage {
+  box-shadow:
+    0 0 0 2px var(--tt-color-live),
+    0 30px 90px -30px rgb(255 91 82 / 0.5);
+}
+.console .stage-empty {
+  background: radial-gradient(600px 300px at 50% 0%, rgb(79 139 255 / 0.12), transparent 70%), var(--tt-color-surface);
+  border: 1px dashed var(--tt-color-field);
+}
+.console .check {
+  grid-template-columns: 92px 1fr;
+}
+.console .check-state {
+  justify-self: start;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: var(--tt-radius-full);
+  background: rgb(255 255 255 / 0.06);
+  font-size: 0.6875rem;
+  letter-spacing: var(--tt-tracking-caps);
+}
+.console .check-ok .check-state {
+  background: color-mix(in srgb, var(--tt-color-ready) 16%, transparent);
+}
+.console .check-bad .check-state,
+.console .check-wait .check-state {
+  background: color-mix(in srgb, var(--tt-color-degraded) 16%, transparent);
+}
+.console .strip-item {
+  border-radius: var(--tt-radius-md);
+}
+/* Paste your speaker link (pages/CreateTalk.tsx), in the Speaker token check. */
+.paste-link-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--tt-space-2);
+}
+.paste-link-form > button {
+  align-self: flex-start;
 }

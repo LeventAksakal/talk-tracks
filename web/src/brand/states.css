@@ -22,6 +22,10 @@
   margin: 0;
   color: var(--tt-color-text-muted);
 }
+.tt-state-note a {
+  color: var(--tt-color-accent);
+  font-weight: var(--tt-weight-strong);
+}
 .tt-state-title {
   margin: 0;
   font: var(--tt-weight-display) var(--tt-text-h1) / var(--tt-leading-tight) var(--tt-font-display);

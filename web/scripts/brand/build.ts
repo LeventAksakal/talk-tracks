@@ -1,47 +1,50 @@
 // Builds every brand image in web/public from code, so the assets can be rebuilt after any change:
 //   the logomark, wordmark and lockup (SVG, on dark and on light)   -> public/brand/
-//   Chalky as a still SVG                                         -> public/brand/chalky.svg
 //   favicon.svg (follows the browser's dark mode), favicon.ico,
 //   apple-touch-icon.png, icon-192.png, icon-512.png, icon-maskable-512.png, site.webmanifest -> public/
 //   the social card (1200x630)                                    -> public/og.png
 //   the demo video's title and end cards (1920x1080)              -> public/brand/video/
 //
+// The look is the streaming one (decision 0033): the logomark's three lanes in the lane colours on a near-black
+// ground. No mascot.
+//
 // Run from anywhere with Node 23.6 or later (it strips the types itself):
 //   node web/scripts/brand/build.ts
 // PNGs are screenshots of generated pages in headless Chrome; set CHROME to its path if it is not in the usual
-// place. The wordmark's outlines come from wordmark.json (wordmark.py). Chalky is the app's own rig (chalkyRig.ts).
+// place. The wordmark and lockup SVGs still draw the older title face's outlines from wordmark.json (wordmark.py);
+// the cards set "Talk Tracks" in Atkinson Hyperlegible Next instead.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { CHALKY_VIEWBOX, type ChalkyPose, chalkyMarkup } from "../../src/brand/chalkyRig.ts";
 
 const WEB = fileURLToPath(new URL("../../", import.meta.url));
 const PUBLIC = join(WEB, "public");
 const BRAND = join(PUBLIC, "brand");
 const VIDEO = join(BRAND, "video");
 
-// Tokens (web/src/theme/tokens.css): Blackboard; the "on light" files use Blackboard ink for Paper.
-const BOARD = "#1b2420";
-const BOARD_LINE = "#3a4842";
-const CHALK_TEXT = "#f1ede2";
-const MUTED = "#aab5ae";
-const INK = { rose: "#ff6fae", sky: "#5fb3ff", sun: "#ffd84a" };
+// Tokens (web/src/theme/tokens.css): the dark ground and text; the "on light" files use the ground as ink.
+const GROUND = "#07080d";
+const TEXT = "#f2f4f9";
+const MUTED = "#a2aabd";
+const LANE = ["#ff4f8b", "#4f8bff", "#20d3ae"] as const;
 
 // --- the logomark: a play button cut into three lanes (the Reference Canvas's "Play of lanes") -------------------
-// One talk, many tracks. Solid, so it holds at 16 px; round joins soften it into chalk. Drawn on a 64 grid; the ink
-// spans x 12.5-57.5, y 4.5-59.5.
-const MARK_D = "M14 6L33.4 18H14ZM14 26H46.3L56 32L46.3 38H14ZM14 46H33.4L14 58Z";
-const mark = (fill: string, attrs = "") =>
-  `<path d="${MARK_D}" fill="${fill}" stroke="${fill}" stroke-width="3" stroke-linejoin="round"${attrs}/>`;
+// One talk, many tracks. Solid, so it holds at 16 px. Drawn on a 64 grid; the ink spans x 12.5-57.5, y 4.5-59.5.
+const MARK_LANES = ["M14 6L33.4 18H14Z", "M14 26H46.3L56 32L46.3 38H14Z", "M14 46H33.4L14 58Z"];
+const MARK_D = MARK_LANES.join("");
+/** The mark in one colour (`fill`), or in the three lane colours. */
+const mark = (fill: string | "lanes") =>
+  fill === "lanes"
+    ? MARK_LANES.map(
+        (d, i) => `<path d="${d}" fill="${LANE[i]}" stroke="${LANE[i]}" stroke-width="3" stroke-linejoin="round"/>`,
+      ).join("")
+    : `<path d="${MARK_D}" fill="${fill}" stroke="${fill}" stroke-width="3" stroke-linejoin="round"/>`;
 const MARK_BOX = { x: 12.5, y: 4.5, w: 45, h: 55 };
 
-// A chalk edge for large renders only (the pilot's filter): a faint displacement of the outline.
-const CHALK_FILTER = `<filter id="chalk" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="1.4" xChannelSelector="R" yChannelSelector="G"/></filter>`;
-
-// --- the wordmark: "Talk Tracks" in Cabin Sketch Bold, as outlines --------------------------------------------
+// --- the wordmark: "Talk Tracks" as outlines ----------------------------------------------------------------------
 interface Wordmark {
   d: string;
   bbox: [number, number, number, number];
@@ -66,28 +69,23 @@ function wordmark(fill: string) {
 }
 
 /** The mark as tall as the wordmark's ink, then a gap, then the wordmark; in font units. */
-function lockupBody(fill: string, markAttrs = "") {
+function lockup(fill: string) {
   const s = WORD_H / MARK_BOX.h;
   const markW = MARK_BOX.w * s;
   const gap = 300;
   const tx = markW + gap - wx0;
-  return {
-    body:
-      `<g transform="translate(${r1(-MARK_BOX.x * s)} ${r1(wy0 - MARK_BOX.y * s)}) scale(${r1(s, 1000)})">${mark(fill, markAttrs)}</g>` +
-      `<g transform="translate(${r1(tx)} 0)"><path d="${WORD.d}" fill="${fill}"/></g>`,
-    width: markW + gap + (wx1 - wx0),
-  };
-}
-function lockup(fill: string) {
-  const { body, width } = lockupBody(fill);
+  const body =
+    `<g transform="translate(${r1(-MARK_BOX.x * s)} ${r1(wy0 - MARK_BOX.y * s)}) scale(${r1(s, 1000)})">${mark("lanes")}</g>` +
+    `<g transform="translate(${r1(tx)} 0)"><path d="${WORD.d}" fill="${fill}"/></g>`;
+  const width = markW + gap + (wx1 - wx0);
   const pad = 24;
   return svgDoc(`${-pad} ${wy0 - pad} ${r1(width + 2 * pad)} ${WORD_H + 2 * pad}`, body);
 }
 const r1 = (n: number, k = 10) => Math.round(n * k) / k;
 
 /**
- * favicon.svg: on a light browser theme the chalk mark sits on a Blackboard tile; on a dark one the tile goes and
- * the mark fills the square, chalk on the dark tab strip.
+ * favicon.svg: on a light browser theme the lane mark sits on a dark tile; on a dark one the tile goes and the mark
+ * fills the square on the dark tab strip.
  */
 function favicon(followDark = true) {
   return (
@@ -95,37 +93,31 @@ function favicon(followDark = true) {
     (followDark
       ? `<style>@media (prefers-color-scheme:dark){.t{display:none}.m{transform:translate(-3px,-4px) scale(1.15)}}</style>`
       : "") +
-    `<rect class="t" width="64" height="64" rx="14" fill="${BOARD}"/>` +
-    `<g class="m" transform="translate(6 6) scale(.8125)">${mark(CHALK_TEXT)}</g></svg>\n`
+    `<rect class="t" width="64" height="64" rx="14" fill="${GROUND}"/>` +
+    `<g class="m" transform="translate(6 6) scale(.8125)">${mark("lanes")}</g></svg>\n`
   );
 }
-
-/** Chalky as a standalone SVG, every colour inline. */
-function chalkySvg(pose: ChalkyPose, title: string) {
-  return svgDoc(CHALKY_VIEWBOX, chalkyMarkup(pose), title);
-}
-/** Chalky inline in a page, at a height in px, standing on a ledge line at `ground` px from the top. */
-const standing = (pose: ChalkyPose, height: number, left: number, ground: number) =>
-  `<div style="position:absolute;left:${left}px;top:${Math.round(ground - (height * 172) / 182)}px">${chalkyInline(pose, height)}</div>`;
-/** Chalky inline in a page, at a height in px. */
-const chalkyInline = (pose: ChalkyPose, height: number) =>
-  `<svg viewBox="${CHALKY_VIEWBOX}" height="${height}" width="${Math.round((height * 128) / 182)}" overflow="visible" style="--chalky-line:${BOARD};--chalky-mark:${CHALK_TEXT}">${chalkyMarkup(pose)}</svg>`;
 
 // --- pages rendered to PNG -------------------------------------------------------------------------------------
 const font = (file: string) =>
   `url(data:font/woff2;base64,${readFileSync(join(PUBLIC, "fonts", file)).toString("base64")})`;
 const FONTS = `
-@font-face{font-family:"Talk Tracks Title";src:${font("tt-title-700.woff2")};font-weight:700}
 @font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-400.woff2")};font-weight:400}
-@font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-600.woff2")};font-weight:600}`;
+@font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-600.woff2")};font-weight:600}
+@font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-700.woff2")};font-weight:700}`;
+/** The hub's ground: near-black lit by the three lanes. */
+const GLOW = `radial-gradient(900px 520px at 85% -10%, rgb(79 139 255 / .32), transparent 62%),
+  radial-gradient(800px 500px at -10% 70%, rgb(255 79 139 / .22), transparent 60%),
+  radial-gradient(900px 600px at 60% 120%, rgb(32 211 174 / .16), transparent 62%), ${GROUND}`;
 const page = (w: number, h: number, body: string, bg = "transparent") =>
   `<!doctype html><html><head><meta charset="utf-8"><style>${FONTS}
 html,body{margin:0;width:${w}px;height:${h}px;overflow:hidden;background:${bg}}
-body{font-family:"Atkinson Hyperlegible Next",sans-serif;color:${CHALK_TEXT}}
-.title{font-family:"Talk Tracks Title",sans-serif;font-weight:700}
+body{font-family:"Atkinson Hyperlegible Next",sans-serif;color:${TEXT}}
+.title{font-weight:700;letter-spacing:-0.03em;line-height:1}
+.glass{background:rgb(24 28 42 / .55);border:1px solid rgb(255 255 255 / .12);box-shadow:inset 0 1px 0 rgb(255 255 255 / .16)}
 </style></head><body>${body}</body></html>`;
 
-/** An app icon: the chalk mark on Blackboard, with the chalk edge. `inset` is the mark's share of the side. */
+/** An app icon: the lane mark on the dark ground. `inset` is the mark's share of the side. */
 function iconPage(size: number, { rounded, inset }: { rounded: boolean; inset: number }) {
   const side = size * inset;
   const scale = side / MARK_BOX.h;
@@ -134,21 +126,54 @@ function iconPage(size: number, { rounded, inset }: { rounded: boolean; inset: n
   return page(
     size,
     size,
-    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block"><defs>${CHALK_FILTER}</defs>` +
-      `<rect width="${size}" height="${size}" rx="${rounded ? size * 0.22 : 0}" fill="${BOARD}"/>` +
-      `<g transform="translate(${r1(ox)} ${r1(oy)}) scale(${r1(scale, 1000)})">${mark(CHALK_TEXT, ' filter="url(#chalk)"')}</g></svg>`,
+    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">` +
+      `<rect width="${size}" height="${size}" rx="${rounded ? size * 0.22 : 0}" fill="${GROUND}"/>` +
+      `<g transform="translate(${r1(ox)} ${r1(oy)}) scale(${r1(scale, 1000)})">${mark("lanes")}</g></svg>`,
   );
 }
 
-/** The three-lane stroke from Chalky's back, in the chalk box's rose, sky and sun. */
-const lanes = (w: number) =>
-  `<svg width="${w}" height="${w * 0.42}" viewBox="0 0 30 12.6" style="display:block" stroke-width="3" stroke-linecap="round"><path d="M1.5 1.5h27" stroke="${INK.rose}"/><path d="M1.5 6.3h27" stroke="${INK.sky}"/><path d="M1.5 11.1h18" stroke="${INK.sun}"/></svg>`;
+/** The mark and the name in a row, `h` px tall. */
+const brandRow = (h: number) =>
+  `<div style="display:flex;align-items:center;gap:${r1(h * 0.32)}px">
+    <svg width="${r1((h * MARK_BOX.w) / MARK_BOX.h)}" height="${h}" viewBox="${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.w} ${MARK_BOX.h}" overflow="visible" style="filter:drop-shadow(0 0 ${r1(h / 4)}px rgb(79 139 255 / .5))">${mark("lanes")}</svg>
+    <span class="title" style="font-size:${r1(h * 0.95)}px">Talk Tracks</span>
+  </div>`;
 
-/** The lockup inline, as wide as asked, with the chalk edge on the mark. */
-function lockupInline(width: number) {
-  const { body, width: w } = lockupBody(CHALK_TEXT, ' filter="url(#chalk)"');
-  const h = (width * WORD_H) / w;
-  return `<svg width="${width}" height="${r1(h)}" viewBox="0 ${wy0} ${r1(w)} ${WORD_H}" overflow="visible" style="display:block"><defs>${CHALK_FILTER}</defs>${body}</svg>`;
+/** The hero's timeline, drawn: lanes of clips running up to a live edge. */
+function tracksPanel(w: number) {
+  const rows: [string, string, number[]][] = [
+    ["Speaker", "rgb(255 255 255 / .55)", []],
+    ["Captions", LANE[1], [0.05, 0.2, 0.26, 0.44, 0.5, 0.71, 0.77, 0.95]],
+    ["Español", LANE[2], [0.1, 0.24, 0.3, 0.52, 0.58, 0.8, 0.86, 0.98]],
+    ["العربية", LANE[0], [0.02, 0.18, 0.24, 0.4, 0.48, 0.66, 0.74, 0.9]],
+    ["Slides", "rgb(255 255 255 / .85)", [0.14, 0.3, 0.62, 0.78]],
+  ];
+  const lane = w * 0.6;
+  const strip = (color: string, spans: number[]) =>
+    spans.length
+      ? spans
+          .reduce<number[][]>((acc, x, i) => (i % 2 ? (acc.at(-1)!.push(x), acc) : [...acc, [x]]), [])
+          .map(
+            ([a, b]) =>
+              `<span style="position:absolute;top:3px;bottom:3px;left:${r1(a! * 100)}%;width:${r1((b! - a!) * 100)}%;border-radius:4px;background:${color}"></span>`,
+          )
+          .join("")
+      : `<span style="position:absolute;inset:3px 0;background:repeating-linear-gradient(90deg,${color} 0 2px,transparent 2px 5px)"></span>`;
+  return `<div class="glass" style="width:${w}px;padding:${r1(w * 0.06)}px;border-radius:${r1(w * 0.06)}px;box-sizing:border-box">
+    <div style="display:flex;justify-content:space-between;font-size:${r1(w * 0.034)}px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${MUTED};margin-bottom:${r1(w * 0.04)}px"><span>Tracks in this talk</span><span style="color:#ff8a83">Live edge</span></div>
+    ${rows
+      .map(
+        ([
+          name,
+          color,
+          spans,
+        ]) => `<div style="display:flex;align-items:center;gap:${r1(w * 0.04)}px;margin-top:${r1(w * 0.028)}px">
+      <span style="width:${r1(w * 0.3)}px;font-size:${r1(w * 0.04)}px;color:${MUTED}">${name}</span>
+      <span style="position:relative;display:block;width:${r1(lane)}px;height:${r1(w * 0.045)}px;border-radius:99px;background:rgb(255 255 255 / .06);overflow:hidden">${strip(color, spans)}<span style="position:absolute;right:0;top:0;bottom:0;width:3px;background:#ff5b52;box-shadow:0 0 12px 3px rgb(255 91 82 / .7)"></span></span>
+    </div>`,
+      )
+      .join("")}
+  </div>`;
 }
 
 const TAGLINE =
@@ -158,14 +183,12 @@ function socialCard() {
   return page(
     1200,
     630,
-    `<div style="position:absolute;inset:0;padding:84px 0 0 88px;box-sizing:border-box">
-      ${lockupInline(620)}
-      <div style="margin:34px 0 0 4px">${lanes(64)}</div>
-      <p style="margin:30px 0 0;width:560px;font-size:31px;line-height:1.38;color:${CHALK_TEXT}">${TAGLINE}</p>
+    `<div style="position:absolute;left:84px;top:92px;width:560px">
+      ${brandRow(74)}
+      <p style="margin:44px 0 0;font-size:31px;line-height:1.38;color:${TEXT}">${TAGLINE}</p>
     </div>
-    <div style="position:absolute;left:0;right:0;top:540px;border-top:2px solid ${BOARD_LINE}"></div>
-    ${standing({ cycle: "talk" }, 440, 790, 541)}`,
-    BOARD,
+    <div style="position:absolute;left:700px;top:150px">${tracksPanel(430)}</div>`,
+    GLOW,
   );
 }
 
@@ -173,14 +196,12 @@ function titleCard() {
   return page(
     1920,
     1080,
-    `<div style="position:absolute;left:0;right:0;top:850px;border-top:3px solid ${BOARD_LINE}"></div>
-    ${standing({ cycle: "wave" }, 620, 250, 852)}
-    <div style="position:absolute;left:760px;top:330px">
-      ${lockupInline(900)}
-      <div style="margin:44px 0 0 6px">${lanes(90)}</div>
-      <p style="margin:40px 0 0;width:860px;font-size:44px;line-height:1.36">${TAGLINE}</p>
-    </div>`,
-    BOARD,
+    `<div style="position:absolute;left:180px;top:330px;width:880px">
+      ${brandRow(120)}
+      <p style="margin:60px 0 0;font-size:46px;line-height:1.36">${TAGLINE}</p>
+    </div>
+    <div style="position:absolute;left:1160px;top:320px">${tracksPanel(600)}</div>`,
+    GLOW,
   );
 }
 
@@ -191,17 +212,16 @@ function endCard() {
   return page(
     1920,
     1080,
-    `<div style="position:absolute;left:0;right:0;top:850px;border-top:3px solid ${BOARD_LINE}"></div>
-    <div style="position:absolute;left:0;right:0;top:206px;text-align:center">
-      <p class="title" style="margin:0;font-size:150px;line-height:1">Thanks for watching</p>
+    `<div style="position:absolute;left:0;right:0;top:250px;text-align:center">
+      <p class="title" style="margin:0;font-size:150px">Thanks for watching</p>
     </div>
-    ${standing({ cycle: "wave", face: "laugh" }, 460, 300, 852)}
-    <div style="position:absolute;left:770px;top:470px">
-      ${lockupInline(820)}
-      <p style="margin:34px 0 0;font-size:40px;color:${MUTED}">Live talks over Media over QUIC, with AI tracks.</p>
-      <p style="margin:22px 0 0;font-size:44px;color:${CHALK_TEXT}">${REPO}</p>
-    </div>`,
-    BOARD,
+    <div style="position:absolute;left:0;right:0;top:560px;display:flex;flex-direction:column;align-items:center">
+      ${brandRow(96)}
+      <p style="margin:44px 0 0;font-size:40px;color:${MUTED}">Live talks over Media over QUIC, with AI tracks.</p>
+      <p style="margin:22px 0 0;font-size:44px;color:${TEXT}">${REPO}</p>
+    </div>
+    <div style="position:absolute;left:0;right:0;top:1000px;height:6px;background:linear-gradient(90deg,${LANE[0]},${LANE[1]} 52%,${LANE[2]})"></div>`,
+    GLOW,
   );
 }
 
@@ -266,8 +286,8 @@ const manifest = {
   start_url: "/",
   scope: "/",
   display: "standalone",
-  background_color: BOARD,
-  theme_color: BOARD,
+  background_color: GROUND,
+  theme_color: GROUND,
   icons: [
     { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
     { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
@@ -282,13 +302,12 @@ const write = (path: string, data: string | Buffer) => {
 };
 
 try {
-  write(join(BRAND, "logomark-on-dark.svg"), logomark(CHALK_TEXT));
-  write(join(BRAND, "logomark-on-light.svg"), logomark(BOARD));
-  write(join(BRAND, "wordmark-on-dark.svg"), wordmark(CHALK_TEXT));
-  write(join(BRAND, "wordmark-on-light.svg"), wordmark(BOARD));
-  write(join(BRAND, "lockup-on-dark.svg"), lockup(CHALK_TEXT));
-  write(join(BRAND, "lockup-on-light.svg"), lockup(BOARD));
-  write(join(BRAND, "chalky.svg"), chalkySvg({ cycle: "still" }, "Chalky, the Talk Tracks mascot"));
+  write(join(BRAND, "logomark-on-dark.svg"), logomark("lanes"));
+  write(join(BRAND, "logomark-on-light.svg"), logomark("lanes"));
+  write(join(BRAND, "wordmark-on-dark.svg"), wordmark(TEXT));
+  write(join(BRAND, "wordmark-on-light.svg"), wordmark(GROUND));
+  write(join(BRAND, "lockup-on-dark.svg"), lockup(TEXT));
+  write(join(BRAND, "lockup-on-light.svg"), lockup(GROUND));
   write(join(PUBLIC, "favicon.svg"), favicon());
 
   // The .ico cannot follow the browser's theme: it is always the tile.
