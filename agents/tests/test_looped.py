@@ -16,12 +16,13 @@ import pytest
 from talk_tracks.archive.events import HistoryOut
 from talk_tracks.archive.listeners import LIMITS, Endpoint, Identities, Session
 from talk_tracks.archive.looped import LoopedRoom, with_room_service
-from talk_tracks.archive.slices import NORMAL, Slice
+from talk_tracks.archive.slices import NORMAL, Slice, TrackArchive, TrackInfo
 from talk_tracks.archive.stats import StatsOut
 from talk_tracks.contracts import SLICE_MS, ChatObject, ChatRecord, RoomStats, TrackStatus, slice_of
 from talk_tracks.contracts import RoomCatalog as MsfCatalog
 from talk_tracks.demo_slides import with_slides
 from talk_tracks.room_catalog import RoomCatalog, translation_track
+from talk_tracks.runtime import now_ms
 
 ROOM = "virus"
 E = 1_759_276_800_000  # the looper's EPOCH_MS: 2026-10-01
@@ -124,7 +125,9 @@ class Looped:
     def __init__(self, tmp: Path, *, at: int = 30 * LOOP_MS + 12_345, keep: int = 64) -> None:
         self.relay = Relay()
         self.wall = Wall(E + at)
-        self.room = LoopedRoom(ROOM, self.relay, tmp / "looped", wall=self.wall, keep=keep)
+        self.room = LoopedRoom(
+            ROOM, self.relay, tmp / "looped", wall=self.wall, keep=keep, archive_root=tmp / "archive"
+        )
         self.clock = 0.0
         self.endpoint = Endpoint(self.lookup, Identities(b"secret"), clock=lambda: self.clock)
 
@@ -197,6 +200,24 @@ async def test_a_looped_room_publishes_stats_listing_every_track_the_looper_send
     assert stats.listeners == 1 and not stats.relay  # no relay counts read here: unknown, not zero
 
 
+async def test_an_announced_agent_the_looper_does_not_list_shows_in_the_stats(tmp_path: Path) -> None:
+    room = Looped(tmp_path)
+    await room.on_air()
+    # translate-any serves another language here: its own track.json says what the track is and how it is doing
+    track = TrackArchive(
+        ROOM, "translate-fr", "items", root=tmp_path / "archive", info=TrackInfo("translation", lang="fr")
+    )
+    track.report("live", producing=True)
+    room.room.announced(f"talk/{ROOM}/agents/translate-fr", True)
+    rows = {(t.namespace, t.name): t for t in room.room.snapshot(None, 0, now_ms()).tracks}
+    fr = rows[(f"talk/{ROOM}/agents/translate-fr", "items")]
+    assert (fr.kind, fr.lang, fr.state) == ("translation", "fr", "running")
+    room.room.announced(f"talk/{ROOM}/agents/translate-fr", False)
+    rows = {(t.namespace, t.name) for t in room.room.snapshot(None, 0, now_ms()).tracks}
+    assert (f"talk/{ROOM}/agents/translate-fr", "items") not in rows
+    assert not (tmp_path / "looped" / ROOM / "agents").exists()  # read only: nothing written for it
+
+
 # --- chat -----------------------------------------------------------------------------------------------------------
 
 
@@ -261,6 +282,29 @@ async def test_a_restarted_room_service_carries_the_chat_on_and_keeps_only_the_n
     assert [r.data.text for r in messages([carry])] == [f"#{i}" for i in range(6)]
     fetched: Slice = await again.chat.source(max(again.chat.live))
     assert [o.payload for o in fetched.objects if o.status == NORMAL] == again.chat.live[max(again.chat.live)]
+
+
+async def test_a_drawer_open_for_longer_than_the_kept_slices_loses_no_message(tmp_path: Path) -> None:
+    room = Looped(tmp_path, keep=3)
+    await room.on_air()
+    ada = await room.join("Ada")
+    for i in range(55):  # more than one carry-in holds: the newest 50 are what a drawer shows
+        room.clock += 10
+        assert (await room.write(ada, "chat", {"text": f"#{i}"}))["type"] == "ack"
+    room.chat.reading = True  # a drawer stays open, nobody writes, for many more slices than are kept
+    for _ in range(10):
+        await room.later(SLICE_MS)
+    newest = max(room.chat.live)
+    assert [r.data.text for r in messages(room.chat.live[newest][:1])] == [f"#{i}" for i in range(5, 55)]
+    room.chat.reading = False
+    await room.later(SLICE_MS)
+
+    again = Looped(tmp_path, at=room.wall.ms - E + LOOP_MS)  # restarted, and a drawer opened much later
+    await again.on_air()
+    again.chat.reading = True
+    await again.room.tick()
+    [carry] = again.chat.live[max(again.chat.live)][:1]
+    assert [r.data.text for r in messages([carry])] == [f"#{i}" for i in range(5, 55)]
 
 
 # --- the room service: a looped room is never archived ---------------------------------------------------------------

@@ -303,7 +303,9 @@ class Archiver:
     def _looped(self, room: str) -> LoopedRoom:
         looped = self.looped_rooms.get(room)
         if looped is None:
-            looped = self.looped_rooms[room] = LoopedRoom(room, self.relay, self.looped_root)
+            looped = self.looped_rooms[room] = LoopedRoom(
+                room, self.relay, self.looped_root, archive_root=self.archive.root
+            )
             looped.reader = self._spawn(looped.run(), f"{room}/looped")
             log.info("looped room %s: its chat and stats only", room)
         return looped

@@ -15,7 +15,12 @@ catalog lists (``with_room_service``; one publisher per track name):
   in a folder of their own beside the archive (``TT_LOOPED_DIR``, never in the archive Caddy serves or the bucket
   copy), the newest ``KEEP_SLICES`` of them.
 * ``talk/<room>/stats``: Stats for nerds, as in a live room (``archive.stats``): the teacher's media, the looper's
-  catalog and every track it lists, the chat, and the agents (running while their status says producing).
+  catalog and every track it lists, the chat, and the agents (running while their status says producing), with any
+  other agent announced in the room (``translate-any``) as its ``track.json`` in the archive folder describes it,
+  read only, as the live room's catalog does.
+
+Retention: every chat slice's object 0 is the last 50 messages (``chat_carry``), so slices written while a drawer is
+open and nobody writes still carry the whole recent conversation; the newest slice alone seeds a restart.
 
 Transport-free: the relay is ``LoopedRelay`` (``moq.Relay``), tests hand in a fake.
 """
@@ -45,6 +50,7 @@ from ..contracts import (
     MarkRecord,
     RoomCatalog,
     RoomStats,
+    agents_prefix,
     catalog_path,
     chat_path,
     slides_path,
@@ -57,6 +63,7 @@ from ..room_catalog import EVENT_TYPES, CatalogTrack, room_service_tracks, stats
 from ..room_catalog import RoomCatalog as BuiltCatalog
 from ..runtime import now_ms
 from .audience import Audience, Done, Refusal
+from .catalog import CatalogFeed
 from .events import HistoryOut, ServiceTrack, chat_records
 from .slices import FINISHED, PART, TrackArchive
 from .stats import Listed, RelayCounts, StatsOut, StatsTrack, room_stats
@@ -127,8 +134,12 @@ class LoopedRoom:
         *,
         wall: Callable[[], int] = now_ms,
         keep: int = KEEP_SLICES,
+        archive_root: Path | None = None,
     ) -> None:
         self.room, self.relay, self.root, self._wall, self._keep = room, relay, root, wall, max(1, keep)
+        # Agents announced in the room; those the looper's catalog does not list are read from their track.json here.
+        self.agents: set[str] = set()
+        self._agent_tracks = CatalogFeed(room, archive_root) if archive_root is not None else None
         self.catalog: RoomCatalog | None = None  # the looper's, as last read
         self.media: dict[str, str] = {}  # the teacher's media tracks: name -> audio or video
         self.on_air = False  # the teacher broadcast is announced
@@ -154,6 +165,9 @@ class LoopedRoom:
             self.on_air = active
             if not active:
                 self.media = {}
+        prefix = f"{agents_prefix(self.room)}/"
+        if namespace.startswith(prefix) and "/" not in (agent := namespace.removeprefix(prefix)) and agent:
+            (self.agents.add if active else self.agents.discard)(agent)
 
     def feed_catalog(self, payload: bytes) -> None:
         try:
@@ -271,4 +285,11 @@ class LoopedRoom:
         if cat is not None:
             status = {name: s.producing for name, s in cat.tt.status.items()}
             tracks += [(t.namespace, t.name, t.kind, t.lang, bool(status.get(t.agent))) for t in catalog_tracks(cat)]
+        if self._agent_tracks is not None:
+            listed = {t.agent for t in catalog_tracks(cat)} if cat is not None else set[str]()
+            self._agent_tracks.agents = self.agents - listed
+            more, live = self._agent_tracks.agent_tracks(at_ms)
+            for t in more:
+                producing = bool(live.get(t.namespace.rsplit("/", 1)[-1], {}).get("producing"))
+                tracks.append((t.namespace, t.name, t.kind, t.lang, producing))
         return room_stats(tracks, counts, listeners, at_ms)

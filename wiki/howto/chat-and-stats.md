@@ -62,8 +62,9 @@ publishes only their chat and stats tracks. Which rooms: `TT_LOOPED_ROOMS` (patt
   status) and the teacher's hang catalog (`talk/R/teacher` `catalog.json`: the media tracks), both subscribed for as
   long as the room is announced. Nothing that wakes an agent.
 - **Stats.** As in a live room: the teacher's media, the deck and slide tracks, the catalog, the chat, the stats
-  track and every agent track the catalog lists (running while its status says producing). An agent that serves the
-  room without being in the looper's catalog (`translate-any`) is not listed.
+  track and every agent track the catalog lists (running while its status says producing). An agent announced in
+  the room that the looper's catalog does not list (`translate-any`) is listed from its own `track.json` in the
+  archive folder, read only, as in a live room's catalog.
 - **Chat, writing.** Over the listener WebSocket with a live room's validation, stamps and limits. Drawing, marks
   and comments are refused there (`forbidden`), and the player keeps those tools off in a demo room while the chat
   works. While the looper is not on air (its teacher broadcast is not announced), a write is refused `not-live`.
@@ -76,8 +77,9 @@ publishes only their chat and stats tracks. Which rooms: `TT_LOOPED_ROOMS` (patt
   the loop moves the lecture, not the conversation, so the chat at an earlier room time would be a different
   conversation (or none). Live is the one behaviour that is never wrong there.
 - **Chat, kept.** In `TT_LOOPED_DIR` (default `looped/` beside the archive folder; `/data/looped` on the VM), never
-  in the archive Caddy serves or the bucket copy. The newest 64 slices per room are kept (`KEEP_SLICES`); a restarted
-  room service seeds itself from the newest one, so the last 50 messages carry on.
+  in the archive Caddy serves or the bucket copy. The newest 64 slices per room are kept (`KEEP_SLICES`). Every
+  slice's object 0 is the last 50 messages, so slices written while a drawer stays open and nobody writes still hold
+  them; a restarted room service seeds itself from the newest slice, and the last 50 messages carry on.
 - **Checked** on 2026-11-02 against a local relay with a stand-in looper: a chat write is acked with `m` = wall - E;
   an ink write is refused; a drawer opened later gets the message at once; after `docker restart` of the room service
   a new drawer gets it within 0.4 s; the stats list the room's tracks with relay counts; the archive folder stays
