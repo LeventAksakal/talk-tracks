@@ -100,6 +100,7 @@ Severity: P0 blocks the demo, P1 visible to judges, P2 polish, P3 note. Paths ar
 | 11-02 17:09 | coordinator | QA harness merged (4fdb1bb). Its two deployed runs are provisional (they spanned three redeploys). Findings routed: player fixes lane takes P0 "Talk ended" after Go live in a looped room, the player's light-theme contrast, CLS 0.36 from the camera tile, "in this room" for languages not running, side-panel tab overflow, the missing main landmark, unknown room shown as "Not started", the room-clock playhead in Stats for nerds; performance and infra lane takes Caddy compression and cache headers, robots.txt, bundle split (hub 354 KB gzip, target 200), the console's Go on air without a token, and Arabic missing at the live edge (VM check: the recorded tracks are complete, 26 windows of 27–45 s with no gaps, so the looper's publish timing is the suspect). Freeze run: no deploys while it runs, Tue after 10:00. |
 | 11-02 17:49 | coordinator | Performance and infra merged (3f4c5c2; gate agents 307, web 249 passed) and deployed as QA build 8: Caddy restarted, bundle `index-C2n2YSRa.js`, agents rebuilt, loopers recreated; rollback `talk-tracks-agents:before-qa8`, `~/web-dist-f953536`, `~/Caddyfile-f953536`. Checked on the VM: the entry script comes with `content-encoding: zstd` and a one-year immutable cache header; `/robots.txt` is plain text; `/talk/<room>` without a token says it can't go on air. Local Lighthouse (lane): hub 91 → 100, TBT 224 → 0 ms; hub JS before first paint 371 → 132 KB gzip. Not measured yet on the VM: watch-page Lighthouse and Arabic at the live edge (freeze run). Lane questions settled: MoQ on the hub after first paint is enough before the freeze; Ajv at build time is after the hackathon. Open: old console tests that read `disabled` pass trivially on Astryx's `aria-disabled` (follow-up). |
 | 11-02 17:58 | coordinator | Player fixes merged (c4c51c8; web gate 256 passed) and deployed, web only (`index-CvS8tAjp.js`). On the VM `/watch/virus` reads LIVE · looped recording with no console errors. Still wrong: an unknown room stays on "Looking for the room…" past 20 s instead of "No room called X"; a small fix lane is on it (`lane/unknown-room`). The counted QA run starts after that fix is deployed, with no deploys while it runs. |
+| 11-02 19:20 | QA freeze lane | **Counted run (d8175cf).** Run `20261102-counted-d8175cf`, 18:15–18:52, one build throughout (`index-i7MFUd6h`, no redeploy), 5 browsers × 2 themes × 6 journeys, Lighthouse, trace: 550 captures, 0 failed steps, 0 skipped, no harness fix needed. 13 of the 15 earlier findings are fixed in the frames and numbers; Lighthouse Performance still misses its targets on the hub and the watch page (one load task in the MoQ announcement path); new: subtitles sit over the camera tile. Results and the ranked open list: [Counted run (d8175cf)](#counted-run-d8175cf-11-02) below. |
 
 Dropped after checking source: "You missed 1:00" still showing after Go live is intended (`DemoPage.test.tsx:42`); the
 hub's "Checking what is on air…" never resolving happened only on the local preview, which has no relay.
@@ -111,3 +112,75 @@ loop is still to measure), DOM nodes 394 → 454. Offline demo (L): playback 8 %
 
 Lighthouse desktop (B4): hub 62 / 100 / 81 / 91 (performance, accessibility, best practices, SEO), watch 39 / 94 / 81 /
 92, demo 72 / 94 / 100 / 92. Local preview (L, uncompressed HTTP): hub 91 / 100 / 59 / 91, demo 80 / 94 / 78 / 92.
+
+### Counted run (d8175cf), 11-02
+
+Run `20261102-counted-d8175cf` (`C` below; paths under `qa/out/`, not in git), 18:15–18:52 +03, 36.6 min, against the
+VM serving `main` at d8175cf. One build for the whole run (`index-i7MFUd6h` at start, per browser, before Lighthouse,
+before the trace and at the end), so differences between browsers are browser differences. 1440×900 @1x, reduced
+motion, room `dataviz`, translation Arabic (listed "recorded in this room"). No room created, no chat sent, never on
+air. Contact sheet: `C/index.html` (every capture by journey, browsers side by side).
+
+**Captures per browser:** Chromium 156.0.8078.4, Chrome 156.0.8078.74, Edge 156.0.4314.58, Firefox 157.0, WebKit
+27.2: 110 each (550), 0 failed steps, 0 skipped. Console errors: 18 across 12 captures, all WebKit (no `AudioDecoder`,
+no `navigator.mediaDevices`) except 2 in Firefox ("fatal error running connection" on leaving the unknown room). No
+`/archive` 404s anywhere.
+
+**Lighthouse (desktop preset, branded Chrome):**
+
+| Page | Performance | Accessibility | Best practices | SEO | LCP | TBT | CLS | Target missed |
+|---|---|---|---|---|---|---|---|---|
+| hub `/` | 77 | 100 | 81 | 100 | 0.6 s | 570 ms | 0.025 | Performance ≥ 90, Best practices ≥ 95 |
+| watch `/watch/dataviz` | 72 | 100 | 81 | 100 | 0.7 s | 730 ms | 0.046 | Performance ≥ 75 |
+| demo `/demo` | 92 | 100 | 100 | 100 | 0.8 s | 200 ms | 0.011 | none |
+
+Against B4: hub 62 → 77, watch 39 → 72, demo 72 → 92; accessibility 94 → 100 on the player pages; SEO 91/92 → 100;
+watch CLS 0.36 → 0.046. Transfer is compressed now (hub entry 82 KB for 243 KB). Hub JS: 135 KB compressed before
+first paint plus 99 KB of MoQ after it (234 KB, target 200; the MoQ-after-paint split was accepted for the freeze).
+
+**Trace** (Chrome 156, `/watch/dataviz`; B4 in brackets): load 2 s, main thread 60 % busy (64 %), 4 long tasks, 802 ms
+in total (1,162), longest 626 ms (721); 60 s of playback with subtitles 16 % busy (26 %), no long task, 30 frames drawn
+per second (50; a still-slide stretch draws fewer), rAF 144 fps with p95 frame 7 ms and none over 50 ms; seek back a
+minute and Go live 14 % busy, one 55 ms task (100 ms), and Go live returned to "LIVE · looped recording". JS heap after
+GC 14.9 → 16.2 MB over 60 s (1.3 MB/min, was 1.4); DOM nodes 414 → 474; listeners 262 → 272.
+
+**Earlier findings against this run:**
+
+| # | Finding | Now | Checked in |
+|---|---|---|---|
+| 1 | Firefox lost dark-theme emulation (instrument) | fixed: Firefox dark frames are dark | `C/firefox/hub-top-dark.png`, `watch-back-live-dark.png` |
+| 2 | Looped room says "Talk ended" after Go live (P0) | fixed: LIVE · looped recording in the frames checked (Chromium, Chrome, Edge, Firefox, WebKit) and in the trace | `C/*/watch-back-live-*.png`; trace step "go live" |
+| 3 | Light theme breaks the player's overlays | fixed: the player stays dark under a light system theme; Stats labels, unknown-room and failed cards readable | `C/chromium/watch-stats-light.png`, `unknown-not-started-light.png`, `demo-state-failed-light.png` |
+| 4 | Uncompressed app, fonts uncached | fixed for compression and caching; Performance still under target (open 1) | `C/lighthouse/hub.html` |
+| 5 | Watch CLS 0.36 from the camera tile | fixed: 0.046 (body 0.036, transcript 0.008) | `C/lighthouse/watch.html` |
+| 6 | Arabic missing at the live edge | fixed: Arabic on the stage and beside the newest lines at 6:44, 9:15, 14:07, 17:02 and across the loop wrap (0:06) | `C/msedge/watch-translation-arabicrecorded-light.png`, `C/chromium/…-dark.png`, `C/firefox/watch-stats-light.png`, `C/webkit/…-dark.png`, `C/chrome/…-light.png` |
+| 7 | "In this room" for languages not running | fixed: the menu says "recorded in this room" (Arabic, Spanish, Turkish) and "starts when picked · takes a moment" for the rest | `C/chromium/watch-subtitles-menu-dark.png` |
+| 8 | Side-panel tabs overflow | fixed (arrows and a fade, close button out of the tablist, accessibility 100); stray letter fragments remain at the fade (open 6) | `C/chromium/demo-state-failed-dark.png` |
+| 9 | No main landmark on the player pages | fixed: accessibility 100 on watch and demo | `C/lighthouse/watch.html` |
+| 10 | Console offers Go on air with no token | fixed: Go on air disabled, Speaker token "NEEDS YOU" with Paste your speaker link | `C/chromium/console-preflight-mic-dark.png` |
+| 11 | Unknown room waits for a speaker | fixed: "No room called qa-no-such-room", pill "No such room", Back to the hub | `C/*/unknown-not-started-*.png` |
+| 12 | `/archive/<room>/screen.m3u8` 404s | fixed: none logged in 550 captures | `C/report.md` console errors |
+| 13 | Stats playhead on the loop's raw clock | fixed: "playhead 9:45 · live edge 9:45" | `C/chromium/watch-stats-dark.png` |
+| 14 | robots.txt invalid; `unload` listener blocks bfcache | robots fixed (SEO 100); `unload` still there (open 3) | `C/lighthouse/hub.html` |
+| 15 | WebKit on Windows lacks AudioDecoder and mediaDevices | still there (engine, out of scope) | `C/webkit/watch-back-live-dark.png` |
+
+**Ranked open list (counted run).** Sources are on `main` at d8175cf; probable unless marked confirmed.
+
+| # | Sev | Finding | Evidence | Probable source | Owner |
+|---|---|---|---|---|---|
+| 1 | P1 | **Lighthouse Performance under target on the hub (77, target 90) and the watch page (72, target 75).** Almost all of TBT is one task after first paint: 624 ms on the hub, 814 ms on watch, attributed to the MoQ chunk. A 7 s CPU profile of the watch load (Chrome, after the run) puts about 470 ms in `@moq/net`'s announcement matching (`origin.announced` → path-pattern `overlaps`/`captures` over every announced broadcast), about 420 ms in the React render it triggers, and 104 ms in Ajv compiling validators on first use, all in the same window. The local 100 had no relay, so it never received the announcements. | `C/lighthouse/hub.html`, `C/lighthouse/watch.html`, `C/trace/watch-trace.json.gz` (load task 626 ms) | `web/src/pages/liveRooms.ts:19` (the hub watches all of `talk/`), `web/src/transport/moq.ts:57` (`Moq.Path.Pattern.subtree`), `web/src/contracts/validate.ts` (lazy compiles land together) | Player (infra for the relay's announcement fan-out) |
+| 2 | P2 | **Subtitles sit on the camera tile.** In the picture-in-picture layout the bottom-centre subtitle box overlaps the camera tile and covers its Camera chip; in WebKit the tile hides the end of the line. Seen in every browser, original and Arabic. | `C/chromium/watch-subtitles-on-dark.png`, `C/chromium/watch-translation-arabicrecorded-dark.png`, `C/webkit/watch-translation-arabicrecorded-dark.png` | `web/src/player/SubtitleOverlay.tsx:12-15` (default bottom centre; the safe area ignores the small cell), `web/src/player/player.css:128` (`.tt-layout-pip .tt-cell-small`) | Player |
+| 3 | P2 | **Best practices 81 on hub and watch (target 95 on the hub):** a deprecated `unload` listener, which also blocks the back/forward cache (remainder of 14). | `C/lighthouse/hub.html` (deprecations, bf-cache) | `@moq/net/connection/reload.js:167` (dependency; Lighthouse places it in the MoQ chunk) | Infra |
+| 4 | P3 | "You missed 1:01 · 0 chapters": the count shows when no chapter falls in the gap. | `C/chromium/watch-subtitle-style-light.png` | `web/src/player/Stage.tsx:142` (confirmed) | Player |
+| 5 | P3 | Stats for nerds lists about 40 "Translation (xx) off" rows, which bury the two or three tracks that run. | `C/chromium/watch-stats-dark.png` | `web/src/player/StatsForNerds.tsx:84` (every catalog track) | Player |
+| 6 | P3 | The side-panel tab fade leaves stray fragments ("s", "apters", "D") at the strip's edges. | `C/chromium/demo-state-failed-dark.png`, `C/chromium/watch-stats-dark.png` | `web/src/player/player.css:1295-1303` (mask) | Player |
+| 7 | P3 | Layers below show through empty states: a faint "Camera" chip and "Speaker audio, no picture yet" behind "No room called …"; the offline demo shows an empty camera tile, "No camera in this room", over the slide. | `C/chromium/unknown-not-started-dark.png`, `C/chromium/demo-back-live-dark.png` | `web/src/player/Stage.tsx` (cells render under the card) | Player |
+| 8 | P3 | Firefox logs "fatal error running connection Error" when leaving the unknown room (a connection closed by navigation, logged as fatal). | `C/report.md` console errors (`firefox/unknown`) | `@moq/net` connection loop, via `web/src/transport/moq.ts` | Player |
+| 9 | P3 | WebKit (Windows, not Safari, out of scope): besides 15, the hub's Live now still says "Checking what is on air…" after 12 s and the demo cards have no LIVE pill, though WebKit's watch page connects over WebSocket. | `C/webkit/hub-top-dark.png` | `web/src/pages/liveRooms.ts`, `web/src/pages/LandingPage.tsx:92` | Player |
+
+Not covered by this run: the 20 min memory loop (60 s only), drawing latency on the console, a real camera and
+microphone, a speaker on air, listener annotations and chat sends in a live room, time to first frame and INP (not
+instrumented), mobile-throttled Lighthouse and the ended-room and talk pages (the harness runs the desktop preset on
+hub, watch and demo), the Coverage and caching pass, keyboard-only and screen-reader runs, real Safari, phone (out of
+scope). The console's mic meter is flat in both preflight-mic frames checked while it says "We hear you" (the fake
+device beeps intermittently; check with a real mic).
