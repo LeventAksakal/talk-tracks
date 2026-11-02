@@ -50,3 +50,4 @@ Open questions for the owner are ticket files in [`../tickets/`](../tickets/). T
 | The player is built on Media Chrome | [0031](decisions/0031-the-player-is-built-on-media-chrome.md) |
 | Each demo lecture has a recording and a live session; demo AI tracks are honest | [0032](decisions/0032-each-demo-lecture-has-a-recording-and-a-live-session.md) |
 | The look is a streaming platform; the mascot is removed | [0033](decisions/0033-the-look-is-a-streaming-platform.md) |
+| Demo rooms run live agents from Tue evening, capped at $5 per room per day | [0034](decisions/0034-demo-rooms-run-live-agents-capped-per-day.md) |
