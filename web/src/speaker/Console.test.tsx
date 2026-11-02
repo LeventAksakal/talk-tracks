@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { DECK_TRACK, INK_TRACK, MARKS_TRACK, POINTER_TRACK, SLIDE_TRACK } from "../contracts/names";
 import type { CurrentSlideRecord, InkRecord, MarkRecord, PointerRecord } from "../contracts/types";
 import {
@@ -171,6 +171,12 @@ describe("the speaker console", () => {
   });
 
   it("draws with the pen, points the laser, underlines text and clears the slide, all as contract records", async () => {
+    // The room clock holds still for the test: on a loaded machine the run crossed a 4 s slice boundary, and the new
+    // slice's carry-in (the stroke drawn so far, kind "stroke") read as one record more. The records are the subject
+    // here, not the slicing (publisher.test.ts covers the carry-ins).
+    const frozen = performance.now();
+    const clock = vi.spyOn(performance, "now").mockReturnValue(frozen);
+    onTestFinished(() => clock.mockRestore());
     const { all, sink } = setup();
     await loadDeck();
     const canvas = stage();

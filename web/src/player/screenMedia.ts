@@ -6,6 +6,9 @@
 //
 // Whether the screen is on the stage: live, the teacher's hang catalog names a `screen` rendition (it does exactly
 // while the speaker shares); rewound, the screen playlist covers the frame on screen.
+//
+// A 404 for the playlist means no share is archived (a recording room, or a talk nobody shared a screen in): the
+// playlist is not asked for again until a share ends, and then until it is there.
 
 import { HANG_CATALOG_TRACK, SCREEN_TRACK, teacherPath } from "../contracts/names";
 import type { Mode } from "../playback/aiTracks";
@@ -71,6 +74,10 @@ export class ScreenMedia {
   #archiveOpening = false;
   #refreshing: Promise<void> | undefined;
   #closed = false;
+  /** The archive answered 404 for the playlist: no share archived. The periodic read stops. */
+  #absent = false;
+  /** A share ended, so its playlist is due: read on, through 404s, until it is there. */
+  #due = false;
 
   constructor(transport: Transport | undefined, room: string, media: RoomMedia, options: ScreenMediaOptions = {}) {
     this.room = room;
@@ -89,13 +96,20 @@ export class ScreenMedia {
           }
           if (shared === this.#liveShared) return;
           this.#liveShared = shared;
-          // A share that ended is in the archive now: read the playlist again.
-          if (!shared) void this.refresh();
+          // A share that ended is in the archive now (or soon): read the playlist again until it is.
+          if (!shared) {
+            this.#due = true;
+            void this.refresh();
+          }
           this.#emit();
         }),
       );
     }
-    this.#timers.push(setInterval(() => void this.refresh(), options.refreshMs ?? 10_000));
+    this.#timers.push(
+      setInterval(() => {
+        if (!this.#absent || this.#due) void this.refresh();
+      }, options.refreshMs ?? 10_000),
+    );
     const tick = options.tickMs ?? 250;
     if (tick > 0) this.#timers.push(setInterval(() => this.follow(), tick));
     void this.refresh();
@@ -144,8 +158,16 @@ export class ScreenMedia {
     // A looped room has no archive (the archiver skips the demo rooms): never ask it for a screen playlist.
     if (await this.#media.looping()) return;
     try {
-      const state = await archiveState(this.#url, this.#fetch);
+      let status: number | undefined;
+      const probe = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await this.#fetch(input, init);
+        status ??= response.status; // the screen playlist's own answer, the first request
+        return response;
+      }) as typeof fetch;
+      const state = await archiveState(this.#url, probe);
       if (this.#closed) return;
+      this.#absent = status === 404;
+      if (state) this.#due = false;
       const before = JSON.stringify(this.#wallRanges);
       this.#wallRanges = state?.ranges ?? [];
       if (JSON.stringify(this.#wallRanges) !== before) this.#emit();

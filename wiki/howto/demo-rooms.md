@@ -188,8 +188,10 @@ Both rooms cut the recorded ASR lines into subtitle cues the same way (`agents/s
 breaks at a sentence end first, then at a clause mark (comma, semicolon, colon, dash). It never ends mid-phrase to
 meet the 84-character line: a cue may run to two lines or a little over 7 s (up to 8.5 s) to reach a mark. Only a
 phrase that has no mark in reach is forced, before a conjunction where there is one, else after a content word.
+A recording whose recogniser left out most punctuation (virus and dataviz) gives the rule little to break at; the
+[`repunctuate`](#re-punctuating-the-captions-repunctuate) pass adds it, words unchanged.
 `python -m talk_tracks cue-report --recording DIR` prints, for a recording, how many cues end at a sentence end, a
-clause mark, a forced break and the end of an ASR line, and the longest cue; the test
+clause mark, a forced break and the end of an ASR line, and the longest cue (after any saved punctuation); the test
 `test_the_demo_recordings_break_at_sentences_and_clauses` asserts no cue ends mid-phrase unless forced, over the four
 recordings where they are (`data/demo/<lecture>/`, or `TT_DEMO_DIR`).
 
@@ -365,15 +367,17 @@ A live test on 2026-10-27 cost about $0.02 a minute of speech, which agrees.
 
 ## Fixing a finished recording
 
-Three offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
-snapshots, which `session` (switch off) and `record-archive` merge (`agents/src/talk_tracks/revise.py`). `retranslate` and `redescribe` spend through
-the ledger of the room given with `--room`, so a cap batch scopes them; with `--fake` they spend nothing. `resplit`
-makes no model call and spends nothing.
+Four offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
+snapshots, which `session` (switch off), `record-archive` and `cue-report` merge (`agents/src/talk_tracks/revise.py`,
+`repunctuate.py`). `retranslate`, `redescribe` and `repunctuate` spend through the ledger of the room given with
+`--room`, so a cap batch scopes them; with `--fake` they spend nothing. `resplit` makes no model call and spends
+nothing.
 
 | Command | What it does | Saves |
 |---|---|---|
 | `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-<lang>.cues.json`; a line whose cues have changed since falls back to the split translation |
 | `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out after its slide by the describe agent's measured delay in the recording |
+| `repunctuate --recording DIR [--dry-run]` | adds sentence and clause punctuation and sentence capitals to each final caption line, one call per line with the lines around it as context; only punctuation and case change, never a word ([below](#re-punctuating-the-captions-repunctuate)); a line already saved is not sent again | `agents/captions.punct.json` |
 | `resplit --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-<lang>.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-<lang>.cues.orig.json` |
 
 On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
@@ -398,6 +402,70 @@ A recording room already built keeps the tracks it was built with: rebuild it to
 Expected cost: about $0.20 for each room. Reasoning tokens roughly double the first estimate (retranslate about $0.04
 a lecture on 12k tokens in and 6k out at $1.25 / $4.25 per M; redescribe about $0.004 a slide). The batch stops all
 at $2.50.
+
+### Re-punctuating the captions (repunctuate)
+
+The virus and dataviz recogniser returned long lines with almost no punctuation, so most of their cue breaks were
+forced (`cue-report` on the VM, 2026-11-02: virus 200 of 246 cues, dataviz 195 of 234; rsa 3 of 240, qrcode 7 of 238).
+`repunctuate` asks Muse Spark (minimal reasoning, a JSON schema) to punctuate each final caption line and saves the
+lines as `agents/captions.punct.json`. Every reader of the recording merges it (`revise.read_recording`): the cue
+cutter breaks at the new sentence ends and clause marks, the translations are split over the new cues by the existing
+rule (sentence by sentence, by character share), and a session and the recording room show the punctuated lines.
+
+* **Words never change.** The model's reply is aligned with the line word by word (ignoring case and punctuation);
+  only the punctuation and case of matching words are taken, every other word stays as recorded. A saved line whose
+  words no longer match its recorded line is ignored.
+* **Retranslated cues.** `retranslate`'s saved segments (`translate-<lang>.cues.json`) were cut for the old cues, so
+  the lines whose cues change fall back to the split translation. Running `retranslate` and `resplit` again afterwards
+  cuts them to the new cues (about $0.20 a room, [above](#fixing-a-finished-recording)); it is optional.
+* **Dry run.** `--dry-run` sends nothing and writes nothing: it prints the lines it would send, an upper estimate of
+  the cost and the cue report as it stands. It needs no `--room` and no key.
+* **Resuming and undoing.** It saves every 10 lines; a run stopped by a cap goes on where it stopped and a second run
+  sends nothing. To undo, remove `agents/captions.punct.json`, then restart the session player and rebuild the
+  recording room as below.
+
+**Expected cost:** a few cents a lecture. A 17–19 min lecture is about 60–80 lines and 14–17k characters: about
+$0.04 at about 300 tokens in and 150 out a line, at most about $0.11 (the dry run's estimate, which allows 250
+reasoning tokens a call). Both lectures: under $0.25, held by a cap batch of $0.30 a room.
+
+**On the VM**, once the deployed agents image has the command (the coordinator; rsa and qrcode need no pass):
+
+```bash
+cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
+
+# 1. A cap batch for the pass, then a dry run (free: no call, no write) and the pass itself
+cat > ~/tt-data/caps/repunct-demo.json <<'JSON'
+{"group": "repunct-demo", "room_usd": 0.3, "total_usd": 0.6, "rooms": ["repunct-virus", "repunct-dataviz"]}
+JSON
+for L in virus dataviz; do
+  $D run --rm --no-deps looper-$L repunctuate --recording /data/demo/$L --dry-run
+  $D --profile live run --rm --no-deps captions repunctuate --room repunct-$L --recording /data/demo/$L
+done
+grep repunct- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f\n", s}'
+
+# 2. The session players read the punctuation when they start
+$D restart looper-virus looper-dataviz
+
+# 3. Rebuild the two recording rooms with the room service and their servers stopped
+$D --profile recordings stop recording-virus recording-dataviz
+$D stop archive        # it rewrites rooms.json from what it read at start
+for L in virus dataviz; do
+  $D run --rm --no-deps --entrypoint rm looper-$L -rf /data/archive/$L-recording
+  $D run --rm --no-deps looper-$L record-archive --recording /data/demo/$L --room $L-recording
+done
+$D up -d archive
+$D --profile recordings up -d recording-virus recording-dataviz
+
+# 4. The cue report again, all four lectures
+for L in virus dataviz rsa qrcode; do
+  $D run --rm --no-deps looper-$L cue-report --recording /data/demo/$L
+done
+```
+
+Each pass prints the lines it sent, the cue report before and after, how many lines changed and how many of the
+model's words were not taken (kept as recorded), and its usage. `rm` runs in a container because the archive's files
+belong to the containers' user. **Target:** under 15 % of cues forced in virus and dataviz (`forced` over `cues` in
+the report), 0 mid-phrase; then `/watch/virus` and `/watch/virus-recording` show sentence-cased, punctuated subtitles.
 
 ### Fitting the subtitle cues to 84 characters (resplit)
 
@@ -470,6 +538,7 @@ The commands behind the services are `python -m talk_tracks <command>` in the ag
 | `record-archive --recording DIR [--room ID-recording] [--media FILE]` | Builds the recording room into `TT_ARCHIVE_DIR`, once; offline, no relay ([the recording rooms](#the-recording-rooms)) |
 | `serve-recording [--media FILE] [--slides X,Y,W,H]` | Serves the recording room `--room` from the archive: catalog, room track, AI tracks and slides |
 | `cue-report --recording DIR` | Prints where DIR's subtitle cues end; offline, no relay |
+| `repunctuate --recording DIR [--dry-run]` | Adds punctuation to DIR's caption lines, words unchanged; spends through `--room`'s ledger ([re-punctuating](#re-punctuating-the-captions-repunctuate)) |
 
 All but the offline ones take `--relay`, `--room`, `--insecure` and `--token` (or `TT_RELAY`, `TT_ROOM`, `TT_TOKEN`;
 the token goes to the relay as `?jwt=`). With signed tokens (see [tokens](tokens.md)), `play` and `generate` need

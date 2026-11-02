@@ -92,7 +92,7 @@ export function Chat({ source, room, service, rewound, at, talkClock, readOnly, 
 
   const status =
     rewound && looped
-      ? "The chat stays live while you rewind a looped talk."
+      ? "The chat stays live while you rewind this session."
       : shown.phase === "loading"
         ? replay
           ? "Loading the chat at this point…"

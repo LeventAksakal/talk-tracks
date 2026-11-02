@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AiTracks } from "./aiTracks";
 import { FakeHistorySource } from "./fakeSource";
 import { FakeRoom, fakeTalk } from "./fixtures";
@@ -166,6 +166,14 @@ describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
   });
 
   it("a FETCH with no answer becomes a hole after the timeout; the slices around it load", async () => {
+    // Timers on a fake clock: with real ones a loaded machine spent the whole 300 ms timeout before the first look.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const flush = async () => {
+      for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(0);
+    };
     const source = new FakeHistorySource();
     const room = new FakeRoom(source, ROOM, fakeTalk());
     room.start(200_000);
@@ -174,12 +182,14 @@ describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
     source.hang(room.path("captions"), ITEMS_TRACK, k);
     tracks = new AiTracks(source, ROOM, { liveBack: 0, fetchTimeoutMs: 300, retryMissingMs: 60_000 });
     tracks.setEnabled("captions/items", true);
-    await settle();
+    await flush();
     tracks.seek(50_000);
-    await settle();
+    await flush();
     expect(view(tracks, "captions/items").loading).toBe(true);
-    await new Promise((r) => setTimeout(r, 350));
-    await settle();
+    await vi.advanceTimersByTimeAsync(299);
+    expect(view(tracks, "captions/items").loading).toBe(true); // not before the timeout
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
     const v = view(tracks, "captions/items");
     expect(v.loading).toBe(false);
     expect(v.held.filter((r) => r.start < 100_000)).toEqual([
@@ -188,7 +198,7 @@ describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
     ]);
     // Not asked again while the hole is fresh.
     tracks.setPosition(50_500);
-    await settle();
+    await flush();
     expect(source.fetchedGroups(room.path("captions"), ITEMS_TRACK).filter((g) => g === k)).toHaveLength(1);
   });
 });

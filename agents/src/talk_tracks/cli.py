@@ -11,8 +11,9 @@ plays the lecture once from 00:00 and ends; ``TT_DEMO_LIVE_AGENTS`` on: its AI t
 ``record-archive`` builds a recording room into the archive (TT_ARCHIVE_DIR), ``cue-report`` counts where a
 recording's subtitle cues end. Fixes to a finished recording (``--recording``, offline, spending through ``--room``'s
 ledger): ``retranslate`` translates its caption lines (into ``--lang`` / ``--agent``) cut to subtitle cues,
-``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``), ``resplit`` cuts
-retranslate's over-long subtitle cues again, free (no model call, no spend).
+``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``), ``repunctuate`` adds
+sentence and clause punctuation to its caption lines, words unchanged (``--dry-run``: no call, no write, the estimate),
+``resplit`` cuts retranslate's over-long subtitle cues again, free (no model call, no spend).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
@@ -57,7 +58,7 @@ from .llm.queued import Priority, QueuedLlm, add_usage
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "catalog", "watch")
 DEMO = ("play", "record", "generate", "session", "serve-recording")
-REVISE = ("retranslate", "redescribe", "resplit")  # offline: a finished recording, no relay
+REVISE = ("retranslate", "redescribe", "repunctuate", "resplit")  # offline: a finished recording, no relay
 OFFLINE = ("record-archive", "cue-report")  # offline and free: a recording into the archive, or its cue report
 
 FAKE_SENTENCES = [
@@ -745,6 +746,9 @@ async def _revise(args: argparse.Namespace) -> None:
             longest,
         )
         return
+    if args.agent == "repunctuate":
+        await _repunctuate(args, recording)
+        return
     if args.agent == "retranslate":
         translator: revise.CueTranslator = (
             revise.FakeCueTranslator(usd_per_call=env_float("TT_FAKE_USD_PER_CALL", 0))
@@ -764,6 +768,31 @@ async def _revise(args: argparse.Namespace) -> None:
         logging.getLogger("talk_tracks.revise").info(
             "redescribe: %d slides described, %s", len(patch.notes), patch.usage
         )
+
+
+async def _repunctuate(args: argparse.Namespace, recording: Path) -> None:
+    from . import repunctuate as rp
+
+    punctuator: rp.Punctuator
+    if args.fake or args.dry_run:
+        punctuator = rp.FakePunctuator(usd_per_call=env_float("TT_FAKE_USD_PER_CALL", 0))
+    else:
+        punctuator = rp.MetaPunctuator(api_key(), room_ledger(args.room, spend_ledger()))
+    result = await rp.repunctuate(recording, punctuator, dry_run=args.dry_run)
+    plan = result.plan
+    print(
+        f"{recording.name}: {plan.agent}: {plan.lines} lines to send ({plan.chars} characters, about "
+        f"${plan.usd:.4f} at most), {plan.saved} already saved"
+    )
+    print(f"  before: {result.before}")
+    if result.written:
+        print(f"  after:  {result.after}")
+        print(
+            f"  {result.changed} lines changed, {result.kept} words the model changed kept as recorded, {result.usage}"
+        )
+    else:
+        print(f"  with what is saved: {result.after}")
+        print("  dry run: nothing sent, nothing written")
 
 
 def need(value: Path | None, flag: str) -> Path:
@@ -806,7 +835,13 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         "--recording",
         type=Path,
         default=None,
-        help="session, record-archive, cue-report, retranslate, resplit, redescribe: the recording directory",
+        help="session, record-archive, cue-report, retranslate, repunctuate, resplit, redescribe: the recording"
+        " directory",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="repunctuate: send nothing and write nothing; print the lines it would send, the estimate and cue report",
     )
     p.add_argument("--loops", type=int, default=None, help="play: how many times (default: forever)")
     p.add_argument(
@@ -832,7 +867,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     if args.agent not in REVISE and args.lang is None and args.agent != "translate":
         args.lang = "en"
     need_relay = args.agent not in REVISE + OFFLINE
-    need_room = args.agent not in ("resplit", *OFFLINE)
+    need_room = args.agent not in ("resplit", *OFFLINE) and not (args.agent == "repunctuate" and args.dry_run)
     if (need_relay and not args.relay) or (need_room and not (args.room or args.rooms)):
         p.error("--relay and --room (agents: or --rooms) are required (or TT_RELAY and TT_ROOM)")
     if args.agent == "slides" and not args.image:

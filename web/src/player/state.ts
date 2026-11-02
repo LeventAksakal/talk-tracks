@@ -45,7 +45,7 @@ export interface PlayerStateInput {
   recording?: { start: number; end: number };
   /** This page saw the talk on air: an end is "Talk ended", not a recording opened later. */
   sawLive?: boolean;
-  /** A recorded talk looped as if live (a demo room). */
+  /** A demo room: a live session of a recorded lecture (decision 0032; the prop's old name kept). */
   looped?: boolean;
   /**
    * Whether the room exists: false once a connected relay has shown nothing of it for a while (no such room), true
@@ -222,6 +222,7 @@ export function playerState(input: PlayerStateInput): PlayerState {
         hub: true,
       },
     };
-  const pill = ["LIVE", input.looped ? "looped recording" : "", input.slowerPath ? "WebSocket" : ""];
+  // A demo room is a live session of a recorded lecture (decision 0032): live, from a recording, never a loop.
+  const pill = ["LIVE", input.looped ? "session from a recording" : "", input.slowerPath ? "WebSocket" : ""];
   return { kind: "live", pill: pill.filter(Boolean).join(" · "), canGoLive: false };
 }

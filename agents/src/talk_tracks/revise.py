@@ -16,6 +16,9 @@
   preferred. The cues, and so their timing, stay as they are; a few words move into a neighbouring cue. Rewrites
   ``agents/<agent>.cues.json`` in place, the first time keeping the model's cut beside it.
 
+``repunctuate`` (``repunctuate.py``) adds punctuation to the caption lines; ``read_recording`` merges it, so every
+fix here and a session see the punctuated lines.
+
 ``retranslate`` and ``redescribe`` spend through the ledger of a room, so a cap batch scopes them. The slide frames
 stay in memory.
 """
@@ -45,6 +48,7 @@ from .contracts import (
 from .cores.translate import WINDOW
 from .llm.meta import MetaLlm, language_name
 from .recording import MANIFEST, RecordedAgent, RecordedSnapshot, Recording, load_manifest, read_snapshots
+from .repunctuate import with_punctuation
 from .resegment import MAX_CUE_CHARS, Aligned, Recorded, cue_texts
 from .slideshow import Crop, find_slides
 
@@ -125,7 +129,9 @@ class FakeCueTranslator:
 
 
 def read_recording(recording: Path) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
-    return [(agent.info, list(read_snapshots(recording, agent))) for agent in load_manifest(recording).agents]
+    """The recording's tracks, with the caption punctuation ``repunctuate`` saved merged in."""
+    raw = [(agent.info, list(read_snapshots(recording, agent))) for agent in load_manifest(recording).agents]
+    return with_punctuation(recording, raw)
 
 
 def _agent_name(agent: str | None, lang: str | None) -> str:

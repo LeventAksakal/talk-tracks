@@ -65,7 +65,7 @@ export interface PlayerProps {
    * tab says so in place of the discussion, and the annotation tools stay hidden, even with the service open.
    */
   noRoomService?: string;
-  /** A recorded talk looped as if live (a demo room): its live state says so. */
+  /** A demo room, a live session of a recorded lecture (decision 0032): its live state says so. */
   looped?: boolean;
 }
 

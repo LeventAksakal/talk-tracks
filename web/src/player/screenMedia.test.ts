@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HANG_CATALOG_TRACK, teacherPath } from "../contracts/names";
 import type { Mode } from "../playback/aiTracks";
 import type { RoomMedia } from "../playback/media";
@@ -80,6 +80,57 @@ describe("the shared screen in the player", () => {
     expect(urls).toEqual([]);
     expect(screen.shown()).toBe(false);
     screen.close();
+  });
+
+  describe("with no screen archived", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("asks for the playlist once and stops at a 404, as in a recording room", async () => {
+      vi.useFakeTimers();
+      const urls: string[] = [];
+      const fetchFn = (async (url: string) => (
+        urls.push(url),
+        new Response("", { status: 404 })
+      )) as unknown as typeof fetch;
+      const state = { mode: "rewound" as Mode, at: 10_000 };
+      const screen = new ScreenMedia(undefined, `${ROOM}-recording`, fakeMedia(state), {
+        fetchFn,
+        tickMs: 0,
+        refreshMs: 1_000,
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(urls).toEqual([screenUrl(`${ROOM}-recording`)]);
+      expect(screen.shown()).toBe(false);
+      screen.close();
+    });
+
+    it("reads again after a share ends, through 404s, until the playlist is there", async () => {
+      vi.useFakeTimers();
+      const transport = new FakeTransport();
+      let archived = false;
+      const urls: string[] = [];
+      const fetchFn = (async (url: string) => (
+        urls.push(url),
+        archived ? new Response(PLAYLIST) : new Response("", { status: 404 })
+      )) as unknown as typeof fetch;
+      const state = { mode: "rewound" as Mode, at: 10_000 };
+      const screen = new ScreenMedia(transport, ROOM, fakeMedia(state), { fetchFn, tickMs: 0, refreshMs: 1_000 });
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(urls).toHaveLength(1); // the first probe: nothing shared yet
+
+      transport.emit(teacherPath(ROOM), HANG_CATALOG_TRACK, hang(["video", "screen"]));
+      transport.emit(teacherPath(ROOM), HANG_CATALOG_TRACK, hang(["video"])); // the share ends
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(urls.length).toBeGreaterThanOrEqual(3); // the archive is not there yet: asked again
+
+      archived = true;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(screen.ranges()).toEqual([{ start: 8_000, end: 16_000 }]);
+      const after = urls.length;
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(urls.length).toBe(after + 3); // found: it reads on as before, a share can grow
+      screen.close();
+    });
   });
 
   it("reads a screen only from the screen rendition of the hang catalog", () => {
