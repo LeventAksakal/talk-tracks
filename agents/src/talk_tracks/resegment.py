@@ -11,6 +11,8 @@ Transport-free; the looper's converter runs it on a recording before slicing it 
 * **When a cue goes out.** A cue is final from the snapshot whose interim had heard all of its words (the line's
   last cue when the line was final), so the room shows short final cues while the speaker is still talking; the
   interim then holds the rest of the line heard so far.
+* **When a translation goes out.** In a looped room, with its caption cue (``translations_with_captions``): the
+  recorded translation of a line went out only once the whole line was final.
 * **Translations.** A translated line is split over its source line's cues: sentence by sentence when both have the
   same number of sentences, else over the whole line, by character share. Turkish puts the verb last, so a cue's
   translation can be a clause off inside a sentence.
@@ -26,7 +28,7 @@ from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from .contracts import AgentInfo, CaptionLine, CaptionsState, TranslatedLine, TranslationState
+from .contracts import AgentInfo, CaptionLine, CaptionsState, TranslatedLine, TranslationState, Usage
 from .recording import RecordedSnapshot
 
 MAX_CUE_MS = 7000
@@ -245,6 +247,58 @@ def cue_texts(recorded: Recorded) -> dict[int, tuple[str, ...]]:
     """Each source caption line's cue texts, by source line id."""
     _, _, cues = _cues(recorded)
     return {i: tuple(c.text for c in line) for i, line in cues.items()}
+
+
+def _cost(usage: Usage) -> float:
+    return usage.cost_usd
+
+
+def translations_with_captions(recorded: Recorded) -> list[tuple[AgentInfo, list[RecordedSnapshot]]]:
+    """A resegmented recording with each translated cue going out when its caption cue goes out final, for a looped
+    room. A translation agent (and ``revise.retranslate``'s synthesised track, which copies its timing) publishes a
+    caption line's translation only once the whole line is final, so the line's early cues, shown while the speaker
+    is still talking, had none for up to the line's length (half a minute is common). In a recording every
+    translation is already known, so the room shows each with its caption. A later revision of a cue keeps its own
+    time; a cue the captions never show keeps its recorded one. Usage stays cumulative and ends at the recorded total.
+    """
+    captions = next((s for _, s in recorded if s and isinstance(s[0].state, CaptionsState)), None)
+    shown: dict[int, int] = {}
+    for snap in captions or ():
+        assert isinstance(snap.state, CaptionsState)
+        for line in snap.state.lines:
+            shown.setdefault(line.id, snap.media_ms)
+    out: list[tuple[AgentInfo, list[RecordedSnapshot]]] = []
+    for info, snapshots in recorded:
+        if not shown or not (snapshots and isinstance(snapshots[0].state, TranslationState)):
+            out.append((info, list(snapshots)))
+            continue
+        first = snapshots[0].state
+        assert isinstance(first, TranslationState)
+        events: dict[int, list[TranslatedLine]] = {}  # media ms -> the lines (new or changed) going out then
+        seen: dict[int, TranslatedLine] = {}
+        for snap in snapshots:
+            assert isinstance(snap.state, TranslationState)
+            for line in snap.state.lines:
+                if seen.get(line.id) == line:
+                    continue
+                at = min(shown.get(line.id, snap.media_ms), snap.media_ms) if line.id not in seen else snap.media_ms
+                seen[line.id] = line
+                events.setdefault(at, []).append(line)
+        rebuilt: list[RecordedSnapshot] = []
+        if not first.lines and (not events or snapshots[0].media_ms < min(events)):
+            rebuilt.append(snapshots[0])  # the agent's empty start, before anything is said
+        usage, n = snapshots[0].usage, 0
+        for k, at in enumerate(sorted(events)):
+            while n < len(snapshots) and snapshots[n].media_ms <= at:
+                usage = max(usage, snapshots[n].usage, key=_cost)
+                n += 1
+            if k == len(events) - 1:
+                usage = max([usage, *(s.usage for s in snapshots)], key=_cost)
+            state = first.model_copy(update={"lines": events[at]})
+            update = {"media_ms": at, "seq": len(rebuilt) + 1, "usage": usage, "state": state}
+            rebuilt.append(snapshots[0].model_copy(update=update))
+        out.append((info, rebuilt))
+    return out
 
 
 def resegment(

@@ -10,8 +10,8 @@ from talk_tracks.contracts import (
     Usage,
 )
 from talk_tracks.recording import RecordedSnapshot
-from talk_tracks.resegment import MAX_CUE_CHARS, MAX_CUE_MS, resegment
-from talk_tracks.slicing import Template
+from talk_tracks.resegment import MAX_CUE_CHARS, MAX_CUE_MS, resegment, translations_with_captions
+from talk_tracks.slicing import CaptionItem, Template, TranslationItem
 
 CAPTIONS = AgentInfo(name="captions", label="Captions", model="fake")
 TRANSLATE = AgentInfo(name="translate-tr", label="Turkish", model="fake")
@@ -95,3 +95,34 @@ def test_the_translation_is_split_over_the_cues_sentence_by_sentence() -> None:
 def test_a_resegmented_recording_slices() -> None:
     template = Template.build(resegment(recording()), 40_000)
     assert [a.info.name for a in template.agents] == ["captions", "translate-tr"]
+
+
+def _published(template: Template, kind: type[CaptionItem] | type[TranslationItem]) -> dict[int, int]:
+    """When each cue id first went out on the looped room's track of ``kind`` (final captions only)."""
+    out: dict[int, int] = {}
+    for agent in template.agents:
+        for group in agent.groups:
+            for s in group:
+                body = s.body
+                if isinstance(body, kind) and (not isinstance(body, CaptionItem) or body.final):
+                    out.setdefault(body.line.id, s.at_ms)
+    return out
+
+
+def test_a_looped_room_shows_each_translated_cue_with_its_caption() -> None:
+    late = Template.build(resegment(recording()), 40_000)
+    looped = Template.build(translations_with_captions(resegment(recording())), 40_000)
+    captions = _published(looped, CaptionItem)
+    assert _published(late, TranslationItem).keys() == captions.keys()  # nothing lost
+    assert min(_published(late, TranslationItem).values()) >= FINAL  # as recorded: once the whole line was final
+    assert _published(looped, TranslationItem) == captions  # each with its caption, the early ones mid-line
+    assert min(captions.values()) < FINAL - 20_000
+
+
+def test_moving_translations_earlier_keeps_what_they_cost() -> None:
+    caps, (info, tr) = recording()
+    paid = Usage(requests=1, input_tokens=900, output_tokens=300, cost_usd=0.004)
+    tr = [tr[0], tr[1].model_copy(update={"usage": paid})]
+    looped = Template.build(translations_with_captions(resegment([caps, (info, tr)])), 40_000)
+    translation = next(a for a in looped.agents if a.info.name == "translate-tr")
+    assert translation.spend_usd() == paid.cost_usd
