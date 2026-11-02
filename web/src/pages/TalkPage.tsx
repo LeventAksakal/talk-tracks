@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { RoomServiceClient, roomServiceBase } from "../annotate/client";
-import { ChalkyLoading } from "../brand/states";
+import { Loading } from "../brand/states";
 import { RELAY_URL } from "../config";
 import { isValidRoom, slidesPath } from "../contracts/names";
 import { useLocation } from "../router";
@@ -59,6 +59,6 @@ function LiveConsole({ room, token, localClock }: { room: string; token: string 
         : undefined,
     [publisher, watcher, room, epoch, token],
   );
-  if (!deps) return <ChalkyLoading>Connecting to the relay…</ChalkyLoading>;
+  if (!deps) return <Loading>Connecting to the relay…</Loading>;
   return <Console room={room} token={token} deps={deps} />;
 }

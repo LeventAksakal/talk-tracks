@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { Loading } from "../brand/states";
 import { RoomMedia } from "../playback/media";
 import type { Playback } from "../playback/playback";
 import { useRoomStatus } from "../playback/roomStatus";
@@ -462,9 +463,7 @@ export function Player(props: PlayerProps) {
   if (!ctx)
     return (
       <main id="main">
-        <p className="tt-loading" role="status">
-          Connecting…
-        </p>
+        <Loading className="tt-loading">Connecting…</Loading>
       </main>
     );
 
