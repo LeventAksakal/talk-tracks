@@ -81,7 +81,16 @@ function fakeMedia(): SpeakerMedia & { closed: boolean } {
   };
 }
 
-function setup(extra: Partial<ConsoleDeps> = {}) {
+/** A control the speaker cannot use: natively disabled, or aria-disabled (Astryx keeps it focusable for its tooltip). */
+const unavailable = (el: HTMLElement) => el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
+
+/** An unsigned stand-in for a speaker token (only the relay checks signatures): publish rights for `room`. */
+function speakerJwt(room: string): string {
+  const b64 = (v: object) => btoa(JSON.stringify(v)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${b64({ alg: "ES256" })}.${b64({ publish: [`talk/${room}/*`], exp: Date.now() / 1000 + 3600 })}.sig`;
+}
+
+function setup(extra: Partial<ConsoleDeps> = {}, token?: string) {
   const sinks: MemoryBroadcast[] = [];
   const deps: ConsoleDeps = {
     watcher: new FakeTransport(),
@@ -94,7 +103,7 @@ function setup(extra: Partial<ConsoleDeps> = {}) {
     localEpochMs: localEpoch(Date.now()),
     ...extra,
   };
-  render(<Console room="physics-101" token={undefined} deps={deps} />);
+  render(<Console room="physics-101" token={token} deps={deps} />);
   const sink = () => sinks.at(-1)!;
   const all = <R,>(track: string) =>
     sink()
@@ -286,6 +295,38 @@ describe("the speaker console", () => {
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);
   });
+  it("on a relay that needs a token, cannot go on air without a valid speaker link, and offers to paste one", async () => {
+    window.history.replaceState(null, "", "/talk/physics-101");
+    setup({ createMedia: async () => fakeMedia(), tokenRequired: true });
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await act(async () => undefined); // the microphone and camera have loaded
+    expect(unavailable(goLive)).toBe(true);
+    await act(async () => fireEvent.click(goLive));
+    expect(screen.queryByRole("button", { name: "End talk" })).toBeNull();
+
+    const jwt = speakerJwt("physics-101");
+    const paste = screen.getByLabelText("Paste your speaker link", { selector: "input" });
+    fireEvent.change(paste, { target: { value: `https://example.test/talk/physics-101?token=${jwt}` } });
+    await act(async () => fireEvent.submit(paste.closest("form")!));
+    expect(window.location.pathname + window.location.search).toBe(`/talk/physics-101?token=${jwt}`);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("on a relay that needs a token, lets the speaker go on air with a valid token for this room", async () => {
+    setup({ createMedia: async () => fakeMedia(), tokenRequired: true }, speakerJwt("physics-101"));
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await waitFor(() => expect(unavailable(goLive)).toBe(false));
+    expect(screen.queryByLabelText("Paste your speaker link", { selector: "input" })).toBeNull();
+  });
+
+  it("on a relay that needs a token, refuses another room's token", async () => {
+    setup({ createMedia: async () => fakeMedia(), tokenRequired: true }, speakerJwt("chemistry-2"));
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await act(async () => undefined);
+    expect(unavailable(goLive)).toBe(true);
+    expect(screen.getByLabelText("Paste your speaker link", { selector: "input" })).toBeTruthy();
+  });
+
   it("says Ending… until the room service acknowledges the end, trying again while the message is lost", async () => {
     const media = fakeMedia();
     const answers = [false, false, true]; // the socket is down twice, then the service acknowledges

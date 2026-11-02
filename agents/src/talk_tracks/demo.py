@@ -67,7 +67,7 @@ from .moq import AUDIO_IDLE_S, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest
 from .replay import EPOCH_MS, Cue, LoopPlan, MediaClock, event_us, loop_events, position
-from .resegment import resegment
+from .resegment import resegment, translations_with_captions
 from .revise import read_recording, translations_by_agent, with_patches
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog
@@ -522,6 +522,7 @@ async def loop(
     origin = manifest.room_origin_ms or 0  # recordings from the agents' records are on the room clock
     recorded = with_patches(recording, read_recording(recording))
     recorded = resegment(recorded, translations_by_agent(recording, recorded))
+    recorded = translations_with_captions(recorded)  # each translated cue with its caption, not at its line's end
     sliced = Room(Template.build(recorded, info.duration_ms, origin_ms=origin), EPOCH_MS)
     log.info(
         "looping %s (%.1f s, a loop every %.0f s) with %s in room %s",

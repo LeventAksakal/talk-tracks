@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { RoomServiceClient, roomServiceBase } from "../annotate/client";
 import { ChalkyLoading } from "../brand/states";
+import { RELAY_URL } from "../config";
 import { isValidRoom, slidesPath } from "../contracts/names";
 import { useLocation } from "../router";
 import { localEpoch } from "../speaker/clock";
@@ -8,6 +9,7 @@ import { Console, type ConsoleDeps } from "../speaker/Console";
 import { openPdf } from "../speaker/deck";
 import { createSpeakerMedia } from "../speaker/media";
 import { forgetToken, speakerToken } from "../speaker/savedToken";
+import { relayNeedsToken } from "../speaker/token";
 import { moqBroadcast } from "../speaker/sink";
 import { useMoqTransport } from "../transport/useTransport";
 import { NotFound } from "./NotFound";
@@ -52,6 +54,7 @@ function LiveConsole({ room, token, localClock }: { room: string; token: string 
               new RoomServiceClient(roomServiceBase(), room, { token: token ?? "local", name, comments: true }),
             // A finished talk's link is not kept: the next visit to /talk/<room> needs the link again.
             onEnded: () => forgetToken(room),
+            tokenRequired: relayNeedsToken(RELAY_URL),
           }
         : undefined,
     [publisher, watcher, room, epoch, token],

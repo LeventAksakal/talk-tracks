@@ -55,3 +55,12 @@ export function checkToken(token: string | undefined, room: string, nowMs = Date
   const missing = [teacherPath(room), slidesPath(room)].filter((path) => !publish.some((p) => patternCovers(p, path)));
   return missing.length ? { kind: "wrong-room", missing } : { kind: "ok", expires: exp };
 }
+
+/**
+ * Whether the relay takes a broadcast only with a speaker token. An `http://` relay is local development (its
+ * self-signed certificate is pinned, config.ts), which runs without auth; the deployed relay, on the page's own
+ * `https://` origin, asks its auth server about every session.
+ */
+export function relayNeedsToken(relay: string): boolean {
+  return !relay.startsWith("http://");
+}
