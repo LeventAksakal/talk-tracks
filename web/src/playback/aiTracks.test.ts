@@ -168,7 +168,9 @@ describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
   it("a FETCH with no answer becomes a hole after the timeout; the slices around it load", async () => {
     // Timers on a fake clock: with real ones a loaded machine spent the whole 300 ms timeout before the first look.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    onTestFinished(() => vi.useRealTimers());
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const flush = async () => {
       for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(0);
     };
