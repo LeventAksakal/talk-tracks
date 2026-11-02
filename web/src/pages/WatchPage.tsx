@@ -32,11 +32,11 @@ function WatchRoom({ room }: { room: string }) {
     const media = playback.media instanceof RoomMedia ? playback.media : undefined;
     return new SlideTracks(new MoqHistorySource(transport), room, { catalog: () => media?.catalog() });
   }, [transport, playback, room]);
-  // Listeners draw, mark and comment through the room service (decision 0024), never the relay. A looped demo room
-  // has none, so it is not dialled there.
+  // Listeners draw, mark, comment and chat through the room service (decision 0024), never the relay. In a looped
+  // demo room it takes chat only (archive.looped), so the threads are not asked for there.
   const demo = demoRoom(room);
   const roomService = useResource(
-    () => (demo ? undefined : new RoomServiceClient(roomServiceBase(), room, { comments: true })),
+    () => new RoomServiceClient(roomServiceBase(), room, { comments: !demo }),
     [room, demo],
   );
   // The hub lists it under "Continue watching".

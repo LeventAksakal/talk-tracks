@@ -2,6 +2,7 @@
 // state, the frame clock and the UI state (open menu, panel tab). One context instead of a prop chain.
 
 import { createContext, type ReactNode, useContext } from "react";
+import type { RoomService } from "../annotate/client";
 import type { RoomMedia } from "../playback/media";
 import type { Playback, PlaybackView } from "../playback/playback";
 import type { Transport } from "../transport/types";
@@ -80,6 +81,10 @@ export interface PlayerCtx {
   extraTabs: ExtraTab[];
   /** The listener's tools and the room service's session (decision 0024); undefined where nobody can write. */
   listening: Listening | undefined;
+  /** The room service's session for the chat; set even where the listener tools are off (a looped demo room). */
+  roomService: RoomService | undefined;
+  /** A recorded talk looped as if live (a demo room). */
+  looped: boolean;
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
   /** A room time as the talk's clock shows it ("12:34"); in a looped demo room, the time within the loop. */
