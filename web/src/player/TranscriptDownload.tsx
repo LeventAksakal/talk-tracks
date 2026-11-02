@@ -1,75 +1,62 @@
-import { useState } from "react";
-import { SLICE_MS } from "../contracts/types";
-import type { Playback } from "../playback/playback";
+import { useEffect, useRef, useState } from "react";
+import "./download.css";
+import type { PackageProgress } from "../package/build";
+import {
+  gatherTranscripts,
+  guardOf,
+  languageName,
+  outlineOf,
+  saveFile,
+  subscribed,
+  talkSpan,
+} from "../package/download";
+import { gatherableTranslations } from "../package/languages";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
-import { languageOption } from "./languages";
-import {
-  exportTranscript,
-  TRANSCRIPT_FORMATS,
-  type TranscriptFormat,
-  type TranscriptLanguage,
-  transcriptFileName,
-} from "./transcriptExport";
+import { exportTranscript, TRANSCRIPT_FORMATS, type TranscriptFormat, transcriptFileName } from "./transcriptExport";
 
 const ALL = "all";
 
-/** Wait until these tracks are subscribed (the player turns them on after the next render), at most 3 s. */
-async function subscribed(playback: Playback, ids: readonly string[]): Promise<void> {
-  const ready = () =>
-    ids.every((id) => playback.tracks.getSnapshot().tracks.find((t) => t.id === id)?.enabled === true);
-  for (let i = 0; i < 30 && !ready(); i++) await new Promise((r) => setTimeout(r, 100));
-}
-
-/** Hand the browser a file to save. */
-function save(name: string, text: string, mime: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
-
 /**
- * Download the transcript (the canvas's Panels board): as text, WebVTT subtitles or Markdown, in the original, a
- * translation, or every language the room offers. The whole talk so far is gathered from the tracks' history,
- * without moving the playhead. The lecture package (ticket 0023) joins these formats as a .zip once it is settled.
+ * The side panel's Download (the canvas's Panels board, ticket 0023): the transcript as text, WebVTT subtitles or
+ * Markdown, in the original, a translation, or every language; and the lecture package, a .zip for an AI assistant
+ * (wiki/spec/lecture-package.md). The whole talk so far is gathered from the tracks' history without moving the
+ * playhead. "All languages" and the package take only translations already running or recorded for the room
+ * (package/languages.ts): gathering any other would wake a paid agent.
  */
 export function TranscriptDownload() {
-  const { tracks, prefs, playback, view, media, title, roomName, holdTracks } = usePlayer();
+  const ctx = usePlayer();
+  const { tracks, prefs, playback, view, media, title, roomName, holdTracks, slides, notes, state } = ctx;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string>();
+  const [progress, setProgress] = useState<PackageProgress>();
+  const cancel = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => cancel.current?.abort(), []);
   const captions = tracks.captions;
   const translating = prefs.subtitleLang !== "original" && tracks.translations.some((t) => t.lang);
   const [pick, setPick] = useState<string>(() => (translating ? prefs.subtitleLang : "original"));
-  if (!captions) return null;
 
-  const name = (lang: string | undefined, original: boolean) => {
-    const o = languageOption(lang ?? "en");
-    return original ? `${o.autonym} (original)` : o.autonym;
-  };
-  const choices: [string, string][] = [
-    ["original", name(captions.lang, true)],
-    ...tracks.translations.map((t): [string, string] => [t.lang!, name(t.lang, false)]),
-    ...(tracks.translations.length ? [[ALL, "All languages"] as [string, string]] : []),
-  ];
+  const choices: [string, string][] = captions
+    ? [
+        ["original", languageName(captions.lang, true)],
+        ...tracks.translations.map((t): [string, string] => [t.lang!, languageName(t.lang, false)]),
+        ...(tracks.translations.length ? [[ALL, "All languages"] as [string, string]] : []),
+      ]
+    : [];
   const chosen = choices.some(([v]) => v === pick) ? pick : "original";
+  const talkMs = (ms: number, from: number) => (media ? media.talkTime(ms) : ms - from);
 
   const download = async (format: TranscriptFormat) => {
-    const t = view.timeline;
-    const from = t.start;
-    const to = Math.max(playback.liveEdge() ?? 0, t.available.at(-1)?.end ?? 0, t.liveEdge ?? 0) + 1;
-    if (!(to > from)) return;
-    const slices = Math.ceil((to - from) / SLICE_MS) + 2;
+    const span = talkSpan(view, playback);
+    if (!span || !captions) return;
+    const { included, left } = gatherableTranslations(tracks.translations, guardOf(ctx));
     const wanted = [
       ...(chosen === "original" || chosen === ALL ? [{ track: captions, original: true }] : []),
-      ...tracks.translations
-        .filter((tr) => chosen === ALL || tr.lang === chosen)
-        .map((track) => ({ track, original: false })),
+      ...(chosen === ALL ? included : tracks.translations.filter((tr) => tr.lang === chosen)).map((track) => ({
+        track,
+        original: false,
+      })),
     ];
     setBusy(true);
     setSaid("Gathering the transcript…");
@@ -80,25 +67,70 @@ export function TranscriptDownload() {
         playback,
         wanted.map((w) => w.track.id),
       );
-      const languages: TranscriptLanguage[] = await Promise.all(
-        wanted.map(async ({ track, original }) => ({
-          lang: track.lang ?? "und",
-          name: name(track.lang, original),
-          lines: await playback.tracks.transcript(track.id, from, to, slices),
-        })),
-      );
-      const text = exportTranscript(format, {
-        title,
-        languages,
-        talkMs: (ms) => (media ? media.talkTime(ms) : ms - from),
-      });
+      const languages = await gatherTranscripts(playback, wanted, span);
+      const text = exportTranscript(format, { title, languages, talkMs: (ms) => talkMs(ms, span.from) });
       const file = transcriptFileName(roomName, chosen === ALL ? "all" : (wanted[0]?.track.lang ?? chosen), format);
-      save(file, text, TRANSCRIPT_FORMATS.find((f) => f.format === format)!.mime);
-      setSaid(`Saved ${file}`);
+      const mime = TRANSCRIPT_FORMATS.find((f) => f.format === format)!.mime;
+      saveFile(file, new Blob([text], { type: `${mime};charset=utf-8` }));
+      const skipped = chosen === ALL && left.length ? ` (${left.length} not running left out)` : "";
+      setSaid(`Saved ${file}${skipped}`);
     } catch {
       setSaid("Couldn't gather the transcript. Try again.");
     } finally {
       release();
+      setBusy(false);
+    }
+  };
+
+  const downloadPackage = async () => {
+    const span = talkSpan(view, playback);
+    if (!span) return;
+    const controller = new AbortController();
+    cancel.current = controller;
+    const { included, left } = gatherableTranslations(tracks.translations, guardOf(ctx));
+    const wanted = [
+      ...(captions ? [{ track: captions, original: true }] : []),
+      ...included.map((track) => ({ track, original: false })),
+    ];
+    const outline = tracks.outline;
+    const ids = [...wanted.map((w) => w.track.id), ...(outline ? [outline.id] : [])];
+    setBusy(true);
+    setSaid(undefined);
+    setProgress({ label: "Gathering the transcript…", fraction: 0 });
+    const release = holdTracks(ids);
+    try {
+      const [{ buildLecturePackage }] = await Promise.all([import("../package/build"), subscribed(playback, ids)]);
+      controller.signal.throwIfAborted();
+      const [languages, gotOutline] = await Promise.all([
+        gatherTranscripts(playback, wanted, span),
+        outline ? outlineOf(playback, outline.id) : undefined,
+      ]);
+      controller.signal.throwIfAborted();
+      const built = await buildLecturePackage({
+        source: slides?.source,
+        room: roomName,
+        title,
+        speaker: ctx.slides?.roomInfo().speaker,
+        live: state.kind !== "ended",
+        fromMs: span.from,
+        toMs: span.to,
+        talkMs: (ms) => talkMs(ms, span.from),
+        languages,
+        outline: gotOutline,
+        notes: notes.notes,
+        leftOut: left.map((t) => languageName(t.lang, false)),
+        signal: controller.signal,
+        onProgress: setProgress,
+      });
+      saveFile(built.fileName, built.blob);
+      setSaid(`Saved ${built.fileName}`);
+    } catch (err) {
+      setSaid(controller.signal.aborted ? "Cancelled." : "Couldn't build the lecture package. Try again.");
+      if (!controller.signal.aborted) console.warn("lecture package", err);
+    } finally {
+      release();
+      cancel.current = undefined;
+      setProgress(undefined);
       setBusy(false);
     }
   };
@@ -117,30 +149,52 @@ export function TranscriptDownload() {
       </button>
       {open ? (
         <div className="tt-download-popover" id="tt-download-popover" role="group" aria-label="Download the transcript">
-          <label className="tt-download-lang">
-            <span>Language</span>
-            <select className="tt-input" value={chosen} onChange={(e) => setPick(e.target.value)}>
-              {choices.map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="tt-download-formats">
-            {TRANSCRIPT_FORMATS.map((f) => (
-              <button
-                key={f.format}
-                type="button"
-                className="tt-button"
-                disabled={busy}
-                onClick={() => void download(f.format)}
-              >
-                {f.label}
-              </button>
-            ))}
+          {captions ? (
+            <>
+              <label className="tt-download-lang">
+                <span>Language</span>
+                <select className="tt-input" value={chosen} onChange={(e) => setPick(e.target.value)}>
+                  {choices.map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="tt-download-formats">
+                {TRANSCRIPT_FORMATS.map((f) => (
+                  <button
+                    key={f.format}
+                    type="button"
+                    className="tt-button"
+                    disabled={busy}
+                    onClick={() => void download(f.format)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+          <div className="tt-download-formats tt-download-package">
+            <button type="button" className="tt-button" disabled={busy} onClick={() => void downloadPackage()}>
+              Lecture package (.zip)
+            </button>
+            <p className="tt-muted tt-small">
+              Transcripts, chapters, slides with ink and your notes, for an AI assistant.
+            </p>
           </div>
-          {said ? (
+          {progress ? (
+            <div className="tt-download-progress">
+              <progress max={1} value={progress.fraction} aria-label="Building the lecture package" />
+              <p className="tt-muted tt-small" role="status">
+                {progress.label}
+              </p>
+              <button type="button" className="tt-link" onClick={() => cancel.current?.abort()}>
+                Cancel
+              </button>
+            </div>
+          ) : said ? (
             <p className="tt-muted tt-small" role="status">
               {said}
             </p>
