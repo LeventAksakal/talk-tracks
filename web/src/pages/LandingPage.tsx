@@ -1,5 +1,8 @@
 import { Button, TextInput } from "@astryxdesign/core";
 import { type FormEvent, useEffect, useState } from "react";
+import { Chalky } from "../brand/Chalky";
+import { LogoMark } from "../brand/LogoMark";
+import { HeroChalky } from "../brand/states";
 import { RELAY_URL } from "../config";
 import { normaliseRoom } from "../contracts/names";
 import { Icon } from "../player/icons";
@@ -39,22 +42,28 @@ export function LandingPage({ transport, create }: LandingPageProps) {
   return (
     <div className="hub">
       <header className="hub-bar">
-        <span className="hub-brand">Talk Tracks</span>
+        <span className="hub-brand">
+          <LogoMark />
+          Talk Tracks
+        </span>
         <a className="hub-create" href="#give-heading">
           Create talk
         </a>
       </header>
       <main className="hub-main" id="main">
         <section className="hub-hero" aria-labelledby="hub-title">
-          <h1 className="hub-title" id="hub-title">
-            Talk Tracks
-          </h1>
-          <p className="lead">
-            A player for live talks. While the speaker talks, AI agents each publish their own live track into the same
-            broadcast: subtitles, a translation per language, a description of every new slide, chapters and a glossary.
-            Pick what you want, and rewind to any moment.
-          </p>
-          <JoinRoom />
+          <div className="hub-hero-text">
+            <h1 className="hub-title" id="hub-title">
+              Talk Tracks
+            </h1>
+            <p className="lead">
+              A player for live talks. While the speaker talks, AI agents each publish their own live track into the
+              same broadcast: subtitles, a translation per language, a description of every new slide, chapters and a
+              glossary. Pick what you want, and rewind to any moment.
+            </p>
+            <JoinRoom />
+          </div>
+          <HeroChalky />
         </section>
 
         <section className="lobby-section" aria-labelledby="live-heading">
@@ -72,7 +81,8 @@ export function LandingPage({ transport, create }: LandingPageProps) {
                 ))}
               </ul>
             ) : (
-              <p className="muted" role="status">
+              <p className="muted hub-nothing-live" role="status">
+                <Chalky cycle="sleep" size={72} />
                 Nothing is on air right now. Try a demo lecture below, or give a talk.
               </p>
             )

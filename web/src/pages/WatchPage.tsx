@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { RoomServiceClient, roomServiceBase } from "../annotate/client";
+import { ChalkyLoading } from "../brand/states";
 import { isValidRoom } from "../contracts/names";
 import { RoomMedia } from "../playback/media";
 import { MoqHistorySource } from "../playback/moqSource";
@@ -40,7 +41,7 @@ function WatchRoom({ room }: { room: string }) {
   );
   // The hub lists it under "Continue watching".
   useEffect(() => rememberRoom({ room, title: demo?.title, at: Date.now() }), [room, demo]);
-  if (!playback) return <p className="page-pad">Connecting…</p>;
+  if (!playback) return <ChalkyLoading>Connecting…</ChalkyLoading>;
   return (
     <Player
       playback={playback}

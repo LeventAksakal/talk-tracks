@@ -1,4 +1,5 @@
 import { type CSSProperties, type KeyboardEvent, type PointerEvent, type RefObject, useRef } from "react";
+import { RoomStateChalky } from "../brand/states";
 import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
 import { CameraSurface } from "./CameraSurface";
@@ -133,6 +134,7 @@ export function Stage() {
 
       {card ? (
         <div className="tt-state-card" role="status">
+          <RoomStateChalky kind={state.kind} />
           <strong>{card.title}</strong>
           {card.body ? <span>{card.body}</span> : null}
           {card.retry ? (
