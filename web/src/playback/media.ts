@@ -2,7 +2,7 @@
 // archive's HLS. Every position is room time: the wall time of a media timestamp − E. A room with no
 // archived media still rewinds its AI tracks: the playhead then runs on a clock of its own, silent.
 
-import { agentsPrefix, teacherPath } from "../contracts/names";
+import { agentsPrefix, recordingOf, teacherPath } from "../contracts/names";
 import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
@@ -270,11 +270,13 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#loopKnown = new Promise((resolve) => (this.#setLoopKnown = resolve));
     // No teacher catalog after the short wait: the room does not loop (its speaker left), unless the relay has not
     // answered yet (no room catalog either) or the room catalog says the room is a recording, whose looper sends
-    // the teacher catalog every 2 s. Then wait on, up to a cap.
+    // the teacher catalog every 2 s. Then wait on, up to a cap. A demo lecture's recording room (`<id>-recording`,
+    // decision 0032) has no teacher broadcast at all, and its agents are free too: it never loops, so its playlist
+    // is read at once instead of after the cap.
     const step = options.loopWaitMs ?? 3_000;
     const cap = Math.max(step, options.loopWaitCapMs ?? LOOP_WAIT_CAP_MS);
     let waited = 0;
-    let loopWait: ReturnType<typeof setTimeout>;
+    let loopWait: ReturnType<typeof setTimeout> | undefined;
     const waitForLoop = () => {
       loopWait = setTimeout(() => {
         waited += step;
@@ -283,7 +285,8 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
         else this.#setLoopKnown();
       }, step);
     };
-    waitForLoop();
+    if (recordingOf(room) !== undefined) this.#setLoopKnown();
+    else waitForLoop();
     this.#subs.push(
       { close: () => clearTimeout(loopWait) },
       watchRoomCatalog(transport, room, (catalog) => {

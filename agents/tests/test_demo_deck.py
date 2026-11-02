@@ -1,4 +1,4 @@
-# pyright: reportMissingImports=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportMissingImports=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportPrivateUsage=false
 """A looped room's deck stays one group on the wire, whatever its size (wiki/howto/demo-rooms.md, "Slides in the
 player").
 
@@ -13,6 +13,7 @@ agents image (wiki/howto/run-locally.md).
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -23,7 +24,8 @@ pytest.importorskip("aiomoqt.agent.writer")
 from aiomoqt.agent.spec import PublishSpec, TrackRef
 from aiomoqt.agent.writer import Writer, WriteStats
 
-from talk_tracks.demo import SpeakerSlides
+from talk_tracks.archive.slices import SliceObject, TrackArchive
+from talk_tracks.demo import SpeakerSlides, _serve_archived
 from talk_tracks.demo_slides import DECK_GROUP, LectureSlides
 from talk_tracks.moq import TrackWriter
 from talk_tracks.slideshow import Slide, jpeg
@@ -75,3 +77,19 @@ def test_a_deck_written_before_anyone_subscribes_is_one_whole_group() -> None:
         queued = [writer._queue.get_nowait()[:2] for _ in range(writer._queue.qsize())]
         assert writer.group == DECK_GROUP
         assert queued == [(DECK_GROUP, i) for i in range(len(source.deck))]
+
+
+def test_a_recording_rooms_last_slice_written_before_anyone_subscribes_is_one_whole_group(tmp_path: Path) -> None:
+    """serve-recording writes each archived track's last slice live at start, so Largest covers the room; a slice
+    longer than the default queue (a caption tail with its interims) stays one group, at its own number."""
+    archive = TrackArchive("virus-recording", "captions", "items", root=tmp_path)
+    archive.create(0, [SliceObject(0, b"carry")])
+    archive.create(7, [SliceObject(i, f"item {i}".encode()) for i in range(10)], end_of_track=True)
+    relay = StubRelay()
+    newest = asyncio.run(_serve_archived(relay, "talk/virus-recording/agents/captions", archive))  # type: ignore[arg-type]
+
+    writer = relay.writers[("talk/virus-recording/agents/captions", "items")]
+    queued = [writer._queue.get_nowait()[:2] for _ in range(writer._queue.qsize())]
+    assert newest == 7 and writer.group == 7
+    assert queued == [(7, i) for i in range(10)]  # the End of Track marker is not an object on the wire
+    assert writer._track._largest == (7, 9)

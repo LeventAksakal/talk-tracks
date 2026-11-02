@@ -1,8 +1,7 @@
 // The recordings the hub lists (decision 0032): archived rooms named `<id>-recording`, from the archive's room list
 // (wiki/howto/archive.md, `rooms.json`). Other archived rooms (generation runs, ended talks) are not listed.
 
-import { isValidRoom } from "../contracts/names";
-import { recordingOf } from "./demoRooms";
+import { isValidRoom, recordingOf } from "../contracts/names";
 
 export const ROOMS_URL = "/archive/rooms.json";
 
