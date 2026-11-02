@@ -1,7 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RoomServiceClient, type WebSocketLike } from "../annotate/client";
 import { FakeRoomService } from "../annotate/fake";
+import { catalogPath, ROOM_TRACK } from "../contracts/names";
 import { DEMO_ROOM, DEMO_START_MS } from "../pages/DemoPage";
+import { FakeHistorySource } from "../playback/fakeSource";
+import { ClockMedia } from "../playback/media";
+import { Playback } from "../playback/playback";
 import { createDemoPlayback } from "../playback/usePlayback";
 import { FakeTransport } from "../transport/fake";
 import { DemoSlides } from "./demoSlides";
@@ -182,6 +187,86 @@ describe("the slower path", () => {
     const pill = [...document.querySelectorAll('[role="status"]')].find((el) => el.textContent?.startsWith("LIVE"));
     expect(pill?.textContent).toContain("WebSocket");
     room.close();
+  });
+});
+
+describe("a room on a connected relay, by what of it exists", () => {
+  const NAME = "no-such-room";
+  const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
+  let close: (() => void) | undefined;
+  beforeEach(() => {
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    close?.();
+    close = undefined;
+    vi.useRealTimers();
+  });
+
+  /** A room service socket that answers every hello the way the room service answers for a room it does not hold. */
+  function noRoomSocket(): WebSocketLike {
+    const s: WebSocketLike = {
+      readyState: 0,
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+      send(data: string) {
+        if ((JSON.parse(data) as { type?: string }).type === "hello")
+          s.onmessage?.({ data: JSON.stringify({ type: "error", code: "no-room", message: "not held" }) });
+      },
+      close() {
+        s.readyState = 3;
+        s.onclose?.({});
+      },
+    };
+    setTimeout(() => {
+      s.readyState = 1;
+      s.onopen?.({});
+    }, 0);
+    return s;
+  }
+
+  /** The player on a relay that holds only what `source` publishes, with the room service answering no-room. */
+  function open(source = new FakeHistorySource()) {
+    const playback = new Playback(source, new ClockMedia(), NAME);
+    const slides = new SlideTracks(source, NAME, { catalog: () => undefined });
+    const service = new RoomServiceClient("ws://service/api/", NAME, { socket: noRoomSocket, retryMs: 500 });
+    const view = render(
+      <Player playback={playback} slides={slides} room={NAME} transport={new FakeTransport()} roomService={service} />,
+    );
+    close = () => {
+      view.unmount();
+      service.close();
+      slides.close();
+      playback.close();
+    };
+    return view;
+  }
+  const shown = (view: ReturnType<typeof render>) =>
+    view.container.querySelector("[data-state]")?.getAttribute("data-state");
+
+  it("says there is no such room a few seconds in, with the way back to the hub, and no outage", async () => {
+    const view = open();
+    await advance(1_000);
+    expect(shown(view)).toBe("connecting");
+    await advance(6_000);
+    expect(shown(view)).toBe("unknown");
+    const card = screen.getAllByRole("status").find((s) => s.textContent?.includes(NAME));
+    expect(card).toBeTruthy();
+    expect(within(card!).getByRole("link")).toBeTruthy();
+    // The room service not holding the room is not the room service being down.
+    expect(within(screen.getByRole("banner")).queryAllByRole("status")).toHaveLength(0);
+  });
+
+  it("reads a created room that has not started as not started, however long it waits", async () => {
+    const source = new FakeHistorySource();
+    source.announce(catalogPath(NAME));
+    source.publish(catalogPath(NAME), ROOM_TRACK, 0, json([{ m: 0, data: { kind: "state", state: "waiting" } }]));
+    const view = open(source);
+    await advance(8_000);
+    expect(shown(view)).toBe("not-started");
   });
 });
 

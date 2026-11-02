@@ -272,13 +272,14 @@ export function Player(props: PlayerProps) {
   if (!sawLive && (roomNow === "on_air" || (roomNow === undefined && onAir === true))) setSawLive(true);
   // Nothing of the room on a connected relay for a while: no speaker broadcast or slides, no room catalog, room state
   // or archive. A room created but not started has its `waiting` record from the room service, so it reads "Not
-  // started". Agents announcing are not the room (they can answer for any name).
+  // started". Agents announcing are not the room (they can answer for any name), nor is the room service's `no-room`
+  // answer (the listener socket then waits, which is not the room). The talk's title and speaker come from the same
+  // room track as roomNow, and roomInfo() is always an object, so it is no sign of the room.
   const nothing =
     status?.status === "connected" &&
     !status.teacherLive &&
     !status.slidesLive &&
     roomNow === undefined &&
-    info === undefined &&
     media?.catalog() === undefined &&
     timeline?.liveEdge === undefined;
   const unknown = useHeldFor(nothing, UNKNOWN_AFTER_MS);
