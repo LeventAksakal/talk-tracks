@@ -96,14 +96,19 @@ export function writeReport({ meta, capture, lighthouse, trace, redact }) {
     }
     const ph = trace.analysis?.phases ?? [];
     if (ph.length) {
-      L.push("| Phase | Seconds | Main-thread busy | Long tasks (>50 ms) | Long-task total | Longest | Compositor fps | JS heap start → end (MB) |", "|---|---|---|---|---|---|---|---|");
+      L.push("| Phase | Seconds | Main-thread busy | Long tasks (>50 ms) | Long-task total | Longest | Frames drawn /s | JS heap start → end (MB) |", "|---|---|---|---|---|---|---|---|");
       for (const p of ph)
         L.push(
           p.missing
             ? `| ${p.name} | – | mark missing | | | | | |`
             : `| ${p.name} | ${p.seconds} | ${p.busyShare} % | ${p.longTasks} | ${p.longTaskMsTotal} ms | ${p.longestTaskMs} ms | ${p.compositorFps ?? "–"} | ${p.heapStartMB ?? "–"} → ${p.heapEndMB ?? "–"} |`,
         );
-      L.push("");
+      L.push(
+        "",
+        "Frames drawn /s counts compositor DrawFrame events: frames with new content, so a still slide draws few. The",
+        "requestAnimationFrame rate below is the page's paint opportunities and follows the display (headless may exceed 60).",
+        "",
+      );
     }
     if (trace.raf) L.push(`- requestAnimationFrame during playback: ${trace.raf.fps} fps over ${trace.raf.frames} frames, p95 frame ${trace.raf.p95FrameMs} ms, ${trace.raf.framesOver50ms} frames over 50 ms.`);
     if (trace.video?.length) L.push(`- Video elements: ${trace.video.map((v) => `${v.w}×${v.h} ${v.paused ? "paused" : "playing"}, ${v.total ?? "?"} frames, ${v.dropped ?? "?"} dropped`).join("; ")}.`);

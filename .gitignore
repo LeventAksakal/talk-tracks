@@ -13,4 +13,6 @@ data/
 scratch/
 *.tsbuildinfo
 .claude/
+# QA harness runs (qa/README.md): hundreds of screenshots per run, well over the 25 MB a commit may carry.
+qa/out/
 

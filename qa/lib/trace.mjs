@@ -44,7 +44,14 @@ export function analyseTrace(trace) {
   // The page's renderer is the busiest main thread (an extension or a spare renderer barely runs).
   const main = [...mains.values()].sort((a, b) => b.busy - a.busy)[0];
   if (!main) return { error: "no renderer main thread in the trace" };
-  const tasks = events.filter((e) => isTask(e) && e.pid === main.pid && e.tid === main.tid);
+  // Top-level tasks only: a RunTask nested inside another (a nested run loop) would count its time twice.
+  const tasks = [];
+  let openUntil = -Infinity;
+  for (const e of events.filter((x) => isTask(x) && x.pid === main.pid && x.tid === main.tid).sort((a, b) => a.ts - b.ts)) {
+    if (e.ts < openUntil) continue;
+    tasks.push(e);
+    openUntil = e.ts + (e.dur ?? 0);
+  }
   const marks = {};
   for (const e of events) if (typeof e.name === "string" && e.name.startsWith("qa:") && e.cat?.includes("user_timing")) marks[e.name] ??= e.ts;
   const frames = events.filter((e) => e.pid === main.pid && (e.name === "DrawFrame" || e.name === "Graphics.Pipeline.DrawAndSwap")).map((e) => e.ts);
@@ -52,7 +59,11 @@ export function analyseTrace(trace) {
     .filter((e) => e.name === "UpdateCounters" && e.pid === main.pid && e.args?.data?.jsHeapSizeUsed)
     .map((e) => ({ ts: e.ts, mb: e.args.data.jsHeapSizeUsed / 1048576 }));
 
-  const first = tasks[0]?.ts ?? 0;
+  // The load window starts at the page's own navigation, not at the about:blank the browser opened first.
+  const nav = events.find(
+    (e) => e.name === "navigationStart" && e.pid === main.pid && e.args?.data?.isLoadingMainFrame && !/^about:/.test(e.args?.data?.documentLoaderURL ?? ""),
+  );
+  const first = nav?.ts ?? tasks[0]?.ts ?? 0;
   const last = tasks.at(-1) ? tasks.at(-1).ts + (tasks.at(-1).dur ?? 0) : 0;
   const windows = [
     ["load", first, marks["qa:loaded"]],
