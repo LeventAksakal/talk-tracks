@@ -9,6 +9,7 @@ import pytest
 from pydantic import RootModel, ValidationError
 
 from talk_tracks.contracts import (
+    CHAT_TRACK,
     COMMENTS_TRACK,
     DECK_TRACK,
     INK_TRACK,
@@ -17,6 +18,8 @@ from talk_tracks.contracts import (
     ROOM_TRACK,
     SLICE_MS,
     SLIDE_TRACK,
+    STATS_TRACK,
+    ChatObject,
     CommentRecord,
     CommentsObject,
     CurrentSlideObject,
@@ -29,11 +32,13 @@ from talk_tracks.contracts import (
     PointerObject,
     RoomStateObject,
     annotations_path,
+    chat_path,
     comments_path,
     slides_path,
+    stats_path,
 )
 from talk_tracks.records import comments_carry, current_slide, encode, ink_carry, last_record, marks_carry
-from talk_tracks.room_catalog import RoomCatalog, room_service_tracks, speaker_sources, speaker_tracks
+from talk_tracks.room_catalog import RoomCatalog, room_service_tracks, speaker_sources, speaker_tracks, stats_track
 from talk_tracks.schema import (
     ANNOTATIONS_INK,
     ANNOTATIONS_MARKS,
@@ -56,6 +61,7 @@ MODELS: dict[str, type[RootModel[Any]]] = {
     "pointer-object.schema.json": PointerObject,
     "comments-object.schema.json": CommentsObject,
     "room-state-object.schema.json": RoomStateObject,
+    "chat-object.schema.json": ChatObject,
 }
 
 
@@ -225,7 +231,7 @@ def test_only_the_author_or_the_speaker_changes_an_annotation() -> None:
 
 def test_the_room_catalog_lists_sources_and_event_tracks() -> None:
     room = "physics-101"
-    tracks = (*speaker_tracks(room), *room_service_tracks(room))
+    tracks = (*speaker_tracks(room), *room_service_tracks(room), stats_track(room))
     sources = speaker_sources(room, camera=True, slides=True)
     doc: Any = RoomCatalog(1_800_000_000_000, tracks, {300: 0}, {}, sources).to_json()
     jsonschema.validate(doc, schema_of("room-catalog.schema.json"))
@@ -243,8 +249,12 @@ def test_the_room_catalog_lists_sources_and_event_tracks() -> None:
         (comments_path(room), COMMENTS_TRACK),
         (annotations, INK_TRACK),
         (annotations, MARKS_TRACK),
+        (chat_path(room), CHAT_TRACK),
+        (stats_path(room), STATS_TRACK),
     }
     assert "template" not in by_name[(slides, DECK_TRACK)]
+    assert "template" not in by_name[(stats_path(room), STATS_TRACK)]  # one group per snapshot, not slices
+    assert by_name[(chat_path(room), CHAT_TRACK)]["template"][1] == SLICE_MS
     assert by_name[(slides, INK_TRACK)]["template"][1] == SLICE_MS
     assert by_name[(annotations, MARKS_TRACK)]["eventType"] == by_name[(slides, MARKS_TRACK)]["eventType"]
     assert by_name[(annotations, INK_TRACK)]["tt"]["dependsOn"] == [f"{slides}/{SLIDE_TRACK}"]

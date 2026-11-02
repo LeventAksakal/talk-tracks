@@ -84,7 +84,7 @@ services:
         done
         exec moq-relay --listen '[::]:443' --listen-tls-cert "$$crt" --listen-tls-key "$${crt%.crt}.key" \
           --web-https-listen '[::]:8443' --web-https-cert "$$crt" --web-https-key "$${crt%.crt}.key" \
-          --auth-url unix:///run/auth/auth.sock --log-level info
+          --auth-url unix:///run/auth/auth.sock --log-level info --stats-enabled --stats-interval 2
 
   # The relay speaks plain HTTP to its auth server only on loopback or a unix socket. The socket lives in a shared
   # volume, so either container restarts on its own and finds the other again. (Sharing the relay's network namespace
@@ -135,8 +135,9 @@ services:
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
   # serves under /archive/. It records the speaker's media, slide frames and event tracks (deck, slide, ink, marks,
   # pointer) off the relay, serves the event tracks' past by FETCH on talk/<room>/archive/slides (decision 0022),
-  # and publishes talk/<room>/catalog with its room track (its token, $TT_ARCHIVE_TOKEN, may publish
-  # talk/*/catalog, talk/*/comments, talk/*/annotations and talk/*/archive/**; wiki/howto/tokens.md).
+  # and publishes talk/<room>/catalog with its room track, talk/<room>/chat and talk/<room>/stats (its token,
+  # $TT_ARCHIVE_TOKEN, may publish talk/*/catalog, talk/*/comments, talk/*/annotations, talk/*/chat, talk/*/stats and
+  # talk/*/archive/**, and subscribe .stats/** for the relay's counters; wiki/howto/tokens.md).
   # Listeners write their ink, text marks and comments to it over a WebSocket on :8091, which Caddy proxies from
   # /api/ (decision 0024); it tells the speaker's token from a listener by the room key's public.jwk.
   # Presenters create rooms on :8092 (POST /api/rooms, decision 0025): it checks the access code in
@@ -177,6 +178,7 @@ services:
       TT_SPEND_CEILING_USD: ${TT_SPEND_CEILING_USD:-100}
       TT_ARCHIVE_SKIP: ${TT_ARCHIVE_SKIP:-${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}}
       TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}
+      TT_RELAY_STATS: .stats/node  # the relay's --stats-enabled counters (Stats for nerds); empty: counts unknown
     entrypoint: ["python", "-m", "talk_tracks.archive"]
     command: ["--insecure"]
 

@@ -25,8 +25,14 @@ time; a token is refused from then on, and a live session closes at that moment.
 | Agents of room `R` | `talk/R/agents/**` | `talk/R/**` |
 | Agents of any room (the VM's live agents) | `talk/*/agents/**` | `talk/**` |
 | Looper of demo room `R` (replays the lecture, its slides and every agent track) | `talk/R/teacher`, `talk/R/slides`, `talk/R/archive/**`, `talk/R/agents/**`, `talk/R/catalog` | `talk/R/**` |
-| Room service (archive, catalog, room, comments and audience annotation tracks, the past of the speaker's tracks; decision 0022) | `talk/*/catalog`, `talk/*/comments`, `talk/*/annotations`, `talk/*/archive/**` | `talk/**` |
+| Room service (archive, catalog, room, comments, audience annotation, chat and stats tracks, the past of the speaker's tracks; decisions 0022, tickets 0021 and 0022) | `talk/*/catalog`, `talk/*/comments`, `talk/*/annotations`, `talk/*/chat`, `talk/*/stats`, `talk/*/archive/**` | `talk/**`, `.stats/**` (the relay's own counters, `--stats-enabled`) |
 | Viewers | nothing, no token | `talk/**` (anonymous) |
+
+The room service's token (`TT_ARCHIVE_TOKEN` on the VM; [chat and stats](chat-and-stats.md)):
+
+```bash
+docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/*/catalog' --publish 'talk/*/comments' --publish 'talk/*/annotations' --publish 'talk/*/chat' --publish 'talk/*/stats' --publish 'talk/*/archive/**' --subscribe 'talk/**' --subscribe '.stats/**' --expires 1793200000
+```
 
 ```bash
 docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/dev/agents/**' --subscribe 'talk/dev/**' --expires 1793200000
