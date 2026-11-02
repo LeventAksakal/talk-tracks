@@ -7,9 +7,8 @@ import { RELAY_URL } from "../config";
 import { normaliseRoom } from "../contracts/names";
 import { Icon } from "../player/icons";
 import { Link, navigate } from "../router";
-import { MoqTransport, relayUrl } from "../transport/moq";
+import { preloadWatch } from "../routes";
 import type { Transport } from "../transport/types";
-import { useResource } from "../useResource";
 import { CreateTalk, type CreateTalkProps, PasteSpeakerLink } from "./CreateTalk";
 import { DEMO_CREDIT, DEMO_ROOMS, demoRoom } from "./demoRooms";
 import { type RelayRooms, watchRelayRooms } from "./liveRooms";
@@ -74,7 +73,7 @@ export function LandingPage({ transport, create }: LandingPageProps) {
                 {onAir.map((room) => (
                   <li key={room} className="lobby-card hub-live-card">
                     <LiveBadge />
-                    <Link href={`/watch/${room}`} className="lobby-card-link">
+                    <Link href={`/watch/${room}`} className="lobby-card-link" {...PRELOAD_WATCH}>
                       <span className="lobby-card-title">{room}</span>
                     </Link>
                   </li>
@@ -127,7 +126,7 @@ export function LandingPage({ transport, create }: LandingPageProps) {
                     )}
                   </span>
                 ) : null}
-                <Link href={`/watch/${d.room}`} className="lobby-card-link">
+                <Link href={`/watch/${d.room}`} className="lobby-card-link" {...PRELOAD_WATCH}>
                   <span className="lobby-card-title">{d.title}</span>
                 </Link>
                 <span className="lobby-card-speaker">{d.speaker}</span>
@@ -168,6 +167,9 @@ export function LandingPage({ transport, create }: LandingPageProps) {
   );
 }
 
+/** A room card's link starts loading the watch page when it is hovered or focused, before the click. */
+const PRELOAD_WATCH = { onMouseEnter: preloadWatch, onFocus: preloadWatch } as const;
+
 /** The LIVE marker on a card (brand §6): the Go-live icon and the word on the live fill. */
 function LiveBadge() {
   return (
@@ -182,7 +184,9 @@ function RecentCard({ recent, live }: { recent: RecentRoom; live: boolean | unde
   const demo = demoRoom(recent.room);
   return (
     <li className="hub-recent-item">
-      <Link href={`/watch/${recent.room}`}>{demo?.title ?? recent.title ?? recent.room}</Link>
+      <Link href={`/watch/${recent.room}`} {...PRELOAD_WATCH}>
+        {demo?.title ?? recent.title ?? recent.room}
+      </Link>
       {live ? <LiveBadge /> : null}
     </li>
   );
@@ -237,10 +241,7 @@ function useJoinShortcut(): void {
 
 /** The relay's rooms on air; undefined until there is a connection to ask. */
 function useRelayRooms(given: Transport | null | undefined): RelayRooms | undefined {
-  const own = useResource(
-    () => (given === undefined ? new MoqTransport({ url: relayUrl(RELAY_URL) }) : undefined),
-    [given],
-  );
+  const own = useOwnTransport(given === undefined);
   const transport = given ?? own;
   const [rooms, setRooms] = useState<RelayRooms>();
   useEffect(() => {
@@ -249,4 +250,28 @@ function useRelayRooms(given: Transport | null | undefined): RelayRooms | undefi
     return () => w.close();
   }, [transport]);
   return transport ? rooms : undefined;
+}
+
+/**
+ * The hub's own relay connection, one for the page's lifetime. The MoQ stack is a chunk of its own, loaded after the
+ * hub's first paint, so the hub's entry script stays small and its load is not one long task.
+ */
+function useOwnTransport(wanted: boolean): Transport | undefined {
+  const [transport, setTransport] = useState<Transport>();
+  useEffect(() => {
+    if (!wanted) return;
+    let closed = false;
+    let made: Transport | undefined;
+    void import("../transport/moq").then(({ MoqTransport, relayUrl }) => {
+      if (closed) return;
+      made = new MoqTransport({ url: relayUrl(RELAY_URL) });
+      setTransport(made);
+    });
+    return () => {
+      closed = true;
+      made?.close();
+      setTransport(undefined);
+    };
+  }, [wanted]);
+  return transport;
 }
