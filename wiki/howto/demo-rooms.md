@@ -179,7 +179,7 @@ docker run --rm -v ~/tt-keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys
   --publish talk/rsa-recording/slides --publish 'talk/rsa-recording/archive/**' \
   --publish talk/qrcode-recording/catalog --publish 'talk/qrcode-recording/agents/**' \
   --publish talk/qrcode-recording/slides --publish 'talk/qrcode-recording/archive/**' \
-  --subscribe 'talk/**' --expires 1793200000
+  --subscribe 'talk/**' --expires $(( $(date +%s) + 30*86400 ))
 ```
 
 ## Subtitle cue breaks

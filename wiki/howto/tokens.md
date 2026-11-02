@@ -32,18 +32,22 @@ Scopes name broadcasts, not tracks: `talk/R/teacher` covers every track the spea
 microphone (`audio`), the camera (`video`) and a shared screen (`screen`, only while shared; a shared tab's sound is
 mixed into `audio`). Screen share needed no new scope, so speaker tokens minted before it still share screens.
 
+`--expires` is Unix seconds: the examples sign for 30 days from now. A fixed number copied from an older example
+can already be in the past, and the relay then refuses every connection with "the auth server refused the session"
+(2026-11-02: the first recordings token).
+
 The recordings server's token (`TT_RECORDINGS_TOKEN` on the VM) publishes only the four recording rooms' paths; its
 sign command is in [demo rooms](demo-rooms.md).
 
 The room service's token (`TT_ARCHIVE_TOKEN` on the VM; [chat and stats](chat-and-stats.md)):
 
 ```bash
-docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/*/catalog' --publish 'talk/*/comments' --publish 'talk/*/annotations' --publish 'talk/*/chat' --publish 'talk/*/stats' --publish 'talk/*/archive/**' --subscribe 'talk/**' --subscribe '.stats/**' --expires 1793200000
+docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/*/catalog' --publish 'talk/*/comments' --publish 'talk/*/annotations' --publish 'talk/*/chat' --publish 'talk/*/stats' --publish 'talk/*/archive/**' --subscribe 'talk/**' --subscribe '.stats/**' --expires $(( $(date +%s) + 30*86400 ))
 ```
 
 ```bash
-docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/dev/agents/**' --subscribe 'talk/dev/**' --expires 1793200000
-docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish talk/dev/teacher --publish talk/dev/slides --subscribe 'talk/dev/**' --expires 1793200000
+docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/dev/agents/**' --subscribe 'talk/dev/**' --expires $(( $(date +%s) + 30*86400 ))
+docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish talk/dev/teacher --publish talk/dev/slides --subscribe 'talk/dev/**' --expires $(( $(date +%s) + 30*86400 ))
 ```
 
 Agents that serve any room (`--rooms '*'`, [lazy agents](lazy-agents.md)) need one token for the agent paths of
@@ -52,7 +56,7 @@ speaker path (checked on 2026-10-28: with it, `talk/judge-a/agents/captions/1` w
 `talk/judge-a/teacher` refused as unauthorized):
 
 ```bash
-docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/*/agents/**' --subscribe 'talk/**' --expires 1793200000
+docker run --rm -v ./agents/data/keys:/keys talk-tracks-auth:0.14.8 auth sign --key /keys/private.jwk --publish 'talk/*/agents/**' --subscribe 'talk/**' --expires $(( $(date +%s) + 30*86400 ))
 ```
 
 The demo room's looper publishes agent paths too: the live agents never serve it (`TT_ROOMS_EXCLUDE`).
