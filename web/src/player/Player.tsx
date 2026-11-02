@@ -568,7 +568,7 @@ export function listenerToolsOff(status: ServiceStatus | undefined, noService: s
  * Keyboard shortcuts on the whole page (the player is the page). Media Chrome answers the media keys (Space and K,
  * J and L, the arrows, M, F, C, < and >) inside its controller; pressed anywhere else on the page they are handed to
  * it. The room's own keys are ours: G go live, S side panel, B bookmark, N note, / search, [ and ] subtitle size, ?
- * these shortcuts.
+ * these shortcuts, I Stats for nerds.
  */
 function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElement | null>): void {
   const latest = useRef(ctx);
@@ -619,6 +619,9 @@ function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElem
         case "/":
           update({ panel: true, tab: "transcript" });
           setUi((u) => ({ focusSearch: u.focusSearch + 1 }));
+          break;
+        case "i":
+          setUi((u) => ({ stats: !u.stats, menu: undefined }));
           break;
         case "?":
           setUi({ shortcuts: true, menu: undefined });

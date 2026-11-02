@@ -1,4 +1,4 @@
-// The player's controls (decision 0031), laid out like a streaming player: the time range across the bottom, then
+// The player's controls (decision 0031), laid out like a streaming player in one glass dock: the time range, then
 // play, volume and time on the left, with the LIVE pill (Go live when behind) and the current chapter; on the
 // right subtitles, layout, side panel, settings (speed, quality, subtitle size and style: only real settings),
 // picture-in-picture and full screen. Media Chrome draws and labels the media controls; the room's own (Go live,
@@ -35,69 +35,71 @@ export function Controls({ quality }: { quality: boolean }) {
   return (
     <>
       <SettingsMenu quality={quality} />
-      <media-control-bar className="tt-bar tt-bar-range">
-        <TimeRange />
-      </media-control-bar>
-      <media-control-bar className="tt-bar" data-menu-root="">
-        <media-play-button className="tt-mc-button" />
-        <span className="tt-volume">
-          <media-mute-button className="tt-mc-button" />
-          <media-volume-range className="tt-volume-range" />
-        </span>
-        <media-time-display className="tt-time" showduration={state.recording ? "" : undefined} />
-        {state.canGoLive ? (
-          <button type="button" className="tt-pill tt-pill-behind" onClick={goLive} title="Go live (G)">
-            {state.pill} · Go live
-          </button>
-        ) : (
-          <span className={`tt-pill${state.kind === "live" ? " tt-pill-live" : ""}`} role="status">
-            {state.kind === "live" ? <span className="tt-live-dot" aria-hidden="true" /> : null}
-            {state.pill}
+      <div className="tt-dock">
+        <media-control-bar className="tt-bar tt-bar-range">
+          <TimeRange />
+        </media-control-bar>
+        <media-control-bar className="tt-bar" data-menu-root="">
+          <media-play-button className="tt-mc-button" />
+          <span className="tt-volume">
+            <media-mute-button className="tt-mc-button" />
+            <media-volume-range className="tt-volume-range" />
           </span>
-        )}
-        {chapter ? (
-          <button type="button" className="tt-chapter-name" onClick={() => openTab("chapters")}>
-            {chapter.title} ›
+          <media-time-display className="tt-time" showduration={state.recording ? "" : undefined} />
+          {state.canGoLive ? (
+            <button type="button" className="tt-pill tt-pill-behind" onClick={goLive} title="Go live (G)">
+              {state.pill} · Go live
+            </button>
+          ) : (
+            <span className={`tt-pill${state.kind === "live" ? " tt-pill-live" : ""}`} role="status">
+              {state.kind === "live" ? <Icon name="live" /> : null}
+              {state.pill}
+            </span>
+          )}
+          {chapter ? (
+            <button type="button" className="tt-chapter-name" onClick={() => openTab("chapters")}>
+              {chapter.title} ›
+            </button>
+          ) : null}
+          <span className="tt-bar-spacer" />
+          <button
+            type="button"
+            className={`tt-bar-button${prefs.cc ? " tt-on" : ""}`}
+            aria-label="Subtitles"
+            aria-haspopup="dialog"
+            aria-expanded={ui.menu === "cc"}
+            onClick={() => toggleMenu("cc")}
+          >
+            <Icon name="cc" />
           </button>
-        ) : null}
-        <span className="tt-bar-spacer" />
-        <button
-          type="button"
-          className={`tt-bar-button${prefs.cc ? " tt-on" : ""}`}
-          aria-label="Subtitles"
-          aria-haspopup="dialog"
-          aria-expanded={ui.menu === "cc"}
-          onClick={() => toggleMenu("cc")}
-        >
-          <Icon name="cc" />
-        </button>
-        {sources.length > 1 ? (
+          {sources.length > 1 ? (
+            <button
+              type="button"
+              className="tt-bar-button"
+              aria-label="Layout"
+              aria-haspopup="dialog"
+              aria-expanded={ui.menu === "layout"}
+              onClick={() => toggleMenu("layout")}
+            >
+              <Icon name="layout" />
+            </button>
+          ) : null}
           <button
             type="button"
             className="tt-bar-button"
-            aria-label="Layout"
-            aria-haspopup="dialog"
-            aria-expanded={ui.menu === "layout"}
-            onClick={() => toggleMenu("layout")}
+            aria-label="Side panel (S)"
+            aria-pressed={prefs.panel}
+            onClick={() => update({ panel: !prefs.panel })}
           >
-            <Icon name="layout" />
+            <Icon name="panel" />
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="tt-bar-button"
-          aria-label="Side panel (S)"
-          aria-pressed={prefs.panel}
-          onClick={() => update({ panel: !prefs.panel })}
-        >
-          <Icon name="panel" />
-        </button>
-        <media-settings-menu-button className="tt-mc-button" />
-        <media-pip-button className="tt-mc-button" />
-        <media-fullscreen-button className="tt-mc-button" />
-        {ui.menu === "cc" ? <CaptionsMenu /> : null}
-        {ui.menu === "layout" ? <LayoutMenu /> : null}
-      </media-control-bar>
+          <media-settings-menu-button className="tt-mc-button" />
+          <media-pip-button className="tt-mc-button" />
+          <media-fullscreen-button className="tt-mc-button" />
+          {ui.menu === "cc" ? <CaptionsMenu /> : null}
+          {ui.menu === "layout" ? <LayoutMenu /> : null}
+        </media-control-bar>
+      </div>
     </>
   );
 }

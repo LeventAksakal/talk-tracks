@@ -14,6 +14,7 @@ export const SHORTCUTS: [string, string][] = [
   ["B", "Bookmark this moment"],
   ["N", "Write a note"],
   ["/", "Search the transcript"],
+  ["I or right-click", "Stats for nerds"],
   ["?", "These shortcuts"],
 ];
 
