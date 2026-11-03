@@ -77,7 +77,7 @@ from .lecture import (
     probe,
 )
 from .lecture import clock as hang_clock
-from .moq import AUDIO_IDLE_S, PROBE_TRACK, WRITER_QUEUE, Relay, TrackWriter, answering, connect, until_closed
+from .moq import AUDIO_IDLE_S, WRITER_QUEUE, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest
 from .regions import FILE as REGIONS_FILE
@@ -859,28 +859,11 @@ async def serve_recording(
         listening = asyncio.create_task(_announced_agents(relay, room, announced))
         catalog_track = RoomCatalogTrack(relay, room, document)
         await catalog_track.start()
-        health = await relay.publish(catalog_path(room), PROBE_TRACK)  # nobody else reads it: each probe reaches us
-
-        async def beat() -> None:
-            await catalog_track.publish()
-            await health.write(b"ok")
-
-        def watcher() -> contextlib.AbstractAsyncContextManager[Relay]:
-            return connect(url, token=token, insecure=insecure)
-
         log.info("serving the recording room %s (E %d, %.1f s)", room, epoch, end_ms / 1000)
         try:
-            await until_closed(relay, _together(_every(HEARTBEAT_S, beat), _watchdog(watcher, room)))
+            await until_closed(relay, _every(HEARTBEAT_S, catalog_track.publish))
         finally:
             listening.cancel()
-
-
-async def _watchdog(watcher: Callable[[], contextlib.AbstractAsyncContextManager[Relay]], room: str) -> None:
-    """Raise once the recording room stops answering its own probe through the relay (R2, 2026-11-03): the process
-    exits and Docker starts a fresh one, as when the relay session closes. ``watcher`` opens the probes' connection;
-    a missed probe closes it and the next one opens afresh."""
-    await answering(watcher, catalog_path(room))
-    raise ConnectionError(f"{room}: the relay gets no answer from this publisher: restarting")
 
 
 async def record(url: str, room: str, out: Path, *, media: str | None, token: str | None, insecure: bool) -> None:

@@ -6,13 +6,11 @@ aiomoqt has no Windows wheels, so ``talk_tracks.moq`` is imported here against a
 is built.
 """
 
-import contextlib
 import importlib
 import json
 import re
 import sys
 import types
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -564,86 +562,20 @@ def test_stop_sending_then_a_reset_resets_our_half_once(moq: Any) -> None:
     assert asyncio.run(scenario()) == [37]
 
 
-class ProbeReader(ClockReader):
-    def __init__(self, sub: tuple[int, int]) -> None:
-        super().__init__([b"ok"])
-        self.sub = sub
-
-
-class ProbeWire:
-    """The relay as the watchdog's probes meet it. A probe's SUBSCRIBE is on the wire from when it is sent until it
-    is unsubscribed or its connection closes: a probe that times out waiting for an answer stays subscribed, as with
-    aiomoqt, which drops only its local routes. While any probe is subscribed the relay holds its own subscription
-    upstream and answers a new probe from it; otherwise the probe reaches the publisher, which answers or hangs
-    (``publisher``, in turn).
-
-    Called, it opens a new connection; used as a Relay, it is the one connection it already holds."""
-
-    def __init__(self, publisher: list[bool]) -> None:
-        self.publisher = publisher
-        self.live: list[tuple[int, int]] = []  # (connection, probe), subscribed on the wire
-        self.connection = 0
-        self.probes = 0
-        self.asked = 0  # probes the relay passed on to the publisher
-        self.agent = types.SimpleNamespace(reader=self._reader, close_reader=self._close_reader)
-
-    async def _reader(self, spec: Any) -> ProbeReader:
-        import asyncio
-
-        self.probes += 1
-        reader = ProbeReader((self.connection, self.probes))
-        upstream = bool(self.live)
-        self.live.append(reader.sub)
-        if upstream:
-            return reader  # answered from the relay's upstream subscription: the publisher is not asked
-        self.asked += 1
-        if self.publisher and self.publisher.pop(0):
-            return reader
-        await asyncio.Event().wait()  # the publisher never answers (out of stream credit)
-        raise AssertionError
-
-    def _unsubscribe(self, reader: ProbeReader, name: str) -> None:
-        self.live.remove(reader.sub)
-
-    def _close_reader(self, name: str) -> None:
-        pass  # local only, as in aiomoqt: nothing leaves the wire
-
-    @contextlib.asynccontextmanager
-    async def __call__(self) -> AsyncGenerator["ProbeWire"]:
-        self.connection += 1
-        mine = self.connection
-        try:
-            yield self
-        finally:  # closing a connection ends its subscriptions
-            self.live = [sub for sub in self.live if sub[0] != mine]
-
-
-def test_a_probe_that_times_out_leaves_nothing_subscribed_and_every_probe_asks_the_publisher(
-    moq: Any, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(("value", "on"), [(None, False), ("", False), ("0", False), ("1", True), ("on", True)])
+def test_request_streams_are_retired_only_when_the_flag_says_so(
+    moq: Any, monkeypatch: pytest.MonkeyPatch, value: str | None, on: bool
 ) -> None:
-    """A probe the publisher never answers must not stay subscribed: the relay would answer every later probe from
-    its upstream subscription and a stalled publisher would never be seen again (review of R2, 2026-11-03). One
-    miss is forgiven; three in a row once armed end the watchdog; never armed, it never gives up."""
-    import asyncio
+    """Under image c1c4914 the relay stopped sending requests to our publishers within minutes (2026-11-03), and the
+    retire patch is not cleared of it: off unless ``TT_MOQ_RETIRE_STREAMS`` turns it on, one service at a time."""
+    if value is None:
+        monkeypatch.delenv("TT_MOQ_RETIRE_STREAMS", raising=False)
+    else:
+        monkeypatch.setenv("TT_MOQ_RETIRE_STREAMS", value)
+    assert moq.retiring_streams() is on
 
-    for name in ("TrackRef", "SubscribeSpec", "StartAt"):
-        monkeypatch.setattr(moq, name, types.SimpleNamespace)
 
-    def watch(wire: ProbeWire) -> Any:
-        return moq.answering(wire, "talk/r/catalog", every_s=0, timeout_s=0.05, misses=3)
-
-    wire = ProbeWire([True, False, True, False, False, False])
-    asyncio.run(asyncio.wait_for(watch(wire), 2))
-    assert wire.live == []
-    assert wire.asked == wire.probes == 6
-
-    never = ProbeWire([False] * 50)  # a token that may not subscribe there: never armed, never gives up
-
-    async def unarmed() -> None:
-        await asyncio.wait_for(watch(never), 0.5)
-
-    with pytest.raises(TimeoutError):
-        asyncio.run(unarmed())
-    assert never.live == []
-    assert never.asked == never.probes > 3
-    assert never.probes > 3
+def test_no_watchdog_is_left_to_restart_a_healthy_publisher(moq: Any) -> None:
+    """The watchdog restarted all four recording publishers every ~2.5 min while they served (2026-11-03): its probe
+    misses whenever the relay forwards nothing upstream, whoever is at fault. It is gone, with its probe track."""
+    assert not hasattr(moq, "answering") and not hasattr(moq, "PROBE_TRACK")

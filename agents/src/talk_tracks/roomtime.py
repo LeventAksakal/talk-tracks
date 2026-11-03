@@ -83,7 +83,8 @@ class RoomTime:
 
     def _set_room(self, epoch: int, shift: dict[str, int]) -> None:
         if self.epoch is not None and epoch != self.epoch:
-            log.error("the room epoch changed from %d to %d: it is set once per room", self.epoch, epoch)
+            # A demo room's next live session has an E of its own; its agents start again on it (cli.epoch_changed).
+            log.info("the room epoch changed from %d to %d: a new session", self.epoch, epoch)
         self.epoch, self.shift = epoch, shift
 
     async def _update(self, change: Callable[[], None]) -> None:
