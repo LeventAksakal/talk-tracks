@@ -25,10 +25,15 @@ npm run qa --prefix qa
 npm run build --prefix web
 npm run preview --prefix web -- --port 4319 --strictPort   # stop it when done
 npm run qa --prefix qa -- --base "http://[::1]:4319/" --offline
+
+# or a local build against the deployed rooms: the journeys load web/dist under the deployed origin, while the
+# relay, the archive and the room service stay the deployed ones (a player change seen on live rooms before deploy)
+npm run build --prefix web
+npm run qa --prefix qa -- --overlay "<absolute path to web/dist>" --skip-lighthouse --skip-trace
 ```
 
 `npm run qa --prefix qa -- --help` lists the options: `--browsers`, `--themes`, `--journeys`, `--room`,
-`--trace-path`, `--trace-seconds`, `--lighthouse-pages`, `--run`, and `--skip-capture|lighthouse|trace`.
+`--recording`, `--overlay`, `--trace-path`, `--trace-seconds`, `--lighthouse-pages`, `--run`, and `--skip-capture|lighthouse|trace`.
 
 Vite preview listens on `localhost`, which on Windows resolves to `::1` first: use `http://[::1]:<port>/`.
 
@@ -59,6 +64,7 @@ browsers as a browser difference.
 | `hub` | the hub, top and full page | no (says the relay can't be reached) |
 | `create` | the Create talk form, its errors, the join and speaker-link errors; never submits a valid form | no |
 | `watch` | a demo room (`--room`, default `dataviz`): playing, rewound a minute, back live, subtitles, a translation, each side-panel tab, layout, settings, subtitle style, Stats for nerds, shortcuts | yes |
+| `recording` | a demo lecture's recording (`--recording`, default `<room>-recording`): opened, playing, a seek to the middle, subtitles on, a recorded translation, subtitles off, 1.5x, each side-panel tab, J, full screen, the end and Replay | yes |
 | `demo` | the same walk on the offline demo at `/demo`, then each forced player state (`/demo?state=…`) | no |
 | `unknown` | a room nobody is on air in, an invalid room name, a page that does not exist | yes |
 | `console` | the speaker console's pre-flight with no token, fake camera and microphone | yes |
@@ -72,6 +78,9 @@ browsers as a browser difference.
   (a tripped guard shows up as a failed step).
 - The console is opened with no token and never goes on air.
 - One browser at a time.
+- Silent by default: every browser launches muted (`--mute-audio` for Chromium, Chrome, Edge and Lighthouse's
+  Chrome; `media.volume_scale` `"0.0"` for Firefox; an init script that mutes media elements and Web Audio for
+  WebKit). The constants live in `lib/util.mjs`; never launch a browser around them.
 
 ## What it cannot cover
 

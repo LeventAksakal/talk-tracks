@@ -7,7 +7,7 @@ import * as chromeLauncher from "chrome-launcher";
 import { chromium } from "playwright";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { brandedPath, ensureDir, redactFile } from "./util.mjs";
+import { CHROMIUM_MUTE_ARGS, brandedPath, ensureDir, redactFile } from "./util.mjs";
 
 const CATEGORIES = ["performance", "accessibility", "best-practices", "seo"];
 
@@ -23,7 +23,7 @@ export async function runLighthouse({ runDir, pages, opts, redact, log }) {
     try {
       chrome = await chromeLauncher.launch({
         chromePath,
-        chromeFlags: ["--headless=new", "--no-first-run", "--autoplay-policy=no-user-gesture-required"],
+        chromeFlags: [...CHROMIUM_MUTE_ARGS, "--headless=new", "--no-first-run", "--autoplay-policy=no-user-gesture-required"],
       });
       const runner = await lighthouse(
         url,

@@ -791,10 +791,11 @@
 }
 
 /* --- notices and cards over the canvas --- */
+/* Top left, where Stats for nerds opens: the bottom of the stage belongs to the subtitles and the dock. */
 .tt-missed {
   position: absolute;
   left: var(--player-dock-gap);
-  bottom: var(--player-dock-reach);
+  top: 76px;
   z-index: 6;
   display: flex;
   align-items: center;

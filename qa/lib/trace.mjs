@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { brandedPath, ensureDir, sleep } from "./util.mjs";
+import { CHROMIUM_MUTE_ARGS, brandedPath, ensureDir, sleep } from "./util.mjs";
 
 const CATEGORIES = [
   "toplevel",
@@ -105,7 +105,7 @@ export async function runTrace({ runDir, path, seconds, opts, log }) {
   const browser = await chromium.launch({
     headless: true,
     channel,
-    args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
+    args: [...CHROMIUM_MUTE_ARGS, "--autoplay-policy=no-user-gesture-required", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
   });
   const out = { path, seconds, browser: `${channel ?? "chromium"} ${browser.version()}`, steps: [], errors: [] };
   const step = async (name, fn) => {

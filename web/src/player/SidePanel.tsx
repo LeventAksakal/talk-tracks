@@ -16,7 +16,8 @@ import { TranscriptDownload } from "./TranscriptDownload";
 // The side panel's jobs (decision 0033): each answers one thing the viewer is doing. Talking with the room (Chat),
 // following what is said (Transcript), finding a place in the talk (Chapters, with its terms and the slides as text),
 // keeping their own notes (Notes); Discussion joins them only where listeners can comment. Chat goes first when there
-// is a relay to read it from. A panel is a subscription (decision 0026): its track is subscribed while it is open.
+// is a relay to read it from and a room to talk with (not a recording). A panel is a subscription (decision 0026):
+// its track is subscribed while it is open.
 const CHAT: [PanelTab, string] = ["chat", "Chat"];
 const JOBS: [PanelTab, string][] = [
   ["transcript", "Transcript"],
@@ -39,8 +40,9 @@ const jobOf = (tab: PanelTab): PanelTab => (tab === "glossary" || tab === "descr
  * what the viewer does (/ searches the transcript, N writes a note, the chapter name opens Chapters).
  */
 export function SidePanel() {
-  const { prefs, update, extraTabs, transport } = usePlayer();
-  const chat = transport instanceof MoqTransport;
+  const { prefs, update, extraTabs, transport, vod } = usePlayer();
+  // A recording has nobody in the room to chat with.
+  const chat = transport instanceof MoqTransport && !vod;
   const tabs: [PanelTab, string][] = [
     ...(chat ? [CHAT] : []),
     ...JOBS,
