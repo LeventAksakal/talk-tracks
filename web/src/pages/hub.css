@@ -301,10 +301,6 @@
   background: var(--hub-live);
   animation: hub-pulse 2.4s ease-in-out infinite;
 }
-.hero-showing-off {
-  font-weight: var(--tt-weight-regular);
-  color: var(--hub-muted);
-}
 .hero-note {
   margin: var(--tt-space-4) 0 0;
   color: var(--hub-muted);
@@ -318,7 +314,8 @@
 }
 .hero-tracks {
   margin: var(--tt-space-3) 0 0;
-  max-width: 52ch;
+  max-width: 56ch;
+  text-wrap: pretty;
   color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
@@ -384,6 +381,15 @@
   position: relative;
   container-type: inline-size;
   --hub-tile: clamp(248px, calc((100cqi - 2 * var(--tt-page-gutter) - 3 * var(--hub-gap)) / 4), 340px);
+}
+/* A row of three (Live now: the lectures other than the featured one) spans the same width as a row of four, so the
+   rows line up and no fourth place stands empty. */
+.hub-row-frame:has(.tile:nth-child(3):last-child) {
+  --hub-tile: clamp(
+    248px,
+    calc((100cqi - 2 * var(--tt-page-gutter) - 2 * var(--hub-gap)) / 3),
+    calc(340px * 4 / 3 + var(--hub-gap) / 3)
+  );
 }
 .hub-row-track {
   list-style: none;
@@ -503,19 +509,18 @@
   flex: none;
 }
 .tile-facts {
-  display: flex;
-  flex-wrap: wrap;
   margin: 0;
   color: var(--hub-muted);
   font-size: var(--tt-text-micro);
   line-height: 1.4;
 }
-/* Each fact on one line with its separator: a dd is a block, so the "·" before it would sit on a line of its own. */
+/* The facts read as one line of text ("English · subtitles in 50 languages"), the tracks as a second: inline, so the
+   "·" never sits on a line of its own. */
 .tile-facts > div {
-  display: flex;
-  min-width: 0;
+  display: inline;
 }
 .tile-facts dd {
+  display: inline;
   margin: 0;
 }
 .tile-facts > div:not(.tile-tracks) + div:not(.tile-tracks)::before {
@@ -523,10 +528,11 @@
   margin: 0 6px;
 }
 .tile-tracks {
-  flex-basis: 100%;
+  display: block;
   min-width: 0;
 }
 .tile-tracks dd {
+  display: block;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -572,9 +578,9 @@
   outline: 2px solid var(--tt-color-focus);
   outline-offset: 2px;
 }
+/* The play link stands for the card: one ring, the card's. The card's second link keeps its own. */
 .tile-play:focus-visible {
-  outline: 2px solid var(--tt-color-focus);
-  outline-offset: 2px;
+  outline: none;
 }
 .tile-also {
   position: relative;
@@ -596,6 +602,9 @@
   margin: 0 0 var(--tt-space-2);
   max-width: 90ch;
   text-wrap: pretty;
+}
+.hub-foot .hub-credits {
+  text-wrap: balance;
 }
 .hub-foot a {
   color: var(--hub-text);

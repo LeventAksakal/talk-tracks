@@ -62,8 +62,19 @@ export function SlideSurface() {
   const described = describe?.sliced?.slide;
   const lang = describe?.lang ?? "en";
   const on = at?.slide ?? null;
-  const picture = on && slides ? slides.picture(on.deck, on.index) : undefined;
-  const info = on && slides ? slides.deckInfo(on.deck) : undefined;
+  // The speaker shows no slide now: the last one seen here stays up, without its marks (they were on it then, not now).
+  const held = useFrameValue(
+    clock,
+    (t) => {
+      const time = slideTime(t);
+      const now = slides?.slideAt(time);
+      return now && !now.slide && described === undefined ? slides?.heldSlide(time) : undefined;
+    },
+    (a, b) => a === b || (a?.deck === b?.deck && a?.index === b?.index),
+  );
+  const pictured = on ?? held ?? null;
+  const picture = pictured && slides ? slides.picture(pictured.deck, pictured.index) : undefined;
+  const info = pictured && slides ? slides.deckInfo(pictured.deck) : undefined;
   const aspect = slideAspect(picture, info?.aspect);
   const runs = picture?.image.runs ?? [];
   const marks: Mark[] = on
@@ -76,7 +87,7 @@ export function SlideSurface() {
         })),
       )
     : [];
-  const label = on ? `Slide ${on.index + 1}` : "Slides";
+  const label = pictured ? `Slide ${pictured.index + 1}` : "Slides";
   // A slide's description is its picture's text alternative, and stands in for a slide with no picture.
   const description = described?.description;
 
@@ -108,7 +119,7 @@ export function SlideSurface() {
           src={picture.url}
           alt={description ?? label}
           draggable={false}
-          data-slide={on ? on.index + 1 : undefined}
+          data-slide={pictured ? pictured.index + 1 : undefined}
         />
       ) : (
         <div className="tt-slide">
@@ -131,13 +142,13 @@ export function SlideSurface() {
   );
 
   function slideTitle(): string {
-    if (on) return `Slide ${on.index + 1}`;
+    if (pictured) return `Slide ${pictured.index + 1}`;
     if (described) return `Slide ${described.id + 1}`;
     return at ? "No slide shown" : "Slides appear here";
   }
 
   function hint(): string {
-    if (on) return "Loading the slide…";
+    if (pictured) return "Loading the slide…";
     if (at) return "The speaker is not showing a slide right now.";
     return "The speaker's slides, ink and laser pointer show here.";
   }

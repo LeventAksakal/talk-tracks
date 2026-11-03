@@ -145,14 +145,20 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     if (sharing) update({ board: "screen" });
   }, [sharing, update]);
   const offLayout = useOffLayout();
-  // No slide at the frame on screen (the slide track says none, and no description stands in): the camera alone.
+  // No slide at the frame on screen (the slide track says none, no description stands in) and none seen before it in
+  // this session: the camera alone, centred. A slide seen earlier stays up instead (SlideSurface holds it).
   const slideTime = useSlideTime();
   const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const noSlide = useFrameValue(clock, (t) => {
-    const now = slides?.slideAt(slideTime(t));
-    return now !== undefined && !now.slide && described === undefined;
+    const time = slideTime(t);
+    const now = slides?.slideAt(time);
+    return now !== undefined && !now.slide && described === undefined && slides?.heldSlide(time) === undefined;
   });
-  const whole = wholePicture(offLayout, sources) || cameraAlone(noSlide, sources);
+  const offWhole = wholePicture(offLayout, sources);
+  // Before the first slide the camera is the stage's only picture, but not a video call: centred, at most CAMERA_CAP of
+  // the stage's width. Off its layout the recorded frame is one picture on purpose, shown whole.
+  const capped = !offWhole && cameraAlone(noSlide, sources);
+  const whole = offWhole || capped;
   const placed = stageSources(sources, prefs.board);
   const layout = whole ? "single" : effectiveLayout(prefs.layout, placed);
   const hasCamera = placed.includes("camera");
@@ -174,6 +180,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     layout,
     small: layout === "pip" && placed.length > 1 && shown(first) ? first : undefined,
     main: whole ? "camera" : first === cornerKind || placed.length < 2 ? board : cornerKind,
+    mainWidthFrac: capped ? CAMERA_CAP : undefined,
     placedByViewer: pip !== undefined,
     prefs,
   });
@@ -201,7 +208,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         ref={stage}
         className={`tt-stage tt-layout-${layout}${prefs.swap ? " tt-swapped" : ""}${pip ? " tt-pip-placed" : ""}${
           card?.dim ? " tt-dimmed" : ""
-        }${covered ? " tt-covered" : ""}`}
+        }${covered ? " tt-covered" : ""}${capped ? " tt-camera-capped" : ""}`}
         style={style}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
@@ -237,8 +244,9 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
             <span>
               You missed {formatClock(view.missed.toMs - view.missed.fromMs)}
               {view.missed.chapters.length > 0
-                ? ` · ${view.missed.chapters.length} chapter${view.missed.chapters.length === 1 ? "" : "s"}`
+                ? ` (${view.missed.chapters.length} chapter${view.missed.chapters.length === 1 ? "" : "s"})`
                 : ""}
+              . Catch up:
             </span>
             {view.missed.chapters.length > 0 || (view.missed.outlineAnnounced && !view.missed.outlineOn) ? (
               <button
@@ -320,6 +328,8 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   );
 }
 
+/** The camera alone before the first slide: its widest, as a fraction of the stage (player.css .tt-camera-capped). */
+const CAMERA_CAP = 0.64;
 /** The space between the pictures on the stage, px (player.css `.tt-stage` gap and the dock gap). */
 const FIT_GAP = 12;
 /** The height "What you missed" needs in the band under the main picture, px. */
@@ -339,6 +349,7 @@ function useStageFit(
     layout,
     small,
     main,
+    mainWidthFrac,
     placedByViewer,
     prefs,
   }: {
@@ -347,6 +358,8 @@ function useStageFit(
     small: SourceKind | undefined;
     /** The main picture's source. */
     main: SourceKind;
+    /** The main picture's widest, as a fraction of the stage's width (the camera alone before the first slide). */
+    mainWidthFrac: number | undefined;
     placedByViewer: boolean;
     prefs: Prefs;
   },
@@ -391,6 +404,7 @@ function useStageFit(
           width: size.width,
           height: size.height,
           main: aspects[main] ?? 16 / 9,
+          mainWidthFrac,
           corner:
             layout === "pip" && small && !placedByViewer
               ? { aspect: cornerAspect, widthFrac: prefs.pipWidth }

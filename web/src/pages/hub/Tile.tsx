@@ -10,11 +10,22 @@ export const PRELOAD_WATCH = { onMouseEnter: preloadWatch, onFocus: preloadWatch
 
 export const watchHref = (room: string) => `/watch/${room}`;
 
-/** What the card's one main action says, by what it opens. */
+/**
+ * What the card's one main action says, by what it opens. A demo lecture's live session is "Watch live" between its
+ * runs too (the player says when the next starts), so the words and the button's width never change under the reader.
+ */
 export function playLabel(item: HubItem): string {
   if (item.kind === "recording") return "Play";
-  if (item.onAir === false) return "Open";
+  if (item.onAir === false && item.kind !== "live") return "Open";
   return "Watch live";
+}
+
+/** The tracks beyond subtitles, in a sentence: "Slide descriptions, chapters and glossary". */
+export function extraTracks(item: HubItem): string | undefined {
+  const rest = item.tracks.filter((t) => t !== "Captions" && t !== "Translations").map((t) => t.toLowerCase());
+  if (!rest.length) return undefined;
+  const list = rest.length > 1 ? `${rest.slice(0, -1).join(", ")} and ${rest.at(-1)}` : rest[0]!;
+  return list.charAt(0).toUpperCase() + list.slice(1);
 }
 
 /**
@@ -84,13 +95,17 @@ export function Tile({ item, live = true }: { item: HubItem; live?: boolean }) {
               {item.subtitleLanguages ? (
                 <div>
                   <dt className="sr-only">Subtitles</dt>
-                  <dd>Subtitles in {item.subtitleLanguages} languages</dd>
+                  <dd>
+                    {item.spoken ? "subtitles" : "Subtitles"} in {item.subtitleLanguages} languages
+                  </dd>
                 </div>
               ) : null}
-              <div className="tile-tracks">
-                <dt className="sr-only">Tracks</dt>
-                <dd>{item.tracks.join(", ")}</dd>
-              </div>
+              {extraTracks(item) ? (
+                <div className="tile-tracks">
+                  <dt className="sr-only">Tracks</dt>
+                  <dd>{extraTracks(item)}</dd>
+                </div>
+              ) : null}
             </dl>
             <div className="tile-actions">
               <Link href={watchHref(item.room)} className="tile-play" {...PRELOAD_WATCH}>

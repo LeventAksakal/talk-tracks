@@ -649,99 +649,114 @@ function ConsoleView({
             )}
             <SelfView track={snap?.cameraTrack} className="stage-camera" />
           </div>
-          <div className="toolbar" role="toolbar" aria-label="Drawing tools">
-            {TOOLS.map((group, i) => (
-              <div key={i} className="toolbar-group">
-                {group.map((t) => {
-                  const options = tool === t.tool && hasOptions(t.tool);
-                  return (
-                    <span key={t.tool} className="tool-slot">
-                      <ToggleButton
-                        label={`${t.label} (${t.key})`}
-                        size="sm"
-                        isPressed={tool === t.tool}
-                        isDisabled={!deck}
-                        onPressedChange={() => pickTool(t.tool)}
-                      >
-                        {t.label}
-                      </ToggleButton>
-                      {options ? (
-                        <button
-                          type="button"
-                          className="tool-options-toggle"
-                          aria-label={`${t.label} colour and width`}
-                          aria-expanded={optionsOpen}
-                          onClick={() => setOptionsOpen((o) => !o)}
+          {/* The drawing tools and slide controls come with a deck: before one is loaded the stage asks for it, and a
+              row of disabled controls would only say the console is half built. */}
+          {deck ? (
+            <div className="toolbar" role="toolbar" aria-label="Drawing tools">
+              {TOOLS.map((group, i) => (
+                <div key={i} className="toolbar-group">
+                  {group.map((t) => {
+                    const options = tool === t.tool && hasOptions(t.tool);
+                    return (
+                      <span key={t.tool} className="tool-slot">
+                        <ToggleButton
+                          label={`${t.label} (${t.key})`}
+                          size="sm"
+                          isPressed={tool === t.tool}
+                          isDisabled={!deck}
+                          onPressedChange={() => pickTool(t.tool)}
                         >
-                          <span
-                            className="tool-options-dot"
-                            style={colorTool ? { background: colors[colorTool] } : undefined}
-                          />
-                        </button>
-                      ) : null}
-                      {options && optionsOpen ? (
-                        <div className="tool-popover" role="group" aria-label={`${t.label} options`}>
-                          {colorTool ? (
-                            <Swatches
-                              tool={colorTool}
-                              value={colors[colorTool]}
-                              onChange={(c) => setColors((prev) => ({ ...prev, [colorTool]: c }))}
+                          {t.label}
+                        </ToggleButton>
+                        {options ? (
+                          <button
+                            type="button"
+                            className="tool-options-toggle"
+                            aria-label={`${t.label} colour and width`}
+                            aria-expanded={optionsOpen}
+                            onClick={() => setOptionsOpen((o) => !o)}
+                          >
+                            <span
+                              className="tool-options-dot"
+                              style={colorTool ? { background: colors[colorTool] } : undefined}
                             />
-                          ) : null}
-                          {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
-                          <span className="tool-popover-hint">Closes when you draw</span>
-                        </div>
-                      ) : null}
-                    </span>
-                  );
-                })}
-              </div>
-            ))}
-            <div className="toolbar-group">
-              <Button
-                label="Undo"
-                tooltip="Undo (Ctrl+Z)"
-                size="sm"
-                variant="secondary"
-                isDisabled={!deck || hidden || !history.includes("u")}
-                onClick={() => publisher.undo()}
-              />
-              <Button
-                label="Redo"
-                tooltip="Redo (Ctrl+Y)"
-                size="sm"
-                variant="secondary"
-                isDisabled={!deck || hidden || !history.includes("r")}
-                onClick={() => publisher.redo()}
-              />
-              <Button
-                label="Clear slide"
-                size="sm"
-                variant="secondary"
-                isDisabled={!deck || hidden}
-                onClick={() => publisher.clearSlide()}
-              />
+                          </button>
+                        ) : null}
+                        {options && optionsOpen ? (
+                          <div className="tool-popover" role="group" aria-label={`${t.label} options`}>
+                            {colorTool ? (
+                              <Swatches
+                                tool={colorTool}
+                                value={colors[colorTool]}
+                                onChange={(c) => setColors((prev) => ({ ...prev, [colorTool]: c }))}
+                              />
+                            ) : null}
+                            {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
+                            <span className="tool-popover-hint">Closes when you draw</span>
+                          </div>
+                        ) : null}
+                      </span>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          </div>
-          <nav className="slide-nav" aria-label="Slides">
-            <Button label="Previous" size="sm" isDisabled={!deck || index === 0} onClick={() => void goTo(index - 1)} />
-            <span className="slide-count" aria-live="polite" data-testid="slide-count">
-              {deck ? `${index + 1} / ${deck.count}` : "No slides"}
-            </span>
-            <Button
-              label="Next"
-              size="sm"
-              isDisabled={!deck || index + 1 >= deck.count}
-              onClick={() => void goTo(index + 1)}
-            />
-            <Button
-              label={hidden ? "Show slides (B)" : "Hide slides (B)"}
-              size="sm"
-              variant="secondary"
-              isDisabled={!deck}
-              onClick={toggleBlank}
-            />
-          </nav>
+          ) : null}
+          {deck ? (
+            <div className="slide-row">
+              <nav className="slide-nav" aria-label="Slides">
+                <Button
+                  label="Previous"
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!deck || index === 0}
+                  onClick={() => void goTo(index - 1)}
+                />
+                <span className="slide-count" aria-live="polite" data-testid="slide-count">
+                  {deck ? `${index + 1} / ${deck.count}` : "No slides"}
+                </span>
+                <Button
+                  label="Next"
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!deck || index + 1 >= deck.count}
+                  onClick={() => void goTo(index + 1)}
+                />
+                <Button
+                  label={hidden ? "Show slides (B)" : "Hide slides (B)"}
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!deck}
+                  onClick={toggleBlank}
+                />
+              </nav>
+              <div className="slide-edit" role="group" aria-label="Drawing on this slide">
+                <Button
+                  label="Undo"
+                  tooltip="Undo (Ctrl+Z)"
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!deck || hidden || !history.includes("u")}
+                  onClick={() => publisher.undo()}
+                />
+                <Button
+                  label="Redo"
+                  tooltip="Redo (Ctrl+Y)"
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!deck || hidden || !history.includes("r")}
+                  onClick={() => publisher.redo()}
+                />
+                <Button
+                  label="Clear slide"
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!deck || hidden}
+                  onClick={() => publisher.clearSlide()}
+                />
+              </div>
+            </div>
+          ) : null}
         </main>
 
         <aside className="console-presenter" aria-label="Presenter view (only you see this)">
@@ -1039,12 +1054,8 @@ function Sources(props: {
                   ? "Opening the PDF…"
                   : "No slides. Optional: you can talk without them.")}
           </p>
-          <Button
-            label={deck ? "Change slides" : "Load slides"}
-            size="sm"
-            variant="secondary"
-            onClick={props.pickFile}
-          />
+          {/* Loading the first deck is the stage's one button; changing it is here. */}
+          {deck ? <Button label="Change slides" size="sm" variant="secondary" onClick={props.pickFile} /> : null}
         </Check>
         <Check state={tokenState} title="Speaker token">
           <p className="small">{tokenMessage}</p>

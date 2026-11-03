@@ -401,6 +401,27 @@
   padding-inline-start: 6px;
   border-inline-start: 1px solid var(--tt-color-line);
 }
+/* The tools as one hairline bar; the slide controls and the drawing's undo, redo and clear on the row below. */
+.toolbar {
+  flex-wrap: nowrap;
+  align-self: start;
+  max-width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-md);
+}
+.slide-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.slide-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .widths {
   display: flex;
   gap: 4px;

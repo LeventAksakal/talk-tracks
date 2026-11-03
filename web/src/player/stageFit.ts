@@ -23,6 +23,8 @@ export interface StageFitInput {
   dockReach: number;
   /** Space between the pictures, px. */
   gap: number;
+  /** The main picture's widest, as a fraction of the stage's width (no corner tile); undefined: the whole width. */
+  mainWidthFrac?: number;
   /** How far the title reaches down from the stage's top edge: the main picture moves below it rather than under it. */
   titleReach?: number;
 }
@@ -73,7 +75,7 @@ function containBelow(w: number, h: number, aspect: number, reach: number): { bo
  * The tile and the subtitles stay above the dock, which only covers the picture while the viewer moves the mouse.
  */
 export function fitStage(input: StageFitInput): StageFit {
-  const { width: W, height: H, main: A, corner, captions, dockReach, gap, titleReach = 0 } = input;
+  const { width: W, height: H, main: A, corner, captions, dockReach, gap, titleReach = 0, mainWidthFrac } = input;
   const capReserve = captions !== undefined ? captions + dockReach + gap : 0;
   // Subtitles hang from the top of the band below the main picture, between `from` and `to`.
   const captionsUnder = (bottom: number, from: number, to: number) =>
@@ -82,8 +84,10 @@ export function fitStage(input: StageFitInput): StageFit {
       : { x: (from + to) / 2, top: H - bottom + gap, maxWidth: Math.max(0, to - from - 2 * gap) };
   if (!corner) {
     const bottom = capReserve;
-    const single = containBelow(W, H - bottom, A, titleReach);
-    return { right: 0, bottom, top: single.top, main: single.box, captions: captionsUnder(bottom, 0, W) };
+    const w = mainWidthFrac === undefined ? W : Math.min(W, W * mainWidthFrac);
+    const single = containBelow(w, H - bottom, A, titleReach);
+    const main = { ...single.box, left: single.box.left + (W - w) / 2 };
+    return { right: 0, bottom, top: single.top, main, captions: captionsUnder(bottom, 0, W) };
   }
   const tile = cornerSize(W, corner.aspect, corner.widthFrac);
   const tileBox: Box = { left: W - gap - tile.width, top: H - dockReach - tile.height, ...tile };

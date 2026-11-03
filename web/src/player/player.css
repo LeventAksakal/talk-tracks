@@ -254,6 +254,13 @@
   position: absolute;
   inset: var(--fit-top, 0px) var(--fit-right, 0px) var(--fit-bottom, 0px) 0;
 }
+/* Before the first slide the camera is alone on the stage: centred and capped (Stage.tsx CAMERA_CAP), a picture in a
+   room rather than a face filling the screen. */
+.tt-camera-capped .tt-tile-camera {
+  width: min(64cqw, calc(100cqh * var(--ar)));
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-md);
+}
 .tt-layout-single,
 .tt-layout-split {
   padding-top: var(--fit-top, 0px);
@@ -1243,7 +1250,7 @@ img.tt-preview-thumb {
   z-index: 20;
   width: 300px;
   max-width: calc(100% - 16px);
-  max-height: min(460px, 70dvh);
+  max-height: min(640px, 78dvh);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1313,8 +1320,11 @@ img.tt-preview-thumb {
 .tt-menu-list {
   display: flex;
   flex-direction: column;
-  max-height: 190px;
+  /* Seven and a half rows: the half row says the list goes on. */
+  max-height: 256px;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tt-color-text-muted) transparent;
   border-top: 1px solid var(--tt-color-line);
   border-bottom: 1px solid var(--tt-color-line);
   padding: 2px 0;
@@ -1656,6 +1666,8 @@ img.tt-preview-thumb {
 .tt-line {
   display: grid;
   grid-template-columns: 52px 1fr;
+  /* The timestamp sits on the line's first row of text, not in the middle of a long line. */
+  align-items: baseline;
   gap: 2px 8px;
   line-height: 1.45;
   /* room for the current line's bar, clear of the timestamp */

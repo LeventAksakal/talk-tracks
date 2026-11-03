@@ -66,6 +66,8 @@ async function walkPlayer(j, { live }) {
       await shot("not-ready", "watch: the player never showed a time in 25 s; this frame is what a viewer sees then");
       throw e;
     }
+    await sleep(1_500);
+    await shot("first-load", "watch + first load: the title bar and the dock show until the viewer first moves or types");
   });
 
   await step("playing", async () => {
@@ -230,7 +232,14 @@ export const JOURNEYS = [
       });
       await step("card by keyboard", async () => {
         await page.mouse.move(0, 0);
-        await page.getByRole("region", { name: "Live now" }).getByRole("link").first().focus();
+        // The card's play link, focused as Tab would (a locator focus waits on actionability the closed view lacks); a
+        // key press first, so the browser treats the focus as keyboard focus (:focus-visible).
+        await page.keyboard.press("Shift");
+        await page
+          .getByRole("region", { name: "Live now" })
+          .locator("a.tile-play")
+          .first()
+          .evaluate((a) => a.focus({ focusVisible: true }));
         await sleep(600);
         await shot("card-focus", "hub card by keyboard: the same extended view on focus, play button named with the talk");
       });
@@ -473,6 +482,13 @@ export const JOURNEYS = [
         if (!(await mic.first().isChecked())) await mic.first().click();
         await sleep(2_500);
         await shot("preflight-mic", "console pre-flight + microphone: the level meter moves with the (fake) input; nothing is sent before Go on air");
+      });
+      await step("slides loaded", async () => {
+        if (!j.opts.deck) throw new Error("skipped: no --deck PDF given");
+        await page.getByTestId("deck-file").setInputFiles(j.opts.deck);
+        await page.getByTestId("slide-count").waitFor({ timeout: 20_000 });
+        await sleep(3_000);
+        await shot("slides-loaded", "console + slides: the drawing tools and slide controls appear with the deck; nothing goes out before Go on air");
       });
     },
   },

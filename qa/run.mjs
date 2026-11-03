@@ -35,6 +35,7 @@ if (args.help) {
   --trace-path <path>   the page to trace (default: /watch/<room>, or /demo with --offline)
   --trace-seconds <n>   seconds of playback in the trace (default: 60)
   --lighthouse-pages <list>  hub,watch,demo (default: all three; watch is dropped with --offline)
+  --deck <pdf>          a PDF the console journey loads as slides (default: none, the step is skipped)
   --skip-capture | --skip-lighthouse | --skip-trace`);
   process.exit(0);
 }
@@ -54,7 +55,8 @@ const lhPages = list(args["lighthouse-pages"], offline ? "hub,demo" : "hub,watch
 const run = args.run ?? `${stamp()}-${isLocal(baseUrl) ? "local" : "deployed"}`;
 const runDir = ensureDir(resolve(here, "out", run));
 const overlay = args.overlay ? resolve(args.overlay) : undefined;
-const opts = { base: baseUrl, room, recording: args.recording, overlay, redact, translation: args.translation };
+const deck = args.deck ? resolve(args.deck) : undefined;
+const opts = { base: baseUrl, room, recording: args.recording, overlay, redact, translation: args.translation, deck };
 const log = (s) => console.log(redact(s));
 
 // A base that does not answer would turn every step into the same failure: stop with one clear line instead.

@@ -98,7 +98,11 @@ export function CaptionsMenu() {
   const guard = guardOf(ctx);
   const readiness = (tag: string) => languageReadiness(translationFor(tracks, tag), guard, statsRunning);
   const inRoom = tracks.translations.map((t) => t.lang!).filter(Boolean);
-  const all = useMemo(() => SUPPORTED_LANGUAGES.map((tag) => languageOption(tag)), []);
+  // Every language, by its name in the viewer's language (the name each row leads with), so the list reads A to Z.
+  const all = useMemo(
+    () => SUPPORTED_LANGUAGES.map((tag) => languageOption(tag)).sort((a, b) => a.local.localeCompare(b.local)),
+    [],
+  );
   // The room's languages first, the ready ones at the top; then every other language.
   const roomOptions = inRoom
     .map((tag) => ({ option: languageOption(tag), order: READY_FIRST[readiness(tag)] }))
@@ -133,7 +137,7 @@ export function CaptionsMenu() {
         autoComplete="off"
         onChange={(e) => setQuery(e.target.value)}
       />
-      <p className="tt-menu-note">A language not yet running starts when you pick it, after a moment.</p>
+      <p className="tt-menu-note">{all.length} languages. One not yet running starts a moment after you pick it.</p>
       <div className="tt-menu-list" role="group" aria-label="Languages">
         {results.map((o) => {
           return (
@@ -143,10 +147,15 @@ export function CaptionsMenu() {
               onClick={() => pick(o.tag)}
               sub={READINESS_NOTE[readiness(o.tag)]}
             >
-              <span lang={o.tag} dir={o.dir}>
-                {o.autonym}
-              </span>
-              {o.local !== o.autonym ? <span className="tt-menu-local"> · {o.local}</span> : null}
+              {o.local}
+              {o.local !== o.autonym ? (
+                <span className="tt-menu-local">
+                  {" · "}
+                  <span lang={o.tag} dir={o.dir}>
+                    {o.autonym}
+                  </span>
+                </span>
+              ) : null}
             </Choice>
           );
         })}
@@ -172,9 +181,9 @@ export function CaptionsMenu() {
           unlockSpeech();
           update({ sound: "describe" });
         }}
-        sub={tracks.describe ? "each new slide read aloud" : "not in this room yet"}
+        sub={tracks.describe ? undefined : "not in this room yet"}
       >
-        Speaker and slide descriptions
+        Slides read aloud too
       </Choice>
     </Menu>
   );

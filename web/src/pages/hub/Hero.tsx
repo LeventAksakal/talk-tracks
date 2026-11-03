@@ -3,19 +3,36 @@ import { stillCredit } from "../demoRooms";
 import { PlayIcon } from "./icons";
 import { type HubItem, splitTitle } from "./items";
 import { Still } from "./Still";
-import { AlsoLink, Named, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
+import { AlsoLink, extraTracks, Named, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
 
-/** What the talk carries, in words: "Spoken in English · subtitles in any of 50 languages · chapters, …". */
+const ONES =
+  "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split(
+    " ",
+  );
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+/** A count in a sentence, in words up to 99 ("fifty languages"): the font's slashed zero reads like code in prose. */
+export function inWords(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 99) return String(n);
+  if (n < 20) return ONES[n - 1]!;
+  const ten = TENS[Math.floor(n / 10)]!;
+  return n % 10 ? `${ten}-${ONES[(n % 10) - 1]}` : ten;
+}
+
+/**
+ * What the talk carries, as one sentence: "An 18-minute talk in English, with subtitles in any of fifty languages,
+ * slide descriptions, chapters and glossary."
+ */
 function tracksLine(item: HubItem): string {
-  const rest = item.tracks.filter((t) => t !== "Captions" && t !== "Translations").map((t) => t.toLowerCase());
-  const others = rest.length > 1 ? `${rest.slice(0, -1).join(", ")} and ${rest.at(-1)}` : rest[0];
-  return [
-    item.spoken ? `Spoken in ${item.spoken.name}` : "Captions",
-    item.subtitleLanguages ? `subtitles in any of ${item.subtitleLanguages} languages` : undefined,
-    others,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const m = item.minutes;
+  const head = m ? `${/^(8|11|18)/.test(String(m)) ? "An" : "A"} ${m}-minute talk` : "A talk";
+  const lang = item.spoken ? ` in ${item.spoken.name}` : "";
+  const extra = extraTracks(item)?.toLowerCase();
+  const parts = [
+    item.subtitleLanguages ? `subtitles in any of ${inWords(item.subtitleLanguages)} languages` : undefined,
+    extra,
+  ].filter(Boolean);
+  return `${head}${lang}${parts.length ? `, with ${parts.join(", ")}` : ""}.`;
 }
 
 /**
@@ -31,7 +48,6 @@ function Showing({ item }: { item: HubItem }) {
       <span className="hero-showing-dot" aria-hidden="true" />
       {word}
       {item.onAir ? <span className="sr-only">, on air now</span> : null}
-      {item.onAir === false ? <span className="hero-showing-off"> · starts again soon</span> : null}
     </span>
   );
 }
@@ -64,10 +80,7 @@ export function Hero({ item, note }: { item: HubItem | undefined; note?: string 
           ))}
         </p>
         {item.description ? <p className="hero-desc">{item.description}</p> : null}
-        <p className="hero-tracks">
-          {item.minutes ? `${item.minutes}-minute talk · ` : null}
-          {tracksLine(item)}
-        </p>
+        <p className="hero-tracks">{tracksLine(item)}</p>
         <div className="hero-actions">
           <Link href={watchHref(item.room)} className="hub-btn hub-btn-play" {...PRELOAD_WATCH}>
             <PlayIcon />

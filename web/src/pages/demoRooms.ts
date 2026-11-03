@@ -152,4 +152,4 @@ export function lectureOf(room: string): { lecture: DemoRoom; kind: "live" | "re
 
 /** What a demo room's Discussion tab says: in a demo lecture the room service takes chat only. */
 export const DEMO_NO_ROOM_SERVICE =
-  "This is a demo lecture, so drawing on slides, marking text and comments are off here; the chat is open. They work in a live talk.";
+  "This is a demo lecture, so drawing on slides, marking text and comments are off here; the chat is open. Drawing, marking and comments work in a live talk.";

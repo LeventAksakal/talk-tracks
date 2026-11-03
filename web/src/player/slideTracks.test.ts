@@ -358,3 +358,18 @@ describe("text marks and ink on the slide", () => {
     expect([a.x1, a.y1]).toEqual([300, 300]); // the head ends at the end point
   });
 });
+
+describe("the slide held while the speaker shows none", () => {
+  it("is the last slide seen here at or before the playhead, and none before the first one seen", async () => {
+    const { slides } = demoRoom(300_000);
+    slides.setWanted(ALL);
+    expect(slides.heldSlide(S(2) + 1_000)).toBeUndefined();
+    await seek(slides, S(2) + 1_000, 300_000);
+    slides.setTime(S(3) + 1_000, "rewound", 300_000);
+    await vi.waitFor(() => expect(slides.slideAt(S(3) + 1_000)?.slide?.index).toBe(3));
+    expect(slides.heldSlide(S(3) + 20_000)).toMatchObject({ deck: 0, index: 3 });
+    expect(slides.heldSlide(S(2) + 20_000)).toMatchObject({ deck: 0, index: 2 });
+    // Before anything seen here: nothing to hold, the camera has the stage.
+    expect(slides.heldSlide(S(2))).toBeUndefined();
+  });
+});
