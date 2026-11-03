@@ -6,11 +6,13 @@ aiomoqt has no Windows wheels, so ``talk_tracks.moq`` is imported here against a
 is built.
 """
 
+import contextlib
 import importlib
 import json
 import re
 import sys
 import types
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -412,6 +414,18 @@ class RequestStreams:
     def stream_fin(self, stream_id: int) -> None:
         self.fins.append(stream_id)
 
+    _gone_requests: ClassVar[dict[int, None]] = {}
+    _half_open: Any = None  # set by _retire_request_streams
+
+    def _send_on_request_stream(self, request_id: int, msg: Any, fin: bool = False) -> None:
+        if fin:  # aiomoqt FINs with stream_write, not stream_fin
+            self.fins.append(self._bidi_streams[request_id])
+
+    def stop_sending(self, stream_id: int) -> None:
+        """The relay's STOP_SENDING, as aiomoqt handles it: our half is reset, then the request is told."""
+        self.stream_reset(stream_id, 0)
+        self._on_request_stream_terminated(stream_id, stop_sending_code=0)
+
 
 def test_a_request_stream_the_relay_resets_is_closed_on_our_side_so_its_credit_comes_back(moq: Any) -> None:
     """Draft 18 caps the relay's requests to us only by QUIC bidi credit (512), which a stream gives back once both
@@ -508,46 +522,128 @@ def test_a_subscribe_cancelled_before_it_was_handled_leaves_no_ghost_subscriber(
     assert set(session._request_cancel_handlers) == {90}
 
 
-class ProbeRelay:
-    """Each probe subscription answers (an object) or not, in turn; a missing answer is a refusal."""
+def test_a_request_stream_leaves_the_bookkeeping_once_both_halves_are_closed(moq: Any) -> None:
+    """Every way a request stream of the relay's ends takes it out of what ``_retire_request_streams`` remembers, so
+    a publisher that runs for days holds only the streams still open."""
+    import asyncio
 
-    def __init__(self, answers: list[bool]) -> None:
-        self.answers = answers
+    async def scenario() -> tuple[Any, list[int]]:
+        session = RequestStreams()
+        moq._retire_request_streams(session)
+        session.bind(21, 6)  # a refused FETCH: REQUEST_ERROR with FIN, then the relay's FIN
+        session._send_on_request_stream(6, "REQUEST_ERROR", fin=True)
+        session._on_control_data(21, b"", True, is_request_bidi=True)
+        session.bind(25, 7)  # a SUBSCRIBE the relay FINs at once, ended later by our PUBLISH_DONE
+        session._on_control_data(25, b"", True, is_request_bidi=True)
+        session._send_on_request_stream(7, "PUBLISH_DONE", fin=True)
+        session.bind(29, 8)  # a subscription the relay ends with STOP_SENDING, then FIN
+        session.stop_sending(29)
+        session._on_control_data(29, b"", True, is_request_bidi=True)
+        session.bind(33, 9)  # a served FETCH the relay ends with STOP_SENDING, then a reset
+        await session.serve_fetch(9, [])
+        session.stop_sending(33)
+        session._on_request_stream_terminated(33)
+        return session._half_open, session.resets
+
+    half, resets = asyncio.run(scenario())
+    assert (half.peer_ended, half.ours_ended, half.served) == (set(), set(), set())
+    assert resets == [29, 33]
+
+
+def test_stop_sending_then_a_reset_resets_our_half_once(moq: Any) -> None:
+    import asyncio
+
+    async def scenario() -> list[int]:
+        session = RequestStreams()
+        moq._retire_request_streams(session)
+        session.bind(37, 10)
+        session.stop_sending(37)  # aiomoqt resets our half
+        session._on_request_stream_terminated(37)  # then the relay resets its own
+        return session.resets
+
+    assert asyncio.run(scenario()) == [37]
+
+
+class ProbeReader(ClockReader):
+    def __init__(self, sub: tuple[int, int]) -> None:
+        super().__init__([b"ok"])
+        self.sub = sub
+
+
+class ProbeWire:
+    """The relay as the watchdog's probes meet it. A probe's SUBSCRIBE is on the wire from when it is sent until it
+    is unsubscribed or its connection closes: a probe that times out waiting for an answer stays subscribed, as with
+    aiomoqt, which drops only its local routes. While any probe is subscribed the relay holds its own subscription
+    upstream and answers a new probe from it; otherwise the probe reaches the publisher, which answers or hangs
+    (``publisher``, in turn).
+
+    Called, it opens a new connection; used as a Relay, it is the one connection it already holds."""
+
+    def __init__(self, publisher: list[bool]) -> None:
+        self.publisher = publisher
+        self.live: list[tuple[int, int]] = []  # (connection, probe), subscribed on the wire
+        self.connection = 0
         self.probes = 0
-        self.closed: list[str] = []
-        self.agent = types.SimpleNamespace(reader=self._reader, close_reader=self.closed.append)
+        self.asked = 0  # probes the relay passed on to the publisher
+        self.agent = types.SimpleNamespace(reader=self._reader, close_reader=self._close_reader)
 
-    async def _reader(self, spec: Any) -> ClockReader:
+    async def _reader(self, spec: Any) -> ProbeReader:
+        import asyncio
+
         self.probes += 1
-        if not self.answers or not self.answers.pop(0):
-            raise RuntimeError("no answer")
-        return ClockReader([b"ok"])
+        reader = ProbeReader((self.connection, self.probes))
+        upstream = bool(self.live)
+        self.live.append(reader.sub)
+        if upstream:
+            return reader  # answered from the relay's upstream subscription: the publisher is not asked
+        self.asked += 1
+        if self.publisher and self.publisher.pop(0):
+            return reader
+        await asyncio.Event().wait()  # the publisher never answers (out of stream credit)
+        raise AssertionError
 
-    def _unsubscribe(self, reader: Any, name: str) -> None:
-        self.closed.append(name)
+    def _unsubscribe(self, reader: ProbeReader, name: str) -> None:
+        self.live.remove(reader.sub)
+
+    def _close_reader(self, name: str) -> None:
+        pass  # local only, as in aiomoqt: nothing leaves the wire
+
+    @contextlib.asynccontextmanager
+    async def __call__(self) -> AsyncGenerator["ProbeWire"]:
+        self.connection += 1
+        mine = self.connection
+        try:
+            yield self
+        finally:  # closing a connection ends its subscriptions
+            self.live = [sub for sub in self.live if sub[0] != mine]
 
 
-def test_the_watchdog_gives_up_after_misses_in_a_row_once_armed_and_never_unarmed(
+def test_a_probe_that_times_out_leaves_nothing_subscribed_and_every_probe_asks_the_publisher(
     moq: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A probe the publisher never answers must not stay subscribed: the relay would answer every later probe from
+    its upstream subscription and a stalled publisher would never be seen again (review of R2, 2026-11-03). One
+    miss is forgiven; three in a row once armed end the watchdog; never armed, it never gives up."""
     import asyncio
 
     for name in ("TrackRef", "SubscribeSpec", "StartAt"):
         monkeypatch.setattr(moq, name, types.SimpleNamespace)
 
-    def watch(relay: ProbeRelay) -> Any:
-        return moq.answering(relay, "talk/r/catalog", every_s=0, timeout_s=0.2, misses=3)
+    def watch(wire: ProbeWire) -> Any:
+        return moq.answering(wire, "talk/r/catalog", every_s=0, timeout_s=0.05, misses=3)
 
-    relay = ProbeRelay([True, False, True, False, False, False, True])
-    asyncio.run(asyncio.wait_for(watch(relay), 5))
-    assert relay.probes == 6  # one miss is forgiven; three in a row end it
-    assert len(relay.closed) == 6  # every probe unsubscribes
+    wire = ProbeWire([True, False, True, False, False, False])
+    asyncio.run(asyncio.wait_for(watch(wire), 2))
+    assert wire.live == []
+    assert wire.asked == wire.probes == 6
 
-    never = ProbeRelay([False] * 50)  # a token that may not subscribe there: never armed, never gives up
+    never = ProbeWire([False] * 50)  # a token that may not subscribe there: never armed, never gives up
 
     async def unarmed() -> None:
         await asyncio.wait_for(watch(never), 0.5)
 
     with pytest.raises(TimeoutError):
         asyncio.run(unarmed())
+    assert never.live == []
+    assert never.asked == never.probes > 3
     assert never.probes > 3

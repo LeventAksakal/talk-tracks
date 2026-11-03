@@ -266,53 +266,97 @@ def _peer_opened_bidi(session: Any, stream_id: int) -> bool:
     return stream_id & 3 == (1 if session._is_client else 0)
 
 
+class _HalfOpen:
+    """The relay's request streams with one half closed, kept so ``_retire_request_streams`` sees the other half
+    close. A stream leaves every set once both halves are closed, so the sets hold only streams still open."""
+
+    def __init__(self) -> None:
+        self.peer_ended: set[int] = set()  # the relay ended its half with FIN; ours is open
+        self.ours_ended: set[int] = set()  # we ended our half (FIN or reset); the relay's is open
+        self.served: set[int] = set()  # a FETCH whose data stream is done; our half is open
+
+
 def _retire_request_streams(session: Any) -> None:
     """Close our half of each request stream the relay has finished with, so QUIC retires it and gives its credit
     back: at once when the relay resets its half (the request is cancelled, nothing more of ours matters), and for a
     served FETCH once both its data stream is done and the relay has ended its half (FIN), after ``FIN_GRACE_S``.
-    A request still being answered keeps its stream."""
+    A request still being answered keeps its stream. Our half is reset at most once (STOP_SENDING, which aiomoqt
+    answers with a reset, and then the relay's own reset)."""
     loop = asyncio.get_running_loop()
-    peer_ended: set[int] = set()  # request streams the relay closed with FIN
-    served: set[int] = set()  # request streams of FETCHes whose data stream is done
+    half = session._half_open = _HalfOpen()
     terminated = session._on_request_stream_terminated
     on_control_data = session._on_control_data
     serve_fetch = session.serve_fetch
+    stream_fin = session.stream_fin
+    stream_reset = session.stream_reset
+    send_on_request_stream = session._send_on_request_stream
+
+    def ours_closed(stream_id: int) -> None:
+        half.served.discard(stream_id)
+        if stream_id in half.peer_ended:
+            half.peer_ended.discard(stream_id)  # both halves closed: QUIC retires it
+        else:
+            half.ours_ended.add(stream_id)
 
     def close_later(stream_id: int) -> None:
-        peer_ended.discard(stream_id)
-        served.discard(stream_id)
         rid = session._bidi_stream_requests.pop(stream_id, None)
         if rid is not None and session._bidi_streams.get(rid) == stream_id:
             del session._bidi_streams[rid]
         loop.call_later(FIN_GRACE_S, session.stream_fin, stream_id)
 
+    def on_fin(stream_id: int) -> None:
+        stream_fin(stream_id)
+        if _peer_opened_bidi(session, stream_id):
+            ours_closed(stream_id)
+
+    def on_reset(stream_id: int, *args: Any, **kw: Any) -> None:
+        if _peer_opened_bidi(session, stream_id):
+            if stream_id in half.ours_ended:
+                return  # already reset or FIN'd: once is enough
+            ours_closed(stream_id)
+        stream_reset(stream_id, *args, **kw)
+
+    def on_send_on_request_stream(request_id: int, msg: Any, fin: bool = False) -> None:
+        stream_id = session._bidi_streams.get(request_id)
+        dropped = request_id in (session._gone_requests or ())  # aiomoqt drops a reply to a cancelled request
+        send_on_request_stream(request_id, msg, fin=fin)
+        if fin and stream_id is not None and not dropped and _peer_opened_bidi(session, stream_id):
+            ours_closed(stream_id)  # a terminal reply: REQUEST_ERROR (a refused FETCH), PUBLISH_DONE
+
     def on_terminated(stream_id: int, *, stop_sending_code: int | None = None) -> None:
         terminated(stream_id, stop_sending_code=stop_sending_code)
         # STOP_SENDING is answered with a reset by aiomoqt itself; a reset of the relay's half was not.
         if stop_sending_code is None and _peer_opened_bidi(session, stream_id):
-            peer_ended.discard(stream_id)
-            served.discard(stream_id)
             session.stream_reset(stream_id, RESET_CANCELLED)
+            half.ours_ended.discard(stream_id)
+            half.peer_ended.discard(stream_id)
+            half.served.discard(stream_id)
 
     def on_data(stream_id: int, data: Any, end_stream: bool, *, is_request_bidi: bool = False) -> None:
         on_control_data(stream_id, data, end_stream, is_request_bidi=is_request_bidi)
         if end_stream and is_request_bidi and _peer_opened_bidi(session, stream_id):
-            peer_ended.add(stream_id)
-            if stream_id in served:
+            if stream_id in half.ours_ended:
+                half.ours_ended.discard(stream_id)  # both halves closed
+                return
+            half.peer_ended.add(stream_id)
+            if stream_id in half.served:
                 close_later(stream_id)
 
     async def on_serve_fetch(request_id: int, objects: Any, **kw: Any) -> int:
         stream_id = session._bidi_streams.get(request_id)
         sent = await serve_fetch(request_id, objects, **kw)
-        if stream_id is not None:
-            served.add(stream_id)
-            if stream_id in peer_ended:
+        if stream_id is not None and stream_id not in half.ours_ended:
+            half.served.add(stream_id)
+            if stream_id in half.peer_ended:
                 close_later(stream_id)
         return sent
 
     session._on_request_stream_terminated = on_terminated
     session._on_control_data = on_data
     session.serve_fetch = on_serve_fetch
+    session.stream_fin = on_fin
+    session.stream_reset = on_reset
+    session._send_on_request_stream = on_send_on_request_stream
 
 
 def _drop_cancelled_subscribes(track: Any) -> None:
@@ -335,7 +379,7 @@ def _drop_cancelled_subscribes(track: Any) -> None:
 
 
 async def answering(
-    relay: Relay,
+    watcher: Callable[[], contextlib.AbstractAsyncContextManager[Relay]],
     namespace: str,
     *,
     track: str = PROBE_TRACK,
@@ -343,17 +387,29 @@ async def answering(
     timeout_s: float = PROBE_TIMEOUT_S,
     misses: int = PROBE_MISSES,
 ) -> None:
-    """The watchdog: every ``every_s``, subscribe to our own ``track`` through ``relay`` (a second connection, so the
-    relay asks the publisher) and wait ``timeout_s`` for an object. Returns after ``misses`` misses in a row, once a
-    probe has been answered: the publisher is no longer answering the relay. Never returns if no probe is ever
-    answered (the token may not subscribe there), so a probe that cannot work never restarts anything."""
+    """The watchdog: every ``every_s``, subscribe to our own ``track`` through the relay on a second connection
+    (``watcher`` opens one, so the relay asks the publisher) and wait ``timeout_s`` for an object. Returns after
+    ``misses`` misses in a row, once a probe has been answered: the publisher is no longer answering the relay. Never
+    returns if no probe is ever answered (the token may not subscribe there), so a probe that cannot work never
+    restarts anything.
+
+    A miss closes its connection and the next probe opens a new one. A probe that timed out is still subscribed on
+    the wire (aiomoqt gives up on the reply locally, it does not cancel the SUBSCRIBE): left open, the relay would
+    keep its upstream subscription and answer every later probe from it, without asking the publisher, and a stall
+    would never be seen again. Closing the connection ends all its subscriptions."""
     armed, missed = False, 0
     while True:
-        if await _probe(relay, namespace, track, timeout_s):
-            if not armed:
-                log.info("watchdog: %s/%s answers; armed", namespace, track)
-            armed, missed = True, 0
-        elif armed:
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                relay = await asyncio.wait_for(stack.enter_async_context(watcher()), timeout_s)
+                while await _probe(relay, namespace, track, timeout_s):
+                    if not armed:
+                        log.info("watchdog: %s/%s answers; armed", namespace, track)
+                    armed, missed = True, 0
+                    await asyncio.sleep(every_s)
+        except Exception as exc:  # the watcher could not connect, or its connection failed: a miss
+            log.debug("watchdog connection: %s", exc)
+        if armed:
             missed += 1
             log.warning("watchdog: %s/%s unanswered for %.0f s (%d of %d)", namespace, track, timeout_s, missed, misses)
             if missed >= misses:
@@ -362,6 +418,7 @@ async def answering(
 
 
 async def _probe(relay: Relay, namespace: str, track: str, timeout_s: float) -> bool:
+    """One probe on ``relay``: True once an object comes. After a miss the caller closes ``relay``'s connection."""
     ref = TrackRef(namespace=namespace, name=track)
     t_end = time.monotonic() + timeout_s
     reader = None
@@ -379,9 +436,6 @@ async def _probe(relay: Relay, namespace: str, track: str, timeout_s: float) -> 
     finally:
         if reader is not None:
             relay._unsubscribe(reader, str(ref))
-        else:
-            with contextlib.suppress(Exception):
-                relay.agent.close_reader(str(ref))
 
 
 class Relay:
