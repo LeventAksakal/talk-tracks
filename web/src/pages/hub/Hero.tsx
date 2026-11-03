@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "../../router";
-import { Art } from "./Art";
+import { stillCredit } from "../demoRooms";
 import { PlayIcon } from "./icons";
 import type { HubItem } from "./items";
+import { Still } from "./Still";
 import { AlsoLink, Named, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
 
 /** How long the hero shows one talk before the next, ms (not under reduced motion, nor while pointed at). */
@@ -16,9 +17,29 @@ function reducedMotion(): boolean {
   }
 }
 
+/** A title and its subtitle, split at the first colon: "You Are Part Virus" over "How Biological Viruses Hack Cells". */
+export function splitTitle(title: string): [string, string | undefined] {
+  const at = title.indexOf(": ");
+  return at > 0 ? [title.slice(0, at), title.slice(at + 2)] : [title, undefined];
+}
+
+/** What the talk carries, in words: "Spoken in English · subtitles in any of 50 languages · chapters, …". */
+function tracksLine(item: HubItem): string {
+  const rest = item.tracks.filter((t) => t !== "Captions" && t !== "Translations").map((t) => t.toLowerCase());
+  const others = rest.length > 1 ? `${rest.slice(0, -1).join(", ")} and ${rest.at(-1)}` : rest[0];
+  return [
+    item.spoken ? `Spoken in ${item.spoken.name}` : "Captions",
+    item.subtitleLanguages ? `subtitles in any of ${item.subtitleLanguages} languages` : undefined,
+    others,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /**
- * The hero: what is on air now, full width, with its key art, its words and its two ways in. With several on air it
- * moves on every few seconds; the dots pick one.
+ * The hero: what is on air now. The talk's still from its own recording on one side, credited under it; its title,
+ * speaker, what it is about and its two ways in on the other. With several on air it moves on every few seconds;
+ * the markers under the still pick one.
  */
 export function Hero({ items, paused = false }: { items: HubItem[]; paused?: boolean }) {
   const [index, setIndex] = useState(0);
@@ -36,6 +57,7 @@ export function Hero({ items, paused = false }: { items: HubItem[]; paused?: boo
 
   if (!item) return null;
   const play = playLabel(item);
+  const [title, subtitle] = splitTitle(item.title);
   return (
     <section
       ref={root}
@@ -50,90 +72,65 @@ export function Hero({ items, paused = false }: { items: HubItem[]; paused?: boo
         if (!root.current?.contains(e.relatedTarget as Node | null)) setHeld(false);
       }}
     >
-      <div className="hero-backdrop" key={item.room} aria-hidden="true">
-        <Art art={item.art} seed={item.room} className="hero-art" />
-      </div>
-      <div className="hero-lanes-light" aria-hidden="true" />
-      <div className="hero-inner">
-        <div className="hero-copy" key={item.room} aria-live={held ? "polite" : "off"}>
-          <p className="hero-eyebrow">
-            {item.onAir ? (
-              <span className="hub-badge hub-badge-live hero-live">
-                <span className="hub-live-dot" aria-hidden="true" />
-                LIVE NOW
-              </span>
-            ) : (
-              <span className="hub-badge hub-badge-glass">Live session</span>
-            )}
-            {item.subject ? <span className="hero-subject">{item.subject}</span> : null}
-          </p>
-          <h2 className="hero-title">{item.title}</h2>
-          <p className="hero-meta">
-            {[
-              item.speaker,
-              item.minutes ? `${item.minutes} min` : undefined,
-              item.spoken?.name,
-              item.subtitleLanguages ? `subtitles in ${item.subtitleLanguages} languages` : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-          {item.description ? <p className="hero-desc">{item.description}</p> : null}
-          <div className="hero-actions">
-            <Link href={watchHref(item.room)} className="hub-btn hub-btn-play" {...PRELOAD_WATCH}>
-              <PlayIcon />
-              <Named label={play} title={item.title} />
-            </Link>
-            <AlsoLink item={item} className="hub-btn hub-btn-glass" />
-          </div>
+      <div className="hero-copy" key={item.room} aria-live={held ? "polite" : "off"}>
+        <h2 className="hero-title">
+          <span className="hero-title-main">{title}</span>
+          {subtitle ? (
+            <>
+              <span className="sr-only">: </span>
+              <span className="hero-title-sub">{subtitle}</span>
+            </>
+          ) : null}
+        </h2>
+        <p className="hero-meta">
+          {item.onAir ? (
+            <span className="hero-live">
+              <span className="hub-live-dot" aria-hidden="true" />
+              Live now
+            </span>
+          ) : (
+            <span className="hero-session">{item.kind === "recording" ? "Recording" : "Live session"}</span>
+          )}
+          {[item.speaker, item.subject, item.minutes ? `${item.minutes} min` : undefined]
+            .filter(Boolean)
+            .map((part) => (
+              <span key={part}>{part}</span>
+            ))}
+        </p>
+        {item.description ? <p className="hero-desc">{item.description}</p> : null}
+        <p className="hero-tracks">{tracksLine(item)}</p>
+        <div className="hero-actions">
+          <Link href={watchHref(item.room)} className="hub-btn hub-btn-play" {...PRELOAD_WATCH}>
+            <PlayIcon />
+            <Named label={play} title={item.title} />
+          </Link>
+          <AlsoLink item={item} className="hub-btn hub-btn-quiet" />
         </div>
-        <TrackLanes item={item} />
       </div>
-      {count > 1 ? (
-        <div className="hero-dots" role="group" aria-label="Pick a talk">
-          {items.map((it, i) => (
-            <button
-              key={it.room}
-              type="button"
-              className="hero-dot"
-              aria-label={`Show ${it.title}`}
-              aria-current={i === at ? "true" : undefined}
-              onClick={() => setIndex(i)}
-            />
-          ))}
+      <figure className="hero-figure">
+        <div className="hero-frame" key={item.room}>
+          <Still item={item} sizes="(min-width: 960px) 56vw, 100vw" eager={at === 0} className="hero-still" />
         </div>
-      ) : null}
+        <figcaption className="hero-caption">
+          <span className="hero-credit">
+            {item.still && item.speaker ? stillCredit(item.still, item.speaker) : null}
+          </span>
+          {count > 1 ? (
+            <span className="hero-dots" role="group" aria-label="Pick a talk">
+              {items.map((it, i) => (
+                <button
+                  key={it.room}
+                  type="button"
+                  className="hero-dot"
+                  aria-label={`Show ${it.title}`}
+                  aria-current={i === at ? "true" : undefined}
+                  onClick={() => setIndex(i)}
+                />
+              ))}
+            </span>
+          ) : null}
+        </figcaption>
+      </figure>
     </section>
-  );
-}
-
-/** The idea of the product, drawn: the talk on one lane and its AI tracks arriving on theirs, up to the live edge. */
-function TrackLanes({ item }: { item: HubItem }) {
-  const lanes = [
-    { name: "Speaker", kind: "media" },
-    { name: "Captions", kind: "text" },
-    { name: "Translations", kind: "text" },
-    { name: "Slide descriptions", kind: "slides" },
-    { name: "Chapters", kind: "marks" },
-  ] as { name: string; kind: string; lang?: string }[];
-  return (
-    <div className="hero-tracks" aria-hidden="true">
-      <div className="hero-tracks-head">
-        <span>Tracks in this talk</span>
-        <span className="hero-tracks-edge">{item.kind === "recording" ? "Recorded" : "Live edge"}</span>
-      </div>
-      <ol className="hero-tracks-list">
-        {lanes.map((lane, i) => (
-          <li key={lane.name} className="hero-lane" data-lane={lane.kind} style={{ ["--i" as string]: i }}>
-            <span className="hero-lane-name" lang={lane.lang}>
-              {lane.name}
-            </span>
-            <span className="hero-lane-strip">
-              <span className="hero-lane-clips" />
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
   );
 }

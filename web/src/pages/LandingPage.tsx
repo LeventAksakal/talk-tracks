@@ -103,7 +103,7 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
           <Link href="/demo">Try the offline demo</Link>.
         </p>
         <p className="hub-credits">
-          Demo lectures: {DEMO_CREDIT},{" "}
+          Demo lectures, and the stills from their recordings: {DEMO_CREDIT},{" "}
           {DEMO_ROOMS.map((d, i) => (
             <span key={d.room}>
               {i ? ", " : null}

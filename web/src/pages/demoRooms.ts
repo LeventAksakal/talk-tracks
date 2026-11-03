@@ -6,8 +6,31 @@
 import languageList from "../../../contracts/languages.json";
 import { RECORDING_SUFFIX, recordingOf } from "../contracts/names";
 
-/** What a card draws for a lecture: generated artwork, never a frame of the talk (its slides hold others' images). */
-export type LectureArt = "virus" | "dataviz" | "rsa" | "qrcode";
+/**
+ * A lecture's picture on its card and in the hero: one frame of its own recording (decision 0036), a slide the
+ * speaker made or the speaker on stage, cropped to 16:9 and kept in web/public/talks/ at two widths. Slides that
+ * show other people's images are not used (ticket 0001).
+ */
+export interface LectureStill {
+  /** The files, `/talks/<stem>-480.webp` and `/talks/<stem>-<wide>.webp`. */
+  stem: string;
+  /** Width of the larger file, px (the source frame is 720p, so a slide crop is narrower than 960). */
+  wide: number;
+  /** What it shows, for its credit line. */
+  shows: "slide" | "stage" | "camera";
+}
+
+/** The still's two files, as an img srcset, and its small file as the fallback src. */
+export function stillSources(still: LectureStill): { src: string; srcSet: string } {
+  const small = `/talks/${still.stem}-480.webp`;
+  return { src: small, srcSet: `${small} 480w, /talks/${still.stem}-${still.wide}.webp ${still.wide}w` };
+}
+
+/** The still's credit line: what it is, whose talk, and the licence. */
+export function stillCredit(still: LectureStill, speaker: string): string {
+  const what = { slide: "Slide from the talk", stage: "On stage", camera: "Speaking by video link" }[still.shows];
+  return `${what} · ${speaker}, ${DEMO_CREDIT}`;
+}
 
 export interface DemoRoom {
   /** The live session's room; the recording is `recordingRoom(room)`. */
@@ -21,7 +44,8 @@ export interface DemoRoom {
   subject: string;
   /** Length of the cut we play, whole minutes. */
   minutes: number;
-  art: LectureArt;
+  /** Its live session's still and its recording's: two frames, so the two rows do not repeat one picture. */
+  stills: { live: LectureStill; recording: LectureStill };
 }
 
 export const DEMO_CREDIT = "EMF 2026 · CC BY-SA 4.0";
@@ -60,7 +84,10 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
       "How a virus breaks into a cell, turns it into a factory for copies of itself, and gets out again, and how old infections left their mark in our own DNA.",
     subject: "Biology",
     minutes: 17,
-    art: "virus",
+    stills: {
+      live: { stem: "virus", wide: 960, shows: "slide" },
+      recording: { stem: "virus-rec", wide: 960, shows: "slide" },
+    },
   },
   {
     room: "dataviz",
@@ -71,7 +98,10 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
       "A tour of charts that inform and charts that mislead, and the small design choices that make the difference.",
     subject: "Design",
     minutes: 19,
-    art: "dataviz",
+    stills: {
+      live: { stem: "dataviz", wide: 960, shows: "camera" },
+      recording: { stem: "dataviz-rec", wide: 960, shows: "slide" },
+    },
   },
   {
     room: "rsa",
@@ -82,7 +112,10 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
       "Why a large quantum computer would break today's public-key cryptography, and the lattice-based schemes being rolled out to replace it.",
     subject: "Computer science",
     minutes: 20,
-    art: "rsa",
+    stills: {
+      live: { stem: "rsa", wide: 960, shows: "slide" },
+      recording: { stem: "rsa-rec", wide: 960, shows: "slide" },
+    },
   },
   {
     room: "qrcode",
@@ -93,7 +126,10 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
       "From supermarket barcodes to the QR code: how scannable codes were invented, how they store data, and how they survive damage.",
     subject: "History",
     minutes: 16,
-    art: "qrcode",
+    stills: {
+      live: { stem: "qrcode", wide: 848, shows: "stage" },
+      recording: { stem: "qrcode-rec", wide: 960, shows: "stage" },
+    },
   },
 ];
 

@@ -8,7 +8,7 @@ import {
   DEMO_TRACKS,
   type DemoRoom,
   type Language,
-  type LectureArt,
+  type LectureStill,
   lectureOf,
   recordingRoom,
   SUBTITLE_LANGUAGE_COUNT,
@@ -31,7 +31,8 @@ export interface HubItem {
   minutes?: number;
   /** On air now: true or false once the relay answered, undefined before. A recording is never on air. */
   onAir?: boolean;
-  art?: LectureArt;
+  /** A frame of the lecture's own recording; a talk without one shows its title on a plain field. */
+  still?: LectureStill;
   credit?: string;
   /** The language the talk is spoken in, when known. */
   spoken?: Language;
@@ -64,7 +65,7 @@ function lectureItem(lecture: DemoRoom, kind: "live" | "recording", recordings: 
     description: lecture.description,
     subject: lecture.subject,
     minutes: lecture.minutes,
-    art: lecture.art,
+    still: lecture.stills[kind],
     credit: DEMO_CREDIT,
     spoken: DEMO_SPOKEN,
     subtitleLanguages: SUBTITLE_LANGUAGE_COUNT,
