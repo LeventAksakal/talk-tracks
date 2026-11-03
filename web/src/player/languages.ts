@@ -40,11 +40,31 @@ function nameOf(tag: string, locale: string): string | undefined {
   }
 }
 
-/** A language with its names; the tag stands in for a name the browser does not know. */
+const options = new Map<string, LanguageOption>();
+
+/** A language with its names; the tag stands in for a name the browser does not know. Cached by tag and locale. */
 export function languageOption(tag: string, viewerLocale = defaultLocale()): LanguageOption {
-  const local = nameOf(tag, viewerLocale) ?? nameOf(tag, "en") ?? tag;
-  const autonym = nameOf(tag, tag) ?? local;
-  return { tag, autonym: capitalise(autonym, tag), local: capitalise(local, viewerLocale), dir: dirOf(tag) };
+  const key = `${tag}|${viewerLocale}`;
+  let option = options.get(key);
+  if (!option) {
+    const local = nameOf(tag, viewerLocale) ?? nameOf(tag, "en") ?? tag;
+    const autonym = nameOf(tag, tag) ?? local;
+    option = { tag, autonym: capitalise(autonym, tag), local: capitalise(local, viewerLocale), dir: dirOf(tag) };
+    options.set(key, option);
+  }
+  return option;
+}
+
+const lists = new Map<string, readonly LanguageOption[]>();
+
+/** Every supported language with its names, built on the first call (the CC menu's first open), then cached. */
+export function supportedLanguageOptions(viewerLocale = defaultLocale()): readonly LanguageOption[] {
+  let list = lists.get(viewerLocale);
+  if (!list) {
+    list = SUPPORTED_LANGUAGES.map((tag) => languageOption(tag, viewerLocale));
+    lists.set(viewerLocale, list);
+  }
+  return list;
 }
 
 /** Fold case and accents so "turk" finds "Türkçe" and "espanol" finds "Español". */

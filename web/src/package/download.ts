@@ -40,9 +40,17 @@ export async function outlineOf(playback: Playback, id: string, ms = 4_000): Pro
 
 /** "English (original)", "Español". */
 export function languageName(lang: string | undefined, original: boolean): string {
-  const o = languageOption(lang ?? "en");
-  return original ? `${o.autonym} (original)` : o.autonym;
+  const key = `${lang ?? "en"}|${original}`;
+  let name = downloadNames.get(key);
+  if (name === undefined) {
+    const o = languageOption(lang ?? "en");
+    name = original ? `${o.autonym} (original)` : o.autonym;
+    downloadNames.set(key, name);
+  }
+  return name;
 }
+
+const downloadNames = new Map<string, string>();
 
 /** Each language's lines over the span, from the tracks' history; the tracks must be held while this runs. */
 export function gatherTranscripts(

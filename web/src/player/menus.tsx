@@ -8,7 +8,7 @@ import { MoqHistorySource } from "../playback/moqSource";
 import { MoqTransport } from "../transport/moq";
 import type { Transport } from "../transport/types";
 import { usePlayer } from "./context";
-import { languageOption, searchLanguages, SUPPORTED_LANGUAGES } from "./languages";
+import { languageOption, searchLanguages, supportedLanguageOptions } from "./languages";
 import { type BoardKind, type LayoutKind } from "./prefs";
 import { StatsFeed } from "./roomStats";
 import { effectiveLayout, stageSources } from "./Stage";
@@ -97,7 +97,8 @@ export function CaptionsMenu() {
   const guard = guardOf(ctx);
   const readiness = (tag: string) => languageReadiness(translationFor(tracks, tag), guard, statsRunning);
   const inRoom = tracks.translations.map((t) => t.lang!).filter(Boolean);
-  const all = useMemo(() => SUPPORTED_LANGUAGES.map((tag) => languageOption(tag)), []);
+  // Built on the menu's first open, then cached for the page's life.
+  const all = supportedLanguageOptions();
   // The room's languages first, the ready ones at the top; then every other language.
   const roomOptions = inRoom
     .map((tag) => ({ option: languageOption(tag), order: READY_FIRST[readiness(tag)] }))
