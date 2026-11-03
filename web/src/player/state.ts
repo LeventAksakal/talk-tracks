@@ -58,6 +58,15 @@ export interface PlayerStateInput {
   sessions?: boolean;
   /** This session has ended and the next one is about to be joined. */
   sessionEnded?: boolean;
+  /**
+   * A recording (a demo lecture's `<id>-recording`, decision 0032): video on demand. It reads "Recording", never
+   * "Ended", and its end card says the lecture is over rather than that a talk ended.
+   */
+  vod?: boolean;
+  /** A recording not yet moved to its start: it opens at 0:00, so no end card flashes first. */
+  vodOpening?: boolean;
+  /** Connected, and still nothing to play from a room that shows signs of life (listed or announced) after a while. */
+  stalled?: boolean;
 }
 
 export interface PlayerState {
@@ -174,6 +183,20 @@ export function playerState(input: PlayerStateInput): PlayerState {
     const recording = input.recording && input.recording.end > input.recording.start ? input.recording : undefined;
     const length = recording ? formatClock(recording.end - recording.start) : undefined;
     // Seen ending here it is "Talk ended"; opened afterwards it is a recording.
+    if (input.vod) {
+      const vod = { kind: "ended", pill: "Recording", canGoLive: false, recording } as const;
+      if (mode === "rewound") return { ...vod, card: pausedThen };
+      if (input.vodOpening) return vod;
+      return {
+        ...vod,
+        card: {
+          title: "That's the whole lecture",
+          body: `${length ? `${length} long. ` : ""}Replay it from the start, or pick a moment on the timeline.`,
+          replay: true,
+          hub: true,
+        },
+      };
+    }
     const base = { kind: "ended", pill: input.sawLive ? "Ended" : "Recorded", canGoLive: false, recording } as const;
     return mode === "rewound"
       ? { ...base, card: pausedThen }
@@ -205,12 +228,26 @@ export function playerState(input: PlayerStateInput): PlayerState {
   // the end no room at all (above). Only the room service's `waiting` record, published once the room is created,
   // says Not started.
   if (input.room === undefined && input.onAir !== true && input.liveEdge === undefined)
-    return {
-      kind: "connecting",
-      pill: "Looking…",
-      canGoLive: false,
-      card: { title: "Looking for the room…", body: "" },
-    };
+    return input.stalled
+      ? {
+          kind: "connecting",
+          pill: "Not answering",
+          canGoLive: false,
+          // Something of the room is there (it is listed, or the relay announces it) but nothing to play arrives:
+          // say so and offer a way on, instead of looking forever.
+          card: {
+            title: "This talk isn't answering",
+            body: "Nothing has arrived to play yet. Try again in a moment, or pick another talk.",
+            retry: true,
+            hub: true,
+          },
+        }
+      : {
+          kind: "connecting",
+          pill: "Looking…",
+          canGoLive: false,
+          card: { title: "Looking for the room…", body: "" },
+        };
   if (input.room === "waiting")
     return {
       kind: "not-started",

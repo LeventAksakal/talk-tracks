@@ -169,7 +169,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
 
       <SubtitleOverlay stageRef={stage} />
 
-      {view.missed && !card ? (
+      {view.missed && !card && !ui.stats ? (
         <div className="tt-missed" role="status">
           <span>
             You missed {formatClock(view.missed.toMs - view.missed.fromMs)}

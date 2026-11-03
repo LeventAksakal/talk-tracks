@@ -128,6 +128,25 @@ describe("player states", () => {
     expect(playerState({ ...base, room: "ended" }).kind).toBe("ended");
     expect(playerState({ ...base, room: "on_air", onAir: false }).kind).toBe("live");
   });
+
+  it("plays a recording like video on demand: no end card while it opens or plays, Replay at its end", () => {
+    const vod = { ...base, room: "ended", vod: true } as const;
+    // Opening (not yet moved to 0:00) and playing (rewound from the end): nothing covers the talk, no way to go live.
+    for (const s of [playerState({ ...vod, vodOpening: true }), playerState({ ...vod, mode: "rewound" })]) {
+      expect(s.card).toBeUndefined();
+      expect(s.canGoLive).toBe(false);
+    }
+    // At its end: the way back to the start and to the hub.
+    const end = playerState(vod);
+    expect(end.card?.replay && end.card.hub).toBe(true);
+  });
+
+  it("offers a way on when a room shows signs of life but nothing arrives to play", () => {
+    const silent = { ...base, onAir: undefined, liveEdge: undefined };
+    expect(playerState(silent).card?.retry).toBeUndefined();
+    const stalled = playerState({ ...silent, stalled: true });
+    expect(stalled.card?.retry && stalled.card.hub).toBe(true);
+  });
 });
 
 describe("the camera tile without a picture", () => {

@@ -1,7 +1,7 @@
 // Small helpers shared by the three passes: argument parsing, output paths, and redaction of the base host.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, extname, join } from "node:path";
 
 /** `--key value`, `--key=value` and bare `--flag` into an object; anything else is positional. */
 export function parseArgs(argv) {
@@ -18,6 +18,72 @@ export function parseArgs(argv) {
     else out[a.slice(2)] = true;
   }
   return out;
+}
+
+// House rule: no QA run makes a sound on this machine. Every browser the harness launches is muted at launch, so a
+// later run cannot forget. Chromium, Chrome and Edge take a flag; Firefox a pref; WebKit has neither, so its pages get
+// an init script that mutes every media element and routes Web Audio through a silent gain node.
+export const CHROMIUM_MUTE_ARGS = ["--mute-audio"];
+export const FIREFOX_MUTE_PREFS = { "media.volume_scale": "0.0" };
+export const WEBKIT_MUTE_SCRIPT = () => {
+  const mute = (el) => {
+    try {
+      el.muted = true;
+    } catch {}
+  };
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...a) {
+    mute(this);
+    return play.apply(this, a);
+  };
+  for (const C of [window.AudioContext, window.webkitAudioContext].filter(Boolean)) {
+    const desc = Object.getOwnPropertyDescriptor(C.prototype, "destination") ??
+      Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "destination");
+    if (!desc?.get) continue;
+    const silent = new WeakMap();
+    Object.defineProperty(C.prototype, "destination", {
+      configurable: true,
+      get() {
+        let g = silent.get(this);
+        if (!g) {
+          g = this.createGain();
+          g.gain.value = 0;
+          g.connect(desc.get.call(this));
+          silent.set(this, g);
+        }
+        return g;
+      },
+    });
+  }
+};
+
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json", ".webmanifest": "application/manifest+json", ".txt": "text/plain" };
+
+/**
+ * Serve a local build (`web/dist`) in place of the deployed app's own files, under the deployed origin: the relay,
+ * the archive and the room service stay the deployed ones, so a change is seen against real rooms before it is
+ * deployed. Pages get the deployed document's headers (COOP/COEP) with the local index.html; /api and /archive pass.
+ */
+export async function overlayBuild(context, base, dist) {
+  const origin = new URL(base).origin;
+  await context.route(
+    (url) => url.origin === origin,
+    async (route) => {
+      const req = route.request();
+      const path = decodeURIComponent(new URL(req.url()).pathname);
+      if (path.startsWith("/api/") || path.startsWith("/archive/")) return route.fallback();
+      if (req.resourceType() === "document") {
+        const res = await route.fetch();
+        const headers = { ...res.headers(), "content-type": "text/html", "cache-control": "no-store" };
+        for (const h of ["content-length", "content-encoding", "etag", "last-modified"]) delete headers[h];
+        return route.fulfill({ status: 200, headers, body: readFileSync(join(dist, "index.html")) });
+      }
+      const file = join(dist, path);
+      if (!file.startsWith(dist) || !existsSync(file) || !statSync(file).isFile()) return route.fallback();
+      const type = TYPES[extname(file)] ?? "application/octet-stream";
+      return route.fulfill({ status: 200, headers: { "content-type": type }, body: readFileSync(file) });
+    },
+  );
 }
 
 export const list = (v, fallback) =>
