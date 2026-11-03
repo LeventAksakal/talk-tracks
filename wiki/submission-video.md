@@ -18,18 +18,13 @@ under 3:00; in English; the working product, never slides about it; only what wa
 line says what pre-existed; the end-to-end flow with live Meta calls visible (the terminal band from beat 3 on);
 submitted as a link; an AI voice-over is allowed.
 
-## Two choices left open, and how either slots in (ticket 0026)
+## Languages and voice (decided, ticket 0026)
 
-[Which languages the viewers pick and whose voice narrates (ticket 0026)](../tickets/0026-demo-video-languages-and-voice.md)
-is the owner's call. The script is written so either answer drops in with no retiming:
-
-- **Languages.** Written with **Turkish** (viewer 1) and **Japanese** (viewer 2), the recommended option (the friends'
-  own languages). For option (b), replace every *Turkish* with *Spanish* and every *Japanese* with *Arabic*: the word
-  counts do not change. Friends type the first three letters with a capital first: **Tur**, **Jap**, **Spa**, **Ara**
-  (why: [the typing trap](#the-typing-trap-in-the-language-search)).
-- **Voice.** Written in the owner's voice (first person: "I'm giving one now"). For an AI voice, use the bracketed
-  alternative where a line has one, `[AI: …]`; each has the same number of words or fewer. Read the VO column into
-  the AI tool as it stands, beat by beat, one clip per beat, so the edit can place each on its timecode.
+The owner chose the recommendations of [which languages and whose voice (ticket 0026)](../tickets/0026-demo-video-languages-and-voice.md):
+the viewers pick **their own languages**, for example **Turkish** (viewer 1) and **Japanese** (viewer 2), and the
+voice-over is **the owner's own voice**, recorded after the shoot. If a friend speaks something else, swap that
+language's name wherever it appears; the word counts do not change. Friends type the first three letters with a
+capital first, **Tur**, **Jap** (why: [the typing trap](#the-typing-trap-in-the-language-search)).
 
 ## Who and what is filmed
 
@@ -140,7 +135,6 @@ shows his slide and camera, the pill says *On air*) and [b02-viewer-live.jpg](ho
 
 - **Spoken (VO, 27 words, 10.8 s):** "A live lecture usually reaches only the people who speak its language. I'm giving
   one now, from my browser; two friends are watching on their own laptops."
-  `[AI: "… its language. Here is one, given live from a browser; two friends are watching on their own laptops."]`
 - **Under it:** the owner's own voice at −20 dB, saying the p1 line, so the judges hear a real talk.
 - **On screen:** **S** fills the top 1440×810 (the console on air, page 1); the right column 480×810 holds V1 above
   V2, small; no terminal yet.
@@ -159,7 +153,6 @@ beside each line in the transcript).
 - **Spoken (VO, 39 words, 15.6 s):** "My friend opens the subtitles and types Turkish. Nothing was translating into
   Turkish until this click. Now a Muse Spark agent starts a Turkish track for this room, and seconds later she
   follows the lecture in her own language."
-  `[AI: "A viewer opens the subtitles …" ; "… seconds later she follows the lecture in her own language."]`
 - **On screen:** **V1** fills the top; terminal band fades in along the bottom (1920×270) at 0:35 showing
   `captions … turn` lines; right column: the speaker small. When the first `translate tr` line prints, a soft box
   on it for 1 s. Under the Turkish subtitle, an English caption of the same line (V7 text track): *"Every AI job in
@@ -181,7 +174,6 @@ beside each line in the transcript).
 
 - **Spoken (VO, 28 words, 11.2 s):** "My second friend picks Japanese. Same sentence, two languages, at the same time.
   Any of fifty languages works, and each one is made only while someone watches it."
-  `[AI: "A second viewer picks Japanese. …"]`
 - **On screen:** split screen, V1 left and V2 right (each cropped to 960×810 around the stage and subtitles), the
   terminal band below with `translate tr` and `translate ja` lines interleaving; one English caption above both:
   the sentence they share.
@@ -200,7 +192,6 @@ are a mock).
 - **Spoken (VO, 53 words, 21.2 s):** "This terminal prints every Meta model call as it happens. Muse Voice Transcribe
   turns my voice into captions. Each caption line goes to Muse Spark once per language, with the lines before it
   as context. A line costs a fraction of a cent; a whole twenty-minute lecture, about fourteen cents per language."
-  `[AI: "… turns the speaker's voice into captions. …"]`
 - **On screen:** **T** grows: the terminal takes the bottom half (1920×540, about 12 lines), V1 and V2 side by side
   above it (960×540 each). Three highlights, 1 s each, in order with the VO: a `captions … turn` line, a
   `translate tr` line with its `"English" → "Turkish"` snippet, its `$0.0004` cost.
@@ -218,7 +209,6 @@ description).
 
 - **Spoken (VO, 30 words, 12 s):** "When I turn to a new slide, Muse Spark looks at it and writes a description: a
   text alternative for anyone who can't see the slide, read aloud on request."
-  `[AI: "When the speaker turns to a new slide, …" (31 words)]`
 - **On screen:** 1:26–1:30 **S** full: the owner turns to page 3 and draws a circle with the pen. 1:30–1:43 **V1**:
   the side panel's *Slides* view, the new description at the top; terminal band below with the `describe slide`
   line highlighted.
@@ -240,7 +230,6 @@ description).
 - **Spoken (VO, 42 words, 16.8 s):** "Missed something? My friend jumps back thirty seconds: the slide, my pen strokes
   and the Japanese subtitles replay exactly as they were. Watch the terminal: rewinding made no new model call.
   The past comes from the same tracks, cached by the relay."
-  `[AI: "… A viewer jumps back thirty seconds: the slide, the pen strokes and …"]`
 - **On screen:** **V2** fills the top, the terminal band below. As V2 rewinds, a soft box around the terminal band
   with a small label *no new calls* while it stays still (the captions keep printing for the live talk; that is
   fine, there is no `translate ja` line for the past). Then **G** and the pill turns red again.
@@ -289,7 +278,7 @@ off).
 night it is the owner's own room).
 
 - **Spoken (VO, 17 words, 6.8 s):** "When I end the talk, it stays online as a recording, with every track, in any
-  language." `[AI: "When the talk ends, it stays …" (16 words)]`
+  language."
 - **On screen:** 2:35–2:38 **S**: the owner says the p4 line and presses **End talk** → confirms. 2:38–2:45 **R**: the
   same room's link in the owner's browser, now a recording; Turkish on; the timeline is clicked into the middle of
   the part that was watched live, and the subtitle is there at once.
@@ -314,7 +303,7 @@ night it is the owner's own room).
 
 **Totals:** 11 beats, 2:49; VO 38 + 27 + 39 + 28 + 53 + 30 + 42 + 22 + 50 + 17 + 5 = **351 spoken words**, 140 s
 of speech at 150 wpm inside 169 s. The tightest beats are 1 (15.2 s in 17 s) and 5 (21.2 s in 23 s): read them at an
-even pace, without pauses between sentences. The `[AI: …]` alternatives are the same length or one word longer.
+even pace, without pauses between sentences.
 
 ## The alternate cut: one viewer, or none
 
@@ -323,7 +312,7 @@ even pace, without pauses between sentences. The `[AI: …]` alternatives are th
   7–8 in the right. Mute one window's tab. The edit crops each half to full size for its beat. VO: "my friend" in
   beat 3, "In a second window, Japanese" in beat 4 (same count).
 - **No friend at all.** The owner's second machine runs both windows; he operates it in the pauses of his talk, and
-  the VO says "a viewer" (the `[AI: …]` lines already do).
+  the VO says "a viewer" instead of "my friend" (same word count).
 - **No live talk at all** (the console cannot go on air): the friends open the demo live session `/watch/dataviz`;
   the terminal runs with `--room dataviz`; beats 2, 6 and 10 change to "a live session of a recorded lecture" and
   the speaker shots are dropped. Timing is unchanged.
