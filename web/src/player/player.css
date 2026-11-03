@@ -318,7 +318,9 @@
   opacity: 0;
   transition: opacity var(--tt-duration-fast) var(--tt-ease-standard);
 }
-.tt-pip-swap {
+/* Two classes: .tt-icon-button (later in this file) sets position: relative, which put the button in the cell's grid
+   flow above the picture and pushed the picture down out of its tile. */
+.tt-icon-button.tt-pip-swap {
   position: absolute;
   right: var(--tt-space-1);
   top: var(--tt-space-1);

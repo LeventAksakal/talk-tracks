@@ -1056,7 +1056,11 @@ function Sources(props: {
                   : "No slides. Optional: you can talk without them.")}
           </p>
           {/* Loading the first deck is the stage's one button; changing it is here. */}
-          {deck ? <Button label="Change slides" size="sm" variant="secondary" onClick={props.pickFile} /> : null}
+          {deck ? (
+            <div className="row">
+              <Button label="Change slides" size="sm" variant="secondary" onClick={props.pickFile} />
+            </div>
+          ) : null}
         </Check>
         <Check state={tokenState} title="Speaker token">
           <p className="small">{tokenMessage}</p>

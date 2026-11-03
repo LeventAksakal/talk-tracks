@@ -418,7 +418,7 @@
   gap: 6px 16px;
 }
 .toolbar button:not(.tool-options-toggle) {
-  padding-inline: 8px;
+  padding-inline: 7px;
 }
 .slide-edit {
   display: flex;
