@@ -68,15 +68,9 @@ services:
   captions:
     <<: *agent
     command: ["captions", "--fake", "--insecure"]
-  translate-tr:
+  translate-any:  # every language of contracts/languages.json, each track lazy (decision 0035)
     <<: *agent
-    command: ["translate", "--lang", "tr", "--fake", "--insecure"]
-  translate-es:
-    <<: *agent
-    command: ["translate", "--lang", "es", "--fake", "--insecure"]
-  translate-ar:
-    <<: *agent
-    command: ["translate", "--lang", "ar", "--fake", "--insecure"]
+    command: ["translate", "--lang", "any", "--fake", "--insecure"]
   describe:
     <<: *agent
     command: ["describe", "--fake", "--insecure"]

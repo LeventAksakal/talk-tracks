@@ -27,7 +27,7 @@ services:
       TT_RELAY: moqt://relay:4443
       TT_ROOM: ${TT_ROOM:-dev}
       TT_TOKEN: ${TT_AGENT_TOKEN:-}
-  translate-tr: *signed
+  translate-any: *signed
   describe: *signed
   chapters: *signed
   teacher:

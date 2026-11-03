@@ -238,32 +238,14 @@ services:
   captions:
     <<: *live
     command: ["captions", "--insecure"]
-  translate-tr:
-    <<: *live
-    command: ["translate", "--lang", "tr", "--insecure"]
-  translate-es:
-    <<: *live
-    command: ["translate", "--lang", "es", "--insecure"]
-  translate-ar:
-    <<: *live
-    command: ["translate", "--lang", "ar", "--insecure"]
-  # Any other language a listener picks (decision 0019): one lazy track per supported language in each room, which
-  # spends only while someone subscribes, against the room's cap. tr, es and ar stay with the agents above (or the
-  # demo rooms' recorded tracks), so no track has two publishers. Unlike the others it also serves the demo rooms,
-  # session by session, where another language is translated live against that room's cap; TT_ANY_LANG_SKIP_ROOMS
-  # lists rooms it skips.
+  # Every translation (decision 0035): one lazy track per language of contracts/languages.json in each room it
+  # serves, which spends only while a viewer subscribes (live) or fetches a past slice (back-fill), against the
+  # room's cap. Nothing is pre-made. Like the other live agents it serves the demo rooms only with
+  # TT_DEMO_LIVE_AGENTS=1 (live only, session by session); then it also serves the recording rooms built in the
+  # archive (<id>-recording/room.json), back-fill only, from their archived captions, for good: they have no speaker
+  # and are ended from the start.
   translate-any:
     <<: *live
-    environment:
-      <<: *agent-env
-      TT_ROOMS: ${TT_LIVE_ROOMS:-*}
-      TT_ROOMS_EXCLUDE: ${TT_ANY_LANG_SKIP_ROOMS:-}
-      TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # their tr, es, ar are not its; no back-fill
-      TT_DEMO_LIVE_AGENTS: ${TT_DEMO_LIVE_AGENTS:-}
-      TT_LANG_EXCLUDE: tr,es,ar
-      TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
-      TT_CAPS_DIR: /data/caps
-      TT_IDLE_GRACE_S: ${TT_IDLE_GRACE_S:-10}
     command: ["translate", "--lang", "any", "--insecure"]
   describe:
     <<: *live

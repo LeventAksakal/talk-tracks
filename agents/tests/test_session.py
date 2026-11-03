@@ -193,7 +193,7 @@ def test_the_recording_room_is_an_ended_archived_room_with_recorded_tracks(tmp_p
     infos: dict[str, Any] = {}
     for info in (root / "virus-recording" / "agents").glob("*/*/track.json"):
         infos[info.parent.parent.name] = json.loads(info.read_text(encoding="utf-8"))
-    assert set(infos) == {"captions", "translate-tr", "describe", "chapters"}
+    assert set(infos) == {"captions", "describe", "chapters"}  # no translation baked: made on demand (decision 0035)
     assert all(i["label"].endswith(" (recorded)") and i["cost"] == "free" for i in infos.values())
     assert all(i["status"] == "idle" and not i["producing"] for i in infos.values())
     assert built.tracks["captions/items"] == 8  # 30 s in 4 s slices

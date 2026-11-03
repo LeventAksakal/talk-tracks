@@ -131,17 +131,14 @@ def test_repunctuation_moves_forced_breaks_to_sentences_and_clauses(tmp_path: Pa
     assert after.mid_phrase == 0
 
 
-def test_a_session_and_the_recording_room_cut_the_punctuated_lines_and_resplit_translations(tmp_path: Path) -> None:
+def test_a_session_and_the_recording_room_cut_the_punctuated_lines_and_replay_no_translation(tmp_path: Path) -> None:
     directory = write(tmp_path, unpunctuated())
+    assert any(isinstance(s[0].state, TranslationState) for _, s in revise.read_recording(directory) if s)
     asyncio.run(repunctuate(directory, FakePunctuator()))
-    (_, caps), (_, tr) = honest_recording(directory)
+    [(_, caps)] = honest_recording(directory)  # the recorded translation is left out: made on demand (decision 0035)
     cues = caps[-1].state
     assert isinstance(cues, CaptionsState)
     assert cues.lines[0].text[0].isupper() and any(c.text.endswith((".", ",")) for c in cues.lines)
-    last = tr[-1].state
-    assert isinstance(last, TranslationState)
-    ids = {line.id for line in last.lines}
-    assert ids and ids <= {c.id for c in cues.lines}  # the translation follows the new cues
 
 
 def test_a_dry_run_sends_nothing_and_writes_nothing(tmp_path: Path) -> None:
