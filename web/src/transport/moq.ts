@@ -56,6 +56,7 @@ export class MoqTransport implements Transport {
   #closed = false;
 
   constructor(options: MoqTransportOptions) {
+    filterCloseError();
     this.origin = new Moq.Origin.Producer();
     this.connection = new Moq.Connection({
       url: options.url,
@@ -195,6 +196,8 @@ export class MoqTransport implements Transport {
 const CLOSE_QUIET_MS = 3_000;
 const CLOSE_ERROR = "fatal error running connection";
 let quietUntil = 0;
+/** The page is being left (pagehide, until a pageshow brings it back from the back-forward cache). */
+let leaving = false;
 let consoleError: typeof console.error | undefined;
 
 /**
@@ -204,13 +207,32 @@ let consoleError: typeof console.error | undefined;
  */
 function muteCloseError(now = Date.now()): void {
   quietUntil = now + CLOSE_QUIET_MS;
+  filterCloseError();
+}
+
+/**
+ * Leaving the page (a link, reload, the address bar) closes no transport: the browser tears the session down under
+ * @moq/net, which logs the same line as an error (Firefox, QA 2026-11-03: twice, while the "unknown room" journey
+ * navigated away from /watch/qa-no-such-room). Once the page is hiding, that line becomes a warning.
+ */
+function filterCloseError(): void {
   if (consoleError) return;
   const original = console.error.bind(console);
   consoleError = original;
   console.error = (...args: unknown[]) => {
-    if (Date.now() < quietUntil && typeof args[0] === "string" && args[0].startsWith(CLOSE_ERROR)) return;
+    if (typeof args[0] === "string" && args[0].startsWith(CLOSE_ERROR)) {
+      if (Date.now() < quietUntil) return;
+      if (leaving) {
+        console.warn("connection ended as the page was left:", ...args);
+        return;
+      }
+    }
     original(...args);
   };
+  if (typeof addEventListener === "function") {
+    addEventListener("pagehide", () => (leaving = true));
+    addEventListener("pageshow", () => (leaving = false));
+  }
 }
 
 /** Read groups as they arrive, each in its own task: a broken group is skipped, never the track's end. */

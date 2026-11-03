@@ -1,6 +1,30 @@
 import * as Moq from "@moq/net";
-import { describe, expect, it } from "vitest";
-import { consumeScope } from "./moq";
+import { describe, expect, it, vi } from "vitest";
+import { consumeScope, MoqTransport } from "./moq";
+
+describe("the close error @moq/net logs", () => {
+  it("is a warning once the page is being left, an error otherwise", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const transport = new MoqTransport({ url: new URL("http://localhost:1/") });
+    try {
+      console.error("fatal error running connection", new Error("x"));
+      expect(error).toHaveBeenCalledTimes(1);
+      dispatchEvent(new Event("pagehide"));
+      console.error("fatal error running connection", new Error("x"));
+      console.error("something else");
+      expect(error).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledTimes(1);
+      dispatchEvent(new Event("pageshow"));
+      console.error("fatal error running connection", new Error("x"));
+      expect(error).toHaveBeenCalledTimes(3);
+    } finally {
+      transport.close();
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  });
+});
 
 /** The prefixes `origin` announces within 50 ms. */
 async function announcedBy(origin: Moq.Origin.Producer): Promise<string[]> {
