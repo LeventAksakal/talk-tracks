@@ -25,10 +25,15 @@ npm run qa --prefix qa
 npm run build --prefix web
 npm run preview --prefix web -- --port 4319 --strictPort   # stop it when done
 npm run qa --prefix qa -- --base "http://[::1]:4319/" --offline
+
+# or a local build against the deployed rooms: the journeys load web/dist under the deployed origin, while the
+# relay, the archive and the room service stay the deployed ones (a player change seen on live rooms before deploy)
+npm run build --prefix web
+npm run qa --prefix qa -- --overlay "<absolute path to web/dist>" --skip-lighthouse --skip-trace
 ```
 
 `npm run qa --prefix qa -- --help` lists the options: `--browsers`, `--themes`, `--journeys`, `--room`,
-`--trace-path`, `--trace-seconds`, `--lighthouse-pages`, `--run`, and `--skip-capture|lighthouse|trace`.
+`--recording`, `--overlay`, `--trace-path`, `--trace-seconds`, `--lighthouse-pages`, `--run`, and `--skip-capture|lighthouse|trace`.
 
 Vite preview listens on `localhost`, which on Windows resolves to `::1` first: use `http://[::1]:<port>/`.
 
