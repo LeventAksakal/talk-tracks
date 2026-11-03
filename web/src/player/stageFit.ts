@@ -107,12 +107,14 @@ export function fitStage(input: StageFitInput): StageFit {
       corner: tileBox,
       captions: captionsUnder(colBottom, 0, W - colRight),
     };
+  // In the band the tile lines up with the main picture's right edge (a narrower picture is centred): one edge.
+  const banded: Box = { ...tileBox, left: Math.min(tileBox.left, band.box.left + band.box.width - tile.width) };
   return {
     right: 0,
     bottom: bandBottom,
     top: band.top,
     main: band.box,
-    corner: tileBox,
-    captions: captionsUnder(bandBottom, 0, tileBox.left),
+    corner: banded,
+    captions: captionsUnder(bandBottom, 0, banded.left),
   };
 }

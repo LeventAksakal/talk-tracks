@@ -17,6 +17,11 @@ class RecordingMedia extends ClockMedia {
   override liveEdge(): number {
     return END;
   }
+  /** A position the media reports regardless of the playhead (an archive before its first frame after a seek). */
+  stale: number | undefined;
+  override position(): number | undefined {
+    return this.stale ?? super.position();
+  }
   override status() {
     return this.mode() === "live" ? ("loading" as const) : ("playing" as const);
   }
@@ -72,6 +77,25 @@ describe("A recording played to its end", () => {
     media.tick();
     expect(el.currentTime).toBeCloseTo(5, 0);
     expect(el.ended).toBe(false);
+  });
+
+  it("replays through a seek to 0:00 (the end card's button) while the media still reports its old position", () => {
+    const { el, media, clock } = open();
+    clock.advance(END - 200);
+    media.tick();
+    expect(el.ended).toBe(true);
+    // An archive reports where it was until its first new frame: the seek must not read as the end again.
+    media.stale = END - 100;
+    el.currentTime = 0;
+    expect(el.ended).toBe(false);
+    expect(el.paused).toBe(false);
+    media.tick();
+    expect(el.ended).toBe(false);
+    media.stale = undefined;
+    clock.advance(3_000);
+    media.tick();
+    expect(el.ended).toBe(false);
+    expect(el.currentTime).toBeCloseTo(3, 0);
   });
 
   it("ends, rather than waits, when something takes it live from a rewind", () => {

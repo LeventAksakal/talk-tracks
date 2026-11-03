@@ -169,6 +169,11 @@ export class RoomMediaElement extends HTMLElement {
   #volume = 1;
   #muted = false;
   #ended = false;
+  /**
+   * The playhead has been seen before the recording's end zone since the last seek: only then can reaching the zone
+   * end it. A seek away from the end (Replay) is not undone by the media still reporting the old position a moment.
+   */
+  #endArmed = false;
   /** The media's mode at the last change: a recording going from rewound to live has played to its end. */
   #lastMode: "live" | "rewound" | undefined;
   #last: {
@@ -214,6 +219,7 @@ export class RoomMediaElement extends HTMLElement {
     this.#pausedAt = undefined;
     this.#seekTo = undefined;
     this.#ended = false;
+    this.#endArmed = false;
     this.#lastMode = undefined;
     this.#fire("emptied");
     if (!playback) return;
@@ -312,6 +318,7 @@ export class RoomMediaElement extends HTMLElement {
       if (rec) {
         this.#fire("seeking");
         this.#seekTo = rec.start;
+        this.#endArmed = false;
         pb.seek(rec.start);
         this.#fire("seeked");
       }
@@ -370,6 +377,7 @@ export class RoomMediaElement extends HTMLElement {
       pb.goLive();
     } else {
       this.#seekTo = ms;
+      this.#endArmed = false;
       pb.seek(ms);
     }
     // A seek plays, as it always has here (the archive opens playing): the state says so.
@@ -562,11 +570,12 @@ export class RoomMediaElement extends HTMLElement {
     const mode = pb.media.mode();
     const ranOut = mode === "live" && this.#lastMode === "rewound";
     this.#lastMode = mode;
+    if (rec && mode === "rewound" && t !== undefined && t < rec.end - END_MS) this.#endArmed = true;
     if (
       rec &&
       !this.#paused &&
       !this.#ended &&
-      ((t !== undefined && t >= rec.end - END_MS && mode === "rewound") || ranOut)
+      ((this.#endArmed && t !== undefined && t >= rec.end - END_MS && mode === "rewound") || ranOut)
     ) {
       this.#ended = true;
       this.#paused = true;

@@ -472,12 +472,15 @@
   font-size: var(--tt-text-small);
 }
 
-/* The extended view: a panel over the still, the still's size, shown after a moment on hover (so sweeping across a
-   row opens nothing) and at once on focus. Transparent, never hidden, while closed: its links stay in the tab order,
-   and focusing one is what opens it. */
+/* The extended view: a panel over the lower part of the still, as tall as what it says (the still's top stays in
+   view; on a small card it covers the still), shown after a moment on hover (so sweeping across a row opens nothing)
+   and at once on focus. Transparent, never hidden, while closed: its links stay in the tab order, and focusing one is
+   what opens it. */
 .tile-more {
   position: absolute;
-  inset: 0;
+  inset: auto 0 0;
+  max-height: 100%;
+  border-top: 1px solid var(--hub-line);
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -543,11 +546,16 @@
     display: none;
   }
 }
+@container (min-width: 400px) {
+  .tile-desc {
+    -webkit-line-clamp: 3;
+  }
+}
 .tile-actions {
   display: flex;
   align-items: center;
   gap: var(--tt-space-2);
-  margin-top: auto;
+  margin-top: 6px;
   flex: none;
 }
 .tile-play,

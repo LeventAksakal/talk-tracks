@@ -793,3 +793,7 @@
 .paste-link-form > button {
   align-self: flex-start;
 }
+/* Native checkboxes take the one primary colour, not the browser's blue. */
+.console input[type="checkbox"] {
+  accent-color: var(--tt-color-play);
+}

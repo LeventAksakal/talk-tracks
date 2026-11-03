@@ -266,10 +266,11 @@
   padding-top: var(--fit-top, 0px);
   padding-bottom: var(--fit-bottom, 0px);
 }
-/* The corner tile: bottom-right, above the dock, until the listener moves it. */
+/* The corner tile: bottom-right, above the dock, its right edge on the main picture's (stageFit.ts), until the
+   listener moves it. */
 .tt-layout-pip .tt-cell-small {
   position: absolute;
-  right: var(--player-dock-gap);
+  right: var(--fit-corner-right, var(--player-dock-gap));
   bottom: var(--player-dock-reach);
   /* The tile's own shape inside the 16:9 box of the width preference: a narrow webcam crop is a card of its own
      shape, never a strip inside a wider empty card. */
@@ -1320,8 +1321,8 @@ img.tt-preview-thumb {
 .tt-menu-list {
   display: flex;
   flex-direction: column;
-  /* Seven and a half rows: the half row says the list goes on. */
-  max-height: 256px;
+  /* Six and a half rows: the half row says the list goes on. */
+  max-height: 240px;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--tt-color-text-muted) transparent;

@@ -103,10 +103,10 @@ export function CaptionsMenu() {
     () => SUPPORTED_LANGUAGES.map((tag) => languageOption(tag)).sort((a, b) => a.local.localeCompare(b.local)),
     [],
   );
-  // The room's languages first, the ready ones at the top; then every other language.
+  // The room's languages first, the ready ones at the top, each group A to Z; then every other language.
   const roomOptions = inRoom
     .map((tag) => ({ option: languageOption(tag), order: READY_FIRST[readiness(tag)] }))
-    .sort((a, b) => a.order - b.order)
+    .sort((a, b) => a.order - b.order || a.option.local.localeCompare(b.option.local))
     .map((o) => o.option);
   const others = all.filter((o) => !inRoom.some((tag) => tag.split("-")[0] === o.tag));
   const results = searchLanguages([...roomOptions, ...others], query);

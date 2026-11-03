@@ -13,7 +13,9 @@ a streaming platform where the talks lead, in quiet chrome. Revised on 2026-11-0
 * **Type:** Atkinson Hyperlegible Next only (400, 600, 700), chosen for legibility because this product is about
   reading captions. Hierarchy comes from size and weight, never from colour or capitals. No label above a heading.
   Its zero is slashed by design (the font has no unslashed zero to switch to); it is part of what tells 0 from O.
-* **Colour:** neutral grounds (hub: `#f7f7f5` light, `#0e0e10` dark). Live red is the one colour that means a state.
+* **Colour:** neutral grounds (hub: `#f7f7f5` light, `#0e0e10` dark). Live red is the one colour that means a state
+  of the talk (on air). The accent blue is for what can be followed: links, focus rings, a transcript's timestamps,
+  a checked choice in a menu; it never fills a button.
   The logomark is one colour, the text colour of where it sits. One primary button colour everywhere
   (`--tt-color-play`: near-black on light, white on dark); everything else is a hairline button or a plain link.
 * **Surfaces:** opaque. Hairlines (1 px, 10 to 12 % of the text colour) and 6 to 10 px corners. Shadows only where
@@ -23,6 +25,8 @@ a streaming platform where the talks lead, in quiet chrome. Revised on 2026-11-0
   means on air. Everything is still under reduced motion.
 * **Durations:** "N-minute talk" in a sentence (the hero), "N min" on a recording's still. A live session shows no
   length: it is running.
+* **Counts:** in a sentence a count is a word ("subtitles in any of fifty languages"): the font's slashed zero reads
+  like code in prose. Compact meta (a card's facts, a menu's note, a time) keeps numerals.
 
 ## Hub (`/`): browse, artifact first
 
@@ -33,8 +37,11 @@ surface: the stills and titles lead, the chrome recedes.
 
 * *Featured talk* (the hero) is the first demo lecture's live session beside its still: the title set large over its
   subtitle (split at the colon), then one line saying what it is ("Live replay", with a pulsing dot when on air),
-  the speaker and subject, one sentence on the talk, one line on its length and what it carries, and two ways in
-  (Watch live, From the start).
+  the speaker and subject, one sentence on the talk, one sentence on its length and what it carries, and two ways in
+  (Watch live, From the start). Between two runs of the session nothing on the hub changes: the button still says
+  Watch live and the dot is grey; when the next run starts is the player's to say.
+* A row of three cards (Live now, the lectures other than the featured one) spans the same width as a row of four,
+  so the rows line up and no fourth place stands empty.
 * *Live now* holds the other live sessions, without LIVE badges: the row's note says they are recorded talks replayed
   live, so a badge on every card would say nothing.
 * *Recordings* holds every lecture from the start, each with its length on the still and a different slide from its
@@ -81,13 +88,29 @@ shadow; the form is unchanged.
   stays until the viewer first moves, touches or types; after that it fades when idle. On an end card it stays.
 * The live marker says what the viewer is watching in two words: "LIVE" for a speaker on air, "Live replay" for a
   recorded talk replayed live. How the connection runs (the WebSocket fallback) is in Stats for nerds.
-* No slide at this moment: the camera has the stage to itself, unlabelled. An empty "no slide" panel is not a
-  picture worth the stage. A recording that opens off its layout (the stage camera) shows the whole frame, also
-  unlabelled; "Camera" labels the corner picture only when it sits beside the slides.
+* No slide at this moment (the speaker hid the slides, or a stretch with none): the rule is "a slide, never a face",
+  so the stage keeps a slide whenever it has one.
+  * A slide was seen earlier in this session, at or before the playhead: that slide stays on the stage, without its
+    marks and ink (they were on it then), and the camera keeps its corner. A seek back before the first slide seen
+    falls to the next case.
+  * No slide seen yet (a talk's first minutes): the camera is the one picture, centred and at most 64 % of the
+    stage's width, under the title bar, with a hairline and rounded corners: a speaker in a room before the slides
+    start, not a video call filling the screen. Unlabelled: nothing beside it to tell it from.
+  * Off its layout (a recorded frame of the stage camera, a title card, a zoom on a slide; the `off_layout` spans) the
+    whole recorded frame fills the stage on purpose, unlabelled.
+  * An empty "no slide" panel is never shown when there is a picture; "Camera" labels the corner picture only when it
+    sits beside the slides.
 * Menus are opaque panels with one soft shadow. The subtitles menu keeps one line per language; that a language not
   yet running starts when picked is said once, under the search field.
 * The end of a recording keeps its last frame on the stage under a plain scrim, with "Replay from the start" (the
-  primary button) and "All talks", and the dock below with its timeline.
+  primary button) and "All talks", and the dock below with its timeline. The recording really ends there: paused,
+  the dock's play button a Replay icon, no spinner, the camera tile quiet. A recording has no live side, so playback
+  never goes live by itself at its end; play at the end replays from 0:00.
+* A card on the stage (an end, a pause, a reconnect) says what the stage is doing: no loading spinner over it.
+* The subtitles menu lists every language A to Z by its name in the viewer's language (the autonym beside it), says
+  how many there are, and shows six and a half rows so the half row says the list goes on.
+* The transcript's timestamp sits on its line's first row; a finished line of under four words joins the one before,
+  so a caption cut mid-sentence never stands alone.
 * Watch and recording pages share one stage geometry: the pictures start under the title bar and the corner camera
   sits in a band beside the slides, never over them.
 
@@ -100,6 +123,10 @@ words in the marker; the "Slides" label above the slide card.
 
 **Decision.** The same language as the hub: a bar on the ground with a hairline, panels on the surface colour with a
 hairline and 8 px corners, the on-air stage ringed in live red. Each check is a dot and a word in sentence case.
+
+Before a deck is loaded the stage asks for one (the one "Load slides"); the drawing tools and the slide controls come
+with the deck, so the console never shows rows of disabled controls. The tools are one hairline bar; the slide
+controls and the drawing's undo, redo and clear share the row below, in one secondary button style.
 
 **Left out.** Radial washes, glass panels, capitals in the check states, the three-colour mark.
 

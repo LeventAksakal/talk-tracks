@@ -191,6 +191,9 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     "--fit-right": `${fit.layout?.right ?? 0}px`,
     "--fit-bottom": `${fit.layout?.bottom ?? 0}px`,
     "--fit-top": `${fit.layout?.top ?? 0}px`,
+    ...(fit.layout?.corner && fit.width
+      ? { "--fit-corner-right": `${fit.width - fit.layout.corner.left - fit.layout.corner.width}px` }
+      : {}),
     ...(pip ? { "--pip-x": pip.x, "--pip-y": pip.y } : {}),
   } as CSSProperties;
   const card = state.card;
@@ -366,6 +369,8 @@ function useStageFit(
 ): {
   report: (kind: SourceKind, aspect: number) => void;
   layout: StageFit | undefined;
+  /** The stage's width, px, once measured. */
+  width: number | undefined;
   cornerAspect: number;
   /** The band under the main picture has room for "What you missed" beside the subtitles, off the slide. */
   missedLow: boolean;
@@ -416,7 +421,7 @@ function useStageFit(
         })
       : undefined;
   const free = layoutFit && size ? layoutFit.bottom - size.dockReach - FIT_GAP - (captions ?? 0) : 0;
-  return { report, layout: layoutFit, cornerAspect, missedLow: free >= MISSED_ROOM };
+  return { report, layout: layoutFit, width: size?.width, cornerAspect, missedLow: free >= MISSED_ROOM };
 }
 
 /** The split divider: drag, or arrow keys when focused, to move it. */
