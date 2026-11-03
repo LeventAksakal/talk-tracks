@@ -814,6 +814,27 @@ class Source(Wire):
     label: str | None = None
 
 
+Rect = Annotated[list[Fraction], Field(min_length=4, max_length=4, description="[x, y, w, h], fractions of the frame")]
+
+
+class Regions(Wire):
+    """Where a composed lecture video's frame holds the slides and the speaker's webcam inset (a recorded conference
+    talk: ``regions.json``, found by ``find-regions``). The player shows the camera tile from ``camera`` of the
+    speaker's video; without it, the whole video."""
+
+    slides: Rect = Field(description="The slide area, which the deck's images are cut from")
+    camera: Rect | None = Field(default=None, description="The webcam inset: what the camera tile shows")
+
+    @model_validator(mode="after")
+    def _inside(self) -> Regions:
+        for rect in (self.slides, self.camera):
+            if rect is not None:
+                x, y, w, h = rect
+                if w <= 0 or h <= 0 or x + w > 1 + 1e-6 or y + h > 1 + 1e-6:
+                    raise ValueError("a region lies inside the frame and is not empty")
+        return self
+
+
 class RoomTt(Wire):
     """Talk Tracks' extension of the catalog root."""
 
@@ -825,6 +846,11 @@ class RoomTt(Wire):
     status: dict[str, TrackStatus] = Field(default_factory=dict, description="Per agent name")
     sources: list[Source] = Field(
         default_factory=list[Source], description="The speaker's sources, in the speaker's order"
+    )
+    regions: Regions | None = Field(
+        default=None,
+        description="A composed lecture video's slide and webcam regions (a recorded conference talk); none for a"
+        " speaker's own camera",
     )
 
     @model_validator(mode="after")

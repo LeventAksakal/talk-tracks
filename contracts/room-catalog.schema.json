@@ -123,6 +123,50 @@
       "title": "CatalogTrack",
       "type": "object"
     },
+    "Regions": {
+      "additionalProperties": false,
+      "description": "Where a composed lecture video's frame holds the slides and the speaker's webcam inset (a recorded conference\ntalk: ``regions.json``, found by ``find-regions``). The player shows the camera tile from ``camera`` of the\nspeaker's video; without it, the whole video.",
+      "properties": {
+        "camera": {
+          "anyOf": [
+            {
+              "description": "[x, y, w, h], fractions of the frame",
+              "items": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The webcam inset: what the camera tile shows",
+          "title": "Camera"
+        },
+        "slides": {
+          "description": "The slide area, which the deck's images are cut from",
+          "items": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Slides",
+          "type": "array"
+        }
+      },
+      "required": [
+        "slides"
+      ],
+      "title": "Regions",
+      "type": "object"
+    },
     "RoomTt": {
       "additionalProperties": false,
       "description": "Talk Tracks' extension of the catalog root.",
@@ -132,6 +176,18 @@
           "minimum": 0,
           "title": "E",
           "type": "integer"
+        },
+        "regions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Regions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A composed lecture video's slide and webcam regions (a recorded conference talk); none for a speaker's own camera"
         },
         "shift": {
           "additionalProperties": {
