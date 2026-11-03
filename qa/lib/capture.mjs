@@ -7,7 +7,7 @@
 import { chromium, firefox, webkit } from "playwright";
 import { join } from "node:path";
 import { JOURNEYS } from "./journeys.mjs";
-import { CHROMIUM_MUTE_ARGS, FIREFOX_MUTE_PREFS, WEBKIT_MUTE_SCRIPT, brandedPath, buildId, ensureDir, sleep } from "./util.mjs";
+import { CHROMIUM_MUTE_ARGS, FIREFOX_MUTE_PREFS, WEBKIT_MUTE_SCRIPT, brandedPath, buildId, ensureDir, overlayBuild, sleep } from "./util.mjs";
 
 const FAKE_MEDIA = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"];
 const CHROMIUM_ARGS = [...CHROMIUM_MUTE_ARGS, ...FAKE_MEDIA, "--autoplay-policy=no-user-gesture-required"];
@@ -67,6 +67,8 @@ async function runTheme({ name, browser, theme, journeys, opts, outDir, record }
       return route.continue();
     });
     if (name === "webkit") await context.addInitScript(WEBKIT_MUTE_SCRIPT);
+    // A local build over the deployed origin (--overlay): registered last, so it answers first and passes the rest on.
+    if (opts.overlay) await overlayBuild(context, opts.base, opts.overlay);
     const page = await context.newPage();
     let errors = [];
     page.on("console", (m) => {

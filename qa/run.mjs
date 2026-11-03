@@ -27,6 +27,8 @@ if (args.help) {
   --offline             only what needs no relay: journeys demo, hub, create; Lighthouse and trace on /demo
   --room <name>         the demo room to watch (default: dataviz)
   --recording <name>    the recording the recording journey plays (default: <room>-recording)
+  --overlay <dir>       serve this local build (web/dist) in place of the site's own files, under its origin:
+                        a change seen against the deployed relay and rooms before it is deployed (journeys only)
   --translation <name>  the translation to pick, only if the room lists it as running (default: Arabic)
   --trace-path <path>   the page to trace (default: /watch/<room>, or /demo with --offline)
   --trace-seconds <n>   seconds of playback in the trace (default: 60)
@@ -49,7 +51,8 @@ const tracePath = args["trace-path"] ?? (offline ? "/demo" : `/watch/${room}`);
 const lhPages = list(args["lighthouse-pages"], offline ? "hub,demo" : "hub,watch,demo");
 const run = args.run ?? `${stamp()}-${isLocal(baseUrl) ? "local" : "deployed"}`;
 const runDir = ensureDir(resolve(here, "out", run));
-const opts = { base: baseUrl, room, recording: args.recording, redact, translation: args.translation ?? "Arabic" };
+const overlay = args.overlay ? resolve(args.overlay) : undefined;
+const opts = { base: baseUrl, room, recording: args.recording, overlay, redact, translation: args.translation ?? "Arabic" };
 const log = (s) => console.log(redact(s));
 
 // A base that does not answer would turn every step into the same failure: stop with one clear line instead.
@@ -65,6 +68,7 @@ const started = new Date();
 const buildStart = await buildId(baseUrl);
 log(`QA run ${run} against ${baseUrl} (build ${buildStart})`);
 log(`  output: ${runDir}`);
+if (overlay) log(`  overlay: the journeys load the local build in ${overlay}; the build ids above are the site's`);
 
 let capture, lighthouse, trace;
 if (!args["skip-capture"]) {
