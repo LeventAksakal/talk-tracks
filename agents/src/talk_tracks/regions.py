@@ -17,9 +17,11 @@ How they are found, on the keyframes (every 2 s in a prepared lecture), shrunk t
   the inset moves, each stretch's rectangle is kept (``camera_spans``) and ``camera`` is their union, so the tile
   never cuts the speaker.
 * **The slides** are the largest stable rectangle: the extent of everything that ever changed outside the webcam
-  (the slides' content over the whole lecture) grown out to the slide image's border, a persistent straight edge,
-  and trimmed of flat dark bars (a 4:3 slide letterboxed in a 16:9 area). With no border in reach, the content
-  extent itself, rounded outwards, so nothing is cut.
+  (the slides' content over the whole lecture) moved to the slide image's border, a persistent straight edge, and
+  trimmed of flat dark bars (a 4:3 slide letterboxed in a 16:9 area). The extent is rounded out to whole cells, so a
+  side looks for its border from a cell inside it. A side with no border goes out to the frame's edge (or the
+  webcam's), so nothing is cut: the extent misses content that rarely reaches that far (a photo that fills a
+  full-frame slide), and a lecture that cuts between full-frame slides and the stage camera has no border at all.
 * Each side found on an edge is placed on it to the pixel on full-size frames, then moved ``SAFE_PX`` inside, so no
   sliver of border shows.
 
@@ -341,25 +343,28 @@ def _border(stats: _Stats, side: Side, at: int, span: tuple[int, int]) -> bool:
     return support - (sum(around) / len(around) if around else 0.0) >= RIDGE
 
 
-def _snap(stats: _Stats, box: Box, reach: tuple[int, int], limit: Box, *, outermost: bool) -> tuple[Box, set[Side]]:
+def _snap(
+    stats: _Stats, box: Box, reach: tuple[int, int], limit: Box, *, outermost: bool, inside: int = 0
+) -> tuple[Box, set[Side]]:
     """Move each side of ``box`` out, up to ``reach`` (x, y) pixels and never past ``limit``, to a border
-    (``_border``): the outermost one in reach, or the first one met. Sides that find none stay. Returns the box and
+    (``_border``): the outermost one in reach, or the first one met. With ``inside``, a border up to that many pixels
+    inside the side counts too (``box`` rounded out to whole cells). Sides that find none stay. Returns the box and
     the sides that found a border."""
     x0, y0, x1, y1 = box
     snapped: set[Side] = set()
     for _ in range(2):  # a side's span depends on the other sides
         for side in SIDES:
             if side == "left":
-                options = range(max(limit[0], x0 - reach[0]), x0 + 1)
+                options = range(max(limit[0], x0 - reach[0]), x0 + inside + 1)
                 span = (y0, y1)
             elif side == "right":
-                options = range(min(limit[2], x1 + reach[0]), x1 - 1, -1)
+                options = range(min(limit[2], x1 + reach[0]), x1 - inside - 1, -1)
                 span = (y0, y1)
             elif side == "top":
-                options = range(max(limit[1], y0 - reach[1]), y0 + 1)
+                options = range(max(limit[1], y0 - reach[1]), y0 + inside + 1)
                 span = (x0, x1)
             else:
-                options = range(min(limit[3], y1 + reach[1]), y1 - 1, -1)
+                options = range(min(limit[3], y1 + reach[1]), y1 - inside - 1, -1)
                 span = (x0, x1)
             for at in options if outermost else reversed(options):
                 if _border(stats, side, at, span):
@@ -406,6 +411,17 @@ def _iou(a: Box, b: Box) -> float:
     return inter / union if union else 0.0
 
 
+def _same_place(a: Box, b: Box) -> bool:
+    """Two stretches' webcams are one place: they overlap enough, or one lies inside the other (a speaker who stands
+    still on one side moves only part of the inset)."""
+    pad = CELL
+
+    def within(i: Box, o: Box) -> bool:
+        return i[0] >= o[0] - pad and i[1] >= o[1] - pad and i[2] <= o[2] + pad and i[3] <= o[3] + pad
+
+    return _iou(a, b) >= SAME_PLACE or within(a, b) or within(b, a)
+
+
 def _union(boxes: Sequence[Box]) -> Box:
     return min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)
 
@@ -425,7 +441,7 @@ def _camera_spans(frames: NDArray[np.uint8]) -> list[tuple[int, int, Box]]:
         last = groups[-1][-1][2] if groups else None
         if groups and (
             (last is None and item[2] is None)
-            or (last is not None and item[2] is not None and _iou(last, item[2]) >= SAME_PLACE)
+            or (last is not None and item[2] is not None and _same_place(last, item[2]))
         ):
             groups[-1].append(item)
         else:
@@ -472,12 +488,19 @@ def _slides_in(stats: _Stats, camera: Box | None) -> tuple[Box, set[Side]]:
         elif camera[3] <= extent[1]:
             y0 = camera[3]
         limit = (x0, y0, x1, y1)
-    return _snap(stats, extent, (w, h), limit, outermost=True)
+    box, snapped = _snap(stats, extent, (w, h), limit, outermost=True, inside=CELL)
+    # a side with no border: out to the limit, so content that rarely reaches the frame's edge is not cut
+    out = {"left": limit[0], "top": limit[1], "right": limit[2], "bottom": limit[3]}
+    found = {"left": box[0], "top": box[1], "right": box[2], "bottom": box[3]}
+    sides = {s: found[s] if s in snapped else out[s] for s in SIDES}
+    return (sides["left"], sides["top"], sides["right"], sides["bottom"]), snapped
 
 
-def _refine(grey: Sequence[NDArray[np.float32]], box: Box, scale: tuple[float, float], snapped: set[Side]) -> Box:
-    """``box`` (analysis pixels) at full size: each side that sits on an edge placed on the strongest edge within a
-    cell of it, then ``SAFE_PX`` inside."""
+def _refine(
+    grey: Sequence[NDArray[np.float32]], box: Box, scale: tuple[float, float], snapped: set[Side], *, near: int = 1
+) -> Box:
+    """``box`` (analysis pixels) at full size: each side that sits on an edge placed on the strongest edge within
+    ``near`` analysis pixels of it, then ``SAFE_PX`` inside."""
     sx, sy = scale
     full_h, full_w = grey[0].shape
     x0, y0, x1, y1 = round(box[0] * sx), round(box[1] * sy), round(box[2] * sx), round(box[3] * sy)
@@ -488,7 +511,7 @@ def _refine(grey: Sequence[NDArray[np.float32]], box: Box, scale: tuple[float, f
         size = full_w if vertical else full_h
         if at in (0, size):
             continue  # the frame's own edge
-        reach = int(np.ceil(sx if vertical else sy)) + 2
+        reach = int(np.ceil(near * (sx if vertical else sy))) + 2
         lo_span, hi_span = (y0, y1) if vertical else (x0, x1)
         best, best_at = -1.0, at
         for b in range(max(1, at - reach), min(size - 1, at + reach) + 1):
@@ -557,7 +580,8 @@ def find_regions(path: Path) -> Found:
     camera_box = _union(camera_boxes) if camera_boxes else None
     analysis_camera = _union([box for _, _, box in spans]) if spans else None
     slides_box, snapped = _slides_in(_stats(frames), analysis_camera)
-    slides_full = _trim_bars(grey, _refine(grey, slides_box, scale, snapped))
+    # a slide side is the outermost position that passes ``_border``, which tolerates 2 analysis pixels
+    slides_full = _trim_bars(grey, _refine(grey, slides_box, scale, snapped, near=3))
     camera_spans = (
         tuple(
             CameraSpan(

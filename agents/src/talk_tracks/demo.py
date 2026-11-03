@@ -80,13 +80,15 @@ from .lecture import clock as hang_clock
 from .moq import AUDIO_IDLE_S, WRITER_QUEUE, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest
+from .regions import FILE as REGIONS_FILE
+from .regions import LectureRegions, SlidesSpec, beside, load, resolve
 from .replay import Cue, MediaClock, event_us, session_events
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog, room_service_tracks, speaker_sources, speaker_tracks
 from .runtime import now_ms
 from .session import RoomStates, SessionPlan, honest_recording, next_epoch, tail_ms
 from .slicing import Placed, Room, Template, cues, room_catalog
-from .slideshow import Crop, Slide, find_slides
+from .slideshow import Slide, find_slides
 
 log = logging.getLogger("talk_tracks.demo")
 HEARTBEAT_S = 2.0  # how often the catalogs go out again, for late subscribers
@@ -524,8 +526,10 @@ async def record_room(relay: Relay, room: str, rec: RecordingWriter) -> None:
 # --- commands ---------------------------------------------------------------------------------------------------
 
 
-async def _find_slides(media: Path, crop: Crop | None) -> list[Slide] | None:
-    """Before connecting: the scan decodes every keyframe (about a minute for a 20-minute lecture)."""
+async def _find_slides(media: Path, spec: SlidesSpec, regions: LectureRegions | None = None) -> list[Slide] | None:
+    """Before connecting: the scan decodes every keyframe (about a minute for a 20-minute lecture). ``spec`` ``auto``
+    cuts the slides from the lecture's slide region (``regions.json``, the whole frame without one)."""
+    crop = resolve(spec, regions if regions is not None else load(beside(media)))
     if crop is None:
         return None
     found = await asyncio.to_thread(find_slides, media, crop)
@@ -549,7 +553,7 @@ async def play(
     loops: int | None,
     token: str | None,
     insecure: bool,
-    slides: Crop | None = None,
+    slides: SlidesSpec = None,
 ) -> None:
     """The lecture as the speaker, ``loops`` times back to back on one rising media clock (None: forever)."""
     info = probe(media)
@@ -620,6 +624,7 @@ async def run_session(
     found: list[Slide] | None,
     archive_root: Path,
     gap_s: float,
+    regions: LectureRegions | None = None,
     token: str | None,
     insecure: bool,
 ) -> None:
@@ -644,6 +649,8 @@ async def run_session(
             built = with_slides(built, room)
         else:
             built = replace(built, sources=speaker_sources(room, audio=True, camera=info.video is not None))
+        if regions is not None:  # the slide area and the webcam inset of the composed frame
+            built = replace(built, regions=regions.wire())
         room_track = next(t for t in room_service_tracks(room) if t.name == ROOM_TRACK)
         return with_room_service(replace(built, tracks=(*built.tracks, room_track)), room)
 
@@ -706,7 +713,7 @@ async def session(
     media: Path | None,
     token: str | None,
     insecure: bool,
-    slides: Crop | None = None,
+    slides: SlidesSpec = None,
     live: bool,
     gap_s: float,
     archive_root: Path,
@@ -733,7 +740,8 @@ async def session(
             ", ".join(f"{a.info.name} ({a.track}, {len(a.groups)} groups)" for a in template.agents)
             or "no agent tracks",
         )
-    found = await _find_slides(lecture, slides)
+    regions = load(beside(lecture))
+    found = await _find_slides(lecture, slides, regions)
     number = 0
     while True:
         plan = SessionPlan(number, next_epoch(now_ms() + 1000), info.duration_ms, end_ms)
@@ -745,6 +753,7 @@ async def session(
             info=info,
             template=template,
             found=found,
+            regions=regions,
             archive_root=archive_root,
             gap_s=gap_s,
             token=token,
@@ -792,7 +801,7 @@ async def serve_recording(
     *,
     archive_root: Path,
     media: Path | None,
-    slides: Crop | None,
+    slides: SlidesSpec,
     token: str | None,
     insecure: bool,
 ) -> None:
@@ -810,7 +819,10 @@ async def serve_recording(
     end_ms = (last_slice + 1) * SLICE_MS - 1  # within the room track's last slice, which holds the end
     agents_dir = archive_root / room / "agents"
     agents = {a: listdir(agents_dir / a) for a in listdir(agents_dir)}
-    found = await _find_slides(media, slides) if media is not None else None
+    # the lecture's regions: beside it, else the copy record-archive keeps in the room's folder
+    regions = load(beside(media)) if media is not None else None
+    regions = regions or load(archive_root / room / REGIONS_FILE)
+    found = await _find_slides(media, slides, regions) if media is not None else None
     deck = LectureSlides.of(found, (last_slice + 1) * SLICE_MS) if found else None
     feed = CatalogFeed(room, archive_root)
     feed.agents = set(agents)
@@ -819,6 +831,7 @@ async def serve_recording(
     feed.event_tracks = (*(t for t in speaker_tracks(room) if deck is not None and t.name in TRACKS), room_track)
     slides_source = Source(kind="slides", namespace=slides_path(room), tracks=list(TRACKS))
     feed.sources = (*speaker_sources(room, audio=True, camera=True), *((slides_source,) if deck else ()))
+    feed.regions = regions.wire() if regions is not None else None
     async with connect(url, token=token, insecure=insecure) as relay:
         for agent, tracks in agents.items():
             for name in tracks:
@@ -872,7 +885,7 @@ async def generate(
     tail_s: float,
     token: str | None,
     insecure: bool,
-    slides: Crop | None = None,
+    slides: SlidesSpec = None,
 ) -> None:
     """Play the lecture once into ``room`` (where agents run) while recording their tracks into ``out``."""
     lecture = copy_lecture(media, out)

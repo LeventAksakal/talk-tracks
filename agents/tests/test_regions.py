@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
+from talk_tracks import cli
 from talk_tracks.contracts import RoomCatalog as MsfRoomCatalog
 from talk_tracks.regions import (
     AUTO,
@@ -53,6 +55,7 @@ def lectures(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "still": make_layout_lecture(root / "still.mp4"),
         "moved": make_layout_lecture(root / "moved.mp4", move_at_s=60),
         "boxed": make_layout_lecture(root / "boxed.mp4", seconds=80, bars=40, cut_s=(30, 40)),
+        "full": make_layout_lecture(root / "full.mp4", seconds=100, cut_s=(40, 60), full_frame=True),
     }
 
 
@@ -84,6 +87,26 @@ def test_a_letterboxed_slide_loses_its_bars_and_a_stage_cut_is_left_out(lectures
     assert found.found["off_layout"] == 10  # the keyframes of the 10 s stage shot, one a second
     assert found.camera is not None
     assert_near(found.camera, edges(CAMERA))
+
+
+def test_full_frame_slides_cut_with_the_stage_are_the_whole_frame_and_no_inset(lectures: dict[str, Path]) -> None:
+    # No border anywhere: every side goes out to the frame's edge, so the photo at the left edge is not cut.
+    found = find_regions(lectures["full"]).regions
+    assert found.slides == Crop(0, 0, 1, 1)
+    assert found.camera is None  # the camera tile shows the whole video, which is the stage camera half the time
+    assert found.found["off_layout"] == 20  # the 20 s stage shot
+
+
+def test_find_regions_writes_regions_json_beside_the_lecture(tmp_path: Path, lectures: dict[str, Path]) -> None:
+    media = tmp_path / "lecture.mp4"
+    shutil.copyfile(lectures["still"], media)
+    cli.main(["find-regions", "--media", str(media), "--sheet", str(tmp_path / "sheet.jpg")])
+    found = load(beside(media))
+    assert found is not None and found.camera is not None
+    assert_near(found.slides, edges(SLIDES))
+    assert_near(found.camera, edges(CAMERA))
+    assert (tmp_path / "sheet.jpg").stat().st_size > 10_000
+    assert resolve(slides_spec("auto"), found) == found.slides  # what --slides auto cuts the deck from
 
 
 def test_every_slide_is_cut_whole_from_the_found_area(lectures: dict[str, Path]) -> None:

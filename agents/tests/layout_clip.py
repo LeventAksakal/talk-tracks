@@ -4,6 +4,8 @@
 H.264 (no B-frames, a keyframe a second), no audio. A static dark backdrop with a logo; a new slide every 10 s in
 ``SLIDES``, some with content at their very edges (the margins a fixed crop cut); a webcam in ``CAMERA``: a textured
 wall with sensor noise and a speaker who sways and nods. With ``move_at_s`` the inset jumps to ``CAMERA_MOVED``.
+With ``full_frame``, no layout: the slides fill the frame and the video cuts to the stage camera for ``cut_s`` (the
+``qrcode`` lecture), some slides with a photo out to the frame's left edge.
 """
 
 from __future__ import annotations
@@ -49,15 +51,18 @@ def make_layout_lecture(
     move_at_s: float | None = None,
     bars: int = 0,
     cut_s: tuple[float, float] | None = None,
+    full_frame: bool = False,
 ) -> Path:
     rng = np.random.default_rng(7)
     backdrop = np.zeros((H, W, 3), dtype=np.uint8)
     backdrop[:] = (28, 18, 46)
     backdrop[300:340, 24:110] = (230, 200, 40)  # the logo
-    sx, sy, sw, sh = SLIDES
+    sx, sy, sw, sh = (0, 0, W, H) if full_frame else SLIDES
     slides = [np.zeros((sh, sw, 3), dtype=np.uint8) for _ in range(seconds // 10 + 1)]
     for n, picture in enumerate(slides):
         picture[:, bars : sw - bars] = _slide(rng, n, sw - 2 * bars, sh)
+        if full_frame and n % 5 == 2:  # a photo to the frame's edge: rare, so a content extent misses it
+            picture[sh // 4 : sh - 4, 0 : sw // 3] = rng.integers(0, 255, (sh - 4 - sh // 4, sw // 3, 3))
     stage = rng.integers(0, 255, (H // 8, W // 8, 3)).astype(np.uint8).repeat(8, axis=0).repeat(8, axis=1)
     cw, ch = CAMERA[2], CAMERA[3]
     wall = (rng.integers(90, 140, (ch, cw, 1)) * np.ones((1, 1, 3))).astype(np.int16)
@@ -78,7 +83,8 @@ def make_layout_lecture(
             cam[head] = (210, 160, 130)
             cam[body] = (40, 70, 160)
             x, y, _, _ = CAMERA_MOVED if move_at_s is not None and t >= move_at_s else CAMERA
-            img[y : y + ch, x : x + cw] = np.clip(cam, 0, 255).astype(np.uint8)
+            if not full_frame:
+                img[y : y + ch, x : x + cw] = np.clip(cam, 0, 255).astype(np.uint8)
             if cut_s is not None and cut_s[0] <= t < cut_s[1]:
                 img = np.roll(stage, i, axis=1)
             frame = av.VideoFrame.from_ndarray(img, format="rgb24")
