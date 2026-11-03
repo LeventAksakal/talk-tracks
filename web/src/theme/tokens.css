@@ -171,8 +171,10 @@
   --color-border-emphasized: var(--tt-color-field);
   --color-text-primary: var(--tt-color-text);
   --color-text-secondary: var(--tt-color-text-muted);
-  --color-accent: var(--tt-color-accent);
-  --color-on-accent: var(--tt-color-on-accent);
+  /* The design system's primary (buttons, switches on) is the one primary token everywhere: the play colour. Links
+     and focus keep the accent blue. */
+  --color-accent: var(--tt-color-play);
+  --color-on-accent: var(--tt-color-on-play);
   --color-text-accent: var(--tt-color-accent);
   --color-success: var(--tt-color-ready);
   --color-warning: var(--tt-color-degraded);
