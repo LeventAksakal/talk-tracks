@@ -18,7 +18,8 @@ import { type LanguageReadiness, languageReadiness, translationFor } from "./tra
 const READINESS_NOTE: Record<LanguageReadiness, string | undefined> = {
   running: "running in this room",
   recorded: "recorded in this room",
-  "on-request": "starts when picked · takes a moment",
+  // Said once, under the search field, rather than on every language row.
+  "on-request": undefined,
   absent: undefined,
 };
 const READY_FIRST: Record<LanguageReadiness, number> = { running: 0, recorded: 0, "on-request": 1, absent: 2 };
@@ -132,6 +133,7 @@ export function CaptionsMenu() {
         autoComplete="off"
         onChange={(e) => setQuery(e.target.value)}
       />
+      <p className="tt-menu-note">A language not yet running starts when you pick it, after a moment.</p>
       <div className="tt-menu-list" role="group" aria-label="Languages">
         {results.map((o) => {
           return (

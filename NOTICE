@@ -137,14 +137,14 @@ Eight frames of the four demo lectures in section 6, two per talk, cut from the 
 16:9 and saved as WebP (480 px, and up to 960 px wide). They are adaptations of those CC BY-SA 4.0 works and are
 shared under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Credit: the talk's speaker,
 Electromagnetic Field 2026, recorded by the EMF Video Team and C3VOC. The hub shows each still's credit next to it.
-Slides whose main content is a photograph or someone else's figure were left out (ticket 0001, decision 0036);
-these show the speakers' own slides or the speakers themselves.
+Every still is a slide the speaker made; slides whose main content is a photograph or someone else's figure were
+left out (ticket 0001, decision 0036).
 
 - virus.webp: slide 14, "Alternate Reading Frames", at 12:24 of the cut; Christopher Binny
 - virus-rec.webp: a slide of a viral genome map, at 10:00; Christopher Binny
-- dataviz.webp: Charlotte Rutherford speaking by video link, at 1:42; Charlotte Rutherford
-- dataviz-rec.webp: slide "Rule (of thumb) 2: The Visual Variable Matters", at 7:12; Charlotte Rutherford
+- dataviz.webp: slide "Rule (of thumb) 3: Keep the Task In Mind", at 9:16; Charlotte Rutherford
+- dataviz-rec.webp: slide "Putting it all together", at 17:16; Charlotte Rutherford
 - rsa.webp: slide "Classical Public Key Encryption", at 13:12; Lucy Bell
 - rsa-rec.webp: slide "Fundamentals of Quantum Mechanics", at 10:24; Lucy Bell
-- qrcode.webp: Jon Ginn on stage, at 0:24; Jon Ginn
-- qrcode-rec.webp: the stage and audience, at 0:02; Jon Ginn
+- qrcode.webp: slide of four 2D codes (Codablock, Data Matrix, Aztec Code, PDF417), at 6:00; Jon Ginn
+- qrcode-rec.webp: slide "Hot Tip: If you flip a QR code it doesn't work", at 13:36; Jon Ginn

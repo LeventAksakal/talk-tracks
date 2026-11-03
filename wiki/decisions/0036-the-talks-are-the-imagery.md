@@ -38,6 +38,15 @@ thumbnail etc. disect the talks use the slides or other images on the web".
 * Bad: 720p sources limit the hero still to 960 px, slightly soft on a 2x display.
 * Bad: the stills are chosen by hand; a new demo lecture needs its frames picked the same way.
 
+### Revision, 2026-11-03 (judges' round 1)
+
+* Every still is a slide; no row mixes slides and faces. The stage shots are gone.
+* The logomark is one colour (the three lane colours read as a generic AI mark).
+* Every surface is opaque, menus included; one primary button colour (`--tt-color-play`).
+* The hub shows each talk once live and once recorded (a fixed featured talk, a Live now row of the others,
+  Recordings), and renders its shell from static data so nothing reflows when the relay answers.
+* The player stays dark in both page themes, on purpose (design-intent.md, Player).
+
 ## More Information
 
 Per-surface intent and what each leaves out: `wiki/product/design-intent.md`. The frames are listed with their times

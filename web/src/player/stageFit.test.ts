@@ -58,4 +58,20 @@ describe("the stage keeps the slides uncovered", () => {
     expect(fit).toMatchObject({ right: 0, bottom: 0 });
     expect(fit.main.width).toBeCloseTo(1440, 0);
   });
+
+  it("never puts the slides under the title", () => {
+    const titleReach = 64;
+    const title: Box = { left: 0, top: 0, width: 4000, height: titleReach };
+    for (const stage of stages)
+      for (const corner of [undefined, { aspect: webcam, widthFrac: 0.24 }])
+        for (const captions of [undefined, 80]) {
+          const fit = fitStage({ ...stage, ...base, corner, captions, titleReach });
+          expect(overlap(fit.main, title), JSON.stringify({ stage, corner, captions })).toBe(false);
+        }
+  });
+
+  it("keeps the slides as large as before when, centred, they already clear the title", () => {
+    const tall = { width: 1080, height: 900, ...base, main: 16 / 9 };
+    expect(fitStage({ ...tall, titleReach: 64 }).main).toEqual(fitStage(tall).main);
+  });
 });

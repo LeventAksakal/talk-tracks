@@ -75,6 +75,8 @@ export interface PlayerState {
   pill: string;
   /** The pill is a Go live button. */
   canGoLive: boolean;
+  /** Live over the WebSocket fallback, the slower path: said in Stats for nerds, not in the pill. */
+  slowerPath?: boolean;
   /** A card over the canvas, when the state needs one. */
   card?: {
     title: string;
@@ -260,7 +262,12 @@ export function playerState(input: PlayerStateInput): PlayerState {
         hub: true,
       },
     };
-  // A demo room is a live session of a recorded lecture (decision 0032): live, from a recording, never a loop.
-  const pill = ["LIVE", input.looped ? "session from a recording" : "", input.slowerPath ? "WebSocket" : ""];
-  return { kind: "live", pill: pill.filter(Boolean).join(" · "), canGoLive: false };
+  // A demo room is a live session of a recorded lecture (decision 0032): live, from a recording, never a loop. The
+  // pill says so in two words; how the connection runs is for Stats for nerds.
+  return {
+    kind: "live",
+    pill: input.looped ? "Live replay" : "LIVE",
+    canGoLive: false,
+    ...(input.slowerPath ? { slowerPath: true } : {}),
+  };
 }

@@ -11,10 +11,13 @@ import { Hero } from "./hub/Hero";
 import { PlusIcon, SearchIcon } from "./hub/icons";
 import { hubRows } from "./hub/items";
 import { Row } from "./hub/Row";
-import { Tile, TileSkeleton } from "./hub/Tile";
+import { Tile } from "./hub/Tile";
 import { type AnnounceSource, type RelayRooms, watchRelayRooms } from "./liveRooms";
 import { fetchRecordings, type Recording } from "./recordings";
 import { readRecent } from "./recentRooms";
+
+/** A no-break space: a speaker's name never breaks across lines. */
+const NBSP = " ";
 
 export interface LandingPageProps {
   /** The relay connection for what is on air; by default the hub's own narrow watch (teacherAnnouncements.ts). */
@@ -32,9 +35,11 @@ export function roomFrom(input: string): string | null {
 }
 
 /**
- * The hub (J2, J5, J8; decision 0033): a streaming front page. The hero shows what is on air; rows of cards hold the
- * live sessions and talks, what this browser watched lately and the recordings. Join takes a room name, an audience
- * link or a speaker link; Start a talk opens its modal.
+ * The hub (J2, J5, J8; decisions 0033, 0036): a streaming front page. The hero features one demo lecture's live
+ * session; rows of cards hold the other live sessions and talks on air, what this browser watched lately and the
+ * recordings, so each talk shows once live and once recorded. Everything a first paint needs comes from static data
+ * (the demo lectures and their recordings), so nothing moves when the relay and the archive answer. Join takes a room
+ * name, an audience link or a speaker link; Start a talk opens its modal.
  */
 export function LandingPage({ transport, create, recordings: loadRecordings = fetchRecordings }: LandingPageProps) {
   const relay = useRelayRooms(transport);
@@ -43,6 +48,7 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
   const [starting, setStarting] = useState(false);
   const rows = useMemo(() => hubRows({ relay, recordings, recent }), [relay, recordings, recent]);
   const relayDown = relay?.status === "failed" || relay?.status === "disconnected";
+  const note = relayDown ? "Live status is unavailable right now." : undefined;
 
   return (
     <div className="hub">
@@ -53,10 +59,10 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
         </Link>
         <nav className="hub-nav" aria-label="Sections">
           <a href="#live">Live</a>
-          {rows.recordings.length ? <a href="#recordings">Recordings</a> : null}
+          <a href="#recordings">Recordings</a>
         </nav>
         <JoinRoom />
-        <button type="button" className="hub-btn hub-btn-accent hub-start" onClick={() => setStarting(true)}>
+        <button type="button" className="hub-btn hub-btn-quiet hub-start" onClick={() => setStarting(true)}>
           <PlusIcon />
           Start a talk
         </button>
@@ -64,12 +70,16 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
 
       <main className="hub-main" id="main">
         <h1 className="sr-only">Talk Tracks</h1>
-        <Hero items={rows.featured} paused={starting} />
+        <Hero item={rows.featured} />
 
         <div className="hub-rows">
-          <Row id="live" title="Live now" note={relayDown ? "Live status is unavailable right now." : undefined}>
+          <Row
+            id="live"
+            title="Live now"
+            note={note ?? "Recorded talks replayed live, with live subtitles and tracks."}
+          >
             {rows.live.map((item) => (
-              <Tile key={item.room} item={item} />
+              <Tile key={item.room} item={item} live={false} />
             ))}
           </Row>
 
@@ -81,13 +91,7 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
             </Row>
           ) : null}
 
-          {recordings === undefined ? (
-            <Row id="recordings" title="Recordings" busy>
-              {DEMO_ROOMS.map((d) => (
-                <TileSkeleton key={d.room} />
-              ))}
-            </Row>
-          ) : rows.recordings.length ? (
+          {rows.recordings.length ? (
             <Row id="recordings" title="Recordings" note="The whole lecture, from the start.">
               {rows.recordings.map((item) => (
                 <Tile key={item.room} item={item} />
@@ -99,8 +103,8 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
 
       <footer className="hub-foot">
         <p>
-          Live talks with AI tracks you pick: captions, translations, slide descriptions and chapters. No relay?{" "}
-          <Link href="/demo">Try the offline demo</Link>.
+          Live talks with AI tracks you pick: captions, translations, slide descriptions and chapters. Can&rsquo;t
+          connect? <Link href="/demo">Watch the offline demo</Link>.
         </p>
         <p className="hub-credits">
           Demo lectures, and the stills from their recordings: {DEMO_CREDIT},{" "}
@@ -108,7 +112,7 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
             <span key={d.room}>
               {i ? ", " : null}
               <a href={d.source} rel="noreferrer" target="_blank">
-                {d.speaker}
+                {d.speaker.replaceAll(" ", NBSP)}
               </a>
             </span>
           ))}

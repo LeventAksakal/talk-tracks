@@ -5,7 +5,7 @@
 //   the social card (1200x630)                                    -> public/og.png
 //   the demo video's title and end cards (1920x1080)              -> public/brand/video/
 //
-// The look is the streaming one (decisions 0033 and 0036): the logomark's three lanes in the lane colours on a plain
+// The look is the streaming one in quiet chrome (decisions 0033 and 0036): the logomark in one colour on a plain
 // dark ground; the cards show the talks by frames of their own recordings (web/public/talks/). No mascot, no glow.
 //
 // Run from anywhere with Node 23.6 or later (it strips the types itself):
@@ -26,22 +26,17 @@ const BRAND = join(PUBLIC, "brand");
 const VIDEO = join(BRAND, "video");
 
 // Tokens (web/src/theme/tokens.css): the dark ground and text; the "on light" files use the ground as ink.
-const GROUND = "#07080d";
-const TEXT = "#f2f4f9";
-const MUTED = "#a2aabd";
-const LANE = ["#ff4f8b", "#4f8bff", "#20d3ae"] as const;
+const GROUND = "#0e0e10";
+const TEXT = "#ededeb";
+const MUTED = "#a2a2a6";
 
 // --- the logomark: a play button cut into three lanes (the Reference Canvas's "Play of lanes") -------------------
 // One talk, many tracks. Solid, so it holds at 16 px. Drawn on a 64 grid; the ink spans x 12.5-57.5, y 4.5-59.5.
 const MARK_LANES = ["M14 6L33.4 18H14Z", "M14 26H46.3L56 32L46.3 38H14Z", "M14 46H33.4L14 58Z"];
 const MARK_D = MARK_LANES.join("");
-/** The mark in one colour (`fill`), or in the three lane colours. */
-const mark = (fill: string | "lanes") =>
-  fill === "lanes"
-    ? MARK_LANES.map(
-        (d, i) => `<path d="${d}" fill="${LANE[i]}" stroke="${LANE[i]}" stroke-width="3" stroke-linejoin="round"/>`,
-      ).join("")
-    : `<path d="${MARK_D}" fill="${fill}" stroke="${fill}" stroke-width="3" stroke-linejoin="round"/>`;
+/** The mark, in one colour (decision 0036: the three lane colours read as a stock start-up mark). */
+const mark = (fill: string) =>
+  `<path d="${MARK_D}" fill="${fill}" stroke="${fill}" stroke-width="3" stroke-linejoin="round"/>`;
 const MARK_BOX = { x: 12.5, y: 4.5, w: 45, h: 55 };
 
 // --- the wordmark: "Talk Tracks" as outlines ----------------------------------------------------------------------
@@ -75,7 +70,7 @@ function lockup(fill: string) {
   const gap = 300;
   const tx = markW + gap - wx0;
   const body =
-    `<g transform="translate(${r1(-MARK_BOX.x * s)} ${r1(wy0 - MARK_BOX.y * s)}) scale(${r1(s, 1000)})">${mark("lanes")}</g>` +
+    `<g transform="translate(${r1(-MARK_BOX.x * s)} ${r1(wy0 - MARK_BOX.y * s)}) scale(${r1(s, 1000)})">${mark(fill)}</g>` +
     `<g transform="translate(${r1(tx)} 0)"><path d="${WORD.d}" fill="${fill}"/></g>`;
   const width = markW + gap + (wx1 - wx0);
   const pad = 24;
@@ -84,7 +79,7 @@ function lockup(fill: string) {
 const r1 = (n: number, k = 10) => Math.round(n * k) / k;
 
 /**
- * favicon.svg: on a light browser theme the lane mark sits on a dark tile; on a dark one the tile goes and the mark
+ * favicon.svg: on a light browser theme the mark sits on a dark tile; on a dark one the tile goes and the mark
  * fills the square on the dark tab strip.
  */
 function favicon(followDark = true) {
@@ -94,7 +89,7 @@ function favicon(followDark = true) {
       ? `<style>@media (prefers-color-scheme:dark){.t{display:none}.m{transform:translate(-3px,-4px) scale(1.15)}}</style>`
       : "") +
     `<rect class="t" width="64" height="64" rx="14" fill="${GROUND}"/>` +
-    `<g class="m" transform="translate(6 6) scale(.8125)">${mark("lanes")}</g></svg>\n`
+    `<g class="m" transform="translate(6 6) scale(.8125)">${mark(TEXT)}</g></svg>\n`
   );
 }
 
@@ -115,7 +110,7 @@ body{font-family:"Atkinson Hyperlegible Next",sans-serif;color:${TEXT}}
 .still{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .1)}
 </style></head><body>${body}</body></html>`;
 
-/** An app icon: the lane mark on the dark ground. `inset` is the mark's share of the side. */
+/** An app icon: the mark on the dark ground. `inset` is the mark's share of the side. */
 function iconPage(size: number, { rounded, inset }: { rounded: boolean; inset: number }) {
   const side = size * inset;
   const scale = side / MARK_BOX.h;
@@ -126,14 +121,14 @@ function iconPage(size: number, { rounded, inset }: { rounded: boolean; inset: n
     size,
     `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">` +
       `<rect width="${size}" height="${size}" rx="${rounded ? size * 0.22 : 0}" fill="${GROUND}"/>` +
-      `<g transform="translate(${r1(ox)} ${r1(oy)}) scale(${r1(scale, 1000)})">${mark("lanes")}</g></svg>`,
+      `<g transform="translate(${r1(ox)} ${r1(oy)}) scale(${r1(scale, 1000)})">${mark(TEXT)}</g></svg>`,
   );
 }
 
 /** The mark and the name in a row, `h` px tall. */
 const brandRow = (h: number) =>
   `<div style="display:flex;align-items:center;gap:${r1(h * 0.32)}px">
-    <svg width="${r1((h * MARK_BOX.w) / MARK_BOX.h)}" height="${h}" viewBox="${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.w} ${MARK_BOX.h}" overflow="visible">${mark("lanes")}</svg>
+    <svg width="${r1((h * MARK_BOX.w) / MARK_BOX.h)}" height="${h}" viewBox="${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.w} ${MARK_BOX.h}" overflow="visible">${mark(TEXT)}</svg>
     <span class="title" style="font-size:${r1(h * 0.95)}px">Talk Tracks</span>
   </div>`;
 
@@ -274,8 +269,8 @@ const write = (path: string, data: string | Buffer) => {
 };
 
 try {
-  write(join(BRAND, "logomark-on-dark.svg"), logomark("lanes"));
-  write(join(BRAND, "logomark-on-light.svg"), logomark("lanes"));
+  write(join(BRAND, "logomark-on-dark.svg"), logomark(TEXT));
+  write(join(BRAND, "logomark-on-light.svg"), logomark(GROUND));
   write(join(BRAND, "wordmark-on-dark.svg"), wordmark(TEXT));
   write(join(BRAND, "wordmark-on-light.svg"), wordmark(GROUND));
   write(join(BRAND, "lockup-on-dark.svg"), lockup(TEXT));

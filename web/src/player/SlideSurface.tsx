@@ -112,7 +112,6 @@ export function SlideSurface() {
         />
       ) : (
         <div className="tt-slide">
-          <span className="tt-slide-eyebrow">Slides</span>
           <strong className="tt-slide-title">{slideTitle()}</strong>
           {description ? (
             <p className="tt-slide-description" lang={lang} dir={dirOf(lang)}>

@@ -72,29 +72,30 @@ describe("the hub", () => {
     localStorage.clear();
   });
 
-  it("has a live session card for each demo lecture, with its live state once the relay answers", async () => {
+  it("features one demo lecture's live session and has the others in Live now, each once", async () => {
     const { transport } = setup();
-    for (const demo of DEMO_ROOMS) {
+    const [first, ...rest] = DEMO_ROOMS;
+    const hero = row("Featured talk");
+    expect(
+      within(hero)
+        .getByRole("link", { name: named("Watch live") })
+        .getAttribute("href"),
+    ).toBe(`/watch/${first!.room}`);
+    expect(within(row("Live now")).queryByRole("article", { name: first!.title })).toBeNull();
+    for (const demo of rest) {
       const play = within(card("Live now", demo.title)).getAllByRole("link", {
         name: new RegExp(escape(demo.title)),
       })[0]!;
       expect(play.getAttribute("href")).toBe(`/watch/${demo.room}`);
     }
-    // No live state while the relay has not answered.
-    expect(within(row("Live now")).queryByText("LIVE")).toBeNull();
-
+    // On air once the relay says so, and not before.
+    expect(within(hero).queryByText(/on air now/)).toBeNull();
     act(() => {
-      transport.announce("talk/dataviz/teacher");
+      transport.announce(`talk/${first!.room}/teacher`);
       transport.setStatus("connected");
     });
     await settle();
-    expect(within(card("Live now", DEMO_ROOMS[1]!.title)).getByText("LIVE")).toBeTruthy();
-    expect(within(card("Live now", DEMO_ROOMS[0]!.title)).queryByText("LIVE")).toBeNull();
-    // What is on air comes first.
-    const first = within(row("Live now")).getAllByRole("article")[0]!;
-    expect(first.getAttribute("aria-labelledby")).toBe(
-      within(row("Live now")).getByRole("article", { name: DEMO_ROOMS[1]!.title }).getAttribute("aria-labelledby"),
-    );
+    expect(within(hero).getByText(/on air now/)).toBeTruthy();
   });
 
   it("puts the talks on air, apart from the demo lectures, first in Live now", async () => {
@@ -107,7 +108,7 @@ describe("the hub", () => {
     });
     await settle();
     const links = within(row("Live now")).getAllByRole("link", { name: named("Watch live") });
-    expect(hrefs(links)).toEqual(["/watch/physics-101", "/watch/virus"]);
+    expect(hrefs(links)).toEqual(["/watch/physics-101"]);
   });
 
   it("opens a card's extended view by keyboard: its play button, languages and tracks have names", () => {
@@ -130,8 +131,8 @@ describe("the hub", () => {
   it("starts loading the watch page when a card is hovered or focused, before it is opened", () => {
     setup();
     preloadWatch.mockClear();
-    fireEvent.mouseEnter(card("Live now", DEMO_ROOMS[0]!.title));
-    fireEvent.focus(within(card("Live now", DEMO_ROOMS[1]!.title)).getAllByRole("link")[0]!);
+    fireEvent.mouseEnter(card("Live now", DEMO_ROOMS[1]!.title));
+    fireEvent.focus(within(card("Live now", DEMO_ROOMS[2]!.title)).getAllByRole("link")[0]!);
     expect(preloadWatch).toHaveBeenCalledTimes(2);
   });
 
@@ -147,11 +148,11 @@ describe("the hub", () => {
     // A recording leads back to its live session, and a live session with a recording to it.
     expect(
       within(card("Recordings", DEMO_ROOMS[0]!.title))
-        .getByRole("link", { name: named("Live session") })
+        .getByRole("link", { name: named("Live replay") })
         .getAttribute("href"),
     ).toBe("/watch/virus");
     expect(
-      within(card("Live now", DEMO_ROOMS[0]!.title))
+      within(row("Featured talk"))
         .getByRole("link", { name: named("From the start") })
         .getAttribute("href"),
     ).toBe("/watch/virus-recording");
@@ -165,12 +166,15 @@ describe("the hub", () => {
     await waitFor(() => expect(screen.queryByRole("region", { name: "Recordings" })).toBeNull());
   });
 
-  it("offers the rooms this browser watched lately", () => {
+  it("offers the rooms this browser watched lately", async () => {
     rememberRoom({ room: "physics-101", at: 1 });
     rememberRoom({ room: "rsa", at: 2 });
     setup();
     const recent = row("Continue watching");
-    expect(hrefs(within(recent).getAllByRole("link"))).toEqual(["/watch/rsa", "/watch/physics-101"]);
+    // Once the archive has answered (it has no recordings here, so no From the start link).
+    await waitFor(() =>
+      expect(hrefs(within(recent).getAllByRole("link"))).toEqual(["/watch/rsa", "/watch/physics-101"]),
+    );
   });
 
   it("joins a room by name, by its audience link, or opens a speaker link, from one box", () => {

@@ -8,13 +8,13 @@ import { RECORDING_SUFFIX, recordingOf } from "../contracts/names";
 
 /**
  * A lecture's picture on its card and in the hero: one frame of its own recording (decision 0036), a slide the
- * speaker made or the speaker on stage, cropped to 16:9 and kept in web/public/talks/ at two widths. Slides that
- * show other people's images are not used (ticket 0001).
+ * speaker made, cropped to 16:9 and kept in web/public/talks/ at two widths. One rule for every picture: a slide, never
+ * a face or a stage shot; slides that show other people's photos or figures are not used (ticket 0001).
  */
 export interface LectureStill {
   /** The files, `/talks/<stem>-480.webp` and `/talks/<stem>-<wide>.webp`. */
   stem: string;
-  /** Width of the larger file, px (the source frame is 720p, so a slide crop is narrower than 960). */
+  /** Width of the larger file, px. */
   wide: number;
   /** What it shows, for its credit line. */
   shows: "slide" | "stage" | "camera";
@@ -99,7 +99,7 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
     subject: "Design",
     minutes: 19,
     stills: {
-      live: { stem: "dataviz", wide: 960, shows: "camera" },
+      live: { stem: "dataviz", wide: 960, shows: "slide" },
       recording: { stem: "dataviz-rec", wide: 960, shows: "slide" },
     },
   },
@@ -127,8 +127,8 @@ export const DEMO_ROOMS: readonly DemoRoom[] = [
     subject: "History",
     minutes: 16,
     stills: {
-      live: { stem: "qrcode", wide: 848, shows: "stage" },
-      recording: { stem: "qrcode-rec", wide: 960, shows: "stage" },
+      live: { stem: "qrcode", wide: 960, shows: "slide" },
+      recording: { stem: "qrcode-rec", wide: 960, shows: "slide" },
     },
   },
 ];

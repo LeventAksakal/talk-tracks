@@ -23,12 +23,16 @@ export interface StageFitInput {
   dockReach: number;
   /** Space between the pictures, px. */
   gap: number;
+  /** How far the title reaches down from the stage's top edge: the main picture moves below it rather than under it. */
+  titleReach?: number;
 }
 
 export interface StageFit {
-  /** Kept clear of the main picture on the stage's right and bottom, px: the main picture is centred in the rest. */
+  /** Kept clear of the main picture on the stage's right, bottom and top, px: the main picture is centred in the rest. */
   right: number;
   bottom: number;
+  /** The title's reach when the picture, centred, would reach under the title; else 0. */
+  top: number;
   /** The main picture as drawn. */
   main: Box;
   /** The corner tile, when the player places it. */
@@ -54,6 +58,14 @@ function contain(w: number, h: number, aspect: number): Box {
   return { left: (w - width) / 2, top: (h - height) / 2, width, height };
 }
 
+/** As contain, in `w` × `h` from the top; but kept below the title (`reach` px) when centring would put it under it. */
+function containBelow(w: number, h: number, aspect: number, reach: number): { box: Box; top: number } {
+  const box = contain(w, h, aspect);
+  if (reach <= 0 || box.top >= reach) return { box, top: 0 };
+  const lower = contain(w, Math.max(0, h - reach), aspect);
+  return { box: { ...lower, top: lower.top + reach }, top: reach };
+}
+
 /**
  * Lay the stage out so nothing covers the main picture. With a corner tile, two ways are tried, and the one that
  * leaves the larger main picture wins: a band along the bottom (the tile at its right, the subtitles left of it), or
@@ -61,7 +73,7 @@ function contain(w: number, h: number, aspect: number): Box {
  * The tile and the subtitles stay above the dock, which only covers the picture while the viewer moves the mouse.
  */
 export function fitStage(input: StageFitInput): StageFit {
-  const { width: W, height: H, main: A, corner, captions, dockReach, gap } = input;
+  const { width: W, height: H, main: A, corner, captions, dockReach, gap, titleReach = 0 } = input;
   const capReserve = captions !== undefined ? captions + dockReach + gap : 0;
   // Subtitles hang from the top of the band below the main picture, between `from` and `to`.
   const captionsUnder = (bottom: number, from: number, to: number) =>
@@ -70,29 +82,32 @@ export function fitStage(input: StageFitInput): StageFit {
       : { x: (from + to) / 2, top: H - bottom + gap, maxWidth: Math.max(0, to - from - 2 * gap) };
   if (!corner) {
     const bottom = capReserve;
-    return { right: 0, bottom, main: contain(W, H - bottom, A), captions: captionsUnder(bottom, 0, W) };
+    const single = containBelow(W, H - bottom, A, titleReach);
+    return { right: 0, bottom, top: single.top, main: single.box, captions: captionsUnder(bottom, 0, W) };
   }
   const tile = cornerSize(W, corner.aspect, corner.widthFrac);
   const tileBox: Box = { left: W - gap - tile.width, top: H - dockReach - tile.height, ...tile };
   // A band along the bottom: as tall as the tile above the dock, or the subtitles, whichever needs more.
   const bandBottom = Math.max(tile.height + dockReach + gap, capReserve);
-  const band = contain(W, H - bandBottom, A);
+  const band = containBelow(W, H - bandBottom, A, titleReach);
   // A column on the right for the tile; the subtitles under the main picture.
   const colRight = tile.width + 2 * gap;
   const colBottom = capReserve;
-  const column = contain(W - colRight, H - colBottom, A);
-  if (column.width > band.width + 1)
+  const column = containBelow(W - colRight, H - colBottom, A, titleReach);
+  if (column.box.width > band.box.width + 1)
     return {
       right: colRight,
       bottom: colBottom,
-      main: column,
+      top: column.top,
+      main: column.box,
       corner: tileBox,
       captions: captionsUnder(colBottom, 0, W - colRight),
     };
   return {
     right: 0,
     bottom: bandBottom,
-    main: band,
+    top: band.top,
+    main: band.box,
     corner: tileBox,
     captions: captionsUnder(bandBottom, 0, tileBox.left),
   };

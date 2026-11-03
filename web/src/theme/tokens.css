@@ -1,4 +1,4 @@
-/* Talk Tracks design tokens: the streaming look (decision 0033), which replaced the Chalk direction.
+/* Talk Tracks design tokens: the streaming look (decision 0033) in quiet neutral chrome (decision 0036).
    The names are the contract: components use only these, so a restyle is a change of values here. New names are
    added; existing ones are never renamed (the player and the console read them).
    Every colour is light-dark(light, dark), following the system or data-theme. A light-dark() inside a custom
@@ -10,16 +10,16 @@
   color-scheme: light dark;
 
   /* Surfaces: page ground, panels and cards, menus and hover, dividers, input and switch edges (3:1) */
-  --tt-color-ground: light-dark(#f3f4f8, #07080d);
-  --tt-color-surface: light-dark(#ffffff, #10131b);
-  --tt-color-raised: light-dark(#e9ebf2, #181c27);
-  --tt-color-line: light-dark(#d6d9e3, #272d3b);
-  --tt-color-field: light-dark(#7a8194, #646d86);
-  --tt-color-scrim: rgb(4 5 10 / 0.62);
+  --tt-color-ground: light-dark(#f7f7f5, #0e0e10);
+  --tt-color-surface: light-dark(#ffffff, #19191c);
+  --tt-color-raised: light-dark(#ebebe8, #232327);
+  --tt-color-line: light-dark(#dcdcd8, #2e2e33);
+  --tt-color-field: light-dark(#7d7d78, #6c6c72);
+  --tt-color-scrim: rgb(8 8 10 / 0.62);
 
   /* Text: every pair passes 4.5:1 on ground, surface and raised */
-  --tt-color-text: light-dark(#0c0f17, #f2f4f9);
-  --tt-color-text-muted: light-dark(#4f576a, #a2aabd);
+  --tt-color-text: light-dark(#141413, #ededeb);
+  --tt-color-text-muted: light-dark(#5b5b57, #a2a2a6);
 
   /* The one accent: selection, focus, links */
   --tt-color-accent: light-dark(#3553c9, #93b4ff);
@@ -98,26 +98,25 @@
   --tt-shadow-2: 0 6px 18px rgb(0 0 0 / 0.28);
   --tt-shadow-3: 0 20px 60px rgb(0 0 0 / 0.4);
 
-  /* Glass: translucent panels over the page's light (cards, the header, dialogs). Each sits on a solid fallback
-     where backdrop-filter is missing. */
-  --tt-glass-bg: light-dark(rgb(255 255 255 / 0.6), rgb(24 28 42 / 0.5));
-  --tt-glass-bg-strong: light-dark(rgb(255 255 255 / 0.84), rgb(16 19 30 / 0.82));
-  --tt-glass-border: light-dark(rgb(12 15 23 / 0.1), rgb(255 255 255 / 0.1));
-  --tt-glass-highlight: light-dark(rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.16));
-  --tt-glass-blur: 20px;
-  --tt-glass-saturate: 1.7;
+  /* Formerly glass. Decision 0036 retired translucent panels: the names stay (the console reads them), their values
+     are now the opaque surface, a hairline and no blur. */
+  --tt-glass-bg: light-dark(#ffffff, #19191c);
+  --tt-glass-bg-strong: light-dark(#ffffff, #19191c);
+  --tt-glass-border: light-dark(rgb(20 20 19 / 0.12), rgb(255 255 255 / 0.1));
+  --tt-glass-highlight: transparent;
+  --tt-glass-blur: 0px;
+  --tt-glass-saturate: 1;
 
-  /* The brand's light: the logomark's three lanes as three colours. They wash the hero, edge the cards and mark the
-     tracks a talk carries (captions, translations, slides). Decoration only, never a state. */
+  /* The logomark's three lanes. Since decision 0036 they colour the mark only; nothing else borrows them. */
   --tt-lane-1: #ff4f8b;
   --tt-lane-2: #4f8bff;
   --tt-lane-3: #20d3ae;
   --tt-gradient-lanes: linear-gradient(100deg, var(--tt-lane-1), var(--tt-lane-2) 52%, var(--tt-lane-3));
-  --tt-shadow-glow: 0 30px 90px -30px rgb(79 139 255 / 0.55);
+  --tt-shadow-glow: none;
 
   /* The primary action of a streaming page: a bright Play on dark */
-  --tt-color-play: light-dark(#0c0f17, #ffffff);
-  --tt-color-on-play: light-dark(#ffffff, #07080d);
+  --tt-color-play: light-dark(#141413, #ffffff);
+  --tt-color-on-play: light-dark(#ffffff, #0e0e10);
 
   /* Motion: only for cause; off under reduced motion */
   --tt-duration-fast: 120ms;
@@ -138,25 +137,25 @@
    slides. The dark half of every light-dark() pair above. */
 .tt-player {
   color-scheme: dark;
-  --tt-color-ground: #07080d;
-  --tt-color-surface: #10131b;
-  --tt-color-raised: #181c27;
-  --tt-color-line: #272d3b;
-  --tt-color-field: #646d86;
-  --tt-color-text: #f2f4f9;
-  --tt-color-text-muted: #a2aabd;
+  --tt-color-ground: #0e0e10;
+  --tt-color-surface: #19191c;
+  --tt-color-raised: #232327;
+  --tt-color-line: #2e2e33;
+  --tt-color-field: #6c6c72;
+  --tt-color-text: #ededeb;
+  --tt-color-text-muted: #a2a2a6;
   --tt-color-accent: #93b4ff;
   --tt-color-on-accent: #070b1c;
   --tt-color-accent-soft: rgb(147 180 255 / 0.16);
   --tt-color-live: #ff5b52;
   --tt-color-degraded: #f6b84a;
   --tt-color-ready: #7fdc9e;
-  --tt-glass-bg: rgb(24 28 42 / 0.5);
-  --tt-glass-bg-strong: rgb(16 19 30 / 0.82);
+  --tt-glass-bg: #19191c;
+  --tt-glass-bg-strong: #19191c;
   --tt-glass-border: rgb(255 255 255 / 0.1);
-  --tt-glass-highlight: rgb(255 255 255 / 0.16);
+  --tt-glass-highlight: transparent;
   --tt-color-play: #ffffff;
-  --tt-color-on-play: #07080d;
+  --tt-color-on-play: #0e0e10;
 }
 
 /* Names that point at other tokens resolve where they are declared, so they are declared again on every scope that

@@ -13,10 +13,11 @@ import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
 import { CameraSurface, useOffLayout } from "./CameraSurface";
 import { usePlayer } from "./context";
+import { useFrameValue } from "./frameClock";
 import { Icon } from "./icons";
 import { type BoardKind, clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
 import { ScreenSurface } from "./ScreenSurface";
-import { SlideSurface } from "./SlideSurface";
+import { SlideSurface, useSlideTime } from "./SlideSurface";
 import { TileAspects } from "./SourceTile";
 import { fitStage, type StageFit } from "./stageFit";
 import { StatsForNerds } from "./StatsForNerds";
@@ -65,14 +66,24 @@ export function wholePicture(offLayout: boolean, sources: readonly SourceKind[])
   return offLayout && sources.includes("camera") && !sources.includes("screen");
 }
 
+/**
+ * Whether the camera has the stage to itself because there is no slide to show: the room has slides and a camera and
+ * no shared screen, and at this moment the speaker shows no slide (and no description stands in for one). An empty
+ * slide card is not a picture worth the stage (decision 0036); the speaker is.
+ */
+export function cameraAlone(noSlide: boolean, sources: readonly SourceKind[]): boolean {
+  return noSlide && sources.includes("camera") && sources.includes("slides") && !sources.includes("screen");
+}
+
 /** Whether a source is on screen: present, and in the layout (single shows the one chosen). */
 export function sourceShown(
   kind: SourceKind,
   prefs: Pick<Prefs, "layout" | "single" | "board">,
   sources: readonly SourceKind[],
   offLayout = false,
+  noSlide = false,
 ): boolean {
-  if (wholePicture(offLayout, sources)) return kind === "camera";
+  if (wholePicture(offLayout, sources) || cameraAlone(noSlide, sources)) return kind === "camera";
   const placed = stageSources(sources, prefs.board);
   if (!placed.includes(kind)) return false;
   if (effectiveLayout(prefs.layout, placed) !== "single" || placed.length < 2) return true;
@@ -88,8 +99,24 @@ export function sourceShown(
  * re-created.
  */
 export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFullscreen: () => void }) {
-  const { prefs, update, sources, sourcesPending, ui, setUi, state, view, playback, media, openTab, seek, listening } =
-    usePlayer();
+  const {
+    prefs,
+    update,
+    sources,
+    sourcesPending,
+    ui,
+    setUi,
+    state,
+    view,
+    playback,
+    media,
+    openTab,
+    seek,
+    listening,
+    slides,
+    clock,
+    tracks,
+  } = usePlayer();
   const stage = useRef<HTMLDivElement>(null);
   const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(clickTimer.current), []);
@@ -118,7 +145,14 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     if (sharing) update({ board: "screen" });
   }, [sharing, update]);
   const offLayout = useOffLayout();
-  const whole = wholePicture(offLayout, sources);
+  // No slide at the frame on screen (the slide track says none, and no description stands in): the camera alone.
+  const slideTime = useSlideTime();
+  const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
+  const noSlide = useFrameValue(clock, (t) => {
+    const now = slides?.slideAt(slideTime(t));
+    return now !== undefined && !now.slide && described === undefined;
+  });
+  const whole = wholePicture(offLayout, sources) || cameraAlone(noSlide, sources);
   const placed = stageSources(sources, prefs.board);
   const layout = whole ? "single" : effectiveLayout(prefs.layout, placed);
   const hasCamera = placed.includes("camera");
@@ -131,7 +165,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   // Which source is "first": the left one in split, the corner tile in the default layout.
   const first: SourceKind = prefs.swap ? board : cornerKind;
   // Until the room says what it sends, no picture: the tiles stay mounted (the live canvas with them), unseen.
-  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources, offLayout);
+  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources, offLayout, noSlide);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 
@@ -149,6 +183,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     "--corner-ar": fit.cornerAspect,
     "--fit-right": `${fit.layout?.right ?? 0}px`,
     "--fit-bottom": `${fit.layout?.bottom ?? 0}px`,
+    "--fit-top": `${fit.layout?.top ?? 0}px`,
     ...(pip ? { "--pip-x": pip.x, "--pip-y": pip.y } : {}),
   } as CSSProperties;
   const card = state.card;
@@ -178,7 +213,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         {hasCamera ? (
           <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
             {corner("camera")}
-            <CameraSurface offLayout={whole} />
+            <CameraSurface offLayout={wholePicture(offLayout, sources)} alone={whole} />
           </div>
         ) : null}
         {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}
@@ -248,24 +283,29 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         ) : null}
 
         {card ? (
-          <div className="tt-state-card" role="status" data-kind={state.kind}>
-            <span className="tt-state-glyph" aria-hidden="true" />
+          // A replay card lets the last frame show through (data-over): the talk's own picture, not an empty ground.
+          <div className="tt-state-card" role="status" data-kind={state.kind} data-over={card.replay ? "" : undefined}>
+            {card.replay || card.hub ? null : <span className="tt-state-glyph" aria-hidden="true" />}
             <strong>{card.title}</strong>
             {card.body ? <span>{card.body}</span> : null}
-            {card.retry ? (
-              <button type="button" className="tt-button" onClick={() => location.reload()}>
-                Try again
-              </button>
-            ) : null}
-            {card.replay ? (
-              <button type="button" className="tt-button" onClick={() => seek(view.timeline.start)}>
-                Replay from the start
-              </button>
-            ) : null}
-            {card.hub ? (
-              <Link href="/" className="tt-link">
-                Back to the hub
-              </Link>
+            {card.retry || card.replay || card.hub ? (
+              <div className="tt-state-actions">
+                {card.retry ? (
+                  <button type="button" className="tt-button" onClick={() => location.reload()}>
+                    Try again
+                  </button>
+                ) : null}
+                {card.replay ? (
+                  <button type="button" className="tt-button" onClick={() => seek(view.timeline.start)}>
+                    Replay from the start
+                  </button>
+                ) : null}
+                {card.hub ? (
+                  <Link href="/" className="tt-button tt-secondary">
+                    All talks
+                  </Link>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -286,6 +326,8 @@ const FIT_GAP = 12;
 const MISSED_ROOM = 48;
 /** The dock's reach above the stage's bottom edge when player.css cannot be read, px. */
 const DOCK_REACH = 112;
+/** The title's reach below the stage's top edge when player.css cannot be read, px. */
+const TITLE_REACH = 64;
 
 /**
  * The stage's size and its tiles' shapes, and from them where the main picture goes (`fitStage`): the corner tile
@@ -315,7 +357,7 @@ function useStageFit(
   /** The band under the main picture has room for "What you missed" beside the subtitles, off the slide. */
   missedLow: boolean;
 } {
-  const [size, setSize] = useState<{ width: number; height: number; dockReach: number }>();
+  const [size, setSize] = useState<{ width: number; height: number; dockReach: number; titleReach: number }>();
   const [aspects, setAspects] = useState<Partial<Record<SourceKind, number>>>({});
   const report = useCallback((kind: SourceKind, aspect: number) => {
     setAspects((a) => (Math.abs((a[kind] ?? 0) - aspect) < 1e-3 ? a : { ...a, [kind]: aspect }));
@@ -324,10 +366,14 @@ function useStageFit(
     const el = stage.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const read = () => {
-      const dockReach = parseFloat(getComputedStyle(el).getPropertyValue("--player-dock-reach")) || DOCK_REACH;
+      const css = getComputedStyle(el);
+      const dockReach = parseFloat(css.getPropertyValue("--player-dock-reach")) || DOCK_REACH;
+      const titleReach = parseFloat(css.getPropertyValue("--player-title-reach")) || TITLE_REACH;
       const { width, height } = el.getBoundingClientRect();
       setSize((s) =>
-        s && s.width === width && s.height === height && s.dockReach === dockReach ? s : { width, height, dockReach },
+        s && s.width === width && s.height === height && s.dockReach === dockReach && s.titleReach === titleReach
+          ? s
+          : { width, height, dockReach, titleReach },
       );
     };
     read();
@@ -351,6 +397,7 @@ function useStageFit(
               : undefined,
           captions,
           dockReach: size.dockReach,
+          titleReach: size.titleReach,
           gap: FIT_GAP,
         })
       : undefined;

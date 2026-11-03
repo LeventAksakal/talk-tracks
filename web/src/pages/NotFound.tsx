@@ -7,7 +7,7 @@ export function NotFound({ what = "There is no page here." }: { what?: string })
       <StateNote title="Not found">
         <p>{what}</p>
         <p>
-          <Link href="/">Back to the hub</Link>
+          <Link href="/">All talks</Link>
         </p>
       </StateNote>
     </main>

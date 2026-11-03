@@ -184,14 +184,17 @@ describe("the slower path", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("says so in the pill while the relay connection runs over the WebSocket fallback", async () => {
+  it("says so in Stats for nerds, not in the pill, while the relay connection runs over the WebSocket fallback", async () => {
     class OverWebSocket extends FakeTransport {
       wire = () => "websocket" as const;
     }
     const room = setup({ transport: new OverWebSocket() });
     await advance(300);
     const pill = [...document.querySelectorAll('[role="status"]')].find((el) => el.textContent?.startsWith("LIVE"));
-    expect(pill?.textContent).toContain("WebSocket");
+    expect(pill?.textContent).not.toContain("WebSocket");
+    fireEvent.keyDown(document.body, { key: "i" });
+    await advance(50);
+    expect(within(screen.getByRole("region", { name: "Stats for nerds" })).getByText(/WebSocket/)).toBeTruthy();
     room.close();
   });
 });
@@ -279,10 +282,10 @@ describe("a room on a connected relay, by what of it exists", () => {
 describe("player states the shell drives", () => {
   const base = { connection: "connected", everConnected: true, mode: "live", liveEdge: 60_000, behindMs: 0 } as const;
 
-  it("marks live over WebSocket as the slower path", () => {
-    expect(playerState({ ...base, onAir: true, room: "on_air", slowerPath: true }).pill).not.toBe(
-      playerState({ ...base, onAir: true, room: "on_air" }).pill,
-    );
+  it("marks live over WebSocket as the slower path, outside the pill", () => {
+    const slower = playerState({ ...base, onAir: true, room: "on_air", slowerPath: true });
+    expect(slower.slowerPath).toBe(true);
+    expect(slower.pill).toBe(playerState({ ...base, onAir: true, room: "on_air" }).pill);
   });
 
   it("gives an ended room its recording's span and a replay, live or rewound", () => {

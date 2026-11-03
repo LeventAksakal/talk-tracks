@@ -110,7 +110,7 @@ export function cameraNote(live: boolean, status: MediaStatus): string | undefin
  * RoomMedia once and never re-mounted (the live player keeps the canvas it was given), one visible per
  * mode. Volume applies to the archive element here; live audio is @moq/watch's own.
  */
-export function CameraSurface({ offLayout = false }: { offLayout?: boolean }) {
+export function CameraSurface({ offLayout = false, alone = false }: { offLayout?: boolean; alone?: boolean }) {
   const { media, view, prefs } = usePlayer();
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -195,7 +195,9 @@ export function CameraSurface({ offLayout = false }: { offLayout?: boolean }) {
       {aspect === undefined && (note !== undefined || !live) ? (
         <div className="tt-camera-empty">{note ? <span className="tt-camera-note">{note}</span> : null}</div>
       ) : null}
-      <span className="tt-source-tag">Camera</span>
+      {/* Alone on the stage the picture needs no label: there is nothing beside it to tell it from. Off its layout it is
+          the whole recorded frame (a stage shot, a slide with the event's logo), which "Camera" would misname. */}
+      {alone || offLayout ? null : <span className="tt-source-tag">Camera</span>}
     </SourceTile>
   );
 }
