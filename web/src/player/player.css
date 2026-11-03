@@ -860,6 +860,7 @@
 .tt-state-card span {
   color: var(--tt-color-text-muted);
   max-width: 46ch;
+  text-wrap: balance;
 }
 .tt-state-actions {
   display: flex;
@@ -997,7 +998,8 @@
   color: var(--tt-color-text);
   cursor: pointer;
 }
-.tt-bar-button .tt-icon {
+.tt-bar-button .tt-icon,
+.tt-mc-button .tt-icon {
   width: 22px;
   height: 22px;
 }

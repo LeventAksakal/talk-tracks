@@ -41,7 +41,10 @@ export function Controls({ quality }: { quality: boolean }) {
           <TimeRange />
         </media-control-bar>
         <media-control-bar className="tt-bar" data-menu-root="">
-          <media-play-button className="tt-mc-button" />
+          <media-play-button className="tt-mc-button">
+            {/* At a recording's end the play button replays it from the start. */}
+            {state.card?.replay ? <Icon name="replay" slot="play" /> : null}
+          </media-play-button>
           <span className="tt-volume">
             <media-mute-button className="tt-mc-button" />
             <media-volume-range className="tt-volume-range" />

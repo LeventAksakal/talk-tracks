@@ -2,6 +2,7 @@
 
 const paths = {
   play: <path d="M7 5l12 7-12 7z" fill="currentColor" />,
+  replay: <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v4h4" />,
   pause: (
     <>
       <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />

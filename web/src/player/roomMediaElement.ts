@@ -38,6 +38,9 @@ export const RESUME_BEHIND_MS = 10_000;
 /** A live position this close to the edge counts as the edge (Media Chrome's live button seeks to seekable.end). */
 const AT_EDGE_MS = 1_500;
 
+/** A recording's playhead this close to its last frame has reached its end (an archive's last frame sits a little short). */
+const END_MS = 500;
+
 const HAVE_NOTHING = 0;
 const HAVE_CURRENT_DATA = 2;
 const HAVE_ENOUGH_DATA = 4;
@@ -166,6 +169,8 @@ export class RoomMediaElement extends HTMLElement {
   #volume = 1;
   #muted = false;
   #ended = false;
+  /** The media's mode at the last change: a recording going from rewound to live has played to its end. */
+  #lastMode: "live" | "rewound" | undefined;
   #last: {
     duration: number;
     stream: string;
@@ -209,8 +214,10 @@ export class RoomMediaElement extends HTMLElement {
     this.#pausedAt = undefined;
     this.#seekTo = undefined;
     this.#ended = false;
+    this.#lastMode = undefined;
     this.#fire("emptied");
     if (!playback) return;
+    playback.setRecording(this.#span.recording !== undefined);
     this.#off = playback.subscribe(() => this.#onChange());
     playback.media.setRate?.(this.#rate);
     this.#fire("loadstart");
@@ -229,6 +236,7 @@ export class RoomMediaElement extends HTMLElement {
   setSpan(span: TalkSpan): void {
     if (span.origin === this.#span.origin && sameRange(rangeOf(span.recording), rangeOf(this.#span.recording))) return;
     this.#span = span;
+    this.#playback?.setRecording(span.recording !== undefined);
     this.#onChange();
   }
 
@@ -296,10 +304,17 @@ export class RoomMediaElement extends HTMLElement {
     if (!pb) return Promise.resolve();
     const resumeAt = this.#pausedAt;
     this.#pausedAt = undefined;
-    if (this.#ended) {
+    const rec = this.#span.recording;
+    // Play at a recording's end, or at its edge (a recording has no live side), is a replay from the start: a seek, so
+    // Media Chrome reads the ended state again (seeked).
+    if (this.#ended || (rec && pb.media.mode() === "live")) {
       this.#ended = false;
-      const start = this.#span.recording?.start;
-      if (start !== undefined) pb.seek(start);
+      if (rec) {
+        this.#fire("seeking");
+        this.#seekTo = rec.start;
+        pb.seek(rec.start);
+        this.#fire("seeked");
+      }
     } else if (resumeAt !== undefined && pb.media.mode() === "live") {
       const edge = pb.liveEdge();
       if (edge !== undefined && edge - resumeAt > RESUME_BEHIND_MS) {
@@ -331,6 +346,9 @@ export class RoomMediaElement extends HTMLElement {
     const pb = this.#playback;
     if (!pb) return undefined;
     if (this.#pausedAt !== undefined) return this.#pausedAt;
+    // Ended, a recording holds at its last frame (the room's edge can lie a little past it).
+    const rec = this.#span.recording;
+    if (this.#ended && rec) return rec.end;
     const pos = pb.media.mode() === "live" ? (pb.position() ?? pb.liveEdge()) : pb.position();
     return pos ?? this.#seekTo;
   }
@@ -412,6 +430,8 @@ export class RoomMediaElement extends HTMLElement {
   get readyState(): number {
     const pb = this.#playback;
     if (!pb || pb.liveEdge() === undefined) return HAVE_NOTHING;
+    // A recording at its end has nothing more to load (the room's live side is empty: it would read as waiting).
+    if (this.#ended) return HAVE_ENOUGH_DATA;
     return pb.media.status() === "loading" ? HAVE_CURRENT_DATA : HAVE_ENOUGH_DATA;
   }
   get seeking(): boolean {
@@ -534,10 +554,20 @@ export class RoomMediaElement extends HTMLElement {
     const pb = this.#playback;
     if (!pb) return;
     if (this.#seekTo !== undefined && pb.position() !== undefined) this.#seekTo = undefined;
-    // The recording played to its end.
+    // The recording played to its end: the playhead reached its last frame (Playback keeps a recording rewound there,
+    // playback.ts setRecording), or something took it live from a rewind. A recording has no live side, so that is its
+    // end too, not a stream to wait for.
     const rec = this.#span.recording;
     const t = this.roomTime();
-    if (rec && !this.#paused && t !== undefined && t >= rec.end - 250 && pb.media.mode() === "rewound") {
+    const mode = pb.media.mode();
+    const ranOut = mode === "live" && this.#lastMode === "rewound";
+    this.#lastMode = mode;
+    if (
+      rec &&
+      !this.#paused &&
+      !this.#ended &&
+      ((t !== undefined && t >= rec.end - END_MS && mode === "rewound") || ranOut)
+    ) {
       this.#ended = true;
       this.#paused = true;
       pb.media.pause?.();

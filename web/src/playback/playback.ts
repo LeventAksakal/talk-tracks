@@ -32,6 +32,8 @@ export class Playback {
   #disposers: (() => void)[] = [];
   #onClose: (() => void) | undefined;
   #sessionEnded = false;
+  /** The room has ended: it plays as a recording, which has no live side to go to (roomMediaElement setSpan). */
+  #recording = false;
 
   constructor(source: HistorySource, media: SpeakerMedia, room: string, options: PlaybackOptions = {}) {
     this.media = media;
@@ -52,8 +54,12 @@ export class Playback {
   /** Rewind (or move) the speaker media and every opted-in track to media time `ms`. */
   seek(ms: number): void {
     const edge = this.liveEdge();
-    const target = Math.max(0, edge === undefined ? ms : Math.min(ms, edge));
-    if (edge !== undefined && edge - target < 1_000) return this.goLive();
+    let target = Math.max(0, edge === undefined ? ms : Math.min(ms, edge));
+    if (this.#recording) {
+      // A recording has no live edge to join: a seek to its end plays its last second, and it ends there.
+      const archivedEnd = this.media.available().at(-1)?.end ?? edge;
+      if (archivedEnd !== undefined) target = Math.max(0, Math.min(target, archivedEnd - 1_000));
+    } else if (edge !== undefined && edge - target < 1_000) return this.goLive();
     this.#missed = undefined;
     this.media.seek(target);
     this.tracks.seek(target);
@@ -85,6 +91,14 @@ export class Playback {
     const from = this.#awayFrom;
     this.#awayFrom = undefined;
     if (from !== undefined) this.#setMissed(from, this.liveEdge(), "away");
+  }
+
+  /**
+   * The room has ended and plays as a recording (on): rewound media that runs out of archive stays where it is, at the
+   * recording's last frame, instead of going live by itself; the player's media element then calls it ended.
+   */
+  setRecording(on: boolean): void {
+    this.#recording = on;
   }
 
   /** The session this playback plays has ended (session.ts); a new playback joins the next one. */
@@ -137,7 +151,7 @@ export class Playback {
     if (this.media.mode() === "rewound") {
       const pos = this.media.position();
       if (pos !== undefined) this.tracks.setPosition(pos);
-      if (pos !== undefined && edge !== undefined && this.#caughtUp(pos, edge)) this.goLive();
+      if (!this.#recording && pos !== undefined && edge !== undefined && this.#caughtUp(pos, edge)) this.goLive();
     }
     this.#changed();
   }
