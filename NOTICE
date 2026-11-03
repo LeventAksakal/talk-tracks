@@ -104,9 +104,9 @@ jsonschema (MIT) and their dependencies, as listed in agents/uv.lock.
   web/public/brand/*.svg and web/scripts/brand/wordmark.json.
   SIL Open Font License 1.1: web/public/fonts/OFL-cabin-sketch.txt
 
-The icons, logo, card art, social card and video cards are drawn by code in this repository
-(web/scripts/brand/build.ts, web/src/pages/hub/) and are covered by this project's licence. No third-party images and
-no Meta logos or marks are used.
+The icons and logo are drawn by code in this repository (web/scripts/brand/build.ts) and are covered by this
+project's licence. The hub's pictures of the talks, and the social card and video title card that show them, are
+frames of the demo lectures (section 7). No other third-party images and no Meta logos or marks are used.
 
 ==============================================================================
 6. Demo lectures (served by the live site; not in this repository)
@@ -128,3 +128,23 @@ Changes: trimmed (title card, sponsor logos, jingle and closing licence card cut
 re-encoded for streaming (720p H.264, mono Opus), and AI tracks added (captions, translations, slide descriptions,
 chapters, glossary, recap) by this project's agents with Meta models. The trimmed videos and the derived tracks are
 shared under CC BY-SA 4.0. The cuts are in deploy/media/demo-lectures.sh.
+
+==============================================================================
+7. Stills from the demo lectures (web/public/talks/)
+==============================================================================
+
+Eight frames of the four demo lectures in section 6, two per talk, cut from the trimmed 720p recordings, cropped to
+16:9 and saved as WebP (480 px, and up to 960 px wide). They are adaptations of those CC BY-SA 4.0 works and are
+shared under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Credit: the talk's speaker,
+Electromagnetic Field 2026, recorded by the EMF Video Team and C3VOC. The hub shows each still's credit next to it.
+Slides whose main content is a photograph or someone else's figure were left out (ticket 0001, decision 0036);
+these show the speakers' own slides or the speakers themselves.
+
+- virus.webp: slide 14, "Alternate Reading Frames", at 12:24 of the cut; Christopher Binny
+- virus-rec.webp: a slide of a viral genome map, at 10:00; Christopher Binny
+- dataviz.webp: Charlotte Rutherford speaking by video link, at 1:42; Charlotte Rutherford
+- dataviz-rec.webp: slide "Rule (of thumb) 2: The Visual Variable Matters", at 7:12; Charlotte Rutherford
+- rsa.webp: slide "Classical Public Key Encryption", at 13:12; Lucy Bell
+- rsa-rec.webp: slide "Fundamentals of Quantum Mechanics", at 10:24; Lucy Bell
+- qrcode.webp: Jon Ginn on stage, at 0:24; Jon Ginn
+- qrcode-rec.webp: the stage and audience, at 0:02; Jon Ginn

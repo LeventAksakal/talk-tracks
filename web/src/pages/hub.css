@@ -519,6 +519,9 @@
   color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
+.tile-speaker > span + span::before {
+  content: " · ";
+}
 
 /* The extended view: a panel beside the still, revealed as the card widens. */
 .tile-more {

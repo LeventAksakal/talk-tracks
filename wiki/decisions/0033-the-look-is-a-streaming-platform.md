@@ -27,3 +27,9 @@ me".
   page section repeated as "Create".
 * The player's side panels each have one job, chosen from what the viewer is doing; nothing is added to a drawer
   because there was room.
+
+## Update 2026-11-03
+
+The owner found the glass-and-glow execution and the generated cover art AI-looking ("be elegant ... use the slides").
+Decision [0036](0036-the-talks-are-the-imagery.md) keeps this decision's intent (a streaming platform, content first, no
+mascot) and replaces its execution: the talks' own frames as the imagery, and quiet chrome without glass or glow.

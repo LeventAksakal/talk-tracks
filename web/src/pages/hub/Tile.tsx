@@ -52,13 +52,6 @@ export function OnAirBadge({ item }: { item: HubItem }) {
   return null;
 }
 
-/** The line under a card's title: who gives it and how long it is. */
-function byline(item: HubItem): string {
-  return [item.speaker, item.kind !== "recording" && item.minutes ? `${item.minutes} min` : undefined]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 /**
  * A card: the talk's still, its title and speaker. Hovered or focused, it widens into its extended view beside the
  * still: the description, the language and tracks it carries, and its play button. The whole card opens the room;
@@ -67,7 +60,7 @@ function byline(item: HubItem): string {
 export function Tile({ item }: { item: HubItem }) {
   const titleId = useId();
   const play = playLabel(item);
-  const line = byline(item);
+  const minutes = item.kind !== "recording" && item.minutes ? `${item.minutes} min` : undefined;
   return (
     <li className="tile" data-kind={item.kind} data-on-air={item.onAir === undefined ? undefined : String(item.onAir)}>
       <article className="tile-card" aria-labelledby={titleId} onMouseEnter={preloadWatch}>
@@ -80,7 +73,12 @@ export function Tile({ item }: { item: HubItem }) {
             <h3 className="tile-title" id={titleId}>
               {item.title}
             </h3>
-            {line ? <p className="tile-speaker">{line}</p> : null}
+            {item.speaker || minutes ? (
+              <p className="tile-speaker">
+                {item.speaker ? <span>{item.speaker}</span> : null}
+                {minutes ? <span>{minutes}</span> : null}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="tile-more">
