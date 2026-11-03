@@ -45,6 +45,8 @@ qa/out/<run>/
   summary.json                       the same, machine-readable
   <browser>/<journey>-<state>-<theme>.png
   lighthouse/<page>.json, <page>.html
+  contact-sheet-p1..pN.jpg           every frame of every browser as a labelled thumbnail (8 per row, pages of <= 8000 px)
+  contact-sheet-<browser>.jpg        the same per browser (step, theme)
   trace/watch-trace.json.gz          load it in the DevTools Performance panel
 ```
 
@@ -52,6 +54,14 @@ qa/out/<run>/
 is redacted of the deployed origin, host and site (`<TT_BASE_URL>`, `<host>`, `<site>`). The screenshots are not:
 the console's Invite panel shows the audience link with the host. A run is 50 to 150 MB, so `qa/out/` stays out of
 git (`.gitignore`); share a run by hand, not by committing it.
+
+Contact sheets are written at the end of a run. To make them for an existing run (about 20 s for 686 frames):
+
+```powershell
+node qa/contact-sheet.mjs qa/out/<run>      # or just the run name
+```
+
+They are linked from `report.md` and `index.html` (re-running replaces the links).
 
 The report records the build the site served (its hashed entry script) per browser and before Lighthouse and the
 trace, and warns when the site was redeployed during the run: compare builds before reading a difference between

@@ -10,6 +10,7 @@ import { captureJourneys } from "./lib/capture.mjs";
 import { JOURNEYS } from "./lib/journeys.mjs";
 import { runLighthouse } from "./lib/lighthouse.mjs";
 import { writeReport } from "./lib/report.mjs";
+import { writeContactSheets } from "./contact-sheet.mjs";
 import { runTrace } from "./lib/trace.mjs";
 import { buildId, ensureDir, isLocal, list, makeRedactor, parseArgs, stamp } from "./lib/util.mjs";
 
@@ -112,6 +113,7 @@ const meta = {
 };
 writeFileSync(join(runDir, "report.md"), writeReport({ meta, capture, lighthouse, trace, redact }));
 writeFileSync(join(runDir, "summary.json"), redact(JSON.stringify({ meta, capture, lighthouse, trace }, null, 2)));
+if (capture) await writeContactSheets(runDir, { log }); // after report.md so it can link the sheets
 const caps = capture?.captures.filter((c) => c.file).length ?? 0;
 const fails = capture?.failures.filter((f) => !f.skipped).length ?? 0;
 log(`done in ${meta.minutes} min: ${caps} captures, ${fails} failed steps. Report: ${join(runDir, "report.md")}`);
