@@ -17,6 +17,21 @@ export interface MoqTransportOptions {
   url: URL;
   /** Publish token (decision 0005), sent to the relay as `?jwt=`. Watching needs none. */
   token?: string;
+  /**
+   * The one prefix this transport reads from the relay, e.g. `talk/<room>`: only its announcements are asked for.
+   * Unset, the relay announces every broadcast it holds, hundreds of them, and @moq/net matches each against every
+   * reader as it lands (2.8 s of main thread on the watch page, QA 2026-11-03).
+   */
+  scope?: string;
+}
+
+/**
+ * The origin handle a connection feeds the relay's announcements into: narrowed to `scope`, the connection asks the
+ * relay for that prefix only. Requests outside it still resolve, blind, the way they do without discovery.
+ */
+export function consumeScope(origin: Moq.Origin.Producer, scope?: string): Moq.Origin.Producer {
+  if (!scope) return origin;
+  return origin.scope(Moq.Path.empty(), new Moq.Path.Patterns([Moq.Path.Pattern.subtree(Moq.Path.from(scope))]));
 }
 
 export function relayUrl(base: string, token?: string): URL {
@@ -45,7 +60,7 @@ export class MoqTransport implements Transport {
     this.connection = new Moq.Connection({
       url: options.url,
       publish: this.origin.consume(),
-      consume: this.origin,
+      consume: consumeScope(this.origin, options.scope),
       websocket: { enabled: true },
       // Retry forever: a talk outlives any relay restart. An auth refusal still stops the loop.
       delay: { timeout: Moq.Time.Milli(0) },

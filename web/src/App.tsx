@@ -1,9 +1,11 @@
 import { type ComponentType, lazy, Suspense } from "react";
 import { Loading } from "./brand/states";
+import { ROOT } from "./contracts/names";
 import { LandingPage } from "./pages/LandingPage";
 import { NotFound } from "./pages/NotFound";
 import { matchRoute, useLocation } from "./router";
 import { loadDemo, loadRewindDemo, loadTalk, loadWatch } from "./routes";
+import { RelayScope } from "./transport/scope";
 
 /**
  * A route loaded on first visit. A redeploy removes the old hashed chunks, so a tab opened before it fails to load
@@ -44,7 +46,12 @@ export function App() {
       </a>
       <Suspense fallback={<Loading>Loading…</Loading>}>
         {route.page === "landing" ? <LandingPage /> : null}
-        {route.page === "watch" ? <WatchPage key={route.room} room={route.room} /> : null}
+        {route.page === "watch" ? (
+          // A listener reads one room: the relay announces that room only, not every broadcast it holds.
+          <RelayScope.Provider value={`${ROOT}/${route.room}`}>
+            <WatchPage key={route.room} room={route.room} />
+          </RelayScope.Provider>
+        ) : null}
         {route.page === "talk" ? <TalkPage key={route.room} room={route.room} /> : null}
         {route.page === "demo" ? <DemoPage /> : null}
         {route.page === "rewind-demo" ? <RewindDemo /> : null}
