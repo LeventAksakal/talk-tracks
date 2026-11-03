@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import languageList from "../../../contracts/languages.json";
 import { FakeTransport } from "../transport/fake";
 import { createRoom, speakerPathFrom } from "./createRoom";
 import { DEMO_ROOMS } from "./demoRooms";
@@ -119,7 +120,10 @@ describe("the hub", () => {
     expect(document.activeElement).toBe(play);
     expect(within(article).getByText(lecture.description)).toBeTruthy();
     expect(within(article).getByText(lecture.speaker)).toBeTruthy();
-    expect(within(article).getByText("Español")).toBeTruthy();
+    // The spoken language, and how many it can be subtitled in: every language in the contract, none pre-made.
+    expect(within(article).getByText("English")).toBeTruthy();
+    expect(article.textContent).toMatch(new RegExp(`\\b${languageList.languages.length}\\b`));
+    expect(within(article).queryByText("Español")).toBeNull();
     expect(within(article).getByText(/Slide descriptions/)).toBeTruthy();
   });
 

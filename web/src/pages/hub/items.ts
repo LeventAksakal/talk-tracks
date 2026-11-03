@@ -3,14 +3,15 @@
 
 import {
   DEMO_CREDIT,
-  DEMO_LANGUAGES,
   DEMO_ROOMS,
+  DEMO_SPOKEN,
   DEMO_TRACKS,
   type DemoRoom,
   type Language,
   type LectureArt,
   lectureOf,
   recordingRoom,
+  SUBTITLE_LANGUAGE_COUNT,
 } from "../demoRooms";
 import type { RelayRooms } from "../liveRooms";
 import type { Recording } from "../recordings";
@@ -32,7 +33,10 @@ export interface HubItem {
   onAir?: boolean;
   art?: LectureArt;
   credit?: string;
-  languages: readonly Language[];
+  /** The language the talk is spoken in, when known. */
+  spoken?: Language;
+  /** How many languages it can be subtitled in, each translated on first pick. */
+  subtitleLanguages: number;
   tracks: readonly string[];
   /** The same lecture's other version: its recording from a live session, its live session from a recording. */
   also?: { kind: "live" | "recording"; room: string };
@@ -62,7 +66,8 @@ function lectureItem(lecture: DemoRoom, kind: "live" | "recording", recordings: 
     minutes: lecture.minutes,
     art: lecture.art,
     credit: DEMO_CREDIT,
-    languages: DEMO_LANGUAGES,
+    spoken: DEMO_SPOKEN,
+    subtitleLanguages: SUBTITLE_LANGUAGE_COUNT,
     tracks: DEMO_TRACKS,
     also:
       kind === "live"
@@ -74,7 +79,7 @@ function lectureItem(lecture: DemoRoom, kind: "live" | "recording", recordings: 
 }
 
 function talkItem(room: string, title?: string): HubItem {
-  return { room, kind: "talk", title: title ?? room, languages: [], tracks: TALK_TRACKS };
+  return { room, kind: "talk", title: title ?? room, subtitleLanguages: SUBTITLE_LANGUAGE_COUNT, tracks: TALK_TRACKS };
 }
 
 /** The item for any room the hub knows of by name (Continue watching). */

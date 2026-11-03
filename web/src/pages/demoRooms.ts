@@ -3,6 +3,7 @@
 // again, and a recording, the archived room `<room>-recording`. Titles and speakers as credited; the descriptions
 // are ours.
 
+import languageList from "../../../contracts/languages.json";
 import { RECORDING_SUFFIX, recordingOf } from "../contracts/names";
 
 /** What a card draws for a lecture: generated artwork, never a frame of the talk (its slides hold others' images). */
@@ -25,18 +26,20 @@ export interface DemoRoom {
 
 export const DEMO_CREDIT = "EMF 2026 · CC BY-SA 4.0";
 
-/** The languages a demo lecture carries without asking: the speaker's, then the pre-made translations. */
 export interface Language {
   code: string;
   /** The language's own name. */
   name: string;
 }
-export const DEMO_LANGUAGES: readonly Language[] = [
-  { code: "en", name: "English" },
-  { code: "tr", name: "Türkçe" },
-  { code: "es", name: "Español" },
-  { code: "ar", name: "العربية" },
-];
+
+/** The language every demo lecture is spoken in. */
+export const DEMO_SPOKEN: Language = { code: "en", name: "English" };
+
+/**
+ * How many languages any talk can be subtitled in: the one list in contracts/languages.json (decision 0035).
+ * None is made in advance; each is translated when a viewer first picks it.
+ */
+export const SUBTITLE_LANGUAGE_COUNT: number = languageList.languages.length;
 
 /** The AI tracks every demo lecture carries. */
 export const DEMO_TRACKS: readonly string[] = [

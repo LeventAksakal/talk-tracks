@@ -85,16 +85,20 @@ export function Tile({ item }: { item: HubItem }) {
         <div className="tile-more">
           {item.description ? <p className="tile-desc">{item.description}</p> : null}
           <dl className="tile-facts">
-            {item.languages.length ? (
+            {item.spoken ? (
               <div>
-                <dt>Languages</dt>
+                <dt>Spoken in</dt>
                 <dd className="tile-chips">
-                  {item.languages.map((l) => (
-                    <span key={l.code} lang={l.code} className="tile-chip">
-                      {l.name}
-                    </span>
-                  ))}
+                  <span lang={item.spoken.code} className="tile-chip">
+                    {item.spoken.name}
+                  </span>
                 </dd>
+              </div>
+            ) : null}
+            {item.subtitleLanguages ? (
+              <div>
+                <dt>Subtitles</dt>
+                <dd>Any of {item.subtitleLanguages} languages, translated when you pick one</dd>
               </div>
             ) : null}
             <div>
