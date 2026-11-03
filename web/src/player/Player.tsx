@@ -373,6 +373,12 @@ export function Player(props: PlayerProps) {
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
   const origin = media?.talkOrigin() ?? 0;
+  // The controls are held up while a menu is open, until the viewer first engages, and on an end card (its timeline is
+  // the way on). Media Chrome's autohide -1 stops it hiding them; one already hidden comes back.
+  const holdControls = ui.menu !== undefined || !engaged || state.card?.replay === true;
+  useEffect(() => {
+    if (holdControls) controller.current?.removeAttribute("userinactive");
+  }, [holdControls]);
 
   // The media element: Media Chrome drives it; it holds the paused state and the playhead (held while paused live).
   const elementAt = el?.playback === playback ? el.roomTime() : undefined;
@@ -560,8 +566,8 @@ export function Player(props: PlayerProps) {
             nomutedpref=""
             nosubtitleslangpref=""
             defaultstreamtype="live"
-            // Up while a menu is open, until the viewer first engages, and on an end card (its timeline is the way on).
-            noautohide={ui.menu || !engaged || state.card?.replay ? "" : undefined}
+            autohide={holdControls ? "-1" : "2"}
+            noautohide={holdControls ? "" : undefined}
           >
             <tt-room-media ref={bindEl} slot="media" className="tt-media-element">
               <Stage onToggle={togglePlay} onFullscreen={toggleFullscreen} />

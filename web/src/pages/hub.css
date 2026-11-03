@@ -467,7 +467,8 @@
 }
 
 /* The extended view: a panel over the still, the still's size, shown after a moment on hover (so sweeping across a
-   row opens nothing) and at once on focus. */
+   row opens nothing) and at once on focus. Transparent, never hidden, while closed: its links stay in the tab order,
+   and focusing one is what opens it. */
 .tile-more {
   position: absolute;
   inset: 0;
@@ -478,21 +479,17 @@
   padding: 12px 14px;
   background: var(--hub-surface);
   opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity var(--tt-duration-medium) var(--tt-ease-standard),
-    visibility 0s linear var(--tt-duration-medium);
+  pointer-events: none;
+  transition: opacity var(--tt-duration-medium) var(--tt-ease-standard);
 }
 .tile:hover .tile-more {
   opacity: 1;
-  visibility: visible;
-  transition:
-    opacity var(--tt-duration-medium) var(--tt-ease-standard) 320ms,
-    visibility 0s linear 320ms;
+  pointer-events: auto;
+  transition: opacity var(--tt-duration-medium) var(--tt-ease-standard) 320ms;
 }
 .tile:focus-within .tile-more {
   opacity: 1;
-  visibility: visible;
+  pointer-events: auto;
   transition: none;
 }
 .tile-desc {
