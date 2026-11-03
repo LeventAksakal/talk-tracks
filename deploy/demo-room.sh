@@ -17,7 +17,7 @@ export TT_LECTURE=$lecture
 export TT_ROOM=${TT_ROOM:-gen-$lecture}
 export TT_DEMO_ROOM=${TT_DEMO_ROOM:-demo}
 compose=${COMPOSE:-docker compose -f deploy/compose.local.yml}
-agents="captions translate-tr describe chapters"
+agents="captions describe chapters"   # no translation: every language is made on demand (decision 0035)
 
 echo "== prepare data/demo/$lecture/lecture.mp4"
 mkdir -p "data/demo/$lecture"

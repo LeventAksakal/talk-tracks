@@ -15,8 +15,9 @@ Where a live session's AI tracks come from is one switch, ``TT_DEMO_LIVE_AGENTS`
   room capped by the spend ledger. The session player then never reads the recording's agent snapshots: it plays the
   lecture and its slides, as a speaker would, and nothing else;
 * **off (the default):** the recording's tracks, each item at the time its agent published it when it was recorded
-  (``honest_recording``): a translation when the whole line's translation came back, a slide note when its model
-  answered. Nothing goes out with or ahead of the speech it belongs to.
+  (``honest_recording``): a caption cue once its words were heard, a slide note when its model answered. Nothing
+  goes out with or ahead of the speech it belongs to. No recorded translation goes out (decision 0035), and no
+  agent serves the room, so it has no translation.
 """
 
 from __future__ import annotations
@@ -24,14 +25,16 @@ from __future__ import annotations
 import logging
 import os
 import statistics
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contracts import SLICE_MS, AgentInfo, RoomStateObject, RoomStateRecord, SlidesState
+from .archive.slices import listdir
+from .contracts import SLICE_MS, AgentInfo, RoomStateObject, RoomStateRecord, SlidesState, TranslationState
+from .languages import parse_translation_agent
 from .recording import RecordedSnapshot
 from .resegment import resegment
-from .revise import read_recording, translations_by_agent, with_patches
+from .revise import read_recording, with_patches
 
 log = logging.getLogger("talk_tracks.session")
 
@@ -121,12 +124,17 @@ def describe_delay_ms(recorded: Sequence[tuple[AgentInfo, Sequence[RecordedSnaps
 
 def honest_recording(recording: Path) -> Recorded:
     """A recording's tracks as a live session or the recording room shows them: caption lines cut into subtitle
-    cues at sentences and clauses (``resegment``), each translation split over its cues at the time the translation
-    agent published it, and any patched slide note at the describe agent's measured delay."""
-    recorded = read_recording(recording)
+    cues at sentences and clauses (``resegment``), and any patched slide note at the describe agent's measured
+    delay. Its translations are left out (decision 0035): every language is made on demand, the same way, in every
+    room, so a recording's own translations are never replayed."""
+    recorded = [(info, snaps) for info, snaps in read_recording(recording) if not translated(snaps)]
     delay = describe_delay_ms(recorded)
-    patched = with_patches(recording, recorded, delay_ms=delay)
-    return resegment(patched, translations_by_agent(recording, patched))
+    return resegment(with_patches(recording, recorded, delay_ms=delay))
+
+
+def translated(snapshots: Sequence[RecordedSnapshot]) -> bool:
+    """Whether a recorded track is a translation."""
+    return bool(snapshots) and isinstance(snapshots[0].state, TranslationState)
 
 
 # --- the room track of a session ------------------------------------------------------------------------------------
@@ -153,3 +161,18 @@ class RoomStates:
         inside = [r for r in self.records if start <= r.m < start + SLICE_MS and r.m <= now_ms]
         carry = RoomStateObject(before[-1:]).model_dump_json().encode()
         return [carry, *(RoomStateObject([r]).model_dump_json().encode() for r in inside)]
+
+
+# --- the recording room's tracks ---------------------------------------------------------------------------------
+
+
+def recorded_agents(agents_dir: Path) -> dict[str, list[str]]:
+    """A recording room's baked agents and their tracks, which ``serve-recording`` publishes: every agent folder but
+    a translation's, which the translation agent publishes and back-fills on demand (decision 0035)."""
+    return {a: listdir(agents_dir / a) for a in listdir(agents_dir) if parse_translation_agent(a) is None}
+
+
+def catalog_agents(recorded: Iterable[str], announced: Iterable[str]) -> set[str]:
+    """The agents a recording room's catalog lists: its baked ones, and the translations announced in it now (so a
+    translation is listed only while its agent is up to answer for it)."""
+    return {*recorded, *(a for a in announced if parse_translation_agent(a) is not None)}

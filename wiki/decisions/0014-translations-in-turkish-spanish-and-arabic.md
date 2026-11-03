@@ -2,7 +2,12 @@
 status: accepted
 date: 2026-10-29
 decision-makers: project owner
+superseded-in-part-by: 0019, 0035
 ---
+
+> Superseded in part by [decision 0035](0035-all-translations-lazy.md) (2026-11-03): no language is fixed or
+> pre-made; every translation is made lazily on first pick, in every room, and the offline `retranslate`/`resplit`
+> path is removed. The demo hallway part stands.
 
 # Live and demo rooms carry Turkish, Spanish and Arabic translations across an expanded lecture hallway
 

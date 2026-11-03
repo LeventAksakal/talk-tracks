@@ -1,0 +1,208 @@
+{
+  "$comment": "The subtitle languages a listener can pick (decision 0035). The one list: the agents' agents/src/talk_tracks/language_list.py is generated from it (python -m talk_tracks.languages), and web/src/player/languages.ts imports it. Meta's docs name no languages for this model (searched 2026-11-03), so the list is the project's own, unconfirmed by Meta.",
+  "model": "muse-spark-1.3",
+  "source": "unconfirmed",
+  "checked": "2026-11-03",
+  "languages": [
+    {
+      "tag": "ar",
+      "name": "Arabic"
+    },
+    {
+      "tag": "bn",
+      "name": "Bengali"
+    },
+    {
+      "tag": "bg",
+      "name": "Bulgarian"
+    },
+    {
+      "tag": "ca",
+      "name": "Catalan"
+    },
+    {
+      "tag": "cs",
+      "name": "Czech"
+    },
+    {
+      "tag": "da",
+      "name": "Danish"
+    },
+    {
+      "tag": "de",
+      "name": "German"
+    },
+    {
+      "tag": "el",
+      "name": "Greek"
+    },
+    {
+      "tag": "en",
+      "name": "English"
+    },
+    {
+      "tag": "es",
+      "name": "Spanish"
+    },
+    {
+      "tag": "et",
+      "name": "Estonian"
+    },
+    {
+      "tag": "fa",
+      "name": "Persian"
+    },
+    {
+      "tag": "fi",
+      "name": "Finnish"
+    },
+    {
+      "tag": "fil",
+      "name": "Filipino"
+    },
+    {
+      "tag": "fr",
+      "name": "French"
+    },
+    {
+      "tag": "gu",
+      "name": "Gujarati"
+    },
+    {
+      "tag": "he",
+      "name": "Hebrew"
+    },
+    {
+      "tag": "hi",
+      "name": "Hindi"
+    },
+    {
+      "tag": "hr",
+      "name": "Croatian"
+    },
+    {
+      "tag": "hu",
+      "name": "Hungarian"
+    },
+    {
+      "tag": "id",
+      "name": "Indonesian"
+    },
+    {
+      "tag": "it",
+      "name": "Italian"
+    },
+    {
+      "tag": "ja",
+      "name": "Japanese"
+    },
+    {
+      "tag": "kn",
+      "name": "Kannada"
+    },
+    {
+      "tag": "ko",
+      "name": "Korean"
+    },
+    {
+      "tag": "lt",
+      "name": "Lithuanian"
+    },
+    {
+      "tag": "lv",
+      "name": "Latvian"
+    },
+    {
+      "tag": "ml",
+      "name": "Malayalam"
+    },
+    {
+      "tag": "mr",
+      "name": "Marathi"
+    },
+    {
+      "tag": "ms",
+      "name": "Malay"
+    },
+    {
+      "tag": "nl",
+      "name": "Dutch"
+    },
+    {
+      "tag": "no",
+      "name": "Norwegian"
+    },
+    {
+      "tag": "pa",
+      "name": "Punjabi"
+    },
+    {
+      "tag": "pl",
+      "name": "Polish"
+    },
+    {
+      "tag": "pt",
+      "name": "Portuguese"
+    },
+    {
+      "tag": "ro",
+      "name": "Romanian"
+    },
+    {
+      "tag": "ru",
+      "name": "Russian"
+    },
+    {
+      "tag": "sk",
+      "name": "Slovak"
+    },
+    {
+      "tag": "sl",
+      "name": "Slovenian"
+    },
+    {
+      "tag": "sr",
+      "name": "Serbian"
+    },
+    {
+      "tag": "sv",
+      "name": "Swedish"
+    },
+    {
+      "tag": "sw",
+      "name": "Swahili"
+    },
+    {
+      "tag": "ta",
+      "name": "Tamil"
+    },
+    {
+      "tag": "te",
+      "name": "Telugu"
+    },
+    {
+      "tag": "th",
+      "name": "Thai"
+    },
+    {
+      "tag": "tr",
+      "name": "Turkish"
+    },
+    {
+      "tag": "uk",
+      "name": "Ukrainian"
+    },
+    {
+      "tag": "ur",
+      "name": "Urdu"
+    },
+    {
+      "tag": "vi",
+      "name": "Vietnamese"
+    },
+    {
+      "tag": "zh",
+      "name": "Chinese"
+    }
+  ]
+}

@@ -1,18 +1,14 @@
 // Subtitle languages for the CC menu's "Translate to…" search (ui-design §4.2, decision 0019): every
 // language named in its own script (Intl.DisplayNames with the language as locale) and in the viewer's.
 
+import languageList from "../../../contracts/languages.json";
 import { dirOf } from "../viewer/lang";
 
 /**
- * Languages offered for translation. A placeholder until the Any-language translation lane hands over the
- * model's list (lane briefs); BCP 47 tags.
+ * Languages offered for translation, BCP 47 tags: the one list in contracts/languages.json (decision 0035), which
+ * the agents' translate-any serves too. Every one is made lazily, on first pick.
  */
-// prettier-ignore
-export const SUPPORTED_LANGUAGES = [
-  "ar", "bn", "bg", "ca", "cs", "da", "de", "el", "en", "es", "et", "fa", "fi", "fil", "fr", "gu", "he", "hi", "hr",
-  "hu", "id", "it", "ja", "kn", "ko", "lt", "lv", "ml", "mr", "ms", "nl", "no", "pa", "pl", "pt", "ro", "ru", "sk",
-  "sl", "sr", "sv", "sw", "ta", "te", "th", "tr", "uk", "ur", "vi", "zh",
-] as const;
+export const SUPPORTED_LANGUAGES: readonly string[] = languageList.languages.map((l) => l.tag);
 
 export interface LanguageOption {
   tag: string;

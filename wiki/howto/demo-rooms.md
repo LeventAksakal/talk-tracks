@@ -9,10 +9,14 @@ A demo room plays a licence-free lecture as a live talk (decisions 0006 and 0032
   30 s) a **new session** starts from 00:00 under the same name with a **new room epoch** `E`, so the player's clock
   restarts. Nothing wraps inside one timeline. Its AI tracks come from one switch,
   [`TT_DEMO_LIVE_AGENTS`](#the-live-agents-switch): on, only from the live agents, on the session's real audio; off
-  (the default), the recording's tracks, each item at the delay its agent really had.
+  (the default), the recording's tracks, each item at the delay its agent really had, and no translation.
 * **The recording**, `<id>-recording`: the whole lecture as an ended room of the archive, seekable, its AI tracks
   labelled `(recorded)`. It is [built once](#the-recording-rooms) by `record-archive` into the archive layout, so the
-  HLS, `rooms.json` and replay paths serve it like any past talk.
+  HLS, `rooms.json` and replay paths serve it like any past talk. With the switch on, every listed language is
+  [translated on demand](#translations-on-demand) there too.
+
+No translation is pre-made (decision 0035): every language of `contracts/languages.json` is made the same way, the
+first time a viewer picks it, in every room.
 
 Making one takes four steps, all in Docker (see [run-locally](run-locally.md) for the relay and the fake agents):
 
@@ -63,10 +67,10 @@ chat record's `m` in a demo room is **not** session time.
   reads the recording's agent snapshots: no code path publishes recorded AI output into the session. Its catalog lists
   the live agents' tracks from their `track.json`, as the room service does for a live room, `capped` included.
 * **Off:** the recording's tracks under the stable names, each item when its agent published it when it was recorded:
-  a caption cue once its words were heard, a translation when the whole line's translation came back (never with or
-  ahead of its caption), a slide note when its model answered. A note `redescribe` patched in goes out after its
+  a caption cue once its words were heard, a slide note when its model answered. A note `redescribe` patched in goes out after its
   slide by the describe agent's measured median delay in that recording (10 s when it has no live note). The
-  `translate-any` agent still translates other languages live in the demo rooms, against the room's cap.
+  recording's translations are left out and no agent serves the room, so a switch-off session has no translation:
+  no model call happens in a demo lecture's rooms with the switch off.
 
 Either way the agents that serve a demo room do it **session by session**: a new `E` in the room catalog starts each
 agent again from the session's group 0 (`TrackArchive.start_session` removes the last session's slices first;
@@ -137,7 +141,7 @@ and free, as the room service writes a real talk ([archive](archive.md)):
   `rooms.json`; `E` is the 4 s boundary at or before the recording's start, so the room is dated when it was made;
 * each AI track's slices with its `track.json`: the recording's tracks at their agents' real delays (as a session
   with the switch off plays them), labelled `<label> (recorded)`, `cost: free`, `status: idle`, the last slice End of
-  Track;
+  Track. Its translations are left out: they are [made on demand](#translations-on-demand);
 * the `room` track's slices in `<room>/catalog/room/`: `on_air` at 00:00, `ended` at the end.
 
 No slide is written to disk (ticket 0001). It refuses a room the archive already has: a recording room is built once
@@ -148,7 +152,9 @@ publishes the recording room for replay: its catalog (`E` from `room.json`, the 
 the deck and slide tracks, the `room` track), its `room` and AI tracks answering FETCH from the archived slices (the
 last group written live, so Largest Location covers all), and with `--slides` the deck and slide tracks from the
 lecture's slides, found at start and kept in memory. The room service skips `*-recording` (`TT_ARCHIVE_SKIP`), so its
-catalog has one publisher.
+catalog has one publisher. It never publishes a `translate-*` folder of the room: those are `translate-any`'s, and
+its catalog lists each translation only while `translate-any` announces it in the room (read again on every 2 s
+heartbeat).
 
 **Building them on the VM**, once, after `git pull` and the image build:
 
@@ -162,9 +168,73 @@ $D up -d archive
 $D --profile recordings up -d   # needs TT_RECORDINGS_TOKEN in deploy/.env (below)
 ```
 
-Each run prints `<room>: E …, … s, 4 AI tracks` and takes about as long as reading the lecture once. Check:
-`~/tt-data/archive/virus-recording/index.m3u8` ends with `#EXT-X-ENDLIST`, `rooms.json` lists the four rooms, and
-`/watch/virus-recording` plays with every track labelled recorded.
+Each run prints `<room>: E …, … s, 3 AI tracks` (captions, slide notes, chapters) and takes about as long as reading
+the lecture once. Check: `~/tt-data/archive/virus-recording/index.m3u8` ends with `#EXT-X-ENDLIST`, `rooms.json` lists
+the four rooms, and `/watch/virus-recording` plays with every baked track labelled recorded.
+
+### Translations on demand
+
+With `TT_DEMO_LIVE_AGENTS` on, `translate-any` also serves every recording room built in the archive
+(`<archive>/<id>-recording/room.json`, read again every 60 s), for good: the room has no speaker to come on air and
+is ended from the start (decision 0035, `cli.serve_recording_rooms`). It publishes one track per language of
+`contracts/languages.json`, labelled `<Language> translation` (not recorded), and makes nothing live. The room's
+clock edge is just past its end, so a player's FETCH of any past slice is translated once from the captions slice
+`serve-recording` answers, then served from disk (`translate-<lang>/items/` in the room's folder). Spend goes to the
+room's ledger, all of its cap open to back-fill: a recording room has no live work. Switch off, it serves no recording
+room, and their catalogs list no translation.
+
+**Spend.** A language of a whole lecture costs about what live translation does (about $0.14–0.16 a lecture,
+[cost per lecture](#generating-the-public-rooms-on-the-vm)), likely more: each 4 s slice is a call of its own (not
+measured yet). A recording room's spend is cumulative against its cap, like any room's: `TT_ROOM_CAP_USD` ($2) unless
+a caps batch lists it. Give the four rooms a batch, as for the live sessions:
+
+```bash
+cat > ~/tt-data/caps/recordings.json <<'EOF'
+{"group": "recordings", "room_usd": 5, "total_usd": 20, "rooms": ["virus-recording", "dataviz-recording", "rsa-recording", "qrcode-recording"]}
+EOF
+```
+
+**Moving the VM to lazy translation** (the coordinator, once, after this change is merged; decision 0035). The old
+recording rooms hold baked `translate-tr`, `translate-es` and `translate-ar` folders. `serve-recording` no longer
+publishes them, but `translate-any` would take those folders over and serve their recorded slices, so rebuild the
+four rooms (offline and free) before the agents serve them:
+
+```bash
+cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
+
+# 1. The fixed translators go, before the pull removes them from the compose file (after it, compose no longer
+#    knows them: `up --remove-orphans` in step 3 removes them then)
+$D --profile live rm -sf translate-tr translate-es translate-ar
+git pull && (cd agents && docker build -q -t talk-tracks-agents:dev .)
+
+# 2. Rebuild the recording rooms without translations, with what serves or scans them stopped
+$D --profile live stop translate-any
+$D --profile recordings stop recording-virus recording-dataviz recording-rsa recording-qrcode
+$D stop archive        # it rewrites rooms.json from what it read at start
+for L in virus dataviz rsa qrcode; do
+  $D run --rm --no-deps --entrypoint rm looper-$L -rf /data/archive/$L-recording
+  $D run --rm --no-deps looper-$L record-archive --recording /data/demo/$L --room $L-recording
+done
+$D up -d archive
+
+# 3. A cap batch for the recording rooms (above), then the new image everywhere
+cat > ~/tt-data/caps/recordings.json <<'EOF'
+{"group": "recordings", "room_usd": 5, "total_usd": 20, "rooms": ["virus-recording", "dataviz-recording", "rsa-recording", "qrcode-recording"]}
+EOF
+$D --profile live --profile recordings up -d --remove-orphans   # the session players too: a new session each
+```
+
+Check:
+
+- `$D ps --services | grep -c '^translate-'` prints 1 (`translate-any`);
+- each `record-archive` run printed `3 AI tracks`, and `find ~/tt-data/archive/virus-recording/agents/ -path
+  '*translate-*' -name '*.slice' | wc -l` prints 0 until a viewer picks a language (the `translate-*` folders exist
+  from the start: each language's `track.json` is written when `translate-any` starts serving the room);
+- `$D logs --since 5m translate-any | grep "recording room"` shows the four rooms ("serving its translations on
+  demand"), and `grep -c '"room": "virus-recording"' ~/tt-data/ledger.jsonl` stays 0 while nobody watches;
+- on `/watch/virus-recording`, the CC menu's "Search any language" lists every language; picking German shows German
+  subtitles after a few seconds, and only then does the ledger gain `virus-recording` lines;
+- on `/watch/virus` (switch on) the same pick translates live; switch off, neither room lists a translation.
 
 **The recordings token** (`TT_RECORDINGS_TOKEN` in `deploy/.env`), signed like the others
 ([tokens](tokens.md)), may publish the recording rooms' catalog, agent, slides and archive paths:
@@ -357,7 +427,7 @@ ssh $VM 'cd ~/tt-data/demo && sha256sum virus/lecture.mp4 dataviz/lecture.mp4 rs
 cd ~/talk-tracks && git pull
 (cd agents && docker build -q -t talk-tracks-agents:dev .)
 D="docker compose -f deploy/compose.vm.yml"
-$D --profile live up -d captions translate-tr translate-es translate-ar describe chapters   # the new image and exclude list
+$D --profile live up -d captions describe chapters   # the new image and exclude list (no translator: decision 0035)
 
 # A cap batch for the generation rooms, read when a room opens: $3 a room, $8 for all four
 cat > ~/tt-data/caps/gen-demo.json <<'EOF'
@@ -386,7 +456,8 @@ grep gen-demo ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1
   4. records 15 s more.
 
   The recording lands in `~/tt-data/demo/<room>/` (`recording.json`, `agents/*.jsonl`). `record` follows every
-  agent track the room catalog lists and needs the token to read `talk/<room>/catalog`.
+  agent track the room catalog lists but the translations (subscribing one would start a paid translation; every
+  language is made on demand, decision 0035) and needs the token to read `talk/<room>/catalog`.
 - **Spend.** A batch cap file scopes the cap to the generation rooms. An env override (`TT_ROOM_CAP_USD`) would apply
   to every room, judges' included, and would have to be put back. `TT_SPEND_CEILING_USD` needs no change.
 
@@ -395,7 +466,7 @@ grep gen-demo ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1
 | Agent | virus (17:00) | dataviz (19:00) | From |
 |---|---|---|---|
 | captions | $0.054 | $0.060 | ASR $0.003 per started minute, paid a minute ahead (`asr/meta.py`) |
-| translate-tr | $0.14 | $0.16 | about 12 lines a minute, about $0.0007 a line ($1.25 / $4.25 per M tokens in / out, `llm/ledger.py`) |
+| a translation, live (none is recorded since decision 0035) | $0.14 | $0.16 | about 12 lines a minute, about $0.0007 a line ($1.25 / $4.25 per M tokens in / out, `llm/ledger.py`) |
 | chapters | $0.20 | $0.23 | a revision every 6 lines or 60 s (`cores/outline.py`), about 2k tokens in and 0.8k out, about $0.006 each |
 | describe | $0.08 | $0.14 | 21 / 34 slide frames, a high-detail image of about 1.5k tokens in and 0.45k out, about $0.004 each |
 | **Total** | **about $0.47** | **about $0.59** | up to about $0.65 / $0.75 at the fake script's pace of 17 lines a minute |
@@ -403,13 +474,13 @@ grep gen-demo ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1
 A live test on 2026-10-27 cost about $0.02 a minute of speech, which agrees.
 
 **Checks after generation:**
-- `recording.json` lists four agents, its `media_last_ms` is near the lecture length (1,020,200 / 1,138,800), and
+- `recording.json` lists three agents (captions, describe, chapters), its `media_last_ms` is near the lecture length (1,020,200 / 1,138,800), and
   `ended_wall_ms` is set.
-- Each agent has well over zero snapshots. Fake runs had about 3,200 captions, 300 translations, 21 / 34 slide notes
-  and 50 chapter revisions.
+- Each agent has well over zero snapshots. Fake runs had about 3,200 captions, 21 / 34 slide notes and 50 chapter
+  revisions.
 - `describe.jsonl` holds real descriptions.
 - The `gen-demo` spend is near the estimate.
-- `$D logs --since 1h captions translate-tr translate-es translate-ar describe chapters | grep -i cap` finds nothing.
+- `$D logs --since 1h captions describe chapters | grep -i cap` finds nothing.
 
 **3. Run the public rooms.**
 
@@ -433,20 +504,18 @@ A live test on 2026-10-27 cost about $0.02 a minute of speech, which agrees.
 
 ## Fixing a finished recording
 
-Four offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
+Two offline commands fix a recording in place without rewriting it: each saves a file beside the agent's
 snapshots, which `session` (switch off), `record-archive` and `cue-report` merge (`agents/src/talk_tracks/revise.py`,
-`repunctuate.py`). `retranslate`, `redescribe` and `repunctuate` spend through the ledger of the room given with
-`--room`, so a cap batch scopes them; with `--fake` they spend nothing. `resplit` makes no model call and spends
-nothing.
+`repunctuate.py`). Both spend through the ledger of the room given with `--room`, so a cap batch scopes them; with
+`--fake` they spend nothing. The recording's translations are not replayed (decision 0035), so there is nothing to fix
+in them: the `retranslate` and `resplit` commands, and the `tr`/`es`/`ar` loop that ran them, are gone.
 
 | Command | What it does | Saves |
 |---|---|---|
-| `retranslate --lang L --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-<lang>.cues.json`; a line whose cues have changed since falls back to the split translation |
 | `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out after its slide by the describe agent's measured delay in the recording |
 | `repunctuate --recording DIR [--dry-run]` | adds sentence and clause punctuation and sentence capitals to each final caption line, one call per line with the lines around it as context; only punctuation and case change, never a word ([below](#re-punctuating-the-captions-repunctuate)); a line already saved is not sent again | `agents/captions.punct.json` |
-| `resplit --lang L --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-<lang>.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-<lang>.cues.orig.json` |
 
-On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
+`redescribe` on the VM, with the live agents' key and ledger, one room after the other:
 
 ```bash
 cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
@@ -454,20 +523,14 @@ cat > ~/tt-data/caps/revise-demo.json <<'JSON'
 {"group": "revise-demo", "room_usd": 0.8, "total_usd": 2.5, "rooms": ["revise-virus", "revise-dataviz", "revise-rsa", "revise-qrcode"]}
 JSON
 for L in virus dataviz rsa qrcode; do
-  for LANG in tr es ar; do
-    $D --profile live run --rm --no-deps translate-$LANG retranslate --lang $LANG --room revise-$L --recording /data/demo/$L
-  done
   $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L --slides 0,0,0.77,0.77
 done
 grep revise- ~/tt-data/ledger.jsonl | awk -F'"usd": ' '{split($2,a,","); s+=a[1]} END{printf "spent %.4f\n", s}'
 $D restart looper-virus looper-dataviz looper-rsa looper-qrcode   # a session player reads the fixes when it starts
 ```
 
-A recording room already built keeps the tracks it was built with: rebuild it to take the fixes.
-
-Expected cost: about $0.20 for each room. Reasoning tokens roughly double the first estimate (retranslate about $0.04
-a lecture on 12k tokens in and 6k out at $1.25 / $4.25 per M; redescribe about $0.004 a slide). The batch stops all
-at $2.50.
+A recording room already built keeps the tracks it was built with: rebuild it to take the fixes. Expected cost: about
+$0.004 a slide.
 
 ### Re-punctuating the captions (repunctuate)
 
@@ -475,15 +538,12 @@ The virus and dataviz recogniser returned long lines with almost no punctuation,
 forced (`cue-report` on the VM, 2026-11-02: virus 200 of 246 cues, dataviz 195 of 234; rsa 3 of 240, qrcode 7 of 238).
 `repunctuate` asks Muse Spark (minimal reasoning, a JSON schema) to punctuate each final caption line and saves the
 lines as `agents/captions.punct.json`. Every reader of the recording merges it (`revise.read_recording`): the cue
-cutter breaks at the new sentence ends and clause marks, the translations are split over the new cues by the existing
-rule (sentence by sentence, by character share), and a session and the recording room show the punctuated lines.
+cutter breaks at the new sentence ends and clause marks, and a session and the recording room show the punctuated
+lines (a translation made on demand translates them as they are then).
 
 * **Words never change.** The model's reply is aligned with the line word by word (ignoring case and punctuation);
   only the punctuation and case of matching words are taken, every other word stays as recorded. A saved line whose
   words no longer match its recorded line is ignored.
-* **Retranslated cues.** `retranslate`'s saved segments (`translate-<lang>.cues.json`) were cut for the old cues, so
-  the lines whose cues change fall back to the split translation. Running `retranslate` and `resplit` again afterwards
-  cuts them to the new cues (about $0.20 a room, [above](#fixing-a-finished-recording)); it is optional.
 * **Dry run.** `--dry-run` sends nothing and writes nothing: it prints the lines it would send, an upper estimate of
   the cost and the cue report as it stands. It needs no `--room` and no key.
 * **Resuming and undoing.** It saves every 10 lines; a run stopped by a cap goes on where it stopped and a second run
@@ -533,28 +593,6 @@ model's words were not taken (kept as recorded), and its usage. `rm` runs in a c
 belong to the containers' user. **Target:** under 15 % of cues forced in virus and dataviz (`forced` over `cues` in
 the report), 0 mid-phrase; then `/watch/virus` and `/watch/virus-recording` show sentence-cased, punctuated subtitles.
 
-### Fitting the subtitle cues to 84 characters (resplit)
-
-`retranslate` keeps the cue count but its model splits subtitle cues unevenly: about one cue in seven ran over 84
-characters (up to 117). `resplit` fixes that for free across all languages (`tr`, `es`, `ar`); run it after
-`retranslate`, once the image has the command. It needs no key, so it runs in each room's session player container
-(which mounts the data and sets `TT_ROOM`):
-
-```bash
-cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
-for L in virus dataviz rsa qrcode; do
-  for LANG in tr es ar; do
-    $D run --rm --no-deps looper-$L resplit --lang $LANG --recording /data/demo/$L
-  done
-done
-$D restart looper-virus looper-dataviz looper-rsa looper-qrcode   # a player reads translate-<lang>.cues.json at start
-```
-
-Each run logs how many lines it cut again and the longest cue left. On the recordings of 2026-10-29 it left one line
-per room a few characters over (its words cannot fit its cues at any word boundary): virus 86, dataviz 87, against
-117 and 116 before. To undo, copy `translate-<lang>.cues.orig.json` back over `translate-<lang>.cues.json` and restart the
-session player.
-
 ## All at once
 
 ```bash
@@ -579,9 +617,9 @@ $C --profile demo run --rm media "test-clip /data/$TT_LECTURE/lecture.mp4 60"
 $C --profile demo run --rm media "prepare-lecture /data/$TT_LECTURE/source.mkv /data/$TT_LECTURE/lecture.mp4"
 
 # 2. generate: fresh agents (a recreated container starts with no captions state), one play, then stop them
-$C up -d --force-recreate captions translate-tr translate-es translate-ar describe chapters
+$C up -d --force-recreate captions describe chapters   # no translator: every language is made on demand
 $C --profile demo run --rm generate
-$C stop captions translate-tr translate-es translate-ar describe chapters
+$C stop captions describe chapters
 
 # 3. session: live sessions of the recording, one after the other
 $C --profile demo up -d looper
@@ -651,14 +689,13 @@ room, the session player and `record-archive` turn the recording's full-state sn
   revision's time.
 * **Cues.** The real ASR's lines are long segments (half a minute is common), so each is first cut into subtitle
   cues ([subtitle cue breaks](#subtitle-cue-breaks)). Word times follow the recorded interims; a cue goes out final
-  once all its words were heard. Each translated line is split over its source line's cues, sentence by sentence, by
-  character share, and goes out when the translation agent published the line's translation.
+  once all its words were heard. No recorded translation is replayed (decision 0035).
 * **Outline.** One group per revision of the whole outline (chapters, glossary, recap); an unchanged revision is
   not a new group.
 * **FETCH.** The session player is the origin of its tracks' history: any group up to the one in progress is rebuilt
   from the recording on demand, so a FETCH of any past slice of the session is answered (about 35 ms through the
   relay, locally), and its copy is byte for byte what went out live. A future group is refused (code 17). In the
-  recording room `serve-recording` answers from the archived slices.
+  recording room `serve-recording` answers from the archived slices, and `translate-any` back-fills a translation's.
 * What generating a track cost once is its `spend_usd` in the room catalog's status, below.
 
 **The room catalog** `talk/<room>/catalog` track `catalog` is the MSF catalog of the room's AI tracks
@@ -668,8 +705,9 @@ write, repeated every 2 s:
 * root `version: "draft-01"` and the extension `tt`: `E` (room time 0, Unix ms: the session's start, new each
   session), `shift` (ms, a whole number of slices, keyed by the teacher broadcast's `clock.wall` as a decimal string:
   0 here), `status` keyed by bare agent name (switch off: `status: "live"`, `producing: true`, zero `fetches_served`
-  and `backfills`, `spend_usd` what generating the track cost, `updated_ms` refreshed with every write; switch on, and
-  for `translate-any`, the live agents' own reports, `capped` included; in the recording room `idle`); the names are
+  and `backfills`, `spend_usd` what generating the track cost, `updated_ms` refreshed with every write; switch on, the live agents' own
+  reports, `capped` included; in the recording room `idle` for the baked tracks and `translate-any`'s own reports for its
+  translations); the names are
   locked in wiki/design/lane-briefs.md, "Catalog field names", and validated by the contracts' `RoomCatalog`;
 * one entry per track: `name`, `namespace`, `packaging: "eventtimeline"`, `mimeType`, `eventType`
   (`urn:msf:captions:webvtt` for captions and translation, `com.talktracks.slides`, `com.talktracks.outline`), `role`

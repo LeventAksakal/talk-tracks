@@ -1,121 +1,23 @@
-"""BCP 47 language tags and Muse LLM language support (Decision 0019).
+"""BCP 47 language tags and Muse LLM language support (decisions 0019 and 0035).
 
-Muse Spark supports translation into major world languages. Subtitle languages use BCP 47 tags
-(RFC 5646), and names display in English or the viewer's locale via Intl.DisplayNames.
+The subtitle languages are one list, ``contracts/languages.json``, which the web player imports too. The agents image
+has no ``contracts/`` folder, so the list reaches the agents as ``language_list.py``, generated from that file:
+``python -m talk_tracks.languages`` writes it again, and ``test_languages`` fails while the two differ.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import sys
+from pathlib import Path
 
-# The 50 languages supported by the Muse model for subtitle translation (decision 0019, ui-design §4.2).
-SUPPORTED_LANGUAGES: tuple[str, ...] = (
-    "ar",
-    "bn",
-    "bg",
-    "ca",
-    "cs",
-    "da",
-    "de",
-    "el",
-    "en",
-    "es",
-    "et",
-    "fa",
-    "fi",
-    "fil",
-    "fr",
-    "gu",
-    "he",
-    "hi",
-    "hr",
-    "hu",
-    "id",
-    "it",
-    "ja",
-    "kn",
-    "ko",
-    "lt",
-    "lv",
-    "ml",
-    "mr",
-    "ms",
-    "nl",
-    "no",
-    "pa",
-    "pl",
-    "pt",
-    "ro",
-    "ru",
-    "sk",
-    "sl",
-    "sr",
-    "sv",
-    "sw",
-    "ta",
-    "te",
-    "th",
-    "tr",
-    "uk",
-    "ur",
-    "vi",
-    "zh",
-)
+from .language_list import LANGUAGE_NAMES, SUPPORTED_LANGUAGES
+
+LANGUAGES_JSON = Path(__file__).resolve().parents[3] / "contracts" / "languages.json"
+GENERATED = Path(__file__).with_name("language_list.py")
 
 MUSE_LANGUAGES: frozenset[str] = frozenset(SUPPORTED_LANGUAGES)
-
-LANGUAGE_NAMES: dict[str, str] = {
-    "ar": "Arabic",
-    "bn": "Bengali",
-    "bg": "Bulgarian",
-    "ca": "Catalan",
-    "cs": "Czech",
-    "da": "Danish",
-    "de": "German",
-    "el": "Greek",
-    "en": "English",
-    "es": "Spanish",
-    "et": "Estonian",
-    "fa": "Persian",
-    "fi": "Finnish",
-    "fil": "Filipino",
-    "fr": "French",
-    "gu": "Gujarati",
-    "he": "Hebrew",
-    "hi": "Hindi",
-    "hr": "Croatian",
-    "hu": "Hungarian",
-    "id": "Indonesian",
-    "it": "Italian",
-    "ja": "Japanese",
-    "kn": "Kannada",
-    "ko": "Korean",
-    "lt": "Lithuanian",
-    "lv": "Latvian",
-    "ml": "Malayalam",
-    "mr": "Marathi",
-    "ms": "Malay",
-    "nl": "Dutch",
-    "no": "Norwegian",
-    "pa": "Punjabi",
-    "pl": "Polish",
-    "pt": "Portuguese",
-    "ro": "Romanian",
-    "ru": "Russian",
-    "sk": "Slovak",
-    "sl": "Slovenian",
-    "sr": "Serbian",
-    "sv": "Swedish",
-    "sw": "Swahili",
-    "ta": "Tamil",
-    "te": "Telugu",
-    "th": "Thai",
-    "tr": "Turkish",
-    "uk": "Ukrainian",
-    "ur": "Urdu",
-    "vi": "Vietnamese",
-    "zh": "Chinese",
-}
 
 # Standard BCP 47 syntax: 2-3 letter primary language subtag with optional script, region or variant subtags.
 BCP_47_RE = re.compile(r"^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]+)*$")
@@ -162,3 +64,37 @@ def parse_translation_agent(agent_name: str) -> str | None:
 def translation_agent_name(lang: str) -> str:
     """Stable agent name for a translation track: translate-<lang>."""
     return f"translate-{lang.strip().lower()}"
+
+
+# --- the generated list -----------------------------------------------------------------------------------------
+
+
+def read_languages_json(path: Path = LANGUAGES_JSON) -> list[tuple[str, str]]:
+    """``(tag, English name)`` of every language in ``contracts/languages.json``, in its order."""
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    return [(str(entry["tag"]), str(entry["name"])) for entry in doc["languages"]]
+
+
+def render_language_list(languages: list[tuple[str, str]]) -> str:
+    """The source of ``language_list.py`` for ``languages``."""
+    lines = [
+        '"""Generated from contracts/languages.json by ``python -m talk_tracks.languages``: do not edit."""',
+        "",
+        "SUPPORTED_LANGUAGES: tuple[str, ...] = (",
+        *(f'    "{tag}",' for tag, _ in languages),
+        ")",
+        "",
+        "LANGUAGE_NAMES: dict[str, str] = {",
+        *(f'    "{tag}": "{name}",' for tag, name in languages),
+        "}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def main() -> None:
+    GENERATED.write_text(render_language_list(read_languages_json()), encoding="utf-8", newline="\n")
+    print("wrote", GENERATED, file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

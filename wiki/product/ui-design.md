@@ -365,8 +365,8 @@ For the coordinator to route to the lanes; none is decided.
 
 | Change | Why | Lanes |
 |---|---|---|
-| Translation to **any** Muse-supported language | the subtitle language list is open, not tr/es/ar | agents (a lazy translate track per requested language, named by BCP 47 tag), contracts, caps; decision 0014 revisited |
-| Demo rooms with arbitrary languages | judges may pick any language | demo rooms are pre-generated and never back-fill (moq-track-system §5.7); a new language there means live translation with spend |
+| Translation to **any** Muse-supported language | the subtitle language list is open: no language is fixed or pre-made | agents (a lazy translate track per listed language, named by BCP 47 tag), contracts (`contracts/languages.json`, the one list), caps; decisions 0019 and 0035 |
+| Demo rooms with arbitrary languages | judges may pick any language | every language is made on first pick (decision 0035): live in a demo session (`TT_DEMO_LIVE_AGENTS` on, never back-filled), by back-fill from the archived captions in a recording room; spend against the room's cap |
 | **Camera** video from the browser | the speaker's face in split/PiP | speaker console, relay bandwidth, archive (audio+video rooms already handled) |
 | **Ink and laser** events | drawing on slides that rewinds | a new track and payload in `contracts/`, archive |
 | **Screen share** | demos, code | another video (and audio) track, catalog, archive |
@@ -454,5 +454,5 @@ Checks per lane, once on its final change set: web lanes run typecheck, lint, te
 lanes run pytest, ruff and pyright for `agents/`. Only the coordinator runs the full gate before merging.
 
 **Risk:** five lanes in about three days before the end-to-end checks on Nov 2. If time runs short, cut in this
-order: comments, any-language translation (keep tr/es/ar), camera. Lane briefs:
+order: comments, any-language translation, camera. (Since decision 0035 no language is pre-made: every one is lazy.) Lane briefs:
 [lane-briefs §Foundation lanes](../design/lane-briefs.md#foundation-lanes-2026-10-30).

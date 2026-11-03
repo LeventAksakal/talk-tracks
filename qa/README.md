@@ -72,7 +72,8 @@ browsers as a browser difference.
 ## Cost and safety guards
 
 - Subtitles and translations are picked only from what the room lists as running ("in this room"), and of those only
-  `--translation` (default Arabic, generated once for every demo room). A language the
+  `--translation` (no default: without it the translation steps are skipped). Every translation is lazy and paid
+  (decision 0035), none is made ahead, and with `TT_DEMO_LIVE_AGENTS` off the demo rooms offer none. A language the
   room does not run would wake a paid translation agent; the harness never picks one.
 - No room is created: no journey submits a valid Create talk form, and every context aborts a POST to `/api/rooms`
   (a tripped guard shows up as a failed step).

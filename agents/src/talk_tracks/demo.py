@@ -41,7 +41,7 @@ from typing import cast
 from .archive.catalog import Budget, CatalogFeed
 from .archive.events import history_path
 from .archive.looped import with_room_service
-from .archive.slices import NORMAL, TrackArchive, listdir
+from .archive.slices import NORMAL, TrackArchive
 from .contracts import (
     DECK_TRACK,
     ROOM_TRACK,
@@ -86,7 +86,7 @@ from .replay import Cue, MediaClock, event_us, session_events
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog, room_service_tracks, speaker_sources, speaker_tracks
 from .runtime import now_ms
-from .session import RoomStates, SessionPlan, honest_recording, next_epoch, tail_ms
+from .session import RoomStates, SessionPlan, catalog_agents, honest_recording, next_epoch, recorded_agents, tail_ms
 from .slicing import Placed, Room, Template, cues, room_catalog
 from .slideshow import Slide, find_slides
 
@@ -464,8 +464,9 @@ async def teacher_wall(relay: Relay, room: str, room_clock: RecorderClock) -> No
 
 
 async def record_room(relay: Relay, room: str, rec: RecordingWriter) -> None:
-    """Record until cancelled: every agent track the room catalog lists, rebuilt into full states (``follow``),
-    stamped with the room time of the newest teacher audio, see ``recording``."""
+    """Record until cancelled: every agent track the room catalog lists but the translations, rebuilt into full
+    states (``follow``), stamped with the room time of the newest teacher audio, see ``recording``. Translations are
+    made on demand in every room (decision 0035), so ``generate`` never subscribes one: none is paid for."""
     clock = MediaClock()
     room_clock = RecorderClock()
     spend: dict[str, float] = {}
@@ -492,6 +493,8 @@ async def record_room(relay: Relay, room: str, rec: RecordingWriter) -> None:
             room_clock.epoch, room_clock.shift = cat.tt.E, dict(cat.tt.shift)
             spend.update({name: s.spend_usd for name, s in cat.tt.status.items()})
             for track in catalog_tracks(cat):
+                if track.kind == "translation":  # never recorded: a subscription would start a paid translation
+                    continue
                 if (track.namespace, track.name) not in readers:
                     log.info("recording %s/%s (%s)", track.agent, track.name, track.kind)
                     readers[(track.namespace, track.name)] = asyncio.create_task(read(track))
@@ -583,7 +586,7 @@ def _live_document(
     feed: CatalogFeed, base: Callable[[int], RoomCatalog], skip: frozenset[str]
 ) -> Callable[[int], dict[str, object]]:
     """A session's catalog at wall time t: ``base`` (the recording's tracks, or none) with every other agent announced
-    in the room that has a ``track.json`` (a live agent: all of them with the switch on, ``translate-any`` off)."""
+    in the room that has a ``track.json`` (a live agent: with the switch on, all of them)."""
 
     def document(wall_ms: int) -> dict[str, object]:
         built = base(wall_ms)
@@ -808,7 +811,9 @@ async def serve_recording(
     """A recording room (``<id>-recording``, built by ``recording_room``) for replay: its catalog (E from the
     archive's ``room.json``, the AI tracks from their ``track.json``, labelled recorded, the slides and the ``room``
     track), its ``room`` and AI tracks answering FETCH from the archived slices, and with ``slides`` its deck and slide
-    tracks from the lecture's slides, kept in memory only (ticket 0001). Runs until cancelled."""
+    tracks from the lecture's slides, kept in memory only (ticket 0001). The catalog also lists each translation the
+    translation agent announces in the room (``catalog_agents``), which it back-fills on demand from the archived
+    captions (decision 0035); this publishes none of them. Runs until cancelled."""
     index = json.loads((archive_root / room / "room.json").read_text(encoding="utf-8"))
     epoch = int(index["epoch_ms"])
     wall = int(next(iter(index["shift"])))
@@ -818,14 +823,14 @@ async def serve_recording(
         raise FileNotFoundError(f"{room}: no room track in the archive; build it with record-archive")
     end_ms = (last_slice + 1) * SLICE_MS - 1  # within the room track's last slice, which holds the end
     agents_dir = archive_root / room / "agents"
-    agents = {a: listdir(agents_dir / a) for a in listdir(agents_dir)}
+    agents = recorded_agents(agents_dir)
     # the lecture's regions: beside it, else the copy record-archive keeps in the room's folder
     regions = load(beside(media)) if media is not None else None
     regions = regions or load(archive_root / room / REGIONS_FILE)
     found = await _find_slides(media, slides, regions) if media is not None else None
     deck = LectureSlides.of(found, (last_slice + 1) * SLICE_MS) if found else None
     feed = CatalogFeed(room, archive_root)
-    feed.agents = set(agents)
+    announced: set[str] = set()  # the translation agent's tracks here, while it is up (decision 0035)
     feed.epoch_ms, feed.shift = epoch, {str(wall): 0}
     room_track = next(t for t in room_service_tracks(room) if t.name == ROOM_TRACK)
     feed.event_tracks = (*(t for t in speaker_tracks(room) if deck is not None and t.name in TRACKS), room_track)
@@ -846,14 +851,19 @@ async def serve_recording(
             log.info("%s: a deck of %d slides", room, len(deck.slides))
 
         def document(wall_ms: int) -> dict[str, object]:
+            feed.agents = catalog_agents(agents, announced)  # read again for every write: the heartbeat
             doc = feed.document(wall_ms)
             assert doc is not None
             return doc
 
+        listening = asyncio.create_task(_announced_agents(relay, room, announced))
         catalog_track = RoomCatalogTrack(relay, room, document)
         await catalog_track.start()
         log.info("serving the recording room %s (E %d, %.1f s)", room, epoch, end_ms / 1000)
-        await until_closed(relay, _every(HEARTBEAT_S, catalog_track.publish))
+        try:
+            await until_closed(relay, _every(HEARTBEAT_S, catalog_track.publish))
+        finally:
+            listening.cancel()
 
 
 async def record(url: str, room: str, out: Path, *, media: str | None, token: str | None, insecure: bool) -> None:

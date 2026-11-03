@@ -8,7 +8,7 @@ Everything runs on one cloud VM (decision 0004) from `deploy/compose.vm.yml`:
 | `relay` | moq-relay on UDP 443 (QUIC and WebTransport) with Caddy's certificate; asks `auth` about every session |
 | `auth` | `moq auth serve` with the public key: anyone may watch `talk/**`, publishing needs a signed token ([tokens](tokens.md)) |
 | `looper` | the demo room, replaying a recording from `$TT_DATA/demo/<lecture>/` ([demo rooms](demo-rooms.md)) |
-| `captions`, `translate-tr`, `describe`, `chapters` | live agents for every room a speaker opens, or `$TT_LIVE_ROOMS` (profile `live`; they need the Meta key). Lazy: they pay only while their track is subscribed, and each room has a spend cap ([lazy agents](lazy-agents.md)) |
+| `captions`, `translate-any`, `describe`, `chapters` | live agents for every room a speaker opens, or `$TT_LIVE_ROOMS` (profile `live`; they need the Meta key). Lazy: they pay only while their track is subscribed, and each room has a spend cap ([lazy agents](lazy-agents.md)). `translate-any` has one lazy track per language of `contracts/languages.json` and, with `TT_DEMO_LIVE_AGENTS` on, also back-fills the recording rooms on demand ([decision 0035](../decisions/0035-all-translations-lazy.md)) |
 
 The browser reaches the relay on the page's own origin: a production build needs no relay URL.
 
@@ -68,7 +68,7 @@ ssh $VM 'cd ~/talk-tracks/agents && docker build -q -t talk-tracks-agents:dev .'
 ssh $VM 'cd ~/talk-tracks && docker compose -f deploy/compose.vm.yml --profile live up -d'
 ```
 
-`--profile live` matters: without it compose leaves the live agents (`captions`, `translate-tr`, `describe`,
+`--profile live` matters: without it compose leaves the live agents (`captions`, `translate-any`, `describe`,
 `chapters`) on the old image.
 
 If the release changes `deploy/Caddyfile`, restart Caddy after the `git pull`:
@@ -115,8 +115,7 @@ isolation headers, `/healthz`, the looped lecture with captions, and the agents 
 
 Data changes are not code and are undone on their own:
 - the archive layout: [roll back](archive.md#deploy-the-room-service-to-the-vm) in the archive howto;
-- re-cut demo captions: [undo](demo-rooms.md#fitting-the-turkish-cues-to-84-characters-resplit) in demo rooms, which restores
-  `translate-tr.cues.orig.json`.
+- the recording rooms: [rebuild them](demo-rooms.md#the-recording-rooms) from their recordings (offline, free).
 
 ## Clean up
 

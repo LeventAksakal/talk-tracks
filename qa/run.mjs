@@ -29,7 +29,8 @@ if (args.help) {
   --recording <name>    the recording the recording journey plays (default: <room>-recording)
   --overlay <dir>       serve this local build (web/dist) in place of the site's own files, under its origin:
                         a change seen against the deployed relay and rooms before it is deployed (journeys only)
-  --translation <name>  the translation to pick, only if the room lists it as running (default: Arabic)
+  --translation <name>  the translation to pick, only if the room lists it as running (default: none, the step is
+                        skipped: every translation is lazy and paid, decision 0035)
   --trace-path <path>   the page to trace (default: /watch/<room>, or /demo with --offline)
   --trace-seconds <n>   seconds of playback in the trace (default: 60)
   --lighthouse-pages <list>  hub,watch,demo (default: all three; watch is dropped with --offline)
@@ -52,7 +53,7 @@ const lhPages = list(args["lighthouse-pages"], offline ? "hub,demo" : "hub,watch
 const run = args.run ?? `${stamp()}-${isLocal(baseUrl) ? "local" : "deployed"}`;
 const runDir = ensureDir(resolve(here, "out", run));
 const overlay = args.overlay ? resolve(args.overlay) : undefined;
-const opts = { base: baseUrl, room, recording: args.recording, overlay, redact, translation: args.translation ?? "Arabic" };
+const opts = { base: baseUrl, room, recording: args.recording, overlay, redact, translation: args.translation };
 const log = (s) => console.log(redact(s));
 
 // A base that does not answer would turn every step into the same failure: stop with one clear line instead.

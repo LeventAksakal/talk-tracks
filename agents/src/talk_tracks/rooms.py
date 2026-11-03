@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
+from fnmatch import fnmatchcase
 from typing import Any
 
 from pydantic import ValidationError
@@ -27,14 +28,16 @@ TALK_OVER = "talk over"  # the cancel message of a room whose speaker stayed awa
 
 class RoomPolicy:
     def __init__(self, rooms: str, exclude: Iterable[str] = ()) -> None:
-        """``rooms`` is ``*`` for any room, or a comma-separated list; ``exclude`` wins over both (the demo room)."""
+        """``rooms`` is ``*`` for any room, or a comma-separated list; ``exclude`` wins over both (the demo room).
+        An ``exclude`` entry may be a pattern (``gen-*``, ``fnmatch`` rules)."""
         names = {r.strip() for r in rooms.split(",") if r.strip()}
         self.any = "*" in names
         self.rooms = frozenset(names - {"*"})
         self.exclude = frozenset(r.strip() for r in exclude if r.strip())
 
     def wants(self, room: str) -> bool:
-        return room not in self.exclude and (self.any or room in self.rooms)
+        excluded = room in self.exclude or any(fnmatchcase(room, p) for p in self.exclude if "*" in p)
+        return not excluded and (self.any or room in self.rooms)
 
 
 Joined = Callable[[str, str], AsyncIterator[tuple[int, int, bytes]]]  # ``moq.Relay.joined``: (group, object, payload)

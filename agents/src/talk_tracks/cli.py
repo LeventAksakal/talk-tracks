@@ -1,7 +1,8 @@
 """Command line: ``python -m talk_tracks <agent> --relay URL --room ROOM [--lang xx] [--fake]``.
 
-Agents: ``captions`` (speech to text), ``translate`` (one language per process), ``describe`` (slide descriptions),
-``chapters`` (chapters, glossary and recap). Dev stand-ins: ``teacher`` publishes audio and ``slides`` publishes
+Agents: ``captions`` (speech to text), ``translate`` (a lazy track for each language of ``contracts/languages.json``,
+or ``--lang a,b``), ``describe`` (slide descriptions), ``chapters`` (chapters, glossary and recap). Dev stand-ins:
+``teacher`` publishes audio and ``slides`` publishes
 slide images like the speaker's browser, ``catalog`` publishes the room epoch like the room service, ``watch`` prints
 what the agents publish. Demo rooms (see
 wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``record`` records a room's agent tracks,
@@ -12,15 +13,14 @@ plays the lecture once from 00:00 and ends; ``TT_DEMO_LIVE_AGENTS`` on: its AI t
 recording's subtitle cues end, ``find-regions`` finds where a lecture's frame holds the slides and the speaker's
 webcam and writes ``regions.json`` beside it (``--slides auto`` cuts the slides from it; ``session`` and
 ``serve-recording`` put it in the room catalog, for the player's camera tile). Fixes to a finished recording
-(``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its caption lines
-(into ``--lang`` / ``--agent``) cut to subtitle cues, ``redescribe`` describes the slides it has no note for
-(``--slides`` as for ``generate``), ``repunctuate`` adds sentence and clause punctuation to its caption lines, words
-unchanged (``--dry-run``: no call, no write, the estimate), ``resplit`` cuts retranslate's over-long
-subtitle cues again, free (no model call, no spend).
+(``--recording``, offline, spending through ``--room``'s ledger): ``redescribe`` describes the slides it has no note
+for (``--slides`` as for ``generate``), ``repunctuate`` adds sentence and clause punctuation to its caption lines,
+words unchanged (``--dry-run``: no call, no write, the estimate).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
-rooms listed, each from when its speaker comes on air.
+rooms listed, each from when its speaker comes on air. With ``TT_DEMO_LIVE_AGENTS`` on, ``translate`` also serves
+the recording rooms built in the archive, back-filling a slice only when a viewer fetches it (decision 0035).
 
 Settings also come from the environment: TT_RELAY, TT_ROOM, TT_ROOMS, TT_ROOMS_EXCLUDE (rooms never served, such as
 the demo room), TT_TOKEN, TT_LEDGER (default data/ledger.jsonl), TT_SPEND_CEILING_USD (default 100), TT_ROOM_CAP_USD
@@ -61,7 +61,7 @@ from .llm.queued import Priority, QueuedLlm, add_usage
 AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "catalog", "watch")
 DEMO = ("play", "record", "generate", "session", "serve-recording")
-REVISE = ("retranslate", "redescribe", "repunctuate", "resplit")  # offline: a finished recording, no relay
+REVISE = ("redescribe", "repunctuate")  # offline: a finished recording, no relay
 OFFLINE = ("record-archive", "cue-report", "find-regions")  # offline and free: no relay, no model
 
 FAKE_SENTENCES = [
@@ -95,8 +95,12 @@ def room_ledger(room: str, ledger: SpendLedger) -> SpendLedger:
     return ledger.for_room(room, room_cap(room, caps, env_float("TT_ROOM_CAP_USD", ROOM_CAP_USD)))
 
 
-def make_llm(fake: bool, room: str, *, backfill: bool = False) -> Llm:
-    """The room's model; ``backfill`` gives the one back-fills use, held to the room's back-fill budget."""
+def make_llm(fake: bool, room: str, *, backfill: bool = False, share: float | None = None) -> Llm:
+    """The room's model; ``backfill`` gives the one back-fills use, held to the room's back-fill budget (``share``
+    of its cap, default ``BACKFILL_SHARE``)."""
+    from .llm.ledger import BACKFILL_SHARE
+
+    part = BACKFILL_SHARE if share is None else share
     if fake:
         from .llm.fake import FakeLlm
 
@@ -106,11 +110,11 @@ def make_llm(fake: bool, room: str, *, backfill: bool = False) -> Llm:
         fake_ledger = room_ledger(
             room, SpendLedger(Path(os.environ.get("TT_FAKE_LEDGER", "data/fake-ledger.jsonl")), 1e9)
         )
-        return FakeLlm(fake_ledger.for_backfill() if backfill else fake_ledger, usd)
+        return FakeLlm(fake_ledger.for_backfill(part) if backfill else fake_ledger, usd)
     from .llm.meta import MetaLlm
 
     ledger = room_ledger(room, spend_ledger())
-    return MetaLlm(api_key(), ledger.for_backfill() if backfill else ledger)
+    return MetaLlm(api_key(), ledger.for_backfill(part) if backfill else ledger)
 
 
 def demo_room(room: str) -> bool:
@@ -151,19 +155,19 @@ class Agent:
 
 
 def build(args: argparse.Namespace, room: str) -> Agent:
-    """The agent for ``room``. Its inputs open only while its track is subscribed (``gate``)."""
+    """The captions, describe or chapters agent for ``room`` (translation is ``serve_translate_room``). Its inputs
+    open only while its track is subscribed (``gate``)."""
     from . import moq, runtime
     from .cores.captions import CaptionsCore
     from .cores.outline import OutlineCore
     from .cores.slides import SlidesCore
-    from .cores.translate import TranslateCore
     from .demand import gated
     from .records import cues_of, outline_of, slides_of
 
     def seeded_cues(track: Any) -> list[Any]:
         return [cue for payload in track.seed_objects() for cue in cues_of(payload)[1]]
 
-    lang: str = args.lang or "tr"
+    lang: str = args.lang or "en"
     if args.agent == "captions":
         if args.fake:
             from .asr.scripted import ScriptedAsr, demo_script
@@ -199,24 +203,6 @@ def build(args: argparse.Namespace, room: str) -> Agent:
         """Subscribing here is what keeps the captions agent working for us (a downstream subscriber)."""
         return moq.follow_captions(io.relay, room)
 
-    # aclosing: an agent that stops at its cap closes its input at once, which releases the track it subscribed to.
-    async def translate(io: RoomIo, track: Any, gate: Any) -> None:
-        core = TranslateCore(lang, done=seeded_cues(track))
-        track.carry = core.carry
-        cues = gated(gate, lambda: captions(io), f"translate {room}", track.finish)
-        async with contextlib.aclosing(cues) as a:
-            await runtime.run_translate(a, llm, track, core)
-
-    backfill_llm = make_llm(args.fake, room, backfill=True)
-
-    def translate_backfill(io: RoomIo, track: Any) -> Any:
-        """Back-fill (design §5.7, translation only): in the FETCH handler, one at a time and behind live calls, from
-        the captions slice fetched through the relay, on the room's back-fill budget. Never in a demo room."""
-        if demo_room(room):
-            return None
-        queued = QueuedLlm(backfill_llm, priority, live=False)
-        return translation_backfill(io.relay, room, lang, track.archive, queued, priority)
-
     async def describe(io: RoomIo, track: Any, gate: Any) -> None:
         core = SlidesCore(lang)
         core.seed([s for payload in track.seed_objects() for s in slides_of(payload)[1]])
@@ -243,18 +229,7 @@ def build(args: argparse.Namespace, room: str) -> Agent:
         async with contextlib.aclosing(gated(gate, lambda: captions(io), f"chapters {room}")) as cues:
             await runtime.run_outline(cues, llm, track, core)
 
-    usage = lambda: add_usage(live_llm.usage, backfill_llm.usage)  # noqa: E731
-    if args.agent == "translate":
-        label = f"{language_name(lang)} translation"
-        return Agent(
-            AgentInfo(name=f"translate-{lang}", label=label, model=llm.model),
-            usage,
-            TrackInfo(
-                kind="translation", label=label, lang=lang, depends=["captions/items"], lateness_ms=TRANSLATION_LATE_MS
-            ),
-            translate,
-            backfill=translate_backfill,
-        )
+    usage = lambda: live_llm.usage  # noqa: E731  (translate is serve_translate_room's: only it back-fills)
     if args.agent == "describe":
         label = "Slide descriptions"
         return Agent(  # slide descriptions are never back-filled (design §5.7)
@@ -293,20 +268,83 @@ def translation_backfill(
     return produce
 
 
-DEMO_PREMADE_LANGUAGES = frozenset({"tr", "es", "ar"})
-
-
-def open_languages(room: str, exclude: str | None = None) -> list[str]:
-    """The languages ``--lang any`` serves in ``room``: every supported one, but not the demo rooms' pre-made tr, es
-    and ar, nor those in ``exclude`` (default ``TT_LANG_EXCLUDE``, comma-separated: the languages a dedicated agent
-    serves, so no track has two publishers)."""
+def open_languages(lang: str | None) -> list[str]:
+    """The languages ``translate --lang`` serves: a comma-separated list, or with ``any`` (``*``, ``all``, unset)
+    every one in ``contracts/languages.json``, in every room alike (decision 0035): each track is lazy."""
     from .languages import SUPPORTED_LANGUAGES
 
-    raw = os.environ.get("TT_LANG_EXCLUDE", "") if exclude is None else exclude
-    skip = {tag.strip() for tag in raw.split(",") if tag.strip()}
-    if demo_room(room):
-        skip |= DEMO_PREMADE_LANGUAGES
-    return [tag for tag in SUPPORTED_LANGUAGES if tag not in skip]
+    if lang and lang not in ("*", "all", "any"):
+        return [tag.strip() for tag in lang.split(",") if tag.strip()]
+    return list(SUPPORTED_LANGUAGES)
+
+
+def is_recording_room(room: str) -> bool:
+    """A demo lecture's recording room, ``<id>-recording`` (decision 0032): ended, with no speaker."""
+    from .session import RECORDING_SUFFIX
+
+    return room.endswith(RECORDING_SUFFIX)
+
+
+def recording_rooms(root: Path) -> list[str]:
+    """The recording rooms ``record-archive`` built into the archive ``root``: ``<id>-recording/room.json``. The room
+    service skips ``*-recording`` (``TT_ARCHIVE_SKIP``), so no live talk of that name has a ``room.json``."""
+    from .archive.slices import listdir
+
+    return sorted(r for r in listdir(root) if is_recording_room(r) and (root / r / "room.json").is_file())
+
+
+def recording_edge(room: str, root: Path) -> int | None:
+    """Room time just past a recording room's end (its ``room`` track's last slice): every slice before it is past,
+    so a FETCH of any of them may be back-filled. None while the room is not built."""
+    from .archive.slices import TrackArchive
+    from .contracts import ROOM_TRACK, SLICE_MS, catalog_path
+
+    last = TrackArchive.of(catalog_path(room), ROOM_TRACK, root=root).latest_group()
+    return None if last is None else (last + 1) * SLICE_MS
+
+
+RECORDING_BACKFILL_SHARE = 1.0  # a recording room has no live work to keep its cap for: back-fill is all it does
+STATUS_POLL_S = 0.5  # how often a live room's track reads its state for the catalog
+RECORDING_STATUS_POLL_S = 2.0  # a recording room's: it changes only on a FETCH
+
+
+def track_loops(
+    sliced: Any, run_lang: Coroutine[Any, Any, None], status: Coroutine[Any, Any, None], *, recorded: bool
+) -> list[Coroutine[Any, Any, None]]:
+    """What runs for one translation track: its live loop and its status, and in a live room the slice clock. A
+    recording room has nothing live, so no clock: each slice is made by a FETCH, or not at all."""
+    return [run_lang, status, *([] if recorded else [sliced.run_clock()])]
+
+
+def due_report(now: Any, last: Any, since: float, mono: float, *, recorded: bool) -> bool:
+    """Whether to rewrite ``track.json``: on every change, and as a heartbeat every ``REPORT_EVERY_S``. A recording
+    room's idle track needs no heartbeat (stale reads as idle, which it is); its capped one keeps it, so it stays
+    capped in the catalog."""
+    if now != last:
+        return True
+    if recorded and now[0] != "capped":
+        return False
+    return mono - since >= REPORT_EVERY_S
+
+
+def capping(produce: Produce, sliced: Any) -> Produce:
+    """A recording room's back-fill: back-fill is all its budget is for, so running out of it caps the track, and
+    the catalog says ``capped`` instead of serving nothing in silence."""
+    from .llm.ledger import BudgetExceededError
+
+    async def capped(k: int) -> Any:
+        try:
+            return await produce(k)
+        except BudgetExceededError:
+            await sliced.cap()
+            raise
+
+    return capped
+
+
+def track_status(sliced: Any) -> Status:
+    """A sliced track's status for the catalog: capped, live while producing, else idle."""
+    return "capped" if sliced.capped else "live" if not sliced.paused else "idle"
 
 
 async def serve_translate_room(
@@ -314,43 +352,42 @@ async def serve_translate_room(
     room: str,
     *,
     languages: Sequence[str] | None = None,
+    recorded: bool = False,
 ) -> bool:
-    """Translation agent for ``room``: serves translation tracks on demand for any supported
-    BCP 47 language tag (decision 0019). Each track is lazy and only consumes spend when subscribed.
-    In a demo room, pre-made tr, es, ar stay while other languages translate live against room cap. True when the
-    demo room's live session changed under it (``epoch_changed``)."""
+    """Translation agent for ``room``: one lazy translation track per listed language (decisions 0019 and 0035),
+    which spends only while subscribed (live) or fetched (back-fill), against the room's cap. Demo rooms get live
+    translation only, session by session; a ``recorded`` room (one ``serve_recording_rooms`` found in the archive,
+    never a name alone) gets back-fill only, from its archived captions, and is never stopped by its ``ended``. True
+    when the demo room's live session changed under it (``epoch_changed``)."""
     from . import moq, runtime
-    from .archive.slices import TrackArchive, archive_bucket
+    from .archive.slices import TrackArchive, archive_bucket, default_root
     from .cores.translate import TranslateCore
     from .demand import IDLE_GRACE_S, Gate, gated
     from .languages import is_supported_language, language_name
     from .live_slices import SlicedTrack, Watermark
-    from .llm.queued import Priority, QueuedLlm, add_usage
+    from .llm.queued import Priority, QueuedLlm
     from .records import cues_of
     from .rooms import TALK_OVER
     from .roomtime import RoomTime
 
     priority = Priority()
     live_llm = make_llm(args.fake, room)
-    backfill_llm = make_llm(args.fake, room, backfill=True)
+    backfill_llm = make_llm(args.fake, room, backfill=True, share=RECORDING_BACKFILL_SHARE if recorded else None)
     is_demo = demo_room(room)
-
-    if languages is not None:
-        target_langs = list(languages)
-    elif args.lang and args.lang not in ("*", "all", "any"):
-        target_langs = [tag.strip() for tag in args.lang.split(",") if tag.strip()]
-    else:
-        # Open subtitle list: in demo rooms, pre-made tr, es, ar stay; other languages run live.
-        target_langs = open_languages(room)
-
+    target_langs = list(languages) if languages is not None else open_languages(args.lang)
     log = logging.getLogger("talk_tracks")
+    end_edge = recording_edge(room, default_root()) if recorded else None
+    if recorded and end_edge is None:
+        raise FileNotFoundError(f"{room}: no room track in the archive; build it with record-archive")
+
     sessions = demo_room(room)  # live sessions: one instance each; slices stay on the VM (each writes group 0 again)
-    bucket = None if sessions else archive_bucket()
+    bucket = None if sessions or recorded else archive_bucket()
     changed = False
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         room_time = RoomTime()
         io = RoomIo(relay, room_time, moq.TeacherFeed(relay, room, room_time))
-        clock = Watermark(edge=lambda: room_time.edge)
+        # A recording room is all past: its edge is its end. A live room's is the speaker's newest media.
+        clock = Watermark(edge=(lambda: end_edge) if recorded else (lambda: room_time.edge))
         catalogs = asyncio.create_task(moq.room_catalog(relay, room, room_time))
         try:
             epoch = await session_epoch(room_time) if sessions else None
@@ -393,12 +430,16 @@ async def serve_translate_room(
             if not is_demo:
                 queued = QueuedLlm(backfill_llm, priority, live=False)
                 produce = translation_backfill(relay, room, lang, archive, queued, priority)
+                if recorded:
+                    produce = capping(produce, sliced)
             out.serve(lambda k: sliced.slice(k, produce), sliced.stats, sliced.current_slice)
             gate = Gate(out.demand, grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S))
             core = TranslateCore(lang, done=seeded_cues(sliced))
             sliced.carry = core.carry
 
             async def run_lang() -> None:
+                if recorded:  # nothing is live in an ended room: a FETCH back-fills its slice, nothing else runs
+                    await asyncio.Event().wait()
                 cues = gated(gate, captions, f"translate-{lang} {room}", sliced.finish)
                 llm = QueuedLlm(live_llm, priority, live=True)
                 async with contextlib.aclosing(cues) as a:
@@ -406,9 +447,8 @@ async def serve_translate_room(
                 await asyncio.Event().wait()  # stopped at spend cap: the track stays up and says so
 
             def state() -> TrackState:
-                capped = sliced.capped
+                status_str = track_status(sliced)
                 producing = not sliced.paused
-                status_str: Status = "capped" if capped else "live" if producing else "idle"
                 stats = sliced.stats
                 cost = round(add_usage(live_llm.usage, backfill_llm.usage).cost_usd, 6)
                 return status_str, producing, stats.fetches_served, stats.backfills, cost
@@ -418,14 +458,12 @@ async def serve_translate_room(
                 since = 0.0
                 while True:
                     now = state()
-                    if now != last or time.monotonic() - since >= REPORT_EVERY_S:
+                    if due_report(now, last, since, time.monotonic(), recorded=recorded):
                         report(archive, now)
                         last, since = now, time.monotonic()
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(RECORDING_STATUS_POLL_S if recorded else STATUS_POLL_S)
 
-            runners.append(asyncio.create_task(run_lang()))
-            runners.append(asyncio.create_task(status()))
-            runners.append(asyncio.create_task(sliced.run_clock()))
+            runners.extend(asyncio.create_task(c) for c in track_loops(sliced, run_lang(), status(), recorded=recorded))
             tracks[lang] = sliced
             log.info("translate-%s active in room %s (lazy)", lang, room)
             return sliced
@@ -433,7 +471,7 @@ async def serve_translate_room(
         for lang in target_langs:
             await start_language(lang)
 
-        background = [catalogs, asyncio.create_task(io.feed.run())]
+        background = [catalogs, *([] if recorded else [asyncio.create_task(io.feed.run())])]
 
         async def serve() -> None:
             nonlocal changed
@@ -485,6 +523,16 @@ def room_exclusions(exclude: str) -> list[str]:
     return rooms
 
 
+GENERATION_ROOMS = "gen-*"  # demo-room.sh's generation rooms, gen-<lecture>: they record no translation
+
+
+def agent_exclusions(agent: str, exclude: str) -> list[str]:
+    """``room_exclusions``, and for the translation agent the generation rooms: a viewer on ``/watch/gen-<L>`` must
+    not start a paid translation while a recording is made (translations are never recorded, decision 0035)."""
+    rooms = room_exclusions(exclude)
+    return [*rooms, GENERATION_ROOMS] if agent == "translate" else rooms
+
+
 async def session_epoch(room_time: Any) -> int:
     """The ``E`` of a demo room's current live session: the first room catalog's (the session player publishes it
     before its teacher comes on air)."""
@@ -498,11 +546,13 @@ async def epoch_changed(room_time: Any, epoch: int) -> None:
     logging.getLogger("talk_tracks").info("room epoch %d -> %d: a new session", epoch, now)
 
 
-async def serve_room(args: argparse.Namespace, room: str) -> None:
+async def serve_room(args: argparse.Namespace, room: str, *, recorded: bool = False) -> None:
     """One room's agent on a connection of its own, under its stable name: its track stays published, idle until
     subscribed, and answers FETCH for its history from the archive (back-filling slices never produced). In a demo
     room's live sessions, one instance per session: a new ``E`` starts it again from the session's group 0."""
-    while await (serve_translate_room(args, room) if args.agent == "translate" else _serve_room(args, room)):
+    while await (
+        serve_translate_room(args, room, recorded=recorded) if args.agent == "translate" else _serve_room(args, room)
+    ):
         pass
 
 
@@ -627,7 +677,7 @@ async def run_agent(args: argparse.Namespace) -> None:
     from . import moq
     from .rooms import ROOM_LINGER_S, RoomPolicy, room_ended, serve_rooms
 
-    policy = RoomPolicy(args.rooms, room_exclusions(os.environ.get("TT_ROOMS_EXCLUDE", "")))
+    policy = RoomPolicy(args.rooms, agent_exclusions(args.agent, os.environ.get("TT_ROOMS_EXCLUDE", "")))
     linger = env_float("TT_ROOM_LINGER_S", ROOM_LINGER_S)
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         logging.getLogger("talk_tracks").info("%s serving rooms %s", args.agent, args.rooms)
@@ -638,7 +688,69 @@ async def run_agent(args: argparse.Namespace) -> None:
             linger_s=linger,
             ended=lambda room: room_ended(relay.joined, room),
         )
+        if serves_recordings(args):
+            rooms = _first_of(rooms, serve_recording_rooms(policy, lambda room: serve_room(args, room, recorded=True)))
         await moq.until_closed(relay, rooms)
+
+
+RECORDINGS_RESCAN_S = 60.0
+
+
+def serves_recordings(args: argparse.Namespace) -> bool:
+    """Whether this agent also serves the recording rooms: the translation agent only, and only with
+    ``TT_DEMO_LIVE_AGENTS`` on (off, no model call happens in a demo lecture's rooms, decision 0034)."""
+    from .session import live_agents
+
+    return args.agent == "translate" and live_agents()
+
+
+async def serve_recording_rooms(
+    policy: Any,
+    serve: Callable[[str], Coroutine[Any, Any, None]],
+    *,
+    root: Path | None = None,
+    every_s: float = RECORDINGS_RESCAN_S,
+) -> None:
+    """Serve every recording room built in the archive (``recording_rooms``) that ``policy`` wants, for good: it has
+    no speaker to come on air and is ended from the start, so neither starts or stops it. The archive is read again
+    every ``every_s``, so a room built later is picked up. A room that fails raises here, so the process restarts."""
+    from .archive.slices import default_root
+
+    log = logging.getLogger("talk_tracks")
+    running: dict[str, asyncio.Task[None]] = {}
+    try:
+        while True:
+            folder = root or default_root()
+            for room in recording_rooms(folder):
+                if room not in running and policy.wants(room) and recording_edge(room, folder) is not None:
+                    log.info("recording room %s: serving its translations on demand", room)
+                    running[room] = asyncio.create_task(serve(room))
+            for room, task in list(running.items()):
+                if task.done():
+                    del running[room]
+                    task.result()  # a failure ends the process; a room that returned is served again
+            await asyncio.sleep(every_s)
+    finally:
+        for task in running.values():
+            task.cancel()
+        for task in running.values():
+            with contextlib.suppress(BaseException):
+                await task
+
+
+async def _first_of(*works: Coroutine[Any, Any, None]) -> None:
+    """Run ``works`` together until the first one returns or fails; then stop the rest."""
+    tasks = [asyncio.ensure_future(w) for w in works]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(BaseException):
+                await task
 
 
 async def main_async(args: argparse.Namespace) -> None:
@@ -761,43 +873,15 @@ async def _revise(args: argparse.Namespace) -> None:
     from .regions import beside, load, resolve, slides_spec
 
     recording = need(args.recording, "--recording")
-    if args.agent in ("retranslate", "resplit") and not (args.lang or args.target_agent):
-        # `docker compose run translate-es retranslate ...` replaces the service's own `--lang es`, so a silent
-        # default would quietly redo Turkish for every service: name the language (or the track) explicitly.
-        raise SystemExit(f"{args.agent} needs --lang (tr, es, ar, ...) or --agent translate-<lang>")
-    if args.agent == "resplit":
-        result, changed = revise.resplit(recording, agent=args.target_agent, lang=args.lang)
-        longest = max((len(s) for line in result.lines.values() for s in line.segments), default=0)
-        logging.getLogger("talk_tracks.revise").info(
-            "resplit (%s): %d of %d lines cut again, longest cue now %d characters",
-            result.lang,
-            len(changed),
-            len(result.lines),
-            longest,
-        )
-        return
     if args.agent == "repunctuate":
         await _repunctuate(args, recording)
         return
-    if args.agent == "retranslate":
-        translator: revise.CueTranslator = (
-            revise.FakeCueTranslator(usd_per_call=env_float("TT_FAKE_USD_PER_CALL", 0))
-            if args.fake
-            else revise.MetaCueTranslator(api_key(), room_ledger(args.room, spend_ledger()))
-        )
-        result = await revise.retranslate(recording, translator, agent=args.target_agent, lang=args.lang)
-        logging.getLogger("talk_tracks.revise").info(
-            "retranslate (%s): %d lines cut to their cues, %s", result.lang, len(result.lines), result.usage
-        )
-    else:
-        describer = make_llm(args.fake, args.room)
-        media = args.media or recording / "lecture.mp4"
-        crop = resolve(slides_spec(args.slides or "full"), load(beside(media)))
-        assert crop is not None
-        patch = await revise.redescribe(recording, media, crop, describer, agent=args.target_agent or "describe")
-        logging.getLogger("talk_tracks.revise").info(
-            "redescribe: %d slides described, %s", len(patch.notes), patch.usage
-        )
+    describer = make_llm(args.fake, args.room)
+    media = args.media or recording / "lecture.mp4"
+    crop = resolve(slides_spec(args.slides or "full"), load(beside(media)))
+    assert crop is not None
+    patch = await revise.redescribe(recording, media, crop, describer, agent=args.target_agent or "describe")
+    logging.getLogger("talk_tracks.revise").info("redescribe: %d slides described, %s", len(patch.notes), patch.usage)
 
 
 async def _repunctuate(args: argparse.Namespace, recording: Path) -> None:
@@ -838,21 +922,21 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--room", default=os.environ.get("TT_ROOM"))
     p.add_argument("--rooms", default=os.environ.get("TT_ROOMS") or None, help="agents: '*' for any room, or a,b")
     p.add_argument(
-        "--lang", default=None, help="language of the output (translate, retranslate, resplit: target language)"
+        "--lang", default=None, help="language of the output (translate: a,b or any, the default: every listed one)"
     )
     p.add_argument(
         "--agent",
         dest="target_agent",
         default=None,
         metavar="NAME",
-        help="retranslate, resplit, redescribe: the recording's agent track (default: from --lang, or translate-tr)",
+        help="redescribe: the recording's agent track (default: describe)",
     )
     p.add_argument("--token", default=os.environ.get("TT_TOKEN"), help="signed relay token for publishing")
     p.add_argument("--fake", action="store_true", help="scripted speech recognition and a fake model: no API calls")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification (local relay, self-signed cert)")
     p.add_argument("--wav", type=Path, default=None, help="teacher: a 16-bit WAV file to loop instead of a tone")
     p.add_argument("--image", type=Path, action="append", default=[], help="slides: a PNG or JPEG slide (repeatable)")
-    p.add_argument("--watch", default="captions,translate-tr,describe,chapters", help="watch: the agents to print")
+    p.add_argument("--watch", default="captions,describe,chapters", help="watch: the agents to print")
     p.add_argument(
         "--media",
         type=Path,
@@ -865,8 +949,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         "--recording",
         type=Path,
         default=None,
-        help="session, record-archive, cue-report, find-regions, retranslate, repunctuate, resplit, redescribe: the"
-        " recording directory",
+        help="session, record-archive, cue-report, find-regions, repunctuate, redescribe: the recording directory",
     )
     p.add_argument(
         "--dry-run",
@@ -904,7 +987,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     if args.agent not in REVISE and args.lang is None and args.agent != "translate":
         args.lang = "en"
     need_relay = args.agent not in REVISE + OFFLINE
-    need_room = args.agent not in ("resplit", *OFFLINE) and not (args.agent == "repunctuate" and args.dry_run)
+    need_room = args.agent not in OFFLINE and not (args.agent == "repunctuate" and args.dry_run)
     if (need_relay and not args.relay) or (need_room and not (args.room or args.rooms)):
         p.error("--relay and --room (agents: or --rooms) are required (or TT_RELAY and TT_ROOM)")
     if args.agent == "slides" and not args.image:
