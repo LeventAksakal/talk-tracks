@@ -815,15 +815,24 @@ class Source(Wire):
 
 
 Rect = Annotated[list[Fraction], Field(min_length=4, max_length=4, description="[x, y, w, h], fractions of the frame")]
+MsSpan = Annotated[
+    list[Annotated[int, Field(ge=0)]], Field(min_length=2, max_length=2, description="[from, to), lecture ms")
+]
 
 
 class Regions(Wire):
     """Where a composed lecture video's frame holds the slides and the speaker's webcam inset (a recorded conference
     talk: ``regions.json``, found by ``find-regions``). The player shows the camera tile from ``camera`` of the
-    speaker's video; without it, the whole video."""
+    speaker's video; without it, or during an ``off_layout`` span, the whole video."""
 
     slides: Rect = Field(description="The slide area, which the deck's images are cut from")
     camera: Rect | None = Field(default=None, description="The webcam inset: what the camera tile shows")
+    off_layout: list[MsSpan] | None = Field(
+        default=None,
+        description="When the video is not the composed layout (a cut to the stage camera, a zoom on a slide, a clip),"
+        " in lecture ms, which is room ms in a demo session and its recording room: the camera tile shows the whole"
+        " picture, and no slide is cut from it",
+    )
 
     @model_validator(mode="after")
     def _inside(self) -> Regions:
@@ -832,6 +841,8 @@ class Regions(Wire):
                 x, y, w, h = rect
                 if w <= 0 or h <= 0 or x + w > 1 + 1e-6 or y + h > 1 + 1e-6:
                     raise ValueError("a region lies inside the frame and is not empty")
+        if any(a >= b for a, b in self.off_layout or ()):
+            raise ValueError("an off-layout span ends after it starts")
         return self
 
 

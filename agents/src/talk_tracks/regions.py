@@ -24,6 +24,12 @@ How they are found, on the keyframes (every 2 s in a prepared lecture), shrunk t
   full-frame slide), and a lecture that cuts between full-frame slides and the stage camera has no border at all.
 * Each side found on an edge is placed on it to the pixel on full-size frames, then moved ``SAFE_PX`` inside, so no
   sliver of border shows.
+* **Off-layout spans** (``off_layout``, lecture ms): runs of at least ``OFF_LAYOUT_MIN`` off-layout keyframes: the
+  stage camera (a talk's opening shot), a slide shown full-frame (a zoom, or a talk that cuts between the stage and
+  its slides), a clip. The webcam crop would show a meaningless corner of them, so the player shows the whole picture
+  then. For the deck (``deck_slides``) a slide there is cut from the whole frame, which it fills; and the **stage**
+  spans within them, where the picture is a camera's (``STAGE_NOISE``: sensor noise and people change pixels between
+  any two keyframes, a still digital slide changes none), give no slide at all.
 
 ``contact_sheet`` draws a check image: sample frames with both rectangles outlined and the webcam crop beside them,
 then every slide the deck would have, cut from the found slide region, each outlined so a stray border or a cut
@@ -46,7 +52,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .contracts import Regions
-from .slideshow import Crop, Slide
+from .slideshow import Crop, Slide, find_slides
 
 log = logging.getLogger("talk_tracks.regions")
 
@@ -55,6 +61,8 @@ FORMAT = "talk-tracks-regions"
 ANALYSIS_W = 480  # analysis width in pixels (a 1080p frame: 4 x 4 pixels each)
 CELL = 6  # analysis pixels per side of a grid cell
 OFF_LAYOUT = 0.75  # a frame differing from the median in this share of pixels is not the layout
+OFF_LAYOUT_MIN = 2  # keyframes in a row, at least, for an off-layout span (one is a transition)
+STAGE_NOISE = 0.015  # share of pixels changed between two keyframes, at least: a camera's picture, not a slide
 DIFF = 10  # grey levels: a pixel that changed between two keyframes
 EDGE = 12  # grey levels between neighbours: an edge
 PERSIST = 0.4  # an edge in this share of frames persists
@@ -93,11 +101,29 @@ class LectureRegions:
     camera: Crop | None
     frame: tuple[int, int] = (0, 0)  # the video's width and height
     camera_spans: tuple[CameraSpan, ...] = ()  # only when the inset moves; ``camera`` is then their union
+    off_layout: tuple[tuple[int, int], ...] = ()  # lecture ms [from, to) when the frame is not the layout
+    stage: tuple[tuple[int, int], ...] = ()  # within those, when the picture is a camera's: no slide then
     found: dict[str, object] = field(default_factory=dict[str, object])  # how they were found, for the reader
 
     def wire(self) -> Regions:
         """The regions as the room catalog carries them (``tt.regions``)."""
-        return Regions(slides=_list(self.slides), camera=_list(self.camera) if self.camera else None)
+        return Regions(
+            slides=_list(self.slides),
+            camera=_list(self.camera) if self.camera else None,
+            off_layout=[[a, b] for a, b in self.off_layout] or None,
+        )
+
+    def in_layout(self, ms: int) -> bool:
+        """Lecture time ``ms`` shows the composed layout (not the stage camera, a zoom or a clip)."""
+        return not any(a <= ms < b for a, b in self.off_layout)
+
+    def on_stage(self, ms: int) -> bool:
+        """Lecture time ``ms`` shows a camera's picture, off the layout: the stage, not a slide."""
+        return any(a <= ms < b for a, b in self.stage)
+
+    def slide_area(self, ms: int) -> Crop:
+        """Where the slide is at lecture time ``ms``: the slide region, or the whole frame off the layout."""
+        return self.slides if self.in_layout(ms) else Crop()
 
     def to_json(self) -> dict[str, object]:
         doc: dict[str, object] = {
@@ -107,6 +133,10 @@ class LectureRegions:
             "slides": _list(self.slides),
             "camera": _list(self.camera) if self.camera else None,
         }
+        if self.off_layout:
+            doc["off_layout"] = [[a, b] for a, b in self.off_layout]
+        if self.stage:
+            doc["stage"] = [[a, b] for a, b in self.stage]
         if self.camera_spans:
             doc["camera_spans"] = [
                 {"from_ms": s.from_ms, "to_ms": s.to_ms, "camera": _list(s.camera)} for s in self.camera_spans
@@ -122,8 +152,13 @@ class LectureRegions:
         camera = doc.get("camera")
         spans = doc.get("camera_spans") or []
         frame = doc.get("frame") or (0, 0)
+        off = doc.get("off_layout") or []
+        stage = doc.get("stage") or []
         assert isinstance(spans, list) and isinstance(frame, list | tuple)
+        assert isinstance(off, list) and isinstance(stage, list)
         return cls(
+            off_layout=_spans(off),
+            stage=_spans(stage),
             slides=_crop(doc["slides"]),
             camera=_crop(camera) if camera is not None else None,
             frame=(int(frame[0]), int(frame[1])),
@@ -134,6 +169,10 @@ class LectureRegions:
 
     def write(self, path: Path) -> None:
         path.write_text(json.dumps(self.to_json(), indent=2) + "\n", encoding="utf-8")
+
+
+def _spans(value: list[object]) -> tuple[tuple[int, int], ...]:
+    return tuple((int(s[0]), int(s[1])) for s in value if isinstance(s, list | tuple) and len(s) == 2)
 
 
 def _list(crop: Crop) -> list[float]:
@@ -554,6 +593,58 @@ def _fractions(box: Box, size: tuple[int, int]) -> Crop:
     return Crop(x0 / w, y0 / h, (x1 - x0) / w, (y1 - y0) / h)
 
 
+def _off_layout_spans(layout: NDArray[np.bool_], times_ms: Sequence[int], end_ms: int) -> tuple[tuple[int, int], ...]:
+    """Runs of at least ``OFF_LAYOUT_MIN`` off-layout keyframes, each from its first keyframe to the next layout one."""
+    spans: list[tuple[int, int]] = []
+    i, n = 0, len(times_ms)
+    while i < n:
+        if layout[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and not layout[j]:
+            j += 1
+        if j - i >= OFF_LAYOUT_MIN:
+            spans.append((times_ms[i], times_ms[j] if j < n else end_ms))
+        i = j
+    return tuple(spans)
+
+
+def _stage_spans(
+    video: _Video, layout: NDArray[np.bool_], off_layout: Sequence[tuple[int, int]]
+) -> tuple[tuple[int, int], ...]:
+    """Within the off-layout spans, runs of keyframes whose picture changes by ``STAGE_NOISE`` or more to the next
+    keyframe (to the one before, for a span's last): a camera's picture, each run up to the keyframe after it."""
+    times, n = video.times_ms, len(video.times_ms)
+
+    def moving(i: int) -> bool:
+        j = i + 1 if i + 1 < n and not layout[i + 1] else i - 1
+        if j < 0 or layout[j]:
+            return False
+        change = np.abs(video.frames[j].astype(np.int16) - video.frames[i].astype(np.int16)) > DIFF
+        return float(change.mean()) >= STAGE_NOISE
+
+    spans: list[tuple[int, int]] = []
+    for a, b in off_layout:
+        inside = [k for k in range(n) if a <= times[k] < b]
+        run: int | None = None
+        for k in inside:
+            if moving(k):
+                run = k if run is None else run
+            elif run is not None:
+                spans.append((times[run], times[k]))
+                run = None
+        if run is not None:
+            spans.append((times[run], b))
+    return tuple(spans)
+
+
+def deck_slides(media: Path, regions: LectureRegions) -> list[Slide]:
+    """The lecture's slides as ``--slides auto`` sends them: cut from the slide region, or from the whole frame while
+    a slide fills it, and none from a stage shot."""
+    return [s for s in find_slides(media, regions.slide_area) if not regions.on_stage(s.at_ms)]
+
+
 @dataclass(frozen=True)
 class Found:
     regions: LectureRegions
@@ -576,6 +667,8 @@ def find_regions(path: Path) -> Found:
 
     spans = _camera_spans(frames)
     end_ms = video.times_ms[-1] + 1
+    off_layout = _off_layout_spans(layout, video.times_ms, end_ms)
+    stage = _stage_spans(video, layout, off_layout)
     camera_boxes = [_refine(grey, box, scale, set(SIDES)) for _, _, box in spans]
     camera_box = _union(camera_boxes) if camera_boxes else None
     analysis_camera = _union([box for _, _, box in spans]) if spans else None
@@ -599,6 +692,8 @@ def find_regions(path: Path) -> Found:
         camera=_fractions(camera_box, video.size) if camera_box else None,
         frame=video.size,
         camera_spans=camera_spans,
+        off_layout=off_layout,
+        stage=stage,
         found={
             "keyframes": len(video.frames),
             "off_layout": int((~layout).sum()),

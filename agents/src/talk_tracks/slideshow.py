@@ -15,7 +15,7 @@ for the run only: nothing is written to disk.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -117,7 +117,7 @@ def _thumb(rgb: NDArray[np.uint8]) -> NDArray[np.float32]:
     return (sums / counts).astype(np.float32)
 
 
-def _screens(path: Path, crop: Crop) -> Iterator[_Screen]:
+def _screens(path: Path, crop: Callable[[int], Crop]) -> Iterator[_Screen]:
     with av.open(str(path)) as container:
         stream = container.streams.video[0]
         stream.codec_context.skip_frame = "NONKEY"
@@ -125,9 +125,10 @@ def _screens(path: Path, crop: Crop) -> Iterator[_Screen]:
             if frame.pts is None:
                 continue
             full = frame.to_ndarray(format="rgb24").astype(np.uint8, copy=False)
-            x0, y0, x1, y1 = crop.box(full.shape[1], full.shape[0])
+            at_ms = int(frame.pts * frame.time_base * 1000)
+            x0, y0, x1, y1 = crop(at_ms).box(full.shape[1], full.shape[0])
             rgb = np.ascontiguousarray(full[y0:y1, x0:x1])
-            yield _Screen(int(frame.pts * frame.time_base * 1000), _thumb(rgb), rgb)
+            yield _Screen(at_ms, _thumb(rgb), rgb)
 
 
 def jpeg(rgb: NDArray[np.uint8], max_w: int = JPEG_MAX_W) -> bytes:
@@ -144,10 +145,11 @@ def jpeg(rgb: NDArray[np.uint8], max_w: int = JPEG_MAX_W) -> bytes:
     return b"".join(bytes(p) for p in packets)
 
 
-def find_slides(path: Path, crop: Crop | None = None) -> list[Slide]:
+def find_slides(path: Path, crop: Crop | Callable[[int], Crop] | None = None) -> list[Slide]:
     """The lecture's slides in order, builds collapsed (see the module doc). ``crop``: the slide area (default the
-    whole frame)."""
-    crop = crop or Crop()
+    whole frame), or the area at each lecture ms (``regions.slide_area``: the whole frame while a slide fills it)."""
+    fixed = crop if isinstance(crop, Crop) else Crop()
+    area: Callable[[int], Crop] = crop if callable(crop) else lambda _ms: fixed
     slides: list[Slide] = []
     seen: list[NDArray[np.float32]] = []  # every slide's first and last look, to spot a return to one
     current: _Current | None = None
@@ -158,7 +160,7 @@ def find_slides(path: Path, crop: Crop | None = None) -> list[Slide]:
         if slide.new:
             slides.append(Slide(slide.at_ms, jpeg(slide.screen.rgb)))
 
-    for screen in _screens(path, crop):
+    for screen in _screens(path, area):
         if previous is not None and changed(previous.thumb, screen.thumb) <= STILL:
             if current is None:
                 current = _Current(previous.at_ms, previous, new=True)
