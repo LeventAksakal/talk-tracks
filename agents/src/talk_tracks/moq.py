@@ -17,7 +17,7 @@ and handled here:
   grant (aiopquic ``max_streams_bidi``, 512) is the only cap on them. A stream's credit comes back only once both
   halves are closed. aiomoqt closes ours on STOP_SENDING but not when the relay resets its half or a served FETCH
   ends, so a busy publisher ran out of credit and stopped answering the relay (R2, 2026-11-03):
-  ``_retire_request_streams`` closes our half then;
+  ``_retire_request_streams`` closes our half then, only with ``TT_MOQ_RETIRE_STREAMS`` set (see ``retiring_streams``);
 * a SUBSCRIBE the relay cancels before aiomoqt's handler runs is accepted anyway, with no cancel left to end it: a
   ghost subscriber the track writes to forever (the relay's "unknown track alias") and fake demand for a lazy agent.
   ``_drop_cancelled_subscribes`` ends it.
@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import time
 import types
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
@@ -85,12 +86,9 @@ FETCH_TIMEOUT_S = 8.0  # a forwarded FETCH may back-fill a slice upstream: 1-3 s
 FETCH_NOT_FOUND = 0x10  # moq-relay passes it on as 'not found'
 RESET_CANCELLED = 0x1  # aiomoqt StreamResetCode.CANCELLED
 FIN_GRACE_S = 2.0  # a served FETCH's request stream closes this long after its data stream, never before it
-# The watchdog (``answering``): a publisher subscribes to its own probe track through the relay on a second
-# connection; this many misses in a row, once one has been answered, and the process exits for Docker to restart it.
-PROBE_TRACK = "health"
-PROBE_EVERY_S = 30.0
-PROBE_TIMEOUT_S = 10.0
-PROBE_MISSES = 3
+# ``_retire_request_streams`` is off unless this is set (1/true/yes/on): with it, image c1c4914, the relay stopped
+# sending any request to every publisher connection within 7 s-6 min (2026-11-03); see ``retiring_streams``.
+RETIRE_STREAMS_ENV = "TT_MOQ_RETIRE_STREAMS"
 
 
 def relay_client(url: str, *, token: str | None = None, insecure: bool = False) -> Any:
@@ -276,6 +274,13 @@ class _HalfOpen:
         self.served: set[int] = set()  # a FETCH whose data stream is done; our half is open
 
 
+def retiring_streams() -> bool:
+    """Whether ``connect`` applies ``_retire_request_streams`` (``TT_MOQ_RETIRE_STREAMS``, default off). Unproven in
+    production: under it the relay stopped opening requests to our publishers within minutes, against over an hour
+    without it (R2, 2026-11-03). Turn it on one service at a time."""
+    return os.environ.get(RETIRE_STREAMS_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _retire_request_streams(session: Any) -> None:
     """Close our half of each request stream the relay has finished with, so QUIC retires it and gives its credit
     back: at once when the relay resets its half (the request is cancelled, nothing more of ours matters), and for a
@@ -376,66 +381,6 @@ def _drop_cancelled_subscribes(track: Any) -> None:
                 session._notify_request_cancelled(rid, "a cancel before the SUBSCRIBE was handled")
 
     track._on_subscribe = on_subscribe
-
-
-async def answering(
-    watcher: Callable[[], contextlib.AbstractAsyncContextManager[Relay]],
-    namespace: str,
-    *,
-    track: str = PROBE_TRACK,
-    every_s: float = PROBE_EVERY_S,
-    timeout_s: float = PROBE_TIMEOUT_S,
-    misses: int = PROBE_MISSES,
-) -> None:
-    """The watchdog: every ``every_s``, subscribe to our own ``track`` through the relay on a second connection
-    (``watcher`` opens one, so the relay asks the publisher) and wait ``timeout_s`` for an object. Returns after
-    ``misses`` misses in a row, once a probe has been answered: the publisher is no longer answering the relay. Never
-    returns if no probe is ever answered (the token may not subscribe there), so a probe that cannot work never
-    restarts anything.
-
-    A miss closes its connection and the next probe opens a new one. A probe that timed out is still subscribed on
-    the wire (aiomoqt gives up on the reply locally, it does not cancel the SUBSCRIBE): left open, the relay would
-    keep its upstream subscription and answer every later probe from it, without asking the publisher, and a stall
-    would never be seen again. Closing the connection ends all its subscriptions."""
-    armed, missed = False, 0
-    while True:
-        try:
-            async with contextlib.AsyncExitStack() as stack:
-                relay = await asyncio.wait_for(stack.enter_async_context(watcher()), timeout_s)
-                while await _probe(relay, namespace, track, timeout_s):
-                    if not armed:
-                        log.info("watchdog: %s/%s answers; armed", namespace, track)
-                    armed, missed = True, 0
-                    await asyncio.sleep(every_s)
-        except Exception as exc:  # the watcher could not connect, or its connection failed: a miss
-            log.debug("watchdog connection: %s", exc)
-        if armed:
-            missed += 1
-            log.warning("watchdog: %s/%s unanswered for %.0f s (%d of %d)", namespace, track, timeout_s, missed, misses)
-            if missed >= misses:
-                return
-        await asyncio.sleep(every_s)
-
-
-async def _probe(relay: Relay, namespace: str, track: str, timeout_s: float) -> bool:
-    """One probe on ``relay``: True once an object comes. After a miss the caller closes ``relay``'s connection."""
-    ref = TrackRef(namespace=namespace, name=track)
-    t_end = time.monotonic() + timeout_s
-    reader = None
-    try:
-        reader = await asyncio.wait_for(
-            relay.agent.reader(SubscribeSpec(track=ref, start_at=StartAt(mode="latest"), buffer=4)), timeout_s
-        )
-        while not reader.done and time.monotonic() < t_end:
-            if any(o.payload for o in await reader.read(1, timeout=READ_DEADLINE_S) + reader.drain()):
-                return True
-        return False
-    except Exception as exc:  # refused, or timed out: a miss
-        log.debug("watchdog probe of %s/%s: %s", namespace, track, exc)
-        return False
-    finally:
-        if reader is not None:
-            relay._unsubscribe(reader, str(ref))
 
 
 class Relay:
@@ -623,7 +568,8 @@ async def connect(url: str, *, token: str | None = None, insecure: bool = False)
         await session.client_session_init()
         if (draft := getattr(session, "negotiated_draft", None)) != DRAFT:
             raise ConnectionError(f"the relay negotiated MoQT draft {draft}, not {DRAFT}")
-        _retire_request_streams(session)
+        if retiring_streams():
+            _retire_request_streams(session)
         relay = Relay(session)
         log.info("connected to %s (draft %d)", urlsplit(url).hostname, DRAFT)
         try:
