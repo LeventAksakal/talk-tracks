@@ -58,6 +58,7 @@ log = logging.getLogger("talk_tracks.archive.create")
 
 PATH = "/api/rooms"
 ROOM = ROOM_NAME  # the room-name rule (contracts.parse_room, web isValidRoom)
+RECORDING_SUFFIX = "-recording"  # session.RECORDING_SUFFIX: the recording rooms (decision 0032)
 DEMO_ROOMS = frozenset({"virus", "dataviz", "rsa", "qrcode", "demo"})
 LABEL = re.compile(r"[a-z0-9-]{1,40}")
 TITLE_MAX = 120
@@ -358,6 +359,8 @@ class RoomCreation:
             raise Refused(400, "invalid", "A room name is 3 to 40 of a-z, 0-9 and -")
         if room in self.demo_rooms:
             raise Refused(400, "invalid", f"{room} is a demo room")
+        if room.endswith(RECORDING_SUFFIX):  # a demo lecture's recording room, served from the archive only
+            raise Refused(400, "invalid", f"A room name may not end in {RECORDING_SUFFIX}")
         title = _text(req.get("title"), TITLE_MAX, "The title")
         speaker = None
         if req.get("speaker") not in (None, ""):

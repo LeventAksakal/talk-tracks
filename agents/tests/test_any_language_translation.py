@@ -505,3 +505,105 @@ async def test_a_recording_room_that_fails_ends_the_agent_so_it_restarts(tmp_pat
 
     with pytest.raises(ConnectionError, match="relay gone"):
         await asyncio.wait_for(cli.serve_recording_rooms(RoomPolicy("*"), serve, root=tmp_path, every_s=0.01), 2)
+
+
+def refusing_relay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``talk_tracks.moq`` as a stand-in whose connect refuses: an agent that gets that far passed its checks."""
+
+    def refuse(*_: Any, **__: Any) -> Any:
+        raise ConnectionRefusedError("no relay in tests")
+
+    stand_in = types.ModuleType("talk_tracks.moq")
+    stand_in.connect = refuse  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "talk_tracks.moq", stand_in)
+    monkeypatch.setattr(talk_tracks, "moq", stand_in, raising=False)
+
+
+async def test_a_live_room_named_like_a_recording_is_served_live_and_does_not_crash_the_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A room is a recording room only when the archive scan found it: ``x-recording`` coming on air with no
+    ``room.json`` is a live room, not a FileNotFoundError that would crash-loop every room's translations."""
+    refusing_relay(monkeypatch)
+    monkeypatch.setenv("TT_ARCHIVE_DIR", str(tmp_path))
+    args = cli.parse(["translate", "--relay", "moqt://127.0.0.1:4443", "--rooms", "*", "--lang", "de", "--fake"])
+    with pytest.raises(ConnectionRefusedError, match="no relay"):
+        await cli.serve_translate_room(args, "x-recording")
+    with pytest.raises(FileNotFoundError, match="record-archive"):  # the archive scan's room, not built after all
+        await cli.serve_translate_room(args, "x-recording", recorded=True)
+
+
+async def test_only_the_archive_scan_serves_a_room_as_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[str, bool]] = []
+
+    async def translate_room(_: Any, room: str, *, recorded: bool = False) -> bool:
+        seen.append((room, recorded))
+        return False
+
+    monkeypatch.setattr(cli, "serve_translate_room", translate_room)
+    args = cli.parse(["translate", "--relay", "moqt://127.0.0.1:4443", "--rooms", "*", "--fake"])
+    await cli.serve_room(args, "x-recording")
+    await cli.serve_room(args, "virus-recording", recorded=True)
+    assert seen == [("x-recording", False), ("virus-recording", True)]
+
+
+async def test_a_capped_recording_room_says_capped(tmp_path: Path) -> None:
+    """Out of budget, a recording room's back-fill caps its track: the catalog says capped, not silence."""
+    from talk_tracks.archive.slices import TrackArchive
+    from talk_tracks.live_slices import Refused, SlicedTrack, Watermark
+    from talk_tracks.llm.ledger import BudgetExceededError
+
+    from .slicekit import ListOut
+
+    built_recording_room(tmp_path, "virus-recording", last_slice=2)
+    edge = cli.recording_edge("virus-recording", tmp_path)
+    store = TrackArchive("virus-recording", "translate-de", "items", root=tmp_path)
+    track = SlicedTrack(cli.AgentInfo(name="translate-de", label="de", model="fake"), ListOut(), store, list)
+    track.clock = Watermark(edge=lambda: edge)
+
+    async def broke(k: int) -> Any:
+        raise BudgetExceededError("room cap reached", scope="room")
+
+    produce = cli.capping(broke, track)
+    assert cli.track_status(track) != "capped"
+    with pytest.raises(Refused, match="back-fill budget"):
+        await track.slice(1, produce)
+    assert track.capped and cli.track_status(track) == "capped"
+    with pytest.raises(Refused, match="spend cap"):
+        await track.slice(0, produce)
+    capped = ("capped", False, 0, 0, 2.0)
+    assert cli.due_report(capped, capped, 0.0, cli.REPORT_EVERY_S, recorded=True)  # its heartbeat keeps it capped
+
+
+async def test_a_recording_rooms_track_runs_no_clock_and_writes_no_idle_heartbeat() -> None:
+    class Track:
+        clocks = 0
+
+        async def run_clock(self) -> None:
+            Track.clocks += 1
+
+    async def idle() -> None:
+        return None
+
+    recorded = cli.track_loops(Track(), idle(), idle(), recorded=True)
+    live = cli.track_loops(Track(), idle(), idle(), recorded=False)
+    await asyncio.gather(*recorded)
+    assert len(recorded) == 2 and Track.clocks == 0
+    await asyncio.gather(*live)
+    assert len(live) == 3 and Track.clocks == 1
+    state = ("idle", False, 0, 0, 0.0)
+    assert cli.due_report(state, None, 0.0, 0.0, recorded=True)  # its first state, and every change, is written
+    assert not cli.due_report(state, state, 0.0, 60.0, recorded=True)
+    assert cli.due_report(state, state, 0.0, cli.REPORT_EVERY_S, recorded=False)  # a live room's heartbeat
+    assert cli.RECORDING_STATUS_POLL_S > cli.STATUS_POLL_S
+
+
+def test_the_translation_agent_never_serves_a_generation_room() -> None:
+    """A viewer on /watch/gen-<lecture> while a recording is made must not start a paid translation."""
+    from talk_tracks.rooms import RoomPolicy
+
+    translate = RoomPolicy("*", cli.agent_exclusions("translate", "secret"))
+    captions = RoomPolicy("*", cli.agent_exclusions("captions", "secret"))
+    assert not translate.wants("gen-virus") and not translate.wants("secret") and translate.wants("judge-a")
+    assert translate.wants("virus-recording") and translate.wants("regen-1")
+    assert captions.wants("gen-virus") and not captions.wants("secret")

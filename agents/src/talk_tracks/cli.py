@@ -304,6 +304,47 @@ def recording_edge(room: str, root: Path) -> int | None:
 
 
 RECORDING_BACKFILL_SHARE = 1.0  # a recording room has no live work to keep its cap for: back-fill is all it does
+STATUS_POLL_S = 0.5  # how often a live room's track reads its state for the catalog
+RECORDING_STATUS_POLL_S = 2.0  # a recording room's: it changes only on a FETCH
+
+
+def track_loops(
+    sliced: Any, run_lang: Coroutine[Any, Any, None], status: Coroutine[Any, Any, None], *, recorded: bool
+) -> list[Coroutine[Any, Any, None]]:
+    """What runs for one translation track: its live loop and its status, and in a live room the slice clock. A
+    recording room has nothing live, so no clock: each slice is made by a FETCH, or not at all."""
+    return [run_lang, status, *([] if recorded else [sliced.run_clock()])]
+
+
+def due_report(now: Any, last: Any, since: float, mono: float, *, recorded: bool) -> bool:
+    """Whether to rewrite ``track.json``: on every change, and as a heartbeat every ``REPORT_EVERY_S``. A recording
+    room's idle track needs no heartbeat (stale reads as idle, which it is); its capped one keeps it, so it stays
+    capped in the catalog."""
+    if now != last:
+        return True
+    if recorded and now[0] != "capped":
+        return False
+    return mono - since >= REPORT_EVERY_S
+
+
+def capping(produce: Produce, sliced: Any) -> Produce:
+    """A recording room's back-fill: back-fill is all its budget is for, so running out of it caps the track, and
+    the catalog says ``capped`` instead of serving nothing in silence."""
+    from .llm.ledger import BudgetExceededError
+
+    async def capped(k: int) -> Any:
+        try:
+            return await produce(k)
+        except BudgetExceededError:
+            await sliced.cap()
+            raise
+
+    return capped
+
+
+def track_status(sliced: Any) -> Status:
+    """A sliced track's status for the catalog: capped, live while producing, else idle."""
+    return "capped" if sliced.capped else "live" if not sliced.paused else "idle"
 
 
 async def serve_translate_room(
@@ -311,12 +352,13 @@ async def serve_translate_room(
     room: str,
     *,
     languages: Sequence[str] | None = None,
+    recorded: bool = False,
 ) -> bool:
     """Translation agent for ``room``: one lazy translation track per listed language (decisions 0019 and 0035),
     which spends only while subscribed (live) or fetched (back-fill), against the room's cap. Demo rooms get live
-    translation only, session by session; a recording room (``is_recording_room``) gets back-fill only, from its
-    archived captions, and is never stopped by its ``ended``. True when the demo room's live session changed under it
-    (``epoch_changed``)."""
+    translation only, session by session; a ``recorded`` room (one ``serve_recording_rooms`` found in the archive,
+    never a name alone) gets back-fill only, from its archived captions, and is never stopped by its ``ended``. True
+    when the demo room's live session changed under it (``epoch_changed``)."""
     from . import moq, runtime
     from .archive.slices import TrackArchive, archive_bucket, default_root
     from .cores.translate import TranslateCore
@@ -329,7 +371,6 @@ async def serve_translate_room(
     from .roomtime import RoomTime
 
     priority = Priority()
-    recorded = is_recording_room(room)
     live_llm = make_llm(args.fake, room)
     backfill_llm = make_llm(args.fake, room, backfill=True, share=RECORDING_BACKFILL_SHARE if recorded else None)
     is_demo = demo_room(room)
@@ -389,6 +430,8 @@ async def serve_translate_room(
             if not is_demo:
                 queued = QueuedLlm(backfill_llm, priority, live=False)
                 produce = translation_backfill(relay, room, lang, archive, queued, priority)
+                if recorded:
+                    produce = capping(produce, sliced)
             out.serve(lambda k: sliced.slice(k, produce), sliced.stats, sliced.current_slice)
             gate = Gate(out.demand, grace_s=env_float("TT_IDLE_GRACE_S", IDLE_GRACE_S))
             core = TranslateCore(lang, done=seeded_cues(sliced))
@@ -404,9 +447,8 @@ async def serve_translate_room(
                 await asyncio.Event().wait()  # stopped at spend cap: the track stays up and says so
 
             def state() -> TrackState:
-                capped = sliced.capped
+                status_str = track_status(sliced)
                 producing = not sliced.paused
-                status_str: Status = "capped" if capped else "live" if producing else "idle"
                 stats = sliced.stats
                 cost = round(add_usage(live_llm.usage, backfill_llm.usage).cost_usd, 6)
                 return status_str, producing, stats.fetches_served, stats.backfills, cost
@@ -416,14 +458,12 @@ async def serve_translate_room(
                 since = 0.0
                 while True:
                     now = state()
-                    if now != last or time.monotonic() - since >= REPORT_EVERY_S:
+                    if due_report(now, last, since, time.monotonic(), recorded=recorded):
                         report(archive, now)
                         last, since = now, time.monotonic()
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(RECORDING_STATUS_POLL_S if recorded else STATUS_POLL_S)
 
-            runners.append(asyncio.create_task(run_lang()))
-            runners.append(asyncio.create_task(status()))
-            runners.append(asyncio.create_task(sliced.run_clock()))
+            runners.extend(asyncio.create_task(c) for c in track_loops(sliced, run_lang(), status(), recorded=recorded))
             tracks[lang] = sliced
             log.info("translate-%s active in room %s (lazy)", lang, room)
             return sliced
@@ -483,6 +523,16 @@ def room_exclusions(exclude: str) -> list[str]:
     return rooms
 
 
+GENERATION_ROOMS = "gen-*"  # demo-room.sh's generation rooms, gen-<lecture>: they record no translation
+
+
+def agent_exclusions(agent: str, exclude: str) -> list[str]:
+    """``room_exclusions``, and for the translation agent the generation rooms: a viewer on ``/watch/gen-<L>`` must
+    not start a paid translation while a recording is made (translations are never recorded, decision 0035)."""
+    rooms = room_exclusions(exclude)
+    return [*rooms, GENERATION_ROOMS] if agent == "translate" else rooms
+
+
 async def session_epoch(room_time: Any) -> int:
     """The ``E`` of a demo room's current live session: the first room catalog's (the session player publishes it
     before its teacher comes on air)."""
@@ -496,11 +546,13 @@ async def epoch_changed(room_time: Any, epoch: int) -> None:
     logging.getLogger("talk_tracks").info("room epoch %d -> %d: a new session", epoch, now)
 
 
-async def serve_room(args: argparse.Namespace, room: str) -> None:
+async def serve_room(args: argparse.Namespace, room: str, *, recorded: bool = False) -> None:
     """One room's agent on a connection of its own, under its stable name: its track stays published, idle until
     subscribed, and answers FETCH for its history from the archive (back-filling slices never produced). In a demo
     room's live sessions, one instance per session: a new ``E`` starts it again from the session's group 0."""
-    while await (serve_translate_room(args, room) if args.agent == "translate" else _serve_room(args, room)):
+    while await (
+        serve_translate_room(args, room, recorded=recorded) if args.agent == "translate" else _serve_room(args, room)
+    ):
         pass
 
 
@@ -625,7 +677,7 @@ async def run_agent(args: argparse.Namespace) -> None:
     from . import moq
     from .rooms import ROOM_LINGER_S, RoomPolicy, room_ended, serve_rooms
 
-    policy = RoomPolicy(args.rooms, room_exclusions(os.environ.get("TT_ROOMS_EXCLUDE", "")))
+    policy = RoomPolicy(args.rooms, agent_exclusions(args.agent, os.environ.get("TT_ROOMS_EXCLUDE", "")))
     linger = env_float("TT_ROOM_LINGER_S", ROOM_LINGER_S)
     async with moq.connect(args.relay, token=args.token, insecure=args.insecure) as relay:
         logging.getLogger("talk_tracks").info("%s serving rooms %s", args.agent, args.rooms)
@@ -637,7 +689,7 @@ async def run_agent(args: argparse.Namespace) -> None:
             ended=lambda room: room_ended(relay.joined, room),
         )
         if serves_recordings(args):
-            rooms = _first_of(rooms, serve_recording_rooms(policy, lambda room: serve_room(args, room)))
+            rooms = _first_of(rooms, serve_recording_rooms(policy, lambda room: serve_room(args, room, recorded=True)))
         await moq.until_closed(relay, rooms)
 
 

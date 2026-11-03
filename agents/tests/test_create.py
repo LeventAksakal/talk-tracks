@@ -147,6 +147,7 @@ async def test_the_same_code_gets_a_fresh_link_for_its_room_and_another_code_is_
         ({"room": "a" * 41}, 400),  # longer than the room-name rule
         ({"room": "../etc"}, 400),
         ({"room": "virus"}, 400),  # a demo room
+        ({"room": "foo-recording"}, 400),  # a recording room's name: translate-any would serve it as one
         ({"title": "  "}, 400),
         ({"title": "x" * 121}, 400),
         ({"speaker": "y" * 61}, 400),
@@ -261,3 +262,10 @@ async def test_the_endpoint_over_http(tmp_path: Path) -> None:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+def test_the_refused_suffix_is_the_recording_rooms() -> None:
+    from talk_tracks.archive import create
+    from talk_tracks.session import RECORDING_SUFFIX
+
+    assert create.RECORDING_SUFFIX == RECORDING_SUFFIX
