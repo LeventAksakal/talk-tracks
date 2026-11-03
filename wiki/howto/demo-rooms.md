@@ -375,10 +375,10 @@ nothing.
 
 | Command | What it does | Saves |
 |---|---|---|
-| `retranslate --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-<lang>.cues.json`; a line whose cues have changed since falls back to the split translation |
+| `retranslate --lang L --recording DIR` | translates each translated line again, cut to its subtitle cues: one call per line, the line given as numbered cues, one segment back per cue | `agents/translate-<lang>.cues.json`; a line whose cues have changed since falls back to the split translation |
 | `redescribe --recording DIR --slides X,Y,W,H [--media FILE]` | finds the lecture's slides again (the same crop as `generate`, so the same ids) and describes those the recording has no note for | `agents/describe.patch.json`; each note goes out after its slide by the describe agent's measured delay in the recording |
 | `repunctuate --recording DIR [--dry-run]` | adds sentence and clause punctuation and sentence capitals to each final caption line, one call per line with the lines around it as context; only punctuation and case change, never a word ([below](#re-punctuating-the-captions-repunctuate)); a line already saved is not sent again | `agents/captions.punct.json` |
-| `resplit --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-<lang>.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-<lang>.cues.orig.json` |
+| `resplit --lang L --recording DIR` | cuts `retranslate`'s lines that have a cue over 84 characters again over the same cues: the line's segments joined, then cut at word boundaries as near the model's own cut as fits (a sentence or clause end near a cut preferred), so only the words needed move into a neighbouring cue; cue timing is unchanged, and a second run changes nothing | `agents/translate-<lang>.cues.json` rewritten; the first run keeps the model's cut as `agents/translate-<lang>.cues.orig.json` |
 
 On the VM, once the image has these commands, with the live agents' key and ledger, one room after the other:
 
@@ -389,7 +389,7 @@ cat > ~/tt-data/caps/revise-demo.json <<'JSON'
 JSON
 for L in virus dataviz rsa qrcode; do
   for LANG in tr es ar; do
-    $D --profile live run --rm --no-deps translate-$LANG retranslate --room revise-$L --recording /data/demo/$L
+    $D --profile live run --rm --no-deps translate-$LANG retranslate --lang $LANG --room revise-$L --recording /data/demo/$L
   done
   $D --profile live run --rm --no-deps describe redescribe --room revise-$L --recording /data/demo/$L --slides 0,0,0.77,0.77
 done
@@ -478,7 +478,7 @@ characters (up to 117). `resplit` fixes that for free across all languages (`tr`
 cd ~/talk-tracks && D="docker compose -f deploy/compose.vm.yml"
 for L in virus dataviz rsa qrcode; do
   for LANG in tr es ar; do
-    $D run --rm --no-deps looper-$L resplit --recording /data/demo/$L
+    $D run --rm --no-deps looper-$L resplit --lang $LANG --recording /data/demo/$L
   done
 done
 $D restart looper-virus looper-dataviz looper-rsa looper-qrcode   # a player reads translate-<lang>.cues.json at start

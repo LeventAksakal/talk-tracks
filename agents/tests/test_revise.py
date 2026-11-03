@@ -499,3 +499,36 @@ def test_cli_retranslate_and_resplit_accept_lang_and_agent(tmp_path: Path, monke
     assert [a.info.name for a in load_manifest(tmp_path).agents] == ["captions", "translate-es", "translate-ar"]
     assert revise.load_cue_translations(tmp_path, "translate-es") is not None
     assert revise.load_cue_translations(tmp_path, "translate-ar") is not None
+
+
+def test_cli_retranslate_and_resplit_never_default_a_service_to_turkish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `compose run translate-es retranslate ...` drops the service's `--lang es`: the command must then refuse,
+    # not redo Turkish; given --lang, the stub sees that language and only that service's cue file is written.
+    monkeypatch.delenv("TT_ROOM", raising=False)
+    write(tmp_path, [long_line()[0]])
+    seen: list[str] = []
+
+    class Spy(revise.FakeCueTranslator):
+        async def translate_cues(self, cues: Sequence[str], *, lang: str, context: Sequence[str]) -> list[str]:
+            seen.append(lang)
+            return await super().translate_cues(cues, lang=lang, context=context)
+
+    monkeypatch.setattr(revise, "FakeCueTranslator", Spy)
+    for command in ("retranslate", "resplit"):
+        with pytest.raises(SystemExit):
+            asyncio.run(
+                cli.main_async(cli.parse([command, "--recording", str(tmp_path), "--room", "revise-x", "--fake"]))
+            )
+    assert not revise.cues_path(tmp_path, "translate-tr").exists()
+
+    for lang in ("es", "ar"):
+        retranslate = ["retranslate", "--recording", str(tmp_path), "--lang", lang, "--room", "revise-x", "--fake"]
+        asyncio.run(cli.main_async(cli.parse(retranslate)))
+        asyncio.run(cli.main_async(cli.parse(["resplit", "--recording", str(tmp_path), "--lang", lang])))
+        assert set(seen) == {lang}
+        seen.clear()
+        saved = json.loads(revise.cues_path(tmp_path, f"translate-{lang}").read_text(encoding="utf-8"))
+        assert saved["lang"] == lang
+    assert not revise.cues_path(tmp_path, "translate-tr").exists()

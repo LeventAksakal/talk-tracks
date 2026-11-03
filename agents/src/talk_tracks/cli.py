@@ -735,6 +735,10 @@ async def _revise(args: argparse.Namespace) -> None:
     from .slideshow import Crop
 
     recording = need(args.recording, "--recording")
+    if args.agent in ("retranslate", "resplit") and not (args.lang or args.target_agent):
+        # `docker compose run translate-es retranslate ...` replaces the service's own `--lang es`, so a silent
+        # default would quietly redo Turkish for every service: name the language (or the track) explicitly.
+        raise SystemExit(f"{args.agent} needs --lang (tr, es, ar, ...) or --agent translate-<lang>")
     if args.agent == "resplit":
         result, changed = revise.resplit(recording, agent=args.target_agent, lang=args.lang)
         longest = max((len(s) for line in result.lines.values() for s in line.segments), default=0)
