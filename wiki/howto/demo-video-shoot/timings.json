@@ -1,0 +1,22 @@
+{
+  "base": "<TT_BASE_URL>",
+  "taken": "2026-11-03T15:48:46.099Z",
+  "live": "dataviz",
+  "recording": "dataviz-recording",
+  "waits": {
+    "recordingOpenMs": 2042,
+    "firstLine_Turkish_fromStart_ms": 966,
+    "madePartAfterSeek_Turkish_ms": 242,
+    "unmadePartAfterSeek_Turkish_ms": 13296,
+    "recordingChaptersMs": 82,
+    "recordingSlidesViewMs": 2571,
+    "recordingTranscriptMs": 1326,
+    "firstLine_Japanese_fromStart_ms": 1001,
+    "liveOpenMs": 1953,
+    "livePlayToPictureMs": 123,
+    "liveRewind30sMs": 462,
+    "liveGoLiveMs": 231
+  },
+  "notes": [],
+  "estimatedSpendUsd": 0.0089
+}
