@@ -9,11 +9,14 @@ wiki/howto/demo-rooms.md): ``play`` publishes a lecture file as the speaker, ``r
 plays the lecture once from 00:00 and ends; ``TT_DEMO_LIVE_AGENTS`` on: its AI tracks come from the live agents only),
 ``serve-recording`` serves a recording room ``<id>-recording`` that ``record-archive`` built. Offline and free:
 ``record-archive`` builds a recording room into the archive (TT_ARCHIVE_DIR), ``cue-report`` counts where a
-recording's subtitle cues end. Fixes to a finished recording (``--recording``, offline, spending through ``--room``'s
-ledger): ``retranslate`` translates its caption lines (into ``--lang`` / ``--agent``) cut to subtitle cues,
-``redescribe`` describes the slides it has no note for (``--slides`` as for ``generate``), ``repunctuate`` adds
-sentence and clause punctuation to its caption lines, words unchanged (``--dry-run``: no call, no write, the estimate),
-``resplit`` cuts retranslate's over-long subtitle cues again, free (no model call, no spend).
+recording's subtitle cues end, ``find-regions`` finds where a lecture's frame holds the slides and the speaker's
+webcam and writes ``regions.json`` beside it (``--slides auto`` cuts the slides from it; ``session`` and
+``serve-recording`` put it in the room catalog, for the player's camera tile). Fixes to a finished recording
+(``--recording``, offline, spending through ``--room``'s ledger): ``retranslate`` translates its caption lines
+(into ``--lang`` / ``--agent``) cut to subtitle cues, ``redescribe`` describes the slides it has no note for
+(``--slides`` as for ``generate``), ``repunctuate`` adds sentence and clause punctuation to its caption lines, words
+unchanged (``--dry-run``: no call, no write, the estimate), ``resplit`` cuts retranslate's over-long
+subtitle cues again, free (no model call, no spend).
 
 Agents are lazy (wiki/howto/lazy-agents.md): they read their inputs, and pay, only while their track has a
 subscriber. ``--room`` serves one room; ``--rooms '*'`` serves every room a speaker opens and ``--rooms a,b`` the
@@ -59,7 +62,7 @@ AGENTS = ("captions", "translate", "describe", "chapters")
 DEV = ("teacher", "slides", "catalog", "watch")
 DEMO = ("play", "record", "generate", "session", "serve-recording")
 REVISE = ("retranslate", "redescribe", "repunctuate", "resplit")  # offline: a finished recording, no relay
-OFFLINE = ("record-archive", "cue-report")  # offline and free: a recording into the archive, or its cue report
+OFFLINE = ("record-archive", "cue-report", "find-regions")  # offline and free: no relay, no model
 
 FAKE_SENTENCES = [
     "Media over QUIC lets one relay fan out many named tracks.",
@@ -675,10 +678,10 @@ async def _dev(args: argparse.Namespace) -> None:
 
 async def _demo(args: argparse.Namespace) -> None:
     from . import demo
-    from .slideshow import Crop
+    from .regions import slides_spec
 
     common: dict[str, Any] = {"token": args.token, "insecure": args.insecure}
-    slides = Crop.parse(args.slides) if args.slides else None
+    slides = slides_spec(args.slides)
     if args.agent == "play":
         await demo.play(args.relay, args.room, need(args.media, "--media"), loops=args.loops, slides=slides, **common)
     elif args.agent == "record":
@@ -715,6 +718,9 @@ async def _demo(args: argparse.Namespace) -> None:
 def _offline(args: argparse.Namespace) -> None:
     from .archive.slices import default_root
 
+    if args.agent == "find-regions":
+        _find_regions(args)
+        return
     recording = need(args.recording, "--recording")
     if args.agent == "record-archive":
         from .recording_room import record_archive
@@ -730,9 +736,29 @@ def _offline(args: argparse.Namespace) -> None:
         print(f"{recording.name}: {cue_report(read_recording(recording))}")
 
 
+def _find_regions(args: argparse.Namespace) -> None:
+    """``find-regions``: the lecture's slide and webcam regions into ``regions.json`` beside it; with ``--sheet``, a
+    JPEG to check them by eye (it holds the lecture's slides: look, then delete it; never commit or serve it)."""
+    from .regions import beside, contact_sheet, find_regions
+    from .slideshow import find_slides
+
+    media = args.media or need(args.recording, "--media or --recording") / "lecture.mp4"
+    started = time.monotonic()
+    found = find_regions(media)
+    regions = found.regions
+    regions.write(beside(media))
+    print(f"{beside(media)}: slides {regions.to_json()['slides']}, camera {regions.to_json()['camera']}", end="")
+    print(f" ({len(regions.camera_spans)} places)" if regions.camera_spans else "", end="")
+    print(f", {time.monotonic() - started:.0f} s")
+    if args.sheet is not None:
+        slides = find_slides(media, regions.slides)
+        args.sheet.write_bytes(contact_sheet(media, regions, slides, found.sample_ms))
+        print(f"{args.sheet}: {len(slides)} slides cut from the slide region")
+
+
 async def _revise(args: argparse.Namespace) -> None:
     from . import revise
-    from .slideshow import Crop
+    from .regions import beside, load, resolve, slides_spec
 
     recording = need(args.recording, "--recording")
     if args.agent in ("retranslate", "resplit") and not (args.lang or args.target_agent):
@@ -766,9 +792,9 @@ async def _revise(args: argparse.Namespace) -> None:
     else:
         describer = make_llm(args.fake, args.room)
         media = args.media or recording / "lecture.mp4"
-        patch = await revise.redescribe(
-            recording, media, Crop.parse(args.slides or "full"), describer, agent=args.target_agent or "describe"
-        )
+        crop = resolve(slides_spec(args.slides or "full"), load(beside(media)))
+        assert crop is not None
+        patch = await revise.redescribe(recording, media, crop, describer, agent=args.target_agent or "describe")
         logging.getLogger("talk_tracks.revise").info(
             "redescribe: %d slides described, %s", len(patch.notes), patch.usage
         )
@@ -831,16 +857,16 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         "--media",
         type=Path,
         default=None,
-        help="play, generate, session, serve-recording, record-archive: the lecture (MP4, H.264 + Opus; default the"
-        " recording's)",
+        help="play, generate, session, serve-recording, record-archive, find-regions: the lecture (MP4, H.264 + Opus;"
+        " default the recording's)",
     )
     p.add_argument("--out", type=Path, default=None, help="record, generate: the recording directory to write")
     p.add_argument(
         "--recording",
         type=Path,
         default=None,
-        help="session, record-archive, cue-report, retranslate, repunctuate, resplit, redescribe: the recording"
-        " directory",
+        help="session, record-archive, cue-report, find-regions, retranslate, repunctuate, resplit, redescribe: the"
+        " recording directory",
     )
     p.add_argument(
         "--dry-run",
@@ -861,9 +887,16 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="?",
         const="full",
         default=None,
-        help="play, generate: also send the slides found in the video, cropped to x,y,w,h (fractions; default full);"
+        help="play, generate: also send the slides found in the video, cropped to x,y,w,h (fractions; default full)"
+        " or to the lecture's slide region with 'auto' (regions.json from find-regions; the whole frame without it);"
         " session, serve-recording: also send them as the speaker's deck and slide tracks (a live-agents session"
         " also sends the frames, for describe)",
+    )
+    p.add_argument(
+        "--sheet",
+        type=Path,
+        default=None,
+        help="find-regions: also write a JPEG to check the regions by eye (it holds the slides: delete it after)",
     )
     args = p.parse_args(argv)
     if args.agent not in AGENTS:

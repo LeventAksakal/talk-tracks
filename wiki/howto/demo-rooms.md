@@ -26,7 +26,7 @@ Making one takes four steps, all in Docker (see [run-locally](run-locally.md) fo
 
 ## Live sessions
 
-`python -m talk_tracks session --recording DIR [--slides X,Y,W,H] [--gap-s S]` (`agents/src/talk_tracks/demo.py`,
+`python -m talk_tracks session --recording DIR [--slides auto|X,Y,W,H] [--gap-s S]` (`agents/src/talk_tracks/demo.py`,
 `session.py`) runs each session on two relay connections:
 
 1. **The control connection** publishes the room catalog (`talk/<room>/catalog` track `catalog`) with the session's
@@ -233,13 +233,15 @@ memory for the run. They are never written to disk or stored as assets: the slid
   once, complete.
 - A return to an earlier slide (after a zoom) is not sent again. Content decides this, not the share of the screen:
   two title slides of one template differ in a few cells but are different slides.
-- `--slides x,y,w,h` crops to the slide area, in fractions of the frame. The EMF layout is `0,0,0.77,0.77`, which
-  leaves out the speaker inset and the logo. A bare `--slides` sends the whole frame.
+- `--slides auto` crops to the lecture's slide region from its `regions.json`
+  ([framing a lecture](#framing-a-lecture-find-regions)); without the file, the whole frame (and a warning).
+  `--slides x,y,w,h` crops to a fixed area, in fractions of the frame; a bare `--slides` sends the whole frame. The
+  old fixed EMF area `0,0,0.77,0.77` left a dark band above and right of every slide, and cut the `qrcode` slides,
+  which fill the frame, by a quarter.
 
 ### Slides in the player
 
-`session --slides x,y,w,h` and `serve-recording --slides x,y,w,h` (the VM uses the EMF area `0,0,0.77,0.77`, the local
-looper `$TT_SLIDES`) scan the lecture the same way when they start (about a minute, before the room goes up), keep the
+`session --slides auto` and `serve-recording --slides auto` (or a fixed `x,y,w,h`; the local looper `$TT_SLIDES`) scan the lecture the same way when they start (about a minute, before the room goes up), keep the
 frames in memory, and send them as the speaker's tracks
 ([decision 0022](../decisions/0022-the-room-service-serves-the-speakers-track-history.md)),
 `agents/src/talk_tracks/demo_slides.py`:
@@ -259,6 +261,70 @@ frames in memory, and send them as the speaker's tracks
 |---|---|---|---|
 | `virus` | 21 | 17 numbered slides and 4 zoomed views | about 20–45 s |
 | `dataviz` | 34 | about 27 distinct slides, the opening stage shot, the closing clip, 2 builds that move earlier content, and 5 frames of an animated scroll | about 25–50 s |
+
+These counts are from the old fixed crop. With `--slides auto`, `virus` and `rsa` find the same slides at the same
+times, and `dataviz` 36: content at a slide's edge, which the fixed crop cut, now counts as a build or a new slide.
+
+## Framing a lecture (find-regions)
+
+A conference recording is one composed frame: the slides as the main area, the speaker's webcam as a small inset in a
+corner, over a backdrop with the event's logo. The player shows the slides whole in the main area and only the inset
+in the camera tile, so it needs both rectangles. `find-regions` measures them once per lecture, offline and free
+(`agents/src/talk_tracks/regions.py`, about 30 s for a 20-minute lecture), and writes `regions.json` beside
+`lecture.mp4`:
+
+```json
+{"format": "talk-tracks-regions", "v": 1, "frame": [1280, 720],
+ "slides": [0.00859, 0.01528, 0.75625, 0.75417], "camera": [0.77578, 0.54306, 0.21641, 0.43333]}
+```
+
+- `slides` and `camera` are `[x, y, w, h]` in fractions of the frame. `camera` is `null` when nothing in the frame
+  is a webcam inset (`qrcode` cuts between the stage camera and full-frame slides). `camera_spans` appears only when
+  the inset moves during the talk; `camera` is then their union.
+- **How:** on the keyframes, the webcam is the patch that changes between nearly every two of them (the speaker
+  moves), grown to the inset's border; the slides are the extent of all content outside it over the talk, moved to
+  the slide image's border (a straight edge that persists, with still backdrop beyond it). Each side is placed to the
+  pixel and then 2 px inside, so no sliver of backdrop shows. A side with no border goes out to the frame's edge, so
+  nothing is cut. Frames that are not the usual layout (a cut to the stage camera) are left out.
+- **Who reads it:** `--slides auto` (`play`, `generate`, `session`, `serve-recording`, `redescribe`) cuts the slides
+  from `slides`; without the file it uses the whole frame and logs a warning. `session` and `serve-recording` put
+  both regions in the room catalog (`tt.regions`) whenever the file exists, and the player's camera tile then shows
+  only `camera` of the speaker's video, in its own shape (`web/src/player/CameraSurface.tsx`). The slide tile takes
+  each slide's own shape and letterboxes it in its cell, never cutting it. `record-archive` copies the file into the
+  recording room's folder, so `serve-recording` finds it there without `--media`.
+- `--sheet FILE` also writes a JPEG to check the regions by eye: sample frames with the slide region (green) and the
+  webcam (orange) outlined, and every slide the deck would have. It holds the lecture's slides (ticket 0001): look at
+  it, then delete it; never commit or serve it.
+
+| Lecture | `slides` (x, y, w, h) | `camera` | Notes |
+|---|---|---|---|
+| `virus` | 0.00859, 0.01528, 0.75625, 0.75417 | 0.77578, 0.54306, 0.21641, 0.43333 | all four slide sides on the slide's edge |
+| `dataviz` | 0.00859, 0.01528, 0.75625, 0.75417 | 0.76797, 0.58194, 0.21563, 0.35417 | a remote speaker: a 4:3 webcam |
+| `rsa` | 0.00703, 0, 0.75781, 0.76944 | 0.77578, 0.54444, 0.21641, 0.43194 | dark slides: the top has no edge to find, so it keeps the 10 px of backdrop above |
+| `qrcode` | 0, 0, 1, 1 | none | no inset: the video cuts between the stage and full-frame slides, which the old crop cut by a quarter |
+
+**On the VM**, once per lecture (and again whenever a `lecture.mp4` changes). Deploy the web app first: its catalog
+schema must know `tt.regions` before a room sends it, or the player rejects the catalog.
+
+```bash
+cd ~/talk-tracks && git pull
+(cd agents && docker build -q -t talk-tracks-agents:dev .)
+D="docker compose -f deploy/compose.vm.yml"
+for L in virus dataviz rsa qrcode; do
+  $D run --rm --no-deps looper-$L find-regions --recording /data/demo/$L --sheet /data/demo/regions-check-$L.jpg
+done
+cat ~/tt-data/demo/*/regions.json   # compare with the table above
+# on the laptop: scp "$VM:tt-data/demo/regions-check-*.jpg" /tmp/ and check them by eye; then, on the VM,
+rm ~/tt-data/demo/regions-check-*.jpg   # they hold the slides
+
+# the session and recording servers read regions.json when they start (--slides auto in compose.vm.yml)
+$D up -d looper-virus looper-dataviz looper-rsa looper-qrcode
+$D --profile recordings up -d recording-virus recording-dataviz recording-rsa recording-qrcode
+```
+
+Built recording rooms need no rebuild: `serve-recording --media` reads `regions.json` beside the lecture. To go back
+to the old framing, remove a lecture's `regions.json` and restart its two services (the slides are then the whole
+frame), or pass a fixed `--slides x,y,w,h` again.
 
 ## Generating the public rooms on the VM
 
@@ -534,10 +600,11 @@ The commands behind the services are `python -m talk_tracks <command>` in the ag
 | `play --media FILE [--loops N] [--slides [X,Y,W,H]]` | Publishes the lecture as the speaker (`talk/<room>/teacher`), once, N times or forever; with `--slides`, its slide frames too |
 | `record --out DIR` | Records every agent in the room until stopped (Ctrl-C or `docker stop`) |
 | `generate --media FILE --out DIR [--lead-in-s 5] [--tail-s 15] [--slides [X,Y,W,H]]` | `record` and one `play` together; copies the lecture into DIR |
-| `session --recording DIR [--media FILE] [--slides X,Y,W,H] [--gap-s S]` | Live sessions of DIR's lecture in the room, one after the other, forever: each plays it once from 00:00 and ends ([live sessions](#live-sessions)); AI tracks by [`TT_DEMO_LIVE_AGENTS`](#the-live-agents-switch) |
+| `session --recording DIR [--media FILE] [--slides auto\|X,Y,W,H] [--gap-s S]` | Live sessions of DIR's lecture in the room, one after the other, forever: each plays it once from 00:00 and ends ([live sessions](#live-sessions)); AI tracks by [`TT_DEMO_LIVE_AGENTS`](#the-live-agents-switch) |
 | `record-archive --recording DIR [--room ID-recording] [--media FILE]` | Builds the recording room into `TT_ARCHIVE_DIR`, once; offline, no relay ([the recording rooms](#the-recording-rooms)) |
-| `serve-recording [--media FILE] [--slides X,Y,W,H]` | Serves the recording room `--room` from the archive: catalog, room track, AI tracks and slides |
+| `serve-recording [--media FILE] [--slides auto\|X,Y,W,H]` | Serves the recording room `--room` from the archive: catalog, room track, AI tracks and slides |
 | `cue-report --recording DIR` | Prints where DIR's subtitle cues end; offline, no relay |
+| `find-regions --recording DIR \| --media FILE [--sheet FILE]` | Finds where the lecture's frame holds the slides and the webcam and writes `regions.json` beside it; offline, free ([framing a lecture](#framing-a-lecture-find-regions)) |
 | `repunctuate --recording DIR [--dry-run]` | Adds punctuation to DIR's caption lines, words unchanged; spends through `--room`'s ledger ([re-punctuating](#re-punctuating-the-captions-repunctuate)) |
 
 All but the offline ones take `--relay`, `--room`, `--insecure` and `--token` (or `TT_RELAY`, `TT_ROOM`, `TT_TOKEN`;

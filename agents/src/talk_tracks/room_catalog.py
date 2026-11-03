@@ -52,6 +52,7 @@ from .contracts import (
     SLIDES_EVENT,
     STATS_EVENT,
     STATS_TRACK,
+    Regions,
     RoomTt,
     Source,
     TrackStatus,
@@ -136,6 +137,7 @@ class RoomCatalog:
         default_factory=dict[str, TrackStatus | Mapping[str, object]]
     )
     sources: tuple[Source, ...] = ()  # what the speaker is sending now, in the speaker's order
+    regions: Regions | None = None  # a composed lecture video's slide and webcam regions (regions.py)
 
     def entries(self) -> dict[str, TrackStatus]:
         return {name: _status(s) for name, s in self.status.items()}
@@ -151,6 +153,7 @@ class RoomCatalog:
             shift={str(wall): ms for wall, ms in self.shift.items()},
             status=self.entries(),
             sources=list(self.sources),
+            regions=self.regions,
         )
         return MsfRoomCatalog(tracks=[_track(t, self.epoch_ms) for t in self.tracks], tt=tt)
 

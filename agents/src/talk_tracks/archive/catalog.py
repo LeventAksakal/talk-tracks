@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..contracts import ROOT, Source
+from ..contracts import ROOT, Regions, Source
 from ..room_catalog import CatalogTrack, RoomCatalog
 from .slices import TRACK_INFO, listdir
 
@@ -127,6 +127,7 @@ class CatalogFeed:
         self.shift: dict[str, int] = {}  # clock.wall -> ms
         self.event_tracks: tuple[CatalogTrack, ...] = ()  # the speaker's and the room service's, listed after agents
         self.sources: tuple[Source, ...] = ()
+        self.regions: Regions | None = None  # a composed lecture video's slide and webcam regions
         self._last: bytes | None = None
 
     def document(self, now_ms: int | None = None) -> dict[str, Any] | None:
@@ -135,7 +136,7 @@ class CatalogFeed:
         tracks, status = self.agent_tracks(now_ms)
         shift = {int(float(wall)): ms for wall, ms in self.shift.items()}
         tracks += self.event_tracks
-        return RoomCatalog(self.epoch_ms, tuple(tracks), shift, status, self.sources).to_json()
+        return RoomCatalog(self.epoch_ms, tuple(tracks), shift, status, self.sources, self.regions).to_json()
 
     def agent_tracks(self, now_ms: int | None = None) -> tuple[list[CatalogTrack], dict[str, dict[str, Any]]]:
         """The announced agents' tracks that have a ``track.json``, and each agent's ``tt.status`` entry."""

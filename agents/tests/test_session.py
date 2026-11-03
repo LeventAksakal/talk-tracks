@@ -25,6 +25,7 @@ from talk_tracks.contracts import (
 )
 from talk_tracks.recording import RecordedSnapshot, RecordingWriter
 from talk_tracks.recording_room import record_archive
+from talk_tracks.regions import LectureRegions, beside, load
 from talk_tracks.session import (
     GAP_S,
     NOTE_DELAY_FALLBACK_MS,
@@ -38,6 +39,7 @@ from talk_tracks.session import (
     recording_room,
     tail_ms,
 )
+from talk_tracks.slideshow import Crop
 
 from .clip import make_clip
 from .test_slicing import recording as four_agents
@@ -170,10 +172,14 @@ def lecture(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def test_the_recording_room_is_an_ended_archived_room_with_recorded_tracks(tmp_path: Path, lecture: Path) -> None:
     folder = write(tmp_path / "demo" / "virus", four_agents(), media="lecture.mp4")
     shutil.copyfile(lecture, folder / "lecture.mp4")
+    regions = LectureRegions(slides=Crop(0.01, 0.01, 0.75, 0.75), camera=Crop(0.78, 0.55, 0.2, 0.4))
+    regions.write(beside(folder / "lecture.mp4"))
     root = tmp_path / "archive"
     assert recording_room("virus") == "virus-recording"
 
     built = record_archive(folder, "virus-recording", root)
+    kept = load(root / "virus-recording" / "regions.json")  # serve-recording has them without the lecture
+    assert kept is not None and kept.camera == regions.camera and kept.slides == regions.slides
 
     epoch = WALL // 4000 * 4000
     assert built.epoch_ms == epoch and built.end_ms == 30_000  # the lecture (2 s) and its agents' last words

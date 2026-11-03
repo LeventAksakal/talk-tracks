@@ -112,8 +112,10 @@ services:
   # ends, and after TT_DEMO_SESSION_GAP_S (default 30) the next session starts from 00:00. TT_DEMO_LIVE_AGENTS=1 in
   # .env: no recorded AI track goes out, the live agents (profile live) make them, under each room's spend cap; unset,
   # the recording's tracks go out at the delay their agents really had. TT_LOOPER_TOKEN is signed for all four rooms
-  # (wiki/howto/tokens.md). --slides is the EMF slide area: the player finds the slides in the video at start (about a
-  # minute) and sends them as the speaker's deck and slide tracks (and, live, the frames the describe agent reads).
+  # (wiki/howto/tokens.md). --slides auto: the slides are cut from the lecture's slide region in regions.json beside it
+  # (find-regions, run once per lecture; without the file, the whole frame), found in the video at start (about a
+  # minute) and sent as the speaker's deck and slide tracks (and, live, the frames the describe agent reads). The
+  # regions also go in the room catalog: the player's camera tile shows only the webcam inset.
   looper-virus: &looper
     <<: *agent
     environment: &looper-env
@@ -124,25 +126,25 @@ services:
       TT_DEMO_SESSION_GAP_S: ${TT_DEMO_SESSION_GAP_S:-30}
       TT_CAPS_DIR: /data/caps  # read for the catalog's capped status of the live agents' tracks
       TT_ROOM_CAP_USD: ${TT_ROOM_CAP_USD:-2}
-    command: ["session", "--insecure", "--recording", "/data/demo/virus", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/virus", "--slides", "auto"]
   looper-dataviz:
     <<: *looper
     environment:
       <<: *looper-env
       TT_ROOM: dataviz
-    command: ["session", "--insecure", "--recording", "/data/demo/dataviz", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/dataviz", "--slides", "auto"]
   looper-rsa:
     <<: *looper
     environment:
       <<: *looper-env
       TT_ROOM: rsa
-    command: ["session", "--insecure", "--recording", "/data/demo/rsa", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/rsa", "--slides", "auto"]
   looper-qrcode:
     <<: *looper
     environment:
       <<: *looper-env
       TT_ROOM: qrcode
-    command: ["session", "--insecure", "--recording", "/data/demo/qrcode", "--slides", "0,0,0.77,0.77"]
+    command: ["session", "--insecure", "--recording", "/data/demo/qrcode", "--slides", "auto"]
 
   # Each demo lecture's recording room, <room>-recording (decision 0032): an ended room of the archive that
   # `record-archive` built once (wiki/howto/demo-rooms.md), whose media Caddy serves as HLS. This serves its catalog,
@@ -156,25 +158,25 @@ services:
       <<: *agent-env
       TT_ROOM: virus-recording
       TT_TOKEN: ${TT_RECORDINGS_TOKEN:-}
-    command: ["serve-recording", "--insecure", "--media", "/data/demo/virus/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/virus/lecture.mp4", "--slides", "auto"]
   recording-dataviz:
     <<: *recording
     environment:
       <<: *recording-env
       TT_ROOM: dataviz-recording
-    command: ["serve-recording", "--insecure", "--media", "/data/demo/dataviz/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/dataviz/lecture.mp4", "--slides", "auto"]
   recording-rsa:
     <<: *recording
     environment:
       <<: *recording-env
       TT_ROOM: rsa-recording
-    command: ["serve-recording", "--insecure", "--media", "/data/demo/rsa/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/rsa/lecture.mp4", "--slides", "auto"]
   recording-qrcode:
     <<: *recording
     environment:
       <<: *recording-env
       TT_ROOM: qrcode-recording
-    command: ["serve-recording", "--insecure", "--media", "/data/demo/qrcode/lecture.mp4", "--slides", "0,0,0.77,0.77"]
+    command: ["serve-recording", "--insecure", "--media", "/data/demo/qrcode/lecture.mp4", "--slides", "auto"]
 
   # The room service (wiki/howto/archive.md): follows every room under talk/** into $TT_DATA/archive, which Caddy
   # serves under /archive/. It records the speaker's media, slide frames and event tracks (deck, slide, ink, marks,

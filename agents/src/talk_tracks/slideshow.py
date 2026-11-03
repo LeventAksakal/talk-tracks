@@ -130,11 +130,11 @@ def _screens(path: Path, crop: Crop) -> Iterator[_Screen]:
             yield _Screen(int(frame.pts * frame.time_base * 1000), _thumb(rgb), rgb)
 
 
-def jpeg(rgb: NDArray[np.uint8]) -> bytes:
+def jpeg(rgb: NDArray[np.uint8], max_w: int = JPEG_MAX_W) -> bytes:
     frame = av.VideoFrame.from_ndarray(rgb, format="rgb24")
     h, w = rgb.shape[:2]
-    if w > JPEG_MAX_W:
-        w, h = JPEG_MAX_W, (h * JPEG_MAX_W // w) // 2 * 2
+    if w > max_w:
+        w, h = max_w, (h * max_w // w) // 2 * 2
     codec = av.CodecContext.create("mjpeg", "w")
     codec.width, codec.height, codec.pix_fmt = w, h, "yuvj420p"
     codec.time_base = Fraction(1, 25)

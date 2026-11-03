@@ -8,6 +8,8 @@ that replay a past talk replay it: the speaker's media as fMP4 runs with HLS pla
 end). The AI tracks are the recording's at the delay each agent really had (``session.honest_recording``).
 
 No slide is written to disk (ticket 0001): ``serve-recording`` finds them in the lecture and keeps them in memory.
+The lecture's ``regions.json`` (``find-regions``: where the slides and the webcam sit in its frame, numbers only) is
+copied into the room's folder, so ``serve-recording`` has it without the lecture.
 
 Room time 0 is the lecture's 00:00 and ``E`` the slice boundary at or before the recording's start: the room's
 playlists date it when the recording was made.
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +28,8 @@ from .archive.store import Archive
 from .contracts import ROOM_TRACK, SLICE_MS, RoomState, RoomStateRecord, catalog_path, slice_of
 from .lecture import AUDIO_TRACK, VIDEO_TRACK, catalog, legacy_frame, packets, probe
 from .recording import load_manifest
+from .regions import FILE as REGIONS_FILE
+from .regions import beside, load
 from .session import RoomStates, honest_recording, tail_ms
 from .slicing import Room, Template, recorded_label
 
@@ -75,6 +80,8 @@ def record_archive(recording: Path, room: str, root: Path, *, media: Path | None
     archive.close()
     if archived.epoch_ms != epoch:
         raise ValueError(f"the archive put E at {archived.epoch_ms}, not {epoch}")
+    if load(beside(lecture)) is not None:  # read first: a broken file fails here, not in serve-recording
+        shutil.copyfile(beside(lecture), root / room / REGIONS_FILE)
 
     # The AI tracks, at the delays their agents had, each labelled recorded.
     sliced = Room(template, epoch)
