@@ -38,7 +38,16 @@ import { SidePanel } from "./SidePanel";
 import type { SlideTracks } from "./slideTracks";
 import { sourceShown, Stage } from "./Stage";
 import { forcedInput, playerState, type PlayerStateKind } from "./state";
-import { Linger, type RoomTracks, roomTracks, openTab as shownTab, wantedSlideTracks, wantedTracks } from "./tracks";
+import { guardOf } from "../package/download";
+import {
+  Linger,
+  type RoomTracks,
+  roomSubtitles,
+  roomTracks,
+  openTab as shownTab,
+  wantedSlideTracks,
+  wantedTracks,
+} from "./tracks";
 
 export interface PlayerProps {
   playback: Playback;
@@ -113,7 +122,16 @@ export function Player(props: PlayerProps) {
   const { playback, room, transport, forceState, slides } = props;
   const view = usePlaybackView(playback);
   const status = useRoomStatus(transport, room);
-  const [prefs, update] = usePrefs();
+  const [saved, save] = usePrefs();
+  // A subtitle language picked here belongs to this room: elsewhere a paid one is only offered (roomSubtitles).
+  const update = useCallback(
+    (change: Partial<Prefs> | ((p: Prefs) => Partial<Prefs>)) =>
+      save((p) => {
+        const c = typeof change === "function" ? change(p) : change;
+        return "subtitleLang" in c ? { ...c, subtitleRoom: room } : c;
+      }),
+    [save, room],
+  );
   const [ui, setUiState] = useState<UiState>(INITIAL_UI);
   const setUi = useCallback(
     (change: Partial<UiState> | ((u: UiState) => Partial<UiState>)) =>
@@ -168,6 +186,13 @@ export function Player(props: PlayerProps) {
   if (status?.status === "connected" && !everConnected) setEverConnected(true);
 
   const tracks = useMemo(() => roomTracks(view?.tracks.tracks ?? []), [view?.tracks.tracks]);
+  // The catalog (whether a translation is running or free here) changes with the view, which re-renders.
+  const carriesOver = roomSubtitles(saved, room, tracks, guardOf({ media, transport, roomName: room })) === saved;
+  const prefs = useMemo<Prefs>(
+    () => (carriesOver ? saved : { ...saved, subtitleLang: "original" }),
+    [saved, carriesOver],
+  );
+  const carried = carriesOver ? undefined : saved.subtitleLang;
   // The shared screen: live from the teacher's catalog, rewound from the archive's screen playlist.
   const screen = useResource(
     () => (media ? new ScreenMedia(transport, room, media) : undefined),
@@ -459,6 +484,7 @@ export function Player(props: PlayerProps) {
           title,
           tracks,
           prefs,
+          carried,
           update,
           ui,
           setUi,

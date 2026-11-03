@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { agentPath, ITEMS_TRACK } from "../contracts/names";
 import type { RoomCatalog } from "../contracts/types";
 import type { TrackView } from "../playback/aiTracks";
-import { offeredTranslation } from "./LanguageOffer";
-import { languageReadiness, roomTracks, translationFor } from "./tracks";
+import { offeredLanguage, offeredTranslation } from "./LanguageOffer";
+import { languageReadiness, roomSubtitles, roomTracks, translationFor, wantedTracks } from "./tracks";
 
 const ROOM = "r1";
 const NOW = 1_000_000;
@@ -78,5 +78,36 @@ describe("the subtitles menu's languages", () => {
     const stats = new Set([`${agentPath(ROOM, "translate-tr")}/${ITEMS_TRACK}`]);
     expect(languageReadiness(tr, guard([]), stats)).toBe("running");
     expect(languageReadiness(es, guard([]), stats)).toBe("on-request");
+  });
+});
+
+describe("a subtitle language picked in another room", () => {
+  const picked = { cc: true, subtitleLang: "tr", subtitleRoom: "elsewhere" };
+
+  it("is not subscribed where it would wake a paid agent: the original shows and the language is offered", () => {
+    const shown = roomSubtitles(picked, ROOM, room, guard([]));
+    expect(shown.subtitleLang).toBe("original");
+    expect(wantedTracks({ ...shown, dual: false, sound: "speaker" }, room, undefined)).toEqual(
+      new Set(["captions/items"]),
+    );
+    expect(offeredLanguage(room, shown, "tr", false, undefined, guard([]), [])?.lang).toBe("tr");
+    // Answered on this page: not offered again.
+    expect(offeredLanguage(room, shown, "tr", true, undefined, guard([]), [])).toBeUndefined();
+  });
+
+  it("carries over where it costs nothing more: running, or recorded", () => {
+    expect(roomSubtitles(picked, ROOM, room, guard(["translate-tr"])).subtitleLang).toBe("tr");
+    const free: RoomCatalog = {
+      ...running([]),
+      tracks: [{ name: ITEMS_TRACK, namespace: agentPath(ROOM, "translate-tr"), packaging: "x", tt: { cost: "free" } }],
+    };
+    const recorded = roomSubtitles(picked, ROOM, room, { catalog: free, room: ROOM, offline: false, now: NOW });
+    expect(recorded.subtitleLang).toBe("tr");
+  });
+
+  it("stays picked in the room it was picked in, paid or not", () => {
+    expect(roomSubtitles({ ...picked, subtitleRoom: ROOM }, ROOM, room, guard([])).subtitleLang).toBe("tr");
+    // A language remembered from before picks were kept per room counts as picked elsewhere.
+    expect(roomSubtitles({ cc: true, subtitleLang: "tr" }, ROOM, room, guard([])).subtitleLang).toBe("original");
   });
 });

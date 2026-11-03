@@ -56,18 +56,38 @@ export function offeredTranslation(
 }
 
 /**
- * On a first visit, one tap to subtitles in the browser's language, when the room is already translating into it.
- * It reads only what the room announces and its catalog: nothing is subscribed until the listener taps.
+ * The language the listener picked in another room, which this room does not carry over because it would wake a
+ * paid agent (tracks.roomSubtitles): offered until the listener answers it on this page. Then the browser's.
+ */
+export function offeredLanguage(
+  room: RoomTracks,
+  prefs: Pick<Prefs, "cc" | "subtitleLang">,
+  carried: string | undefined,
+  carriedAnswered: boolean,
+  browser: string | undefined,
+  guard: LanguageGuard,
+  done: readonly string[],
+): TrackView | undefined {
+  const remembered = carried && !carriedAnswered ? translationFor(room, carried) : undefined;
+  if (remembered?.lang && !(prefs.cc && prefs.subtitleLang !== "original")) return remembered;
+  return offeredTranslation(room, prefs, browser, guard, done);
+}
+
+/**
+ * One tap to subtitles in the language the listener picked in another room, or on a first visit in the browser's
+ * language when the room is already translating into it. Nothing is subscribed until the listener taps.
  */
 export function LanguageOffer() {
   const ctx = usePlayer();
-  const { tracks, prefs, update } = ctx;
+  const { tracks, prefs, update, carried } = ctx;
   const [done, setDone] = useState(answered);
-  const offer = offeredTranslation(tracks, prefs, browserLanguage(), guardOf(ctx), done);
+  const [carriedAnswered, setCarriedAnswered] = useState(false);
+  const offer = offeredLanguage(tracks, prefs, carried, carriedAnswered, browserLanguage(), guardOf(ctx), done);
   if (!offer?.lang) return null;
   const lang = offer.lang;
   const name = languageOption(lang).autonym;
   const answer = () => {
+    setCarriedAnswered(true);
     const next = [...done, base(lang)];
     remember(next);
     setDone(next);
