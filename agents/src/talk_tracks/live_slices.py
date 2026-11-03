@@ -32,7 +32,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from .archive.slices import Slice, SliceExists, SliceObject, TrackArchive
+from .archive.slices import NORMAL, Slice, SliceExists, SliceObject, TrackArchive
 from .contracts import SLICE_MS, AgentInfo, OutlineRecord, slice_of
 from .llm.ledger import BudgetExceededError
 from .records import Data, carry_in, encode, record
@@ -384,3 +384,13 @@ class SnapshotTrack:
 def payloads(found: Slice) -> list[bytes]:
     """The objects of a slice, end marker left out."""
     return [o.payload for o in found.objects if o.payload]
+
+
+def finished_payloads(archive: TrackArchive, k: int) -> list[bytes] | None:
+    """What a FETCH of slice ``k`` would bring, read from ``archive`` on this disk: the payloads of its normal objects
+    in object order. None unless the slice is finished there (an open ``.part`` may still grow), so the caller asks
+    the relay instead."""
+    found = archive.read_local(k) if k >= 0 else None
+    if found is None or not found.complete:
+        return None
+    return [o.payload for o in found.objects if o.status == NORMAL and o.payload]
