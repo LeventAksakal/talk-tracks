@@ -31,6 +31,27 @@ account.
 | **Start a talk** | **Start a talk** on the home page | Give a title, your name, a room name and an **access code**. You get a private speaker link for the console and an audience link to share. Judges: the access code is in the submission form, never in this repository. |
 | **Speaker console** | the speaker link, `/talk/<room>?token=…` | Microphone check, camera, a PDF deck (rendered in the browser) or a shared screen, pen, highlighter, shapes and a laser pointer, then **Go on air**. Open the audience link in a second window to watch your own tracks arrive. |
 
+**Seen on the live site, 2026-11-03** (headless, muted Chrome and page reads; no language was picked, as that costs
+model calls):
+
+- The home page answers 200 and lists **Live now** and **Recordings** rows for `virus`, `dataviz`, `rsa` and
+  `qrcode`, each with *Watch live* and *From the start*. `/watch/<id>`, `/watch/<id>-recording`, `/demo` and
+  `/demo/rewind` all answer 200.
+- `/watch/virus` shows the badge "LIVE · session from a recording", the chat, transcript, chapters, notes and
+  discussion tabs. `/watch/virus-recording` shows the badge "Recording", with transcript, chapters and notes and no
+  chat. `/demo` shows the "Offline demo" badge and a scripted transcript.
+- The shipped app contains the CC menu's *Search any language*, the sound menu's *Speaker and slide descriptions*,
+  *Go live*, *You missed*, *Stats for nerds*, *Start a talk* and the access-code field.
+- Not seen headless: the restart of a live session at 00:00, the drag-to-rewind itself and the speaker console. These
+  rest on the earlier muted end-to-end runs below. The home page's lecture cards still list four languages as
+  examples; any of the 50 can be picked.
+
+**Measured (muted end-to-end runs, decision 0035).** No translation exists until a viewer picks a language, and any of
+the 50 in [`contracts/languages.json`](contracts/languages.json) can be picked (Meta publishes no list, so the list is
+marked unconfirmed). Live: the first Japanese subtitle came 7.2 s after picking it. Recording, German: 0.4 s at the
+start and 0.4 s after a seek once that part had been made; 20.5 s for a part not yet made, right after a seek. A pick
+costs about $0.0006 to $0.007 in a recording and about $0.025 for a live minute or so.
+
 Player keys: Space or K play/pause, J/L 10 s back/forward, G go live, C subtitles, S side panel, F or double-click
 fullscreen, M mute, I stats, ? every shortcut.
 
@@ -90,6 +111,10 @@ flowchart LR
 - **Live and past on one track.** Each AI track is a timeline of 4 s slices. A viewer subscribes to the live edge
   and fetches earlier slices of the same track by MoQ FETCH; the relay caches them, so the second viewer to rewind
   costs no model call.
+- **A relay limit we hit.** moq-relay advertises every namespace it knows to each agent connection, and each
+  advertisement holds one bidirectional stream. The 52 lazy language tracks per room used up aiopquic's default 512
+  streams, and the relay's SUBSCRIBE and FETCH then waited forever. Granting 16384 (`TT_MOQ_MAX_STREAMS_BIDI`) fixed it;
+  see [deploy](wiki/howto/deploy.md).
 - **Recording plus live session.** Every room is archived as it plays (CMAF segments with HLS playlists, and the
   agents' slices). An ended talk plays back from that archive in the same player, built on Media Chrome.
 - **Honest, capped AI.** Live AI tracks come from agents hearing the live audio, never from a replay. Every model
@@ -140,7 +165,7 @@ Checks: from `agents/`, `uv run ruff check .`, `uv run pyright`, `uv run pytest 
 | `web/` | Speaker console and viewer: React 19 + TypeScript, Media Chrome for the player, Astryx components |
 | `deploy/` | Relay, auth, web server, demo sessions, recordings and agents on a single VM (Docker Compose) |
 | `contracts/` | JSON Schemas of every payload, generated from the Python models |
-| `bench/` | The latency and fan-out benchmark against LL-HLS and WebRTC |
+| `bench/` | The latency benchmark against LL-HLS and WebRTC (its fan-out table is not reproduced) |
 | `qa/` | Journey screenshots, Lighthouse and performance traces |
 | `wiki/` | Product, specs, how-tos and decision records ([index](wiki/README.md)) |
 | `tickets/` | Questions for the owner, with their answers |

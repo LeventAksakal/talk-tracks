@@ -1,6 +1,6 @@
 # Architecture moments and failover rehearsal
 
-Talk Tracks demonstrates four core media-over-QUIC (MoQ) architecture properties in production (decision 0015):
+Talk Tracks demonstrates four core media-over-QUIC (MoQ) architecture properties in production (decision 0015; the demo rooms are a recording plus a live session, decision 0032):
 
 1. **Lazy idle and mid-talk agent join:** unviewed agent tracks cost $0 and produce 0 slices; the first subscriber wakes the pipeline within ~1.2 s; a downstream agent (`translate-tr`) joining mid-talk discovers the track via catalog and translates the current slice from its start using a Joining FETCH relative 0.
 2. **Seamless handover under planned stop (`SIGTERM`) vs crash (`SIGKILL`):** planned stops close the open slice cleanly on disk with zero `.part` files; hard crashes keep `.part` intact while the relay's advertised 3 s QUIC idle timeout frees the publisher lock within ~2.9 s (avoiding 10-12 s hangs), resuming with strictly monotonic cue IDs while downstream agents stay running with zero restarts.
@@ -73,13 +73,13 @@ Follow this runbook when recording the submission video or presenting live to ju
 
 ### Setup and baseline check
 
-1. Open the public web interface (`https://talk-tracks.org`) in Chrome.
+1. Open the public web interface (`https://talk-tracks.leventaksakal.com`) in Chrome.
 2. In a terminal, SSH to the VM and verify the running containers:
    ```bash
    ssh $VM
    docker compose -f ~/talk-tracks/deploy/compose.vm.yml ps
    ```
-3. Show that the demo room (`talk/demo`) is looping with HLS replay and agent tracks are published.
+3. Show a demo lecture's two rooms (decision 0032): `<id>-recording` is a seekable recording with its archived HLS playback and tracks, and `<id>` (for example `virus`) is the live session, which plays the lecture once from 00:00, ends, and restarts at 00:00. Nothing loops: a live session's AI tracks come from agents hearing its audio in real time, and a translation exists only once a viewer picks a language (decision 0035).
 
 ---
 
@@ -90,11 +90,11 @@ Follow this runbook when recording the submission video or presenting live to ju
 1. **Show lazy idle:**
    - In terminal, inspect the catalog for an unattended live room (e.g. `talk/judge-test`):
      ```bash
-     curl -s https://talk-tracks.org/api/rooms/judge-test/catalog | jq .tt.status
+     curl -s https://talk-tracks.leventaksakal.com/api/rooms/judge-test/catalog | jq .tt.status
      ```
    - Point out: `status: "idle"`, `producing: false`, `slices: 0`. The captions and translate containers are active but consuming 0 LLM tokens and writing 0 media slices.
 2. **Wake captions:**
-   - Open `https://talk-tracks.org/?room=judge-test` in a browser tab.
+   - Open `https://talk-tracks.leventaksakal.com/?room=judge-test` in a browser tab.
    - Within ~1.2 s (demand debounce), the viewer subscribes upstream.
    - Show terminal logs: `captions` logs `reading inputs`. Slices begin advancing on 4-second boundaries.
 3. **Mid-talk join for translation:**
