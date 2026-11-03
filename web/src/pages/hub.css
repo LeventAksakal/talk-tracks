@@ -1,68 +1,36 @@
-/* The hub: a streaming front page (decision 0033). Glass over a dark ground lit by the brand's three lanes. Only
-   tokens from theme/tokens.css; the hero is always dark, like a film still, and fades into the page's ground. */
+/* The hub: a streaming front page where the talks lead (decisions 0033 and 0036). Each talk is shown by a frame of
+   its own recording; the page around it is a quiet neutral ground, one type family, hairlines and no decoration.
+   Colours are the hub's own (below), light and dark; live red is the only colour that is not a neutral. */
 
 .hub {
-  --hub-page: var(--tt-color-ground);
-  /* How far the hero fades into the page, and how far the first row rides up over it. On a dark page the hero melts
-     into it; on a light page a long fade would put the hero's white text on grey and the first row's dark title on
-     the dark still, so the light page gets a short fade and a row that starts below the hero. */
-  --hub-fade: 34%;
-  --hub-overlap: -40px;
-  /* The header's glass. Light glass over the dark hero turns mid-grey (the nav links measured 2.6:1 on it), so a
-     light page takes the strong glass there. */
-  --hub-bar-glass: var(--tt-glass-bg);
+  --hub-ground: light-dark(#f7f7f5, #0e0e10);
+  --hub-surface: light-dark(#ffffff, #19191c);
+  --hub-raised: light-dark(#ebebe8, #232327);
+  --hub-line: light-dark(rgb(20 20 18 / 0.12), rgb(255 255 255 / 0.1));
+  --hub-line-strong: light-dark(rgb(20 20 18 / 0.28), rgb(255 255 255 / 0.24));
+  --hub-text: light-dark(#141413, #ededeb);
+  --hub-muted: light-dark(#5b5b57, #a2a2a6);
+  --hub-live: light-dark(#c0251f, #ff5b52);
+  --hub-radius: 8px;
+  --hub-radius-still: 6px;
+  --hub-gap: 20px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(1100px 620px at 85% -8%, rgb(79 139 255 / 0.16), transparent 62%),
-    radial-gradient(900px 520px at -8% 38%, rgb(255 79 139 / 0.09), transparent 60%),
-    radial-gradient(1000px 640px at 55% 112%, rgb(32 211 174 / 0.08), transparent 62%), var(--tt-color-ground);
-  color: var(--tt-color-text);
+  background: var(--hub-ground);
+  color: var(--hub-text);
+  accent-color: var(--tt-color-accent);
 }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .hub {
-    --hub-fade: 10%;
-    --hub-overlap: 0px;
-    --hub-bar-glass: var(--tt-glass-bg-strong);
-  }
-}
-:root[data-theme="light"] .hub {
-  --hub-fade: 10%;
-  --hub-overlap: 0px;
-  --hub-bar-glass: var(--tt-glass-bg-strong);
+.hub ::selection {
+  background: color-mix(in srgb, var(--tt-color-accent) 32%, transparent);
 }
 .hub a {
   color: inherit;
 }
 .hub-icon {
-  width: 1.15em;
-  height: 1.15em;
+  width: 1.1em;
+  height: 1.1em;
   flex: none;
-}
-
-/* --- glass, the one surface recipe ------------------------------------------------------------------------- */
-.hub-bar,
-.tile-card,
-.hero-tracks,
-.start-panel,
-.hub-btn-glass,
-.hub-join-field {
-  background: var(--tt-glass-bg-strong);
-  border: 1px solid var(--tt-glass-border);
-  box-shadow: inset 0 1px 0 var(--tt-glass-highlight);
-}
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .hub-bar,
-  .tile-card,
-  .hero-tracks,
-  .start-panel,
-  .hub-btn-glass,
-  .hub-join-field {
-    background: var(--tt-glass-bg);
-    -webkit-backdrop-filter: blur(var(--tt-glass-blur)) saturate(var(--tt-glass-saturate));
-    backdrop-filter: blur(var(--tt-glass-blur)) saturate(var(--tt-glass-saturate));
-  }
 }
 
 /* --- header ------------------------------------------------------------------------------------------------- */
@@ -72,41 +40,33 @@
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: var(--tt-space-6);
-  height: 64px;
+  gap: var(--tt-space-8);
+  height: 60px;
   padding: 0 var(--tt-page-gutter);
-  border-width: 0 0 1px;
-  box-shadow: none;
-}
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .hub-bar {
-    background: var(--hub-bar-glass);
-  }
+  background: var(--hub-ground);
+  border-bottom: 1px solid var(--hub-line);
 }
 .hub-brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--tt-space-2);
+  gap: 10px;
   font-weight: var(--tt-weight-display);
-  font-size: 1.05rem;
-  letter-spacing: var(--tt-tracking-tight);
+  font-size: 1rem;
+  letter-spacing: -0.01em;
   text-decoration: none;
-}
-.hub-brand .logomark {
-  color: var(--tt-lane-2);
-  filter: drop-shadow(0 0 10px rgb(79 139 255 / 0.55));
 }
 .hub-nav {
   display: flex;
-  gap: var(--tt-space-5);
+  gap: var(--tt-space-6);
 }
 .hub-nav a {
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
   text-decoration: none;
   font-weight: var(--tt-weight-strong);
+  font-size: var(--tt-text-body);
 }
 .hub-nav a:hover {
-  color: var(--tt-color-text);
+  color: var(--hub-text);
 }
 
 .hub-join {
@@ -115,22 +75,24 @@
   align-items: center;
   gap: var(--tt-space-2);
   margin-inline-start: auto;
-  width: min(420px, 36vw);
+  width: min(400px, 36vw);
 }
 .hub-join-field {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: var(--tt-space-2);
-  height: 40px;
-  padding: 0 var(--tt-space-2) 0 var(--tt-space-4);
-  border-radius: var(--tt-radius-full);
-  color: var(--tt-color-text-muted);
+  height: 38px;
+  padding: 0 var(--tt-space-2) 0 var(--tt-space-3);
+  border: 1px solid var(--hub-line-strong);
+  border-radius: var(--hub-radius);
+  background: var(--hub-surface);
+  color: var(--hub-muted);
   cursor: text;
-  transition: border-color var(--tt-duration-fast) var(--tt-ease-standard);
 }
 .hub-join-field:focus-within {
-  border-color: var(--tt-color-accent);
+  border-color: var(--tt-color-focus);
+  box-shadow: 0 0 0 1px var(--tt-color-focus);
 }
 .hub-join-field input {
   flex: 1 1 auto;
@@ -138,31 +100,31 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--tt-color-text);
+  color: var(--hub-text);
   font: inherit;
 }
 .hub-join-field input::placeholder {
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
 }
 .hub-join-kbd {
-  padding: 1px 7px;
-  border: 1px solid var(--tt-glass-border);
-  border-radius: var(--tt-radius-sm);
-  font: var(--tt-text-micro) var(--tt-font-ui);
-  color: var(--tt-color-text-muted);
+  padding: 0 6px;
+  border: 1px solid var(--hub-line);
+  border-radius: 4px;
+  font: var(--tt-text-micro) / 1.6 var(--tt-font-ui);
+  color: var(--hub-muted);
 }
 .hub-join-go {
-  height: 40px;
+  height: 38px;
   padding: 0 var(--tt-space-4);
-  border: 0;
-  border-radius: var(--tt-radius-full);
-  background: var(--tt-color-raised);
-  color: var(--tt-color-text);
+  border: 1px solid var(--hub-line-strong);
+  border-radius: var(--hub-radius);
+  background: transparent;
+  color: var(--hub-text);
   font: var(--tt-weight-strong) var(--tt-text-body) var(--tt-font-ui);
   cursor: pointer;
 }
 .hub-join-go:hover {
-  background: var(--tt-color-line);
+  background: var(--hub-raised);
 }
 .hub-join-error {
   position: absolute;
@@ -170,12 +132,12 @@
   inset-inline: 0;
   margin: 0;
   padding: var(--tt-space-2) var(--tt-space-3);
-  border-radius: var(--tt-radius-md);
-  background: var(--tt-color-raised);
+  border-radius: var(--hub-radius);
+  background: var(--hub-surface);
   border: 1px solid var(--tt-color-degraded);
-  color: var(--tt-color-text);
+  color: var(--hub-text);
   font-size: var(--tt-text-small);
-  box-shadow: var(--tt-shadow-2);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
 }
 
 /* --- buttons ------------------------------------------------------------------------------------------------ */
@@ -184,454 +146,261 @@
   align-items: center;
   justify-content: center;
   gap: var(--tt-space-2);
-  height: 48px;
-  padding: 0 var(--tt-space-6);
-  border: 0;
-  border-radius: var(--tt-radius-full);
-  font: var(--tt-weight-display) 1rem var(--tt-font-ui);
+  height: 44px;
+  padding: 0 var(--tt-space-5);
+  border: 1px solid transparent;
+  border-radius: var(--hub-radius);
+  background: transparent;
+  font: var(--tt-weight-strong) var(--tt-text-body) var(--tt-font-ui);
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
-  transition:
-    transform var(--tt-duration-fast) var(--tt-ease-standard),
-    background var(--tt-duration-fast) var(--tt-ease-standard),
-    box-shadow var(--tt-duration-medium) var(--tt-ease-standard);
+  transition: background-color var(--tt-duration-fast) var(--tt-ease-standard);
 }
 .hub a.hub-btn-play,
 .hub-btn-play {
-  background: var(--tt-color-play);
-  color: var(--tt-color-on-play);
-  box-shadow: 0 10px 30px -10px rgb(255 255 255 / 0.45);
+  background: var(--hub-text);
+  color: var(--hub-ground);
 }
 .hub-btn-play:hover {
-  transform: scale(1.03);
+  background: color-mix(in srgb, var(--hub-text) 86%, var(--hub-ground));
 }
-.hub-btn-glass:hover {
-  background: rgb(255 255 255 / 0.14);
-}
-/* Start a talk: a glass pill edged with the three lanes. */
+.hub-btn-quiet,
 .hub-start {
-  position: relative;
-  height: 40px;
-  padding: 0 var(--tt-space-5);
-  font-size: var(--tt-text-body);
-  background: var(--tt-color-surface);
-  color: var(--tt-color-text);
-  isolation: isolate;
+  border-color: var(--hub-line-strong);
 }
-.hub-start::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  padding: 1.5px;
-  border-radius: inherit;
-  background: var(--tt-gradient-lanes);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-}
+.hub-btn-quiet:hover,
 .hub-start:hover {
-  box-shadow: var(--tt-shadow-glow);
+  background: var(--hub-raised);
+}
+.hub-start {
+  height: 38px;
+  padding: 0 var(--tt-space-4);
+  color: var(--hub-text);
 }
 
-/* --- badges ------------------------------------------------------------------------------------------------- */
+/* --- badges: state on a still ------------------------------------------------------------------------------- */
 .hub-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: var(--tt-radius-full);
-  font: var(--tt-weight-display) var(--tt-text-micro) / 1 var(--tt-font-ui);
-  letter-spacing: var(--tt-tracking-caps);
-  white-space: nowrap;
+  position: absolute;
+  z-index: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font: var(--tt-weight-display) 0.6875rem / 1.4 var(--tt-font-ui);
+  color: #ffffff;
+  background: rgb(0 0 0 / 0.74);
 }
 .hub-badge-live {
+  top: 8px;
+  inset-inline-start: 8px;
   background: var(--tt-color-live-fill);
-  color: var(--tt-color-on-live);
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.12),
-    0 6px 18px -6px rgb(224 38 31 / 0.8);
+  letter-spacing: 0.06em;
 }
-.hub-badge-rec,
-.hub-badge-off,
-.hub-badge-glass {
-  background: rgb(7 8 13 / 0.62);
-  color: #f2f4f9;
-  border: 1px solid rgb(255 255 255 / 0.14);
-  letter-spacing: 0.02em;
+.hub-badge-time {
+  bottom: 8px;
+  inset-inline-end: 8px;
+  font-weight: var(--tt-weight-strong);
 }
 .hub-badge-off {
-  color: #c4cad8;
-}
-.hub-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: hub-pulse 1.6s ease-out infinite;
+  bottom: 8px;
+  inset-inline-start: 8px;
+  font-weight: var(--tt-weight-strong);
 }
 @keyframes hub-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgb(255 255 255 / 0.7);
-  }
-  100% {
-    box-shadow: 0 0 0 7px rgb(255 255 255 / 0);
+  50% {
+    opacity: 0.35;
   }
 }
 
-/* --- hero ----------------------------------------------------------------------------------------------------- */
-.hero {
-  /* Always dark: a film still, whatever the page theme. */
-  color-scheme: dark;
-  --tt-color-text: #f2f4f9;
-  --tt-color-text-muted: #b6bdcc;
-  --tt-glass-bg: rgb(24 28 42 / 0.5);
-  --tt-glass-bg-strong: rgb(16 19 30 / 0.82);
-  --tt-glass-border: rgb(255 255 255 / 0.12);
-  --tt-glass-highlight: rgb(255 255 255 / 0.16);
-  --tt-color-play: #ffffff;
-  --tt-color-on-play: #07080d;
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  align-items: end;
-  min-height: min(76vh, 700px);
-  margin-top: -64px;
-  padding-top: 64px;
-  overflow: hidden;
-  color: var(--tt-color-text);
-  background: #07080d;
-}
-.hero-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  animation: hero-in var(--tt-duration-slow) var(--tt-ease-standard) both;
-}
-.hero-art {
+/* --- stills ------------------------------------------------------------------------------------------------- */
+.still {
   display: block;
   width: 100%;
   height: 100%;
-  transform-origin: 70% 40%;
-  animation: hero-drift 28s ease-in-out infinite alternate;
+  object-fit: cover;
+  background: var(--hub-raised);
 }
-.hero::after {
+.still-blank {
+  display: flex;
+  align-items: flex-end;
+  box-sizing: border-box;
+  padding: var(--tt-space-4);
+  font: var(--tt-weight-strong) 1.125rem / 1.25 var(--tt-font-display);
+  letter-spacing: -0.01em;
+  color: var(--hub-muted);
+  overflow: hidden;
+}
+/* A hairline inside every still, so a white slide keeps its edge on a light page. */
+.tile-art::after,
+.hero-frame::after {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
-  /* The fade into the page is the top layer: under the side scrim, a light page's ground came out dark grey. */
-  background:
-    linear-gradient(0deg, var(--hub-page) 0%, transparent var(--hub-fade)),
-    linear-gradient(
-      90deg,
-      rgb(7 8 13 / 0.94) 0%,
-      rgb(7 8 13 / 0.72) 34%,
-      rgb(7 8 13 / 0.1) 68%,
-      rgb(7 8 13 / 0.35) 100%
-    ),
-    linear-gradient(180deg, rgb(7 8 13 / 0.7) 0%, transparent 22%);
-}
-/* Three lanes of light sweeping across the still. */
-.hero-lanes-light {
-  position: absolute;
-  inset: -20% -10%;
-  z-index: -1;
-  background:
-    linear-gradient(100deg, transparent 38%, rgb(255 79 139 / 0.22) 44%, transparent 50%),
-    linear-gradient(100deg, transparent 46%, rgb(79 139 255 / 0.22) 52%, transparent 58%),
-    linear-gradient(100deg, transparent 54%, rgb(32 211 174 / 0.18) 60%, transparent 66%);
-  mix-blend-mode: screen;
-  filter: blur(24px);
-  animation: hero-sweep 16s ease-in-out infinite alternate;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--hub-line);
   pointer-events: none;
 }
-.hero-inner {
+
+/* --- hero --------------------------------------------------------------------------------------------------- */
+.hero {
   display: grid;
-  grid-template-columns: minmax(0, 660px) minmax(0, 1fr);
-  align-items: end;
-  gap: var(--tt-space-12);
-  padding: var(--tt-space-16) var(--tt-page-gutter) 96px;
+  grid-template-columns: minmax(0, 6fr) minmax(0, 7fr);
+  align-items: center;
+  gap: clamp(32px, 4.5vw, 72px);
+  padding: clamp(24px, 2.6vw, 40px) var(--tt-page-gutter) var(--tt-space-4);
 }
 .hero-copy {
-  animation: hero-copy-in var(--tt-duration-slow) var(--tt-ease-standard) both;
-}
-.hero-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: var(--tt-space-3);
-  margin: 0 0 var(--tt-space-4);
-}
-.hero-live {
-  height: 26px;
-  padding: 0 12px;
-}
-.hero-subject {
-  color: var(--tt-color-text-muted);
-  font-weight: var(--tt-weight-strong);
-  letter-spacing: var(--tt-tracking-caps);
-  text-transform: uppercase;
-  font-size: var(--tt-text-micro);
+  max-width: 36rem;
 }
 .hero-title {
   margin: 0;
-  font: var(--tt-weight-display) var(--tt-text-hero) / var(--tt-leading-hero) var(--tt-font-display);
-  letter-spacing: var(--tt-tracking-tight);
   text-wrap: balance;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-shadow: 0 2px 30px rgb(0 0 0 / 0.5);
+}
+.hero-title-main {
+  display: block;
+  font: var(--tt-weight-display) clamp(2rem, 3.3vw, 3.25rem) / 1.06 var(--tt-font-display);
+  letter-spacing: -0.028em;
+}
+.hero-title-sub {
+  display: block;
+  margin-top: 0.5em;
+  font: var(--tt-weight-regular) clamp(1.125rem, 1.45vw, 1.375rem) / 1.3 var(--tt-font-display);
+  letter-spacing: -0.01em;
+  color: var(--hub-muted);
 }
 .hero-meta {
-  margin: var(--tt-space-4) 0 0;
-  color: var(--tt-color-text);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 4px;
+  margin: var(--tt-space-5) 0 0;
+  color: var(--hub-muted);
+}
+.hero-meta > span + span::before {
+  content: "·";
+  margin: 0 10px;
+  color: var(--hub-muted);
+}
+.hero-meta > span:nth-child(2) {
+  color: var(--hub-text);
+}
+/* "Live replay" with a dot: grey until the relay says it is on air, then live red and pulsing. The words stay. */
+.hero-showing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-weight: var(--tt-weight-strong);
+  color: var(--hub-text);
+}
+.hero-showing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hub-line-strong);
+}
+.hero-showing[data-on-air="true"] .hero-showing-dot {
+  background: var(--hub-live);
+  animation: hub-pulse 2.4s ease-in-out infinite;
+}
+.hero-note {
+  margin: var(--tt-space-4) 0 0;
+  color: var(--hub-muted);
+  font-size: var(--tt-text-small);
 }
 .hero-desc {
   margin: var(--tt-space-3) 0 0;
+  max-width: 46ch;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+}
+.hero-tracks {
+  margin: var(--tt-space-3) 0 0;
   max-width: 56ch;
-  color: var(--tt-color-text-muted);
-  font-size: 1.05rem;
-  line-height: var(--tt-leading-body);
+  text-wrap: pretty;
+  color: var(--hub-muted);
+  font-size: var(--tt-text-small);
 }
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--tt-space-3);
-  margin-top: var(--tt-space-6);
+  margin-top: var(--tt-space-8);
 }
-.hero .hub-btn-glass {
-  color: var(--tt-color-text);
-}
-
-/* The tracks panel: the product's idea, drawn as a multitrack timeline running up to the live edge. */
-.hero-tracks {
-  justify-self: end;
-  width: min(400px, 100%);
-  padding: var(--tt-space-4) var(--tt-space-5) var(--tt-space-5);
-  border-radius: var(--tt-radius-xl);
-  animation: hero-copy-in var(--tt-duration-slow) var(--tt-ease-standard) 120ms both;
-}
-.hero-tracks-head {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: var(--tt-space-3);
-  font: var(--tt-weight-display) var(--tt-text-micro) var(--tt-font-ui);
-  letter-spacing: var(--tt-tracking-caps);
-  text-transform: uppercase;
-  color: var(--tt-color-text-muted);
-}
-.hero[data-kind="live"] .hero-tracks-edge,
-.hero[data-kind="talk"] .hero-tracks-edge {
-  color: #ff8a83;
-}
-.hero-tracks-list {
-  list-style: none;
+.hero-figure {
   margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 9px;
+  min-width: 0;
 }
-.hero-lane {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  align-items: center;
-  gap: var(--tt-space-3);
-}
-.hero-lane-name {
-  font-size: var(--tt-text-small);
-  color: var(--tt-color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.hero-lane-strip {
+.hero-frame {
   position: relative;
-  height: 14px;
-  border-radius: var(--tt-radius-full);
-  background: rgb(255 255 255 / 0.05);
+  aspect-ratio: 16 / 9;
+  border-radius: var(--hub-radius-still);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%);
-  mask-image: linear-gradient(90deg, transparent, #000 22%);
+  background: var(--hub-raised);
 }
-.hero-lane-strip::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  width: 2px;
-  background: #ff5b52;
-  box-shadow: 0 0 10px 2px rgb(255 91 82 / 0.7);
+.hero-frame .still-blank {
+  padding: clamp(24px, 3vw, 40px);
+  font-size: clamp(1.5rem, 2.6vw, 2.5rem);
+  font-weight: var(--tt-weight-display);
+  letter-spacing: -0.025em;
+  color: var(--hub-text);
 }
-.hero[data-kind="recording"] .hero-lane-strip::after {
-  background: rgb(255 255 255 / 0.5);
-  box-shadow: none;
+.hero-caption {
+  min-height: 24px;
+  margin-top: var(--tt-space-2);
+  color: var(--hub-muted);
+  font-size: var(--tt-text-micro);
 }
-/* Clips: a repeating pattern twice the strip's width, slid left by half (a whole number of periods) and looped. */
-.hero-lane-clips {
-  position: absolute;
-  inset-block: 3px;
-  inset-inline-start: 0;
-  width: 200%;
-  background-repeat: repeat-x;
-  animation: hero-lane-run 14s linear infinite;
-  animation-delay: calc(var(--i) * -1.7s);
-}
-.hero-lane[data-lane="media"] .hero-lane-clips {
-  inset-block: 2px;
-  background-image: repeating-linear-gradient(
-    90deg,
-    rgb(255 255 255 / 0.55) 0 2px,
-    transparent 2px 4px,
-    rgb(255 255 255 / 0.3) 4px 5px,
-    transparent 5px 7px
-  );
-}
-.hero-lane[data-lane="text"] .hero-lane-clips {
-  background-image: linear-gradient(
-    90deg,
-    var(--lane) 0 58%,
-    transparent 58% 64%,
-    var(--lane) 64% 90%,
-    transparent 90%
-  );
-  background-size: 12.5% 100%;
-  border-radius: 4px;
-}
-.hero-lane:nth-child(2) {
-  --lane: var(--tt-lane-2);
-}
-.hero-lane:nth-child(3) {
-  --lane: var(--tt-lane-1);
-}
-.hero-lane:nth-child(4) {
-  --lane: var(--tt-lane-3);
-}
-.hero-lane[data-lane="text"]:nth-child(3) .hero-lane-clips {
-  background-size: 10% 100%;
-}
-.hero-lane[data-lane="text"]:nth-child(4) .hero-lane-clips {
-  background-size: 16.666% 100%;
-}
-.hero-lane[data-lane="slides"] .hero-lane-clips {
-  background-image: linear-gradient(90deg, rgb(255 255 255 / 0.85) 0 30%, transparent 30%);
-  background-size: 25% 100%;
-}
-.hero-lane[data-lane="marks"] .hero-lane-clips {
-  background-image: radial-gradient(circle at 4px 50%, #ffd84a 0 3px, transparent 3.5px);
-  background-size: 50% 100%;
-}
-
-.hero-dots {
-  position: absolute;
-  inset-inline-end: var(--tt-page-gutter);
-  bottom: 52px;
-  display: flex;
-  gap: var(--tt-space-2);
-}
-.hero-dot {
-  width: 28px;
-  height: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--tt-radius-full);
-  background: rgb(255 255 255 / 0.25);
-  cursor: pointer;
-  transition:
-    width var(--tt-duration-medium) var(--tt-ease-standard),
-    background var(--tt-duration-medium) var(--tt-ease-standard);
-}
-.hero-dot:hover {
-  background: rgb(255 255 255 / 0.5);
-}
-.hero-dot[aria-current="true"] {
-  width: 48px;
-  background: #ffffff;
-}
-
-@keyframes hero-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes hero-copy-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-}
-@keyframes hero-drift {
-  from {
-    transform: scale(1.04);
-  }
-  to {
-    transform: scale(1.14) translateX(-2%);
-  }
-}
-@keyframes hero-sweep {
-  from {
-    transform: translateX(-8%);
-  }
-  to {
-    transform: translateX(8%);
-  }
-}
-@keyframes hero-lane-run {
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-/* --- rows ------------------------------------------------------------------------------------------------------- */
+/* --- rows --------------------------------------------------------------------------------------------------- */
 .hub-main {
   flex: 1 0 auto;
 }
 .hub-rows {
-  position: relative;
-  z-index: 1;
-  margin-top: var(--hub-overlap);
-  padding-bottom: var(--tt-space-10);
+  padding-bottom: var(--tt-space-12);
 }
 .hub-row {
-  margin-bottom: var(--tt-space-6);
+  margin-top: var(--tt-space-8);
   scroll-margin-top: 72px;
 }
 .hub-row-head {
   display: flex;
   align-items: baseline;
-  gap: var(--tt-space-4);
+  gap: var(--tt-space-3);
   padding: 0 var(--tt-page-gutter);
 }
 .hub-row-title {
   margin: 0;
-  font: var(--tt-weight-display) 1.375rem / 1.2 var(--tt-font-display);
-  letter-spacing: var(--tt-tracking-tight);
+  font: var(--tt-weight-display) 1.25rem / 1.2 var(--tt-font-display);
+  letter-spacing: -0.015em;
 }
 .hub-row-note {
   margin: 0;
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
+/* Four cards fill the row's width at desktop sizes; the row scrolls sideways past them. */
 .hub-row-frame {
   position: relative;
+  container-type: inline-size;
+  --hub-tile: clamp(248px, calc((100cqi - 2 * var(--tt-page-gutter) - 3 * var(--hub-gap)) / 4), 340px);
+}
+/* A row of three (Live now: the lectures other than the featured one) spans the same width as a row of four, so the
+   rows line up and no fourth place stands empty. */
+.hub-row-frame:has(.tile:nth-child(3):last-child) {
+  --hub-tile: clamp(
+    248px,
+    calc((100cqi - 2 * var(--tt-page-gutter) - 2 * var(--hub-gap)) / 3),
+    calc(340px * 4 / 3 + var(--hub-gap) / 3)
+  );
 }
 .hub-row-track {
   list-style: none;
   margin: 0;
   display: flex;
-  gap: var(--tt-space-4);
-  padding: var(--tt-space-4) var(--tt-page-gutter) var(--tt-space-6);
+  align-items: flex-start;
+  gap: var(--hub-gap);
+  padding: var(--tt-space-4) var(--tt-page-gutter) var(--tt-space-2);
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity;
   scroll-padding-inline: var(--tt-page-gutter);
   scrollbar-width: none;
 }
@@ -640,17 +409,19 @@
 }
 .hub-row-arrow {
   position: absolute;
-  top: var(--tt-space-4);
-  bottom: var(--tt-space-6);
+  top: calc(var(--tt-space-4) + var(--hub-tile) * 9 / 32 - 20px);
   z-index: 3;
-  width: var(--tt-page-gutter);
-  min-width: 40px;
   display: grid;
   place-items: center;
+  width: 40px;
+  height: 40px;
   padding: 0;
-  border: 0;
-  color: var(--tt-color-text);
-  font-size: 1.4rem;
+  border: 1px solid var(--hub-line);
+  border-radius: 50%;
+  background: var(--hub-surface);
+  color: var(--hub-text);
+  font-size: 1.2rem;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
   cursor: pointer;
   opacity: 0;
   transition: opacity var(--tt-duration-medium) var(--tt-ease-standard);
@@ -662,227 +433,147 @@
   opacity: 1;
 }
 .hub-row-arrow-start {
-  inset-inline-start: 0;
-  background: linear-gradient(90deg, var(--hub-page), transparent);
+  inset-inline-start: calc(var(--tt-page-gutter) / 2 - 20px + 8px);
 }
 .hub-row-arrow-end {
-  inset-inline-end: 0;
-  background: linear-gradient(270deg, var(--hub-page), transparent);
+  inset-inline-end: calc(var(--tt-page-gutter) / 2 - 20px + 8px);
 }
 
-/* --- cards ------------------------------------------------------------------------------------------------------ */
+/* --- cards -------------------------------------------------------------------------------------------------- */
 .tile {
-  --tile-more: 312px;
-  --tile-h: 292px;
   flex: none;
-  width: var(--tt-card-width);
-  height: var(--tile-h);
-  scroll-snap-align: start;
-  transition: width var(--tt-duration-slow) var(--tt-ease-standard);
+  width: var(--hub-tile);
 }
 .tile-card {
   position: relative;
-  display: grid;
-  grid-template-columns: var(--tt-card-width) var(--tile-more);
-  width: 100%;
-  height: 100%;
-  border-radius: var(--tt-radius-xl);
-  overflow: hidden;
   cursor: pointer;
-  transition:
-    transform var(--tt-duration-slow) var(--tt-ease-standard),
-    box-shadow var(--tt-duration-slow) var(--tt-ease-standard),
-    border-color var(--tt-duration-slow) var(--tt-ease-standard);
-}
-/* The lanes edge, shown on the extended card. */
-.tile-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  padding: 1.5px;
-  border-radius: inherit;
-  background: var(--tt-gradient-lanes);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--tt-duration-slow) var(--tt-ease-standard);
-}
-/* Hovered (after a moment, so sweeping across a row does not open every card) or focused: the extended view. */
-.tile:hover {
-  width: calc(var(--tt-card-width) + var(--tile-more));
-  transition-delay: 280ms;
-}
-.tile:focus-within {
-  width: calc(var(--tt-card-width) + var(--tile-more));
-  transition-delay: 0ms;
-}
-.tile:hover .tile-card,
-.tile:focus-within .tile-card {
-  transform: translateY(-4px);
-  box-shadow: var(--tt-shadow-glow), var(--tt-shadow-3);
-  transition-delay: inherit;
-}
-.tile:hover .tile-card::before,
-.tile:focus-within .tile-card::before {
-  opacity: 1;
-  transition-delay: inherit;
-}
-.tile-face {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
 }
 .tile-art {
   position: relative;
   aspect-ratio: 16 / 9;
+  border-radius: var(--hub-radius-still);
   overflow: hidden;
-  background: var(--tt-color-raised);
-}
-.tile-art-img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  transition: transform var(--tt-duration-slow) var(--tt-ease-standard);
-}
-.tile:hover .tile-art-img,
-.tile:focus-within .tile-art-img {
-  transform: scale(1.06);
-}
-.tile-art .hub-badge {
-  position: absolute;
-  top: 10px;
-  inset-inline-start: 10px;
+  background: var(--hub-raised);
+  container-type: inline-size;
 }
 .tile-head {
-  padding: var(--tt-space-3) var(--tt-space-4) var(--tt-space-4);
+  padding: var(--tt-space-3) 2px 0;
   min-width: 0;
-}
-.tile-eyebrow {
-  margin: 0 0 4px;
-  font: var(--tt-weight-display) var(--tt-text-micro) var(--tt-font-ui);
-  letter-spacing: var(--tt-tracking-caps);
-  text-transform: uppercase;
-  color: var(--tt-color-text-muted);
 }
 .tile-title {
   margin: 0;
-  font: var(--tt-weight-display) 1rem / 1.3 var(--tt-font-display);
+  font: var(--tt-weight-strong) 1rem / 1.3 var(--tt-font-display);
   letter-spacing: -0.01em;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  text-wrap: balance;
 }
 .tile-speaker {
   margin: 4px 0 0;
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
 
-/* The extended view: beside the face, revealed as the card widens. */
+/* The extended view: a panel over the lower part of the still, as tall as what it says (the still's top stays in
+   view; on a small card it covers the still), shown after a moment on hover (so sweeping across a row opens nothing)
+   and at once on focus. Transparent, never hidden, while closed: its links stay in the tab order, and focusing one is
+   what opens it. */
 .tile-more {
+  position: absolute;
+  inset: auto 0 0;
+  max-height: 100%;
+  border-top: 1px solid var(--hub-line);
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: var(--tt-space-3);
-  min-width: 0;
-  min-height: 0;
-  padding: var(--tt-space-4) var(--tt-space-5);
-  border-inline-start: 1px solid var(--tt-glass-border);
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.04), transparent 40%);
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--hub-surface);
   opacity: 0;
-  transform: translateX(-12px);
-  transition:
-    opacity var(--tt-duration-medium) var(--tt-ease-standard),
-    transform var(--tt-duration-medium) var(--tt-ease-standard);
-}
-.tile:hover .tile-more,
-.tile:focus-within .tile-more {
-  opacity: 1;
-  transform: none;
-  transition-delay: inherit;
+  pointer-events: none;
+  transition: opacity var(--tt-duration-medium) var(--tt-ease-standard);
 }
 .tile:hover .tile-more {
-  transition-delay: 380ms;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--tt-duration-medium) var(--tt-ease-standard) 320ms;
+}
+.tile:focus-within .tile-more {
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
 }
 .tile-desc {
   margin: 0;
   font-size: var(--tt-text-small);
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  flex: none;
-}
-/* The facts as label and value side by side, so the card's fixed height holds them and its actions. */
-.tile-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  gap: 6px var(--tt-space-3);
-  margin: 0;
-  font-size: var(--tt-text-small);
-}
-.tile-facts > div {
-  display: contents;
-}
-.tile-facts dt {
-  font: var(--tt-weight-display) 0.6875rem var(--tt-font-ui);
-  letter-spacing: var(--tt-tracking-caps);
-  text-transform: uppercase;
-  color: var(--tt-color-text-muted);
-}
-.tile-facts dd {
-  margin: 0;
-}
-.tile-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.tile-chip {
-  padding: 1px 8px;
-  border-radius: var(--tt-radius-full);
-  border: 1px solid var(--tt-glass-border);
-  background: rgb(255 255 255 / 0.05);
-  font-size: var(--tt-text-micro);
-}
-.tile-tracks {
-  font-size: var(--tt-text-micro);
-  color: var(--tt-color-text-muted);
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  flex: none;
+}
+.tile-facts {
+  margin: 0;
+  color: var(--hub-muted);
+  font-size: var(--tt-text-micro);
+  line-height: 1.4;
+}
+/* The facts read as one line of text ("English · subtitles in 50 languages"), the tracks as a second: inline, so the
+   "·" never sits on a line of its own. */
+.tile-facts > div {
+  display: inline;
+}
+.tile-facts dd {
+  display: inline;
+  margin: 0;
+}
+.tile-facts > div:not(.tile-tracks) + div:not(.tile-tracks)::before {
+  content: "·";
+  margin: 0 6px;
+}
+.tile-tracks {
+  display: block;
+  min-width: 0;
+}
+.tile-tracks dd {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container (max-width: 290px) {
+  .tile-tracks {
+    display: none;
+  }
+}
+@container (min-width: 400px) {
+  .tile-desc {
+    -webkit-line-clamp: 3;
+  }
 }
 .tile-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--tt-space-2);
-  margin-top: auto;
+  margin-top: 6px;
   flex: none;
 }
-.tile-play {
+.tile-play,
+.tile-also {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 36px;
-  padding: 0 var(--tt-space-4);
-  border-radius: var(--tt-radius-full);
-  background: var(--tt-color-play);
-  font-weight: var(--tt-weight-display);
+  height: 32px;
+  padding: 0 var(--tt-space-3);
+  border-radius: var(--hub-radius);
+  font-size: var(--tt-text-small);
+  font-weight: var(--tt-weight-strong);
   text-decoration: none;
+  white-space: nowrap;
 }
 .hub a.tile-play {
-  color: var(--tt-color-on-play);
+  background: var(--hub-text);
+  color: var(--hub-ground);
 }
 /* The whole card opens the room: the play link's hit area covers it. */
 .tile-play::after {
@@ -890,79 +581,60 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  border-radius: var(--tt-radius-xl);
 }
-.tile-play:focus-visible {
-  outline: 3px solid var(--tt-color-focus);
+.tile-card:has(.tile-play:focus-visible) .tile-art {
+  outline: 2px solid var(--tt-color-focus);
   outline-offset: 2px;
+}
+/* The play link stands for the card: one ring, the card's. The card's second link keeps its own. */
+.tile-play:focus-visible {
+  outline: none;
 }
 .tile-also {
   position: relative;
   z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 var(--tt-space-3);
-  border-radius: var(--tt-radius-full);
-  border: 1px solid var(--tt-glass-border);
-  font-size: var(--tt-text-small);
-  font-weight: var(--tt-weight-strong);
-  text-decoration: none;
+  border: 1px solid var(--hub-line-strong);
 }
 .tile-also:hover {
-  background: rgb(255 255 255 / 0.08);
-}
-.tile-credit {
-  margin: 0;
-  font-size: 0.6875rem;
-  color: var(--tt-color-text-muted);
+  background: var(--hub-raised);
 }
 
-/* Placeholders while a row loads. */
-.tile-skeleton .tile-card {
-  cursor: default;
-}
-.tile-skeleton .tile-art,
-.skeleton-line {
-  background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.07) 50%, transparent 70%)
-    var(--tt-color-raised);
-  background-size: 200% 100%;
-  animation: hub-shimmer 1.6s linear infinite;
-}
-.skeleton-line {
-  display: block;
-  height: 12px;
-  margin-top: 10px;
-  border-radius: var(--tt-radius-full);
-}
-.skeleton-short {
-  width: 55%;
-}
-@keyframes hub-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -100% 0;
-  }
-}
-
-/* --- footer ----------------------------------------------------------------------------------------------------- */
+/* --- footer ------------------------------------------------------------------------------------------------- */
 .hub-foot {
   padding: var(--tt-space-6) var(--tt-page-gutter) var(--tt-space-10);
-  border-top: 1px solid var(--tt-color-line);
-  color: var(--tt-color-text-muted);
+  border-top: 1px solid var(--hub-line);
+  color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
 .hub-foot p {
   margin: 0 0 var(--tt-space-2);
+  max-width: 90ch;
+  text-wrap: pretty;
+}
+/* The credit is one line on a desktop: wrapped at the paragraph measure it left a name or a licence half alone. */
+.hub-foot .hub-credits {
+  max-width: none;
 }
 .hub-foot a {
-  color: var(--tt-color-text);
+  color: var(--hub-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-/* --- Start a talk ----------------------------------------------------------------------------------------------- */
+/* --- narrow windows ----------------------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hero-figure {
+    order: -1;
+  }
+  .hub-nav {
+    display: none;
+  }
+}
+
+/* --- Start a talk ------------------------------------------------------------------------------------------- */
 .start-dialog {
   width: min(600px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
@@ -970,38 +642,24 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--tt-color-text);
+  color: var(--hub-text);
   overflow: visible;
 }
 .start-dialog::backdrop {
   background: var(--tt-color-scrim);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
 }
 .start-dialog[open] {
-  animation: start-in var(--tt-duration-medium) var(--tt-ease-spring) both;
+  animation: start-in var(--tt-duration-medium) var(--tt-ease-standard) both;
 }
 .start-panel {
   position: relative;
   max-height: calc(100vh - 48px);
   overflow: auto;
   padding: var(--tt-space-6) var(--tt-space-8) var(--tt-space-8);
-  border-radius: var(--tt-radius-xl);
-  box-shadow:
-    var(--tt-shadow-3),
-    inset 0 1px 0 var(--tt-glass-highlight);
-}
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .start-panel {
-    background: var(--tt-glass-bg-strong);
-  }
-}
-.start-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 3px;
-  background: var(--tt-gradient-lanes);
+  border: 1px solid var(--hub-line);
+  border-radius: 12px;
+  background: var(--hub-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.32);
 }
 .start-head {
   display: flex;
@@ -1011,8 +669,8 @@
 }
 .start-title {
   margin: 0;
-  font: var(--tt-weight-display) var(--tt-text-h2) / 1.15 var(--tt-font-display);
-  letter-spacing: var(--tt-tracking-tight);
+  font: var(--tt-weight-display) 1.5rem / 1.2 var(--tt-font-display);
+  letter-spacing: -0.02em;
 }
 .start-close {
   display: grid;
@@ -1020,19 +678,19 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 1px solid var(--tt-glass-border);
-  border-radius: 50%;
+  border: 1px solid var(--hub-line);
+  border-radius: var(--hub-radius);
   background: transparent;
-  color: var(--tt-color-text);
+  color: var(--hub-text);
   font-size: 1.1rem;
   cursor: pointer;
 }
 .start-close:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--hub-raised);
 }
 .start-lead {
   margin: 0 0 var(--tt-space-2);
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
 }
 .start-form,
 .start-created {
@@ -1058,7 +716,7 @@
 }
 .start-hint {
   margin: 0;
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
 .start-error {
@@ -1086,43 +744,36 @@
   min-width: 0;
   padding: var(--tt-space-2) var(--tt-space-3);
   border: 1px solid var(--tt-color-field);
-  border-radius: var(--tt-radius-md);
-  background: var(--tt-color-surface);
-  color: var(--tt-color-text);
+  border-radius: var(--hub-radius);
+  background: var(--hub-surface);
+  color: var(--hub-text);
   font: inherit;
 }
 .start-warning {
   margin: 0;
   padding: var(--tt-space-2) var(--tt-space-3);
-  border-radius: var(--tt-radius-md);
+  border-radius: var(--hub-radius);
   background: color-mix(in srgb, var(--tt-color-degraded) 16%, transparent);
 }
 .start-status {
   margin: 0;
   min-height: 1lh;
-  color: var(--tt-color-text-muted);
+  color: var(--hub-muted);
   font-size: var(--tt-text-small);
 }
 @keyframes start-in {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
+    transform: translateY(8px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-art,
-  .hero-lanes-light,
-  .hero-lane-clips,
-  .hub-live-dot,
-  .tile-skeleton .tile-art,
-  .skeleton-line {
-    animation: none;
+  .hero-showing-dot {
+    animation: none !important;
   }
-  .tile,
-  .tile-card,
   .tile-more,
-  .tile-art-img {
+  .tile:hover .tile-more {
     transition: none;
   }
 }

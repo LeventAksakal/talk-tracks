@@ -1,4 +1,5 @@
-/* Loading and empty states: the three-lane spinner and a centred note. No mascot (decision 0033). */
+/* Loading and empty states: the three-lane spinner and a centred note, in one quiet colour. No mascot (decisions
+   0033, 0036). */
 
 .tt-state {
   display: flex;
@@ -31,17 +32,15 @@
   font: var(--tt-weight-display) var(--tt-text-h1) / var(--tt-leading-tight) var(--tt-font-display);
   letter-spacing: var(--tt-tracking-tight);
 }
-/* The logomark's lanes as a quiet emblem above an empty state. */
+/* The logomark's lanes as a quiet emblem above an empty state, in the muted text colour. */
 .tt-state-mark {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--tt-radius-lg);
+  width: 40px;
+  height: 40px;
   background:
-    linear-gradient(var(--tt-lane-1), var(--tt-lane-1)) 14px 14px / 16px 5px no-repeat,
-    linear-gradient(var(--tt-lane-2), var(--tt-lane-2)) 14px 26px / 28px 5px no-repeat,
-    linear-gradient(var(--tt-lane-3), var(--tt-lane-3)) 14px 38px / 16px 5px no-repeat,
-    var(--tt-glass-bg);
-  border: 1px solid var(--tt-glass-border);
+    linear-gradient(currentColor, currentColor) 6px 8px / 14px 4px no-repeat,
+    linear-gradient(currentColor, currentColor) 6px 18px / 26px 4px no-repeat,
+    linear-gradient(currentColor, currentColor) 6px 28px / 14px 4px no-repeat;
+  color: var(--tt-color-text-muted);
 }
 
 .tt-spinner {
@@ -80,15 +79,13 @@
 .tt-spinner > span:nth-child(3) {
   width: 60%;
 }
-.tt-spinner > span:nth-child(1)::after {
-  background: var(--tt-lane-1);
+.tt-spinner > span::after {
+  background: var(--tt-color-text-muted);
 }
 .tt-spinner > span:nth-child(2)::after {
-  background: var(--tt-lane-2);
   animation-delay: 160ms;
 }
 .tt-spinner > span:nth-child(3)::after {
-  background: var(--tt-lane-3);
   animation-delay: 320ms;
 }
 

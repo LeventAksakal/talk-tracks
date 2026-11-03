@@ -8,7 +8,7 @@ import {
   DEMO_TRACKS,
   type DemoRoom,
   type Language,
-  type LectureArt,
+  type LectureStill,
   lectureOf,
   recordingRoom,
   SUBTITLE_LANGUAGE_COUNT,
@@ -31,7 +31,8 @@ export interface HubItem {
   minutes?: number;
   /** On air now: true or false once the relay answered, undefined before. A recording is never on air. */
   onAir?: boolean;
-  art?: LectureArt;
+  /** A frame of the lecture's own recording; a talk without one shows its title on a plain field. */
+  still?: LectureStill;
   credit?: string;
   /** The language the talk is spoken in, when known. */
   spoken?: Language;
@@ -43,19 +44,31 @@ export interface HubItem {
 }
 
 export interface HubRows {
-  /** Talks on air, then the demo lectures' live sessions. */
+  /** Talks speakers give now, then the demo lectures' live sessions apart from the hero's. */
   live: HubItem[];
+  /** One card a recording; the demo lectures' from the first paint, until the archive's list says otherwise. */
   recordings: HubItem[];
   recent: HubItem[];
-  /** What the hero cycles through: what is on air, else every live session. */
-  featured: HubItem[];
+  /** The hero's talk: the first demo lecture's live session, always, so the first paint never changes. */
+  featured: HubItem | undefined;
+}
+
+/** A title and its subtitle, split at the first colon: "You Are Part Virus" over "How Biological Viruses Hack Cells". */
+export function splitTitle(title: string): [string, string | undefined] {
+  const at = title.indexOf(": ");
+  return at > 0 ? [title.slice(0, at), title.slice(at + 2)] : [title, undefined];
 }
 
 /** The tracks any talk carries: captions, translations, slide descriptions, chapters and a glossary. */
 const TALK_TRACKS = DEMO_TRACKS;
 
-function lectureItem(lecture: DemoRoom, kind: "live" | "recording", recordings: ReadonlySet<string>): HubItem {
-  const recorded = recordings.has(recordingRoom(lecture.room));
+/** `recordings` undefined: the archive's list is loading, and a demo lecture is taken to have its recording. */
+function lectureItem(
+  lecture: DemoRoom,
+  kind: "live" | "recording",
+  recordings: ReadonlySet<string> | undefined,
+): HubItem {
+  const recorded = recordings ? recordings.has(recordingRoom(lecture.room)) : true;
   return {
     room: kind === "live" ? lecture.room : recordingRoom(lecture.room),
     kind,
@@ -64,7 +77,7 @@ function lectureItem(lecture: DemoRoom, kind: "live" | "recording", recordings: 
     description: lecture.description,
     subject: lecture.subject,
     minutes: lecture.minutes,
-    art: lecture.art,
+    still: lecture.stills[kind],
     credit: DEMO_CREDIT,
     spoken: DEMO_SPOKEN,
     subtitleLanguages: SUBTITLE_LANGUAGE_COUNT,
@@ -83,7 +96,7 @@ function talkItem(room: string, title?: string): HubItem {
 }
 
 /** The item for any room the hub knows of by name (Continue watching). */
-export function itemFor(room: string, recordings: ReadonlySet<string>, title?: string): HubItem {
+export function itemFor(room: string, recordings: ReadonlySet<string> | undefined, title?: string): HubItem {
   const known = lectureOf(room);
   return known ? lectureItem(known.lecture, known.kind, recordings) : talkItem(room, title);
 }
@@ -100,7 +113,7 @@ export function hubRows({
 }): HubRows {
   const connected = relay?.status === "connected";
   const onAir = (room: string) => (connected ? relay.live.has(room) : undefined);
-  const recorded = new Set((recordings ?? []).map((r) => r.room));
+  const recorded = recordings ? new Set(recordings.map((r) => r.room)) : undefined;
 
   const talks = connected
     ? [...relay.live]
@@ -109,27 +122,27 @@ export function hubRows({
         .map((room) => ({ ...talkItem(room), onAir: true }))
     : [];
   const sessions = DEMO_ROOMS.map((d) => ({ ...lectureItem(d, "live", recorded), onAir: onAir(d.room) }));
-  // Sessions on air first; the order of DEMO_ROOMS otherwise.
-  const live = [...talks, ...sessions.filter((s) => s.onAir), ...sessions.filter((s) => !s.onAir)];
 
   const order = (r: Recording) => {
     const i = DEMO_ROOMS.findIndex((d) => d.room === r.of);
     return i < 0 ? DEMO_ROOMS.length : i;
   };
-  const recs = [...(recordings ?? [])]
-    .sort((a, b) => order(a) - order(b))
-    .map((r) => {
-      const known = lectureOf(r.room);
-      return known
-        ? lectureItem(known.lecture, "recording", recorded)
-        : { ...talkItem(r.room, r.of), kind: "recording" as const };
-    });
+  const recs = recordings
+    ? [...recordings]
+        .sort((a, b) => order(a) - order(b))
+        .map((r) => {
+          const known = lectureOf(r.room);
+          return known
+            ? lectureItem(known.lecture, "recording", recorded)
+            : { ...talkItem(r.room, r.of), kind: "recording" as const };
+        })
+    : DEMO_ROOMS.map((d) => lectureItem(d, "recording", recorded));
 
   const recentItems = recent.map((r) => {
     const item = itemFor(r.room, recorded, r.title);
     return item.kind === "recording" ? item : { ...item, onAir: onAir(r.room) };
   });
 
-  const onAirNow = live.filter((i) => i.onAir);
-  return { live, recordings: recs, recent: recentItems, featured: onAirNow.length ? onAirNow : sessions };
+  const [featured, ...others] = sessions;
+  return { live: [...talks, ...others], recordings: recs, recent: recentItems, featured };
 }

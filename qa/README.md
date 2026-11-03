@@ -33,7 +33,8 @@ npm run qa --prefix qa -- --overlay "<absolute path to web/dist>" --skip-lightho
 ```
 
 `npm run qa --prefix qa -- --help` lists the options: `--browsers`, `--themes`, `--journeys`, `--room`,
-`--recording`, `--overlay`, `--trace-path`, `--trace-seconds`, `--lighthouse-pages`, `--run`, and `--skip-capture|lighthouse|trace`.
+`--recording`, `--overlay`, `--deck` (a PDF the console journey loads as slides), `--trace-path`, `--trace-seconds`,
+`--lighthouse-pages`, `--run`, and `--skip-capture|lighthouse|trace`.
 
 Vite preview listens on `localhost`, which on Windows resolves to `::1` first: use `http://[::1]:<port>/`.
 

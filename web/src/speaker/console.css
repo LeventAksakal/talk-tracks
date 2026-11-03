@@ -1,13 +1,12 @@
-/* The speaker console (ui-design §7): desktop first. The hub's language (decision 0033): glass panels over a dark
-   ground lit by the three lanes; red only for on air. The glass rules are at the end of this file. */
+/* The speaker console (ui-design §7): desktop first. The hub's quiet language (decisions 0033, 0036): opaque panels
+   with a hairline on a plain ground, no glass or lane light; red only for on air. The panel rules are at the end of
+   this file. */
 
 .console {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(1000px 560px at 88% -10%, rgb(79 139 255 / 0.13), transparent 62%),
-    radial-gradient(800px 520px at -10% 60%, rgb(255 79 139 / 0.07), transparent 60%), var(--tt-color-ground);
+  background: var(--tt-color-ground);
 }
 
 .console-bar {
@@ -20,14 +19,8 @@
   gap: var(--tt-space-4);
   min-height: 60px;
   padding: 8px var(--tt-space-6);
-  background: var(--tt-glass-bg-strong);
-  border-bottom: 1px solid var(--tt-glass-border);
-}
-@supports (backdrop-filter: blur(1px)) {
-  .console-bar {
-    background: var(--tt-glass-bg);
-    backdrop-filter: blur(var(--tt-glass-blur)) saturate(var(--tt-glass-saturate));
-  }
+  background: var(--tt-color-ground);
+  border-bottom: 1px solid var(--tt-color-line);
 }
 .console .brand {
   display: inline-flex;
@@ -36,8 +29,7 @@
   letter-spacing: var(--tt-tracking-tight);
 }
 .console .brand .logomark {
-  color: var(--tt-lane-2);
-  filter: drop-shadow(0 0 10px rgb(79 139 255 / 0.55));
+  color: inherit;
 }
 .console[data-phase="on-air"] .console-bar {
   border-bottom: 3px solid var(--tt-color-live);
@@ -409,6 +401,30 @@
   padding-inline-start: 6px;
   border-inline-start: 1px solid var(--tt-color-line);
 }
+/* The tools as one hairline bar; the slide controls and the drawing's undo, redo and clear on the row below. */
+.toolbar {
+  flex-wrap: nowrap;
+  align-self: start;
+  max-width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-md);
+}
+.slide-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.toolbar button:not(.tool-options-toggle) {
+  padding-inline: 7px;
+}
+.slide-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .widths {
   display: flex;
   gap: 4px;
@@ -719,59 +735,56 @@
   }
 }
 
-/* --- glass (decision 0033) ----------------------------------------------------------------------------------- */
+/* --- panels (decision 0036): opaque surface, one hairline, 8 px corners ---------------------------------------- */
 .console .panel {
-  border-radius: var(--tt-radius-xl);
-  background: var(--tt-glass-bg-strong);
-  border: 1px solid var(--tt-glass-border);
-  box-shadow: inset 0 1px 0 var(--tt-glass-highlight);
-}
-@supports (backdrop-filter: blur(1px)) {
-  .console .panel {
-    background: var(--tt-glass-bg);
-    backdrop-filter: blur(var(--tt-glass-blur)) saturate(var(--tt-glass-saturate));
-  }
+  border-radius: 8px;
+  background: var(--tt-color-surface);
+  border: 1px solid var(--tt-color-line);
+  box-shadow: none;
 }
 .console .panel-title {
-  font-weight: var(--tt-weight-display);
-  letter-spacing: var(--tt-tracking-tight);
+  font-weight: var(--tt-weight-strong);
+  letter-spacing: -0.01em;
 }
 .console .stage {
-  border-radius: var(--tt-radius-lg);
-  border-color: var(--tt-glass-border);
-  box-shadow: var(--tt-shadow-3);
+  border-radius: 8px;
+  border-color: var(--tt-color-line);
+  box-shadow: none;
 }
 /* On air, the stage is ringed in live red: what viewers see now. */
 .console[data-phase="on-air"] .stage {
-  box-shadow:
-    0 0 0 2px var(--tt-color-live),
-    0 30px 90px -30px rgb(255 91 82 / 0.5);
+  box-shadow: 0 0 0 2px var(--tt-color-live);
 }
 .console .stage-empty {
-  background: radial-gradient(600px 300px at 50% 0%, rgb(79 139 255 / 0.12), transparent 70%), var(--tt-color-surface);
+  background: var(--tt-color-surface);
   border: 1px dashed var(--tt-color-field);
 }
 .console .check {
   grid-template-columns: 92px 1fr;
 }
+/* A check's state is a word in its colour after a small dot, in sentence case: not a chip. */
 .console .check-state {
   justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
-  padding: 2px 8px;
-  border-radius: var(--tt-radius-full);
-  background: rgb(255 255 255 / 0.06);
-  font-size: 0.6875rem;
-  letter-spacing: var(--tt-tracking-caps);
+  padding: 0;
+  background: none;
+  font-size: var(--tt-text-micro);
+  font-weight: var(--tt-weight-strong);
+  letter-spacing: 0;
+  text-transform: none;
 }
-.console .check-ok .check-state {
-  background: color-mix(in srgb, var(--tt-color-ready) 16%, transparent);
-}
-.console .check-bad .check-state,
-.console .check-wait .check-state {
-  background: color-mix(in srgb, var(--tt-color-degraded) 16%, transparent);
+.console .check-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .console .strip-item {
-  border-radius: var(--tt-radius-md);
+  border-radius: 6px;
 }
 /* Paste your speaker link (pages/CreateTalk.tsx), in the Speaker token check. */
 .paste-link-form {
@@ -782,4 +795,8 @@
 }
 .paste-link-form > button {
   align-self: flex-start;
+}
+/* Native checkboxes take the one primary colour, not the browser's blue. */
+.console input[type="checkbox"] {
+  accent-color: var(--tt-color-play);
 }

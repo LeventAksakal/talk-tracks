@@ -24,6 +24,7 @@ import { type ExtraTab, INITIAL_UI, type PlayerCtx, PlayerContext, type UiState 
 import { Controls } from "./Controls";
 import { Discussion } from "./Discussion";
 import { FrameClock } from "./frameClock";
+import { Icon } from "./icons";
 import { languageOption } from "./languages";
 import { LanguageOffer } from "./LanguageOffer";
 import { Listening, useListening, useRoomService } from "./listening";
@@ -154,6 +155,10 @@ export function Player(props: PlayerProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [everConnected, setEverConnected] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  // The controls stay up until the viewer first moves, touches or types: a page that opens on a bare picture hides
+  // how to play it, pick subtitles or get back (judges' round 1). After that they fade when idle, as before.
+  const [engaged, setEngaged] = useState(false);
+  const engage = useCallback(() => setEngaged(true), []);
   useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
   // What the room service says about the talk comes first, then what the page knows (a demo lecture's credits).
   const info = slides?.roomInfo();
@@ -344,6 +349,8 @@ export function Player(props: PlayerProps) {
   // A recording opens at its start (it is video on demand): once its span is known the playhead moves there, once.
   const vod = props.vod ?? false;
   const [vodStarted, setVodStarted] = useState(false);
+  // The recording played to its end: the media element is ended (it says so on ended, and stops on a seek or play).
+  const [atEnd, setAtEnd] = useState(false);
   const real = {
     connection: status?.status,
     everConnected: everConnected || status?.status === "connected",
@@ -364,10 +371,17 @@ export function Player(props: PlayerProps) {
     sessionEnded: view?.sessionEnded ?? false,
     vod,
     vodOpening: vod && !vodStarted,
+    atEnd,
     stalled,
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
   const origin = media?.talkOrigin() ?? 0;
+  // The controls are held up while a menu is open, until the viewer first engages, and on an end card (its timeline is
+  // the way on). Media Chrome's autohide -1 stops it hiding them; one already hidden comes back.
+  const holdControls = ui.menu !== undefined || !engaged || state.card?.replay === true;
+  useEffect(() => {
+    if (holdControls) controller.current?.removeAttribute("userinactive");
+  }, [holdControls]);
 
   // The media element: Media Chrome drives it; it holds the paused state and the playhead (held while paused live).
   const elementAt = el?.playback === playback ? el.roomTime() : undefined;
@@ -382,7 +396,10 @@ export function Player(props: PlayerProps) {
     const e = el;
     if (!e) return;
     e.bind(playback);
-    const onPlayState = () => setUi({ playing: !e.paused });
+    const onPlayState = () => {
+      setUi({ playing: !e.paused });
+      setAtEnd(e.ended);
+    };
     const onSubtitles = (ev: Event) => {
       const id = (ev as CustomEvent<string | null>).detail;
       update(id === null ? { cc: false } : { cc: true, subtitleLang: id });
@@ -393,6 +410,8 @@ export function Player(props: PlayerProps) {
     };
     e.addEventListener("play", onPlayState);
     e.addEventListener("pause", onPlayState);
+    e.addEventListener("ended", onPlayState);
+    e.addEventListener("seeked", onPlayState);
     e.addEventListener("ttsubtitles", onSubtitles);
     e.addEventListener("ttvolume", onVolume);
     // Media Chrome fades the controls only for a pointer resting on the media element itself, not on what it holds
@@ -412,6 +431,8 @@ export function Player(props: PlayerProps) {
     return () => {
       e.removeEventListener("play", onPlayState);
       e.removeEventListener("pause", onPlayState);
+      e.removeEventListener("ended", onPlayState);
+      e.removeEventListener("seeked", onPlayState);
       e.removeEventListener("ttsubtitles", onSubtitles);
       e.removeEventListener("ttvolume", onVolume);
       e.removeEventListener("pointermove", onPointer);
@@ -540,6 +561,9 @@ export function Player(props: PlayerProps) {
         ref={root}
         className={`tt-player${prefs.panel ? " tt-with-panel" : ""}${fullscreen ? " tt-fullscreen" : ""}`}
         data-state={state.kind}
+        onPointerMove={engaged ? undefined : engage}
+        onPointerDown={engaged ? undefined : engage}
+        onKeyDown={engaged ? undefined : engage}
       >
         {/* The skip link's target: the talk itself, its canvas and controls (the side panel beside). */}
         <main className="tt-main" id="main" tabIndex={-1}>
@@ -552,14 +576,16 @@ export function Player(props: PlayerProps) {
             nomutedpref=""
             nosubtitleslangpref=""
             defaultstreamtype="live"
-            noautohide={ui.menu ? "" : undefined}
+            autohide={holdControls ? "-1" : "2"}
+            noautohide={holdControls ? "" : undefined}
           >
             <tt-room-media ref={bindEl} slot="media" className="tt-media-element">
               <Stage onToggle={togglePlay} onFullscreen={toggleFullscreen} />
             </tt-room-media>
             <header slot="top-chrome" className="tt-titlebar">
-              <Link href="/" className="tt-brand">
-                Talk Tracks
+              <Link href="/" className="tt-back">
+                <Icon name="back" />
+                All talks
               </Link>
               <div className="tt-title-block">
                 <h1 className="tt-title">{title}</h1>
@@ -577,7 +603,10 @@ export function Player(props: PlayerProps) {
                 {props.notice ? <span className="tt-notice">{props.notice}</span> : null}
               </span>
             </header>
-            <media-loading-indicator slot="centered-chrome" className="tt-loading-indicator" loadingdelay="600" />
+            {/* A card says what the stage is doing (an end, a pause, a reconnect): no spinner over it. */}
+            {state.card ? null : (
+              <media-loading-indicator slot="centered-chrome" className="tt-loading-indicator" loadingdelay="600" />
+            )}
             <LanguageOffer />
             <Controls quality={false} />
           </media-controller>

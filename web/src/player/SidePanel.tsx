@@ -156,6 +156,27 @@ function Seek({ ms, children }: { ms: number; children?: ReactNode }) {
 
 // --- transcript ------------------------------------------------------------------------------------
 
+/** A finished line shorter than this many words reads as a fragment ("is", "of the cell."): it joins the one before. */
+const FRAGMENT_WORDS = 4;
+
+/**
+ * The transcript as it reads: a final line of fewer than FRAGMENT_WORDS words joins the final line before it, so a
+ * caption cut mid-sentence never stands alone under a timestamp of its own. Lines still being spoken stay as they are,
+ * and so does a transcript shown beside its translation (each translated line belongs to one caption line).
+ */
+function readableLines(lines: readonly LineItem[], keepEach: boolean): LineItem[] {
+  if (keepEach) return [...lines];
+  const out: LineItem[] = [];
+  for (const l of lines) {
+    const prev = out.at(-1);
+    const words = l.text.trim().split(/\s+/).filter(Boolean).length;
+    if (prev && prev.final && l.final && words < FRAGMENT_WORDS)
+      out[out.length - 1] = { ...prev, text: `${prev.text.trimEnd()} ${l.text.trim()}`, endMs: l.endMs };
+    else out.push(l);
+  }
+  return out;
+}
+
 function Transcript() {
   const { tracks, prefs, ui, setUi, at } = usePlayer();
   const captions = tracks.captions;
@@ -166,7 +187,7 @@ function Transcript() {
     prefs.cc && prefs.subtitleLang !== "original" ? translationFor(tracks, prefs.subtitleLang) : undefined;
   // A recording's transcript is the whole lecture from 0:00 (read from the archive); a live room's, what is held.
   const whole = captions?.enabled === true && captions.transcript !== undefined;
-  const lines = transcriptLines(captions);
+  const lines = readableLines(transcriptLines(captions), translation !== undefined);
   const translated = new Map(transcriptLines(translation).map((l) => [l.id, l] as const));
   const query = fold(ui.search.trim());
   const shown = query.length >= 2 ? lines.filter((l) => fold(l.text).includes(query)) : lines;

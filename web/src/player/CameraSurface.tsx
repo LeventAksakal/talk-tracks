@@ -110,8 +110,8 @@ export function cameraNote(live: boolean, status: MediaStatus): string | undefin
  * RoomMedia once and never re-mounted (the live player keeps the canvas it was given), one visible per
  * mode. Volume applies to the archive element here; live audio is @moq/watch's own.
  */
-export function CameraSurface({ offLayout = false }: { offLayout?: boolean }) {
-  const { media, view, prefs } = usePlayer();
+export function CameraSurface({ offLayout = false, alone = false }: { offLayout?: boolean; alone?: boolean }) {
+  const { media, view, prefs, state } = usePlayer();
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const live = view.timeline.mode === "live";
@@ -173,7 +173,8 @@ export function CameraSurface({ offLayout = false }: { offLayout?: boolean }) {
       </SourceTile>
     );
 
-  const note = cameraNote(live, status);
+  // Under an end card the tile is quiet: the card says what the stage is doing, and the last frame stays as it is.
+  const note = state.card ? undefined : cameraNote(live, status);
   // A recorded talk's video is the whole composed frame: the tile shows only its webcam inset, once the frame is known,
   // and the whole picture while the video is off its layout (the stage camera), when the stage shows it large.
   const framed = aspect === undefined ? undefined : framing(aspect, offLayout ? undefined : region);
@@ -195,7 +196,9 @@ export function CameraSurface({ offLayout = false }: { offLayout?: boolean }) {
       {aspect === undefined && (note !== undefined || !live) ? (
         <div className="tt-camera-empty">{note ? <span className="tt-camera-note">{note}</span> : null}</div>
       ) : null}
-      <span className="tt-source-tag">Camera</span>
+      {/* Alone on the stage the picture needs no label: there is nothing beside it to tell it from. Off its layout it is
+          the whole recorded frame (a stage shot, a slide with the event's logo), which "Camera" would misname. */}
+      {alone || offLayout ? null : <span className="tt-source-tag">Camera</span>}
     </SourceTile>
   );
 }

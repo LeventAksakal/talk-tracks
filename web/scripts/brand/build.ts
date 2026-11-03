@@ -5,8 +5,8 @@
 //   the social card (1200x630)                                    -> public/og.png
 //   the demo video's title and end cards (1920x1080)              -> public/brand/video/
 //
-// The look is the streaming one (decision 0033): the logomark's three lanes in the lane colours on a near-black
-// ground. No mascot.
+// The look is the streaming one in quiet chrome (decisions 0033 and 0036): the logomark in one colour on a plain
+// dark ground; the cards show the talks by frames of their own recordings (web/public/talks/). No mascot, no glow.
 //
 // Run from anywhere with Node 23.6 or later (it strips the types itself):
 //   node web/scripts/brand/build.ts
@@ -26,22 +26,17 @@ const BRAND = join(PUBLIC, "brand");
 const VIDEO = join(BRAND, "video");
 
 // Tokens (web/src/theme/tokens.css): the dark ground and text; the "on light" files use the ground as ink.
-const GROUND = "#07080d";
-const TEXT = "#f2f4f9";
-const MUTED = "#a2aabd";
-const LANE = ["#ff4f8b", "#4f8bff", "#20d3ae"] as const;
+const GROUND = "#0e0e10";
+const TEXT = "#ededeb";
+const MUTED = "#a2a2a6";
 
 // --- the logomark: a play button cut into three lanes (the Reference Canvas's "Play of lanes") -------------------
 // One talk, many tracks. Solid, so it holds at 16 px. Drawn on a 64 grid; the ink spans x 12.5-57.5, y 4.5-59.5.
 const MARK_LANES = ["M14 6L33.4 18H14Z", "M14 26H46.3L56 32L46.3 38H14Z", "M14 46H33.4L14 58Z"];
 const MARK_D = MARK_LANES.join("");
-/** The mark in one colour (`fill`), or in the three lane colours. */
-const mark = (fill: string | "lanes") =>
-  fill === "lanes"
-    ? MARK_LANES.map(
-        (d, i) => `<path d="${d}" fill="${LANE[i]}" stroke="${LANE[i]}" stroke-width="3" stroke-linejoin="round"/>`,
-      ).join("")
-    : `<path d="${MARK_D}" fill="${fill}" stroke="${fill}" stroke-width="3" stroke-linejoin="round"/>`;
+/** The mark, in one colour (decision 0036: the three lane colours read as a stock start-up mark). */
+const mark = (fill: string) =>
+  `<path d="${MARK_D}" fill="${fill}" stroke="${fill}" stroke-width="3" stroke-linejoin="round"/>`;
 const MARK_BOX = { x: 12.5, y: 4.5, w: 45, h: 55 };
 
 // --- the wordmark: "Talk Tracks" as outlines ----------------------------------------------------------------------
@@ -75,7 +70,7 @@ function lockup(fill: string) {
   const gap = 300;
   const tx = markW + gap - wx0;
   const body =
-    `<g transform="translate(${r1(-MARK_BOX.x * s)} ${r1(wy0 - MARK_BOX.y * s)}) scale(${r1(s, 1000)})">${mark("lanes")}</g>` +
+    `<g transform="translate(${r1(-MARK_BOX.x * s)} ${r1(wy0 - MARK_BOX.y * s)}) scale(${r1(s, 1000)})">${mark(fill)}</g>` +
     `<g transform="translate(${r1(tx)} 0)"><path d="${WORD.d}" fill="${fill}"/></g>`;
   const width = markW + gap + (wx1 - wx0);
   const pad = 24;
@@ -84,7 +79,7 @@ function lockup(fill: string) {
 const r1 = (n: number, k = 10) => Math.round(n * k) / k;
 
 /**
- * favicon.svg: on a light browser theme the lane mark sits on a dark tile; on a dark one the tile goes and the mark
+ * favicon.svg: on a light browser theme the mark sits on a dark tile; on a dark one the tile goes and the mark
  * fills the square on the dark tab strip.
  */
 function favicon(followDark = true) {
@@ -94,7 +89,7 @@ function favicon(followDark = true) {
       ? `<style>@media (prefers-color-scheme:dark){.t{display:none}.m{transform:translate(-3px,-4px) scale(1.15)}}</style>`
       : "") +
     `<rect class="t" width="64" height="64" rx="14" fill="${GROUND}"/>` +
-    `<g class="m" transform="translate(6 6) scale(.8125)">${mark("lanes")}</g></svg>\n`
+    `<g class="m" transform="translate(6 6) scale(.8125)">${mark(TEXT)}</g></svg>\n`
   );
 }
 
@@ -105,19 +100,17 @@ const FONTS = `
 @font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-400.woff2")};font-weight:400}
 @font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-600.woff2")};font-weight:600}
 @font-face{font-family:"Atkinson Hyperlegible Next";src:${font("atkinson-next-700.woff2")};font-weight:700}`;
-/** The hub's ground: near-black lit by the three lanes. */
-const GLOW = `radial-gradient(900px 520px at 85% -10%, rgb(79 139 255 / .32), transparent 62%),
-  radial-gradient(800px 500px at -10% 70%, rgb(255 79 139 / .22), transparent 60%),
-  radial-gradient(900px 600px at 60% 120%, rgb(32 211 174 / .16), transparent 62%), ${GROUND}`;
+/** The hub's dark ground (pages/hub.css), plain: the talks bring the colour (decision 0036). */
+const CARD_GROUND = "#0e0e10";
 const page = (w: number, h: number, body: string, bg = "transparent") =>
   `<!doctype html><html><head><meta charset="utf-8"><style>${FONTS}
 html,body{margin:0;width:${w}px;height:${h}px;overflow:hidden;background:${bg}}
 body{font-family:"Atkinson Hyperlegible Next",sans-serif;color:${TEXT}}
 .title{font-weight:700;letter-spacing:-0.03em;line-height:1}
-.glass{background:rgb(24 28 42 / .55);border:1px solid rgb(255 255 255 / .12);box-shadow:inset 0 1px 0 rgb(255 255 255 / .16)}
+.still{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .1)}
 </style></head><body>${body}</body></html>`;
 
-/** An app icon: the lane mark on the dark ground. `inset` is the mark's share of the side. */
+/** An app icon: the mark on the dark ground. `inset` is the mark's share of the side. */
 function iconPage(size: number, { rounded, inset }: { rounded: boolean; inset: number }) {
   const side = size * inset;
   const scale = side / MARK_BOX.h;
@@ -128,52 +121,24 @@ function iconPage(size: number, { rounded, inset }: { rounded: boolean; inset: n
     size,
     `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">` +
       `<rect width="${size}" height="${size}" rx="${rounded ? size * 0.22 : 0}" fill="${GROUND}"/>` +
-      `<g transform="translate(${r1(ox)} ${r1(oy)}) scale(${r1(scale, 1000)})">${mark("lanes")}</g></svg>`,
+      `<g transform="translate(${r1(ox)} ${r1(oy)}) scale(${r1(scale, 1000)})">${mark(TEXT)}</g></svg>`,
   );
 }
 
 /** The mark and the name in a row, `h` px tall. */
 const brandRow = (h: number) =>
   `<div style="display:flex;align-items:center;gap:${r1(h * 0.32)}px">
-    <svg width="${r1((h * MARK_BOX.w) / MARK_BOX.h)}" height="${h}" viewBox="${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.w} ${MARK_BOX.h}" overflow="visible" style="filter:drop-shadow(0 0 ${r1(h / 4)}px rgb(79 139 255 / .5))">${mark("lanes")}</svg>
+    <svg width="${r1((h * MARK_BOX.w) / MARK_BOX.h)}" height="${h}" viewBox="${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.w} ${MARK_BOX.h}" overflow="visible">${mark(TEXT)}</svg>
     <span class="title" style="font-size:${r1(h * 0.95)}px">Talk Tracks</span>
   </div>`;
 
-/** The hero's timeline, drawn: lanes of clips running up to a live edge. */
-function tracksPanel(w: number) {
-  const rows: [string, string, number[]][] = [
-    ["Speaker", "rgb(255 255 255 / .55)", []],
-    ["Captions", LANE[1], [0.05, 0.2, 0.26, 0.44, 0.5, 0.71, 0.77, 0.95]],
-    ["Español", LANE[2], [0.1, 0.24, 0.3, 0.52, 0.58, 0.8, 0.86, 0.98]],
-    ["العربية", LANE[0], [0.02, 0.18, 0.24, 0.4, 0.48, 0.66, 0.74, 0.9]],
-    ["Slides", "rgb(255 255 255 / .85)", [0.14, 0.3, 0.62, 0.78]],
-  ];
-  const lane = w * 0.6;
-  const strip = (color: string, spans: number[]) =>
-    spans.length
-      ? spans
-          .reduce<number[][]>((acc, x, i) => (i % 2 ? (acc.at(-1)!.push(x), acc) : [...acc, [x]]), [])
-          .map(
-            ([a, b]) =>
-              `<span style="position:absolute;top:3px;bottom:3px;left:${r1(a! * 100)}%;width:${r1((b! - a!) * 100)}%;border-radius:4px;background:${color}"></span>`,
-          )
-          .join("")
-      : `<span style="position:absolute;inset:3px 0;background:repeating-linear-gradient(90deg,${color} 0 2px,transparent 2px 5px)"></span>`;
-  return `<div class="glass" style="width:${w}px;padding:${r1(w * 0.06)}px;border-radius:${r1(w * 0.06)}px;box-sizing:border-box">
-    <div style="display:flex;justify-content:space-between;font-size:${r1(w * 0.034)}px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${MUTED};margin-bottom:${r1(w * 0.04)}px"><span>Tracks in this talk</span><span style="color:#ff8a83">Live edge</span></div>
-    ${rows
-      .map(
-        ([
-          name,
-          color,
-          spans,
-        ]) => `<div style="display:flex;align-items:center;gap:${r1(w * 0.04)}px;margin-top:${r1(w * 0.028)}px">
-      <span style="width:${r1(w * 0.3)}px;font-size:${r1(w * 0.04)}px;color:${MUTED}">${name}</span>
-      <span style="position:relative;display:block;width:${r1(lane)}px;height:${r1(w * 0.045)}px;border-radius:99px;background:rgb(255 255 255 / .06);overflow:hidden">${strip(color, spans)}<span style="position:absolute;right:0;top:0;bottom:0;width:3px;background:#ff5b52;box-shadow:0 0 12px 3px rgb(255 91 82 / .7)"></span></span>
-    </div>`,
-      )
-      .join("")}
-  </div>`;
+/** The four demo lectures, each by a frame of its own recording (web/public/talks/, credited in NOTICE). */
+const STILLS = ["virus", "dataviz", "rsa", "qrcode"];
+function stillsGrid(w: number) {
+  const gap = r1(w * 0.02);
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:${gap}px;width:${w}px">${STILLS.map(
+    (s) => `<img class="still" src="${pathToFileURL(join(PUBLIC, "talks", `${s}-480.webp`)).href}" alt="">`,
+  ).join("")}</div>`;
 }
 
 const TAGLINE =
@@ -187,8 +152,8 @@ function socialCard() {
       ${brandRow(74)}
       <p style="margin:44px 0 0;font-size:31px;line-height:1.38;color:${TEXT}">${TAGLINE}</p>
     </div>
-    <div style="position:absolute;left:700px;top:150px">${tracksPanel(430)}</div>`,
-    GLOW,
+    <div style="position:absolute;left:680px;top:110px">${stillsGrid(440)}</div>`,
+    CARD_GROUND,
   );
 }
 
@@ -200,8 +165,8 @@ function titleCard() {
       ${brandRow(120)}
       <p style="margin:60px 0 0;font-size:46px;line-height:1.36">${TAGLINE}</p>
     </div>
-    <div style="position:absolute;left:1160px;top:320px">${tracksPanel(600)}</div>`,
-    GLOW,
+    <div style="position:absolute;left:1120px;top:330px">${stillsGrid(620)}</div>`,
+    CARD_GROUND,
   );
 }
 
@@ -222,9 +187,8 @@ function endCard() {
       <p style="margin:44px 0 0;font-size:40px;color:${MUTED}">Live talks over Media over QUIC, with AI tracks.</p>
       <p style="margin:34px 0 0;font-size:52px;color:${TEXT}">${SITE}</p>
       <p style="margin:16px 0 0;font-size:40px;color:${MUTED}">${REPO}</p>
-    </div>
-    <div style="position:absolute;left:0;right:0;top:1000px;height:6px;background:linear-gradient(90deg,${LANE[0]},${LANE[1]} 52%,${LANE[2]})"></div>`,
-    GLOW,
+    </div>`,
+    CARD_GROUND,
   );
 }
 
@@ -305,8 +269,8 @@ const write = (path: string, data: string | Buffer) => {
 };
 
 try {
-  write(join(BRAND, "logomark-on-dark.svg"), logomark("lanes"));
-  write(join(BRAND, "logomark-on-light.svg"), logomark("lanes"));
+  write(join(BRAND, "logomark-on-dark.svg"), logomark(TEXT));
+  write(join(BRAND, "logomark-on-light.svg"), logomark(GROUND));
   write(join(BRAND, "wordmark-on-dark.svg"), wordmark(TEXT));
   write(join(BRAND, "wordmark-on-light.svg"), wordmark(GROUND));
   write(join(BRAND, "lockup-on-dark.svg"), lockup(TEXT));

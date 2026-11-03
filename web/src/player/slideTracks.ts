@@ -208,6 +208,9 @@ export interface DeckPicture {
   url: string;
 }
 
+/** Slide changes remembered for the held slide (a long talk changes slides a few hundred times at most). */
+const SEEN_MAX = 500;
+
 /**
  * The slide tracks of one room. `setWanted` says which tracks the viewer's layout needs (decision 0010: none
  * until the slides are shown); `setTime` follows the frame clock and fetches the group the playhead needs.
@@ -235,6 +238,8 @@ export class SlideTracks {
   #previewGroup: number | undefined;
   #urls = new Map<string, string>();
   #lastAt: SlideAt | undefined;
+  /** The slides seen on screen here, each at the room time it was first seen there (by time, at most SEEN_MAX). */
+  #seen: { at: number; slide: ShowSlide }[] = [];
   #memo = new Map<string, { group: Group | undefined; version: number; n: number; extra: string; value: unknown }>();
   #listeners = new Set<() => void>();
   #version = 0;
@@ -336,7 +341,19 @@ export class SlideTracks {
       ...this.#reduced("audience-marks", t, shown, (r) => marksCarry(r as readonly MarkRecord[], shown)),
     ];
     this.#lastAt = { slide: shown, marks };
+    if (shown && t !== undefined) this.#remember(t, shown);
     return this.#lastAt;
+  }
+
+  /**
+   * The slide last seen on screen here at or before t (with t undefined, the newest seen): what the stage keeps up
+   * while the speaker shows none, so a hidden stretch is the last slide with the camera beside it, not a face filling
+   * the stage. Undefined when no slide has been seen before t in this session.
+   */
+  heldSlide(t: number | undefined): ShowSlide | undefined {
+    if (t === undefined) return this.#seen.at(-1)?.slide;
+    for (let i = this.#seen.length - 1; i >= 0; i--) if (this.#seen[i]!.at <= t) return this.#seen[i]!.slide;
+    return undefined;
   }
 
   /** The strokes on the slide on screen at t, everyone else's first and the speaker's on top; undefined: loading. */
@@ -481,6 +498,16 @@ export class SlideTracks {
       this.#pump();
     }, PREVIEW_DEBOUNCE_MS);
     return undefined;
+  }
+
+  #remember(t: number, slide: ShowSlide): void {
+    const seen = this.#seen;
+    let i = seen.length - 1;
+    while (i >= 0 && seen[i]!.at > t) i--;
+    const before = seen[i]?.slide;
+    if (before && before.deck === slide.deck && before.index === slide.index) return;
+    seen.splice(i + 1, 0, { at: t, slide });
+    if (seen.length > SEEN_MAX) seen.shift();
   }
 
   // --- state helpers --------------------------------------------------------------------------------------------

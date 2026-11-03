@@ -65,6 +65,8 @@ export interface PlayerStateInput {
   vod?: boolean;
   /** A recording not yet moved to its start: it opens at 0:00, so no end card flashes first. */
   vodOpening?: boolean;
+  /** A recording played to its end (the media element is ended): its end card shows over the last frame. */
+  atEnd?: boolean;
   /** Connected, and still nothing to play from a room that shows signs of life (listed or announced) after a while. */
   stalled?: boolean;
 }
@@ -75,6 +77,8 @@ export interface PlayerState {
   pill: string;
   /** The pill is a Go live button. */
   canGoLive: boolean;
+  /** Live over the WebSocket fallback, the slower path: said in Stats for nerds, not in the pill. */
+  slowerPath?: boolean;
   /** A card over the canvas, when the state needs one. */
   card?: {
     title: string;
@@ -184,22 +188,24 @@ export function playerState(input: PlayerStateInput): PlayerState {
     const recording = input.recording && input.recording.end > input.recording.start ? input.recording : undefined;
     const length = recording ? formatClock(recording.end - recording.start) : undefined;
     // Seen ending here it is "Talk ended"; opened afterwards it is a recording.
+    // Rewound inside the recording it plays on; at its end (the element ended) the end card shows over the last frame.
+    const playing = mode === "rewound" && !input.atEnd;
     if (input.vod) {
       const vod = { kind: "ended", pill: "Recording", canGoLive: false, recording } as const;
-      if (mode === "rewound") return { ...vod, card: pausedThen };
+      if (playing) return { ...vod, card: pausedThen };
       if (input.vodOpening) return vod;
       return {
         ...vod,
         card: {
           title: "That's the whole lecture",
-          body: `${length ? `${length} long. ` : ""}Replay it from the start, or pick a moment on the timeline.`,
+          body: `${length ? `${length}. ` : ""}Replay it, or pick a moment on the timeline.`,
           replay: true,
           hub: true,
         },
       };
     }
     const base = { kind: "ended", pill: input.sawLive ? "Ended" : "Recorded", canGoLive: false, recording } as const;
-    return mode === "rewound"
+    return playing
       ? { ...base, card: pausedThen }
       : {
           ...base,
@@ -260,7 +266,12 @@ export function playerState(input: PlayerStateInput): PlayerState {
         hub: true,
       },
     };
-  // A demo room is a live session of a recorded lecture (decision 0032): live, from a recording, never a loop.
-  const pill = ["LIVE", input.looped ? "session from a recording" : "", input.slowerPath ? "WebSocket" : ""];
-  return { kind: "live", pill: pill.filter(Boolean).join(" · "), canGoLive: false };
+  // A demo room is a live session of a recorded lecture (decision 0032): live, from a recording, never a loop. The
+  // pill says so in two words; how the connection runs is for Stats for nerds.
+  return {
+    kind: "live",
+    pill: input.looped ? "Live replay" : "LIVE",
+    canGoLive: false,
+    ...(input.slowerPath ? { slowerPath: true } : {}),
+  };
 }

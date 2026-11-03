@@ -1,139 +1,103 @@
-import { useEffect, useRef, useState } from "react";
 import { Link } from "../../router";
-import { Art } from "./Art";
+import { stillCredit } from "../demoRooms";
 import { PlayIcon } from "./icons";
-import type { HubItem } from "./items";
-import { AlsoLink, Named, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
+import { type HubItem, splitTitle } from "./items";
+import { Still } from "./Still";
+import { AlsoLink, extraTracks, Named, PRELOAD_WATCH, playLabel, watchHref } from "./Tile";
 
-/** How long the hero shows one talk before the next, ms (not under reduced motion, nor while pointed at). */
-export const HERO_CYCLE_MS = 9_000;
+const ONES =
+  "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split(
+    " ",
+  );
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 
-function reducedMotion(): boolean {
-  try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
+/** A count in a sentence, in words up to 99 ("fifty languages"): the font's slashed zero reads like code in prose. */
+export function inWords(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 99) return String(n);
+  if (n < 20) return ONES[n - 1]!;
+  const ten = TENS[Math.floor(n / 10)]!;
+  return n % 10 ? `${ten}-${ONES[(n % 10) - 1]}` : ten;
 }
 
 /**
- * The hero: what is on air now, full width, with its key art, its words and its two ways in. With several on air it
- * moves on every few seconds; the dots pick one.
+ * What the talk carries, as one sentence: "An 18-minute talk in English, with subtitles in any of fifty languages,
+ * slide descriptions, chapters and glossary."
  */
-export function Hero({ items, paused = false }: { items: HubItem[]; paused?: boolean }) {
-  const [index, setIndex] = useState(0);
-  const [held, setHeld] = useState(false);
-  const root = useRef<HTMLElement>(null);
-  const count = items.length;
-  const at = count ? index % count : 0;
-  const item = items[at];
+function tracksLine(item: HubItem): string {
+  const m = item.minutes;
+  const head = m ? `${/^(8|11|18)/.test(String(m)) ? "An" : "A"} ${m}-minute talk` : "A talk";
+  const lang = item.spoken ? ` in ${item.spoken.name}` : "";
+  const extra = extraTracks(item)?.toLowerCase();
+  const parts = [
+    item.subtitleLanguages ? `subtitles in any of ${inWords(item.subtitleLanguages)} languages` : undefined,
+    extra,
+  ].filter(Boolean);
+  return `${head}${lang}${parts.length ? `, with ${parts.join(", ")}` : ""}.`;
+}
 
-  useEffect(() => {
-    if (count < 2 || held || paused || reducedMotion()) return;
-    const t = window.setTimeout(() => setIndex((i) => (i + 1) % count), HERO_CYCLE_MS);
-    return () => window.clearTimeout(t);
-  }, [count, held, paused, at]);
-
-  if (!item) return null;
-  const play = playLabel(item);
+/**
+ * What kind of showing this is, honestly: a demo lecture's live session is its recording played again on air, with the
+ * AI tracks made live (decision 0032), so it says "Live replay", never plain LIVE. The dot turns red once the relay
+ * says it is on air; the words do not change, so the first paint holds.
+ */
+function Showing({ item }: { item: HubItem }) {
+  if (item.kind === "recording") return <span className="hero-showing">Recording</span>;
+  const word = item.kind === "live" ? "Live replay" : "Live";
   return (
-    <section
-      ref={root}
-      className="hero"
-      aria-roledescription="carousel"
-      aria-label="On now"
-      data-kind={item.kind}
-      onMouseEnter={() => setHeld(true)}
-      onMouseLeave={() => setHeld(false)}
-      onFocus={() => setHeld(true)}
-      onBlur={(e) => {
-        if (!root.current?.contains(e.relatedTarget as Node | null)) setHeld(false);
-      }}
-    >
-      <div className="hero-backdrop" key={item.room} aria-hidden="true">
-        <Art art={item.art} seed={item.room} className="hero-art" />
-      </div>
-      <div className="hero-lanes-light" aria-hidden="true" />
-      <div className="hero-inner">
-        <div className="hero-copy" key={item.room} aria-live={held ? "polite" : "off"}>
-          <p className="hero-eyebrow">
-            {item.onAir ? (
-              <span className="hub-badge hub-badge-live hero-live">
-                <span className="hub-live-dot" aria-hidden="true" />
-                LIVE NOW
-              </span>
-            ) : (
-              <span className="hub-badge hub-badge-glass">Live session</span>
-            )}
-            {item.subject ? <span className="hero-subject">{item.subject}</span> : null}
-          </p>
-          <h2 className="hero-title">{item.title}</h2>
-          <p className="hero-meta">
-            {[
-              item.speaker,
-              item.minutes ? `${item.minutes} min` : undefined,
-              item.spoken?.name,
-              item.subtitleLanguages ? `subtitles in ${item.subtitleLanguages} languages` : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-          {item.description ? <p className="hero-desc">{item.description}</p> : null}
-          <div className="hero-actions">
-            <Link href={watchHref(item.room)} className="hub-btn hub-btn-play" {...PRELOAD_WATCH}>
-              <PlayIcon />
-              <Named label={play} title={item.title} />
-            </Link>
-            <AlsoLink item={item} className="hub-btn hub-btn-glass" />
-          </div>
-        </div>
-        <TrackLanes item={item} />
-      </div>
-      {count > 1 ? (
-        <div className="hero-dots" role="group" aria-label="Pick a talk">
-          {items.map((it, i) => (
-            <button
-              key={it.room}
-              type="button"
-              className="hero-dot"
-              aria-label={`Show ${it.title}`}
-              aria-current={i === at ? "true" : undefined}
-              onClick={() => setIndex(i)}
-            />
-          ))}
-        </div>
-      ) : null}
-    </section>
+    <span className="hero-showing" data-on-air={item.onAir === undefined ? undefined : String(item.onAir)}>
+      <span className="hero-showing-dot" aria-hidden="true" />
+      {word}
+      {item.onAir ? <span className="sr-only">, on air now</span> : null}
+    </span>
   );
 }
 
-/** The idea of the product, drawn: the talk on one lane and its AI tracks arriving on theirs, up to the live edge. */
-function TrackLanes({ item }: { item: HubItem }) {
-  const lanes = [
-    { name: "Speaker", kind: "media" },
-    { name: "Captions", kind: "text" },
-    { name: "Translations", kind: "text" },
-    { name: "Slide descriptions", kind: "slides" },
-    { name: "Chapters", kind: "marks" },
-  ] as { name: string; kind: string; lang?: string }[];
+/**
+ * The hero: one demo lecture's live session, the first, always (so the first paint is the page). Its still from its
+ * own recording on one side, credited under it; its title, speaker, what it is about and its two ways in on the other.
+ * The other lectures' sessions are the Live now row, so no talk shows twice as a live session (decision 0036).
+ */
+export function Hero({ item, note }: { item: HubItem | undefined; note?: string }) {
+  if (!item) return null;
+  const play = playLabel(item);
+  const [title, subtitle] = splitTitle(item.title);
   return (
-    <div className="hero-tracks" aria-hidden="true">
-      <div className="hero-tracks-head">
-        <span>Tracks in this talk</span>
-        <span className="hero-tracks-edge">{item.kind === "recording" ? "Recorded" : "Live edge"}</span>
+    <section className="hero" aria-label="Featured talk" data-kind={item.kind}>
+      <div className="hero-copy">
+        <h2 className="hero-title">
+          <span className="hero-title-main">{title}</span>
+          {subtitle ? (
+            <>
+              <span className="sr-only">: </span>
+              <span className="hero-title-sub">{subtitle}</span>
+            </>
+          ) : null}
+        </h2>
+        <p className="hero-meta">
+          <Showing item={item} />
+          {[item.speaker, item.subject].filter(Boolean).map((part) => (
+            <span key={part}>{part}</span>
+          ))}
+        </p>
+        {item.description ? <p className="hero-desc">{item.description}</p> : null}
+        <p className="hero-tracks">{tracksLine(item)}</p>
+        <div className="hero-actions">
+          <Link href={watchHref(item.room)} className="hub-btn hub-btn-play" {...PRELOAD_WATCH}>
+            <PlayIcon />
+            <Named label={play} title={item.title} />
+          </Link>
+          <AlsoLink item={item} className="hub-btn hub-btn-quiet" />
+        </div>
+        {note ? <p className="hero-note">{note}</p> : null}
       </div>
-      <ol className="hero-tracks-list">
-        {lanes.map((lane, i) => (
-          <li key={lane.name} className="hero-lane" data-lane={lane.kind} style={{ ["--i" as string]: i }}>
-            <span className="hero-lane-name" lang={lane.lang}>
-              {lane.name}
-            </span>
-            <span className="hero-lane-strip">
-              <span className="hero-lane-clips" />
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
+      <figure className="hero-figure">
+        <div className="hero-frame">
+          <Still item={item} sizes="(min-width: 960px) 56vw, 100vw" eager className="hero-still" />
+        </div>
+        <figcaption className="hero-caption">
+          {item.still && item.speaker ? stillCredit(item.still, item.speaker) : null}
+        </figcaption>
+      </figure>
+    </section>
   );
 }
