@@ -3,6 +3,14 @@
 
 .hub {
   --hub-page: var(--tt-color-ground);
+  /* How far the hero fades into the page, and how far the first row rides up over it. On a dark page the hero melts
+     into it; on a light page a long fade would put the hero's white text on grey and the first row's dark title on
+     the dark still, so the light page gets a short fade and a row that starts below the hero. */
+  --hub-fade: 34%;
+  --hub-overlap: -40px;
+  /* The header's glass. Light glass over the dark hero turns mid-grey (the nav links measured 2.6:1 on it), so a
+     light page takes the strong glass there. */
+  --hub-bar-glass: var(--tt-glass-bg);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -11,6 +19,18 @@
     radial-gradient(900px 520px at -8% 38%, rgb(255 79 139 / 0.09), transparent 60%),
     radial-gradient(1000px 640px at 55% 112%, rgb(32 211 174 / 0.08), transparent 62%), var(--tt-color-ground);
   color: var(--tt-color-text);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .hub {
+    --hub-fade: 10%;
+    --hub-overlap: 0px;
+    --hub-bar-glass: var(--tt-glass-bg-strong);
+  }
+}
+:root[data-theme="light"] .hub {
+  --hub-fade: 10%;
+  --hub-overlap: 0px;
+  --hub-bar-glass: var(--tt-glass-bg-strong);
 }
 .hub a {
   color: inherit;
@@ -57,6 +77,11 @@
   padding: 0 var(--tt-page-gutter);
   border-width: 0 0 1px;
   box-shadow: none;
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .hub-bar {
+    background: var(--hub-bar-glass);
+  }
 }
 .hub-brand {
   display: inline-flex;
@@ -301,7 +326,9 @@
   position: absolute;
   inset: 0;
   z-index: -1;
+  /* The fade into the page is the top layer: under the side scrim, a light page's ground came out dark grey. */
   background:
+    linear-gradient(0deg, var(--hub-page) 0%, transparent var(--hub-fade)),
     linear-gradient(
       90deg,
       rgb(7 8 13 / 0.94) 0%,
@@ -309,7 +336,6 @@
       rgb(7 8 13 / 0.1) 68%,
       rgb(7 8 13 / 0.35) 100%
     ),
-    linear-gradient(0deg, var(--hub-page) 0%, transparent 34%),
     linear-gradient(180deg, rgb(7 8 13 / 0.7) 0%, transparent 22%);
 }
 /* Three lanes of light sweeping across the still. */
@@ -571,7 +597,7 @@
 .hub-rows {
   position: relative;
   z-index: 1;
-  margin-top: -40px;
+  margin-top: var(--hub-overlap);
   padding-bottom: var(--tt-space-10);
 }
 .hub-row {
