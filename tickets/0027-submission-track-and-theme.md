@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 created: 2026-11-03
 tags: [submission]
 ---
@@ -34,3 +34,4 @@ Track (a), theme (a).
 
 ## Answer
 
+Owner, 2026-11-03 (chat): "goahead with your recomendations". Track (a): Indie (solo). Theme (a): "Build for Your World".
