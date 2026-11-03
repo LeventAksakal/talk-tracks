@@ -47,8 +47,8 @@ the VM's Meta model calls along the bottom: [script](submission-video.md), [shoo
 > Open https://talk-tracks.leventaksakal.com in desktop Chrome. No account needed.
 >
 > 1. **Watch a live session.** Pick a lecture under *Live now*. Each one plays once from 00:00 and starts again. Open
->    **CC** and type any language in *Search any language*. A translation is made only once someone picks it, so the
->    first subtitles come a sentence later. The captions and translations come from agents listening to that
+>    **CC** and type any of 50 languages in *Search any language*. A translation is made only once someone picks it:
+>    in our muted test runs the first live subtitle came 7.2 s after picking Japanese. The captions and translations come from agents listening to that
 >    session right now. Open the side panel for chapters, glossary and transcript.
 > 2. **Rewind.** Drag the progress bar back (or press J). Slides, drawings and subtitles replay at that moment. Press
 >    G to go live.
@@ -58,7 +58,7 @@ the VM's Meta model calls along the bottom: [script](submission-video.md), [shoo
 >    **`<ACCESS CODE: owner pastes it here in the form only>`**. Open the speaker link, allow the microphone, pick a
 >    PDF or share a screen, press **Go on air**, and open the audience link in a second window.
 > 5. **Recordings** are under *Recordings*: the whole lecture, seekable, the speaker's camera beside the slides, AI
->    tracks labelled as recorded. Pick a language there too: it is translated for the part you watch.
+>    tracks labelled as recorded. Pick a language there too: it is translated for the part you watch (0.4 s to the first subtitle once made, 20.5 s for a part not made yet, right after a seek).
 >
 > If the network is bad, `/demo` plays the player on a scripted room, offline.
 
@@ -78,7 +78,7 @@ with a microphone, a camera, a PDF deck or a shared screen, a pen and a laser po
 pick what they want:
 
 - **captions** as the speaker talks;
-- **subtitles in their language**: any language in the list, each made only when the first viewer picks it, in live
+- **subtitles in their language**: any of 50 languages (the list is marked unconfirmed, as Meta publishes none), each made only when the first viewer picks it, in live
   talks and recordings alike;
 - **slide descriptions**, so a listener who cannot see the slide hears or reads what is on it;
 - **chapters, a glossary and a recap**, so a late joiner can catch up;
@@ -108,7 +108,7 @@ beside the letterboxed slides.
   of the whole lecture with its tracks labelled as recorded. A room service archives every room as it plays (CMAF
   segments, HLS playlists and the agents' slices), and the player, built on Media Chrome, plays both.
 - Python 3.13 on aiomoqt for the agents; React 19 and TypeScript for the web app; everything on one VM with Docker
-  Compose. A benchmark in the repo measures MoQ against LL-HLS and WebRTC on the same encode.
+  Compose. A benchmark in the repo compares MoQ with LL-HLS and WebRTC on the same encode (its fan-out table is not reproduced and is not cited here).
 
 ### How we use Meta's models
 
@@ -134,6 +134,9 @@ can be swapped or restarted mid-talk and no viewer notices.
 - **Subtitles that break mid-phrase.** Realtime transcription lines have no word timings and little punctuation. A
   punctuation pass that may not change any word cut the cues that end mid-phrase from over 80 % to about 13 % on the
   two lectures that had the most.
+- **A relay stream limit.** moq-relay advertises every namespace it knows to each agent connection, and each
+  advertisement holds one bidirectional stream. The 52 lazy language tracks per room used up aiopquic's default 512
+  streams, and the relay's SUBSCRIBE and FETCH waited forever. Granting 16384 (`TT_MOQ_MAX_STREAMS_BIDI`) fixed it.
 - **A moving standard.** MoQ is an IETF draft and its libraries change weekly. We pinned the relay and browser
   libraries, stayed on one draft, and wrote down every relay behaviour we hit: for example, a FETCH of the slice that
   was open when the relay first subscribed never completes, so the player takes that slice from the live
