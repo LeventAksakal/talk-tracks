@@ -179,6 +179,30 @@ describe("RoomMedia in a looped room", () => {
     media.close();
   });
 
+  it("opens a rewind asked for before the room catalog came once it comes: the picture loads, it is never missing", async () => {
+    const transport = new FakeTransport();
+    const now = EPOCH + 2_449_500_000;
+    const fetchFn = vi.fn(async () => new Response("", { status: 404 })) as unknown as typeof fetch;
+    const media = new RoomMedia(transport as unknown as MoqTransport, "virus", { now: () => now, fetchFn });
+    transport.emitJson(teacherPath("virus"), HANG_CATALOG_TRACK, teacherCatalog);
+    const video = new FakeVideo();
+    media.attach({ canvas: {} as HTMLCanvasElement, video: video as unknown as HTMLVideoElement });
+    media.seek(2_449_450_000);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    // No epoch yet: the playhead runs on the clock, and the camera tile says the picture is loading.
+    expect(media.status()).toBe("loading");
+    transport.emitJson(catalogPath("virus"), CATALOG_TRACK, {
+      tracks: [],
+      tt: { E: EPOCH, shift: { [String(teacherCatalog.clock.wall)]: 0 } },
+    });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    video.loaded(1020.2);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(video.plays).toBe(1);
+    expect(media.status()).toBe("playing");
+    media.close();
+  });
+
   it("tells a live room's time as its room time", () => {
     const transport = new FakeTransport();
     const media = new RoomMedia(transport as unknown as MoqTransport, "lecture", {

@@ -11,7 +11,7 @@ import {
 } from "react";
 import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
-import { CameraSurface } from "./CameraSurface";
+import { CameraSurface, useOffLayout } from "./CameraSurface";
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { type BoardKind, clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
@@ -56,12 +56,23 @@ export function stageSources(sources: readonly SourceKind[], board?: BoardKind):
   return out;
 }
 
+/**
+ * Whether the camera's whole picture is the stage: a composed lecture video off its layout (a stage shot, a title
+ * card, a zoom on a slide) is one picture, shown large and alone, with no slide card or corner tile beside it. A
+ * shared screen keeps its place.
+ */
+export function wholePicture(offLayout: boolean, sources: readonly SourceKind[]): boolean {
+  return offLayout && sources.includes("camera") && !sources.includes("screen");
+}
+
 /** Whether a source is on screen: present, and in the layout (single shows the one chosen). */
 export function sourceShown(
   kind: SourceKind,
   prefs: Pick<Prefs, "layout" | "single" | "board">,
   sources: readonly SourceKind[],
+  offLayout = false,
 ): boolean {
+  if (wholePicture(offLayout, sources)) return kind === "camera";
   const placed = stageSources(sources, prefs.board);
   if (!placed.includes(kind)) return false;
   if (effectiveLayout(prefs.layout, placed) !== "single" || placed.length < 2) return true;
@@ -106,8 +117,10 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   useEffect(() => {
     if (sharing) update({ board: "screen" });
   }, [sharing, update]);
+  const offLayout = useOffLayout();
+  const whole = wholePicture(offLayout, sources);
   const placed = stageSources(sources, prefs.board);
-  const layout = effectiveLayout(prefs.layout, placed);
+  const layout = whole ? "single" : effectiveLayout(prefs.layout, placed);
   const hasCamera = placed.includes("camera");
   const hasSlides = sources.includes("slides");
   const hasScreen = sources.includes("screen");
@@ -118,7 +131,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   // Which source is "first": the left one in split, the corner tile in the default layout.
   const first: SourceKind = prefs.swap ? board : cornerKind;
   // Until the room says what it sends, no picture: the tiles stay mounted (the live canvas with them), unseen.
-  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources);
+  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources, offLayout);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 
@@ -126,7 +139,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   const fit = useStageFit(stage, {
     layout,
     small: layout === "pip" && placed.length > 1 && shown(first) ? first : undefined,
-    main: first === cornerKind || placed.length < 2 ? board : cornerKind,
+    main: whole ? "camera" : first === cornerKind || placed.length < 2 ? board : cornerKind,
     placedByViewer: pip !== undefined,
     prefs,
   });
@@ -165,7 +178,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         {hasCamera ? (
           <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
             {corner("camera")}
-            <CameraSurface />
+            <CameraSurface offLayout={whole} />
           </div>
         ) : null}
         {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}
@@ -185,7 +198,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         <SubtitleOverlay stageRef={stage} below={fit.layout?.captions} />
 
         {view.missed && !card && !ui.stats ? (
-          <div className="tt-missed" role="status">
+          <div className="tt-missed" role="status" data-low={fit.missedLow ? "" : undefined}>
             <span>
               You missed {formatClock(view.missed.toMs - view.missed.fromMs)}
               {view.missed.chapters.length > 0
@@ -269,6 +282,8 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
 
 /** The space between the pictures on the stage, px (player.css `.tt-stage` gap and the dock gap). */
 const FIT_GAP = 12;
+/** The height "What you missed" needs in the band under the main picture, px. */
+const MISSED_ROOM = 48;
 /** The dock's reach above the stage's bottom edge when player.css cannot be read, px. */
 const DOCK_REACH = 112;
 
@@ -293,7 +308,13 @@ function useStageFit(
     placedByViewer: boolean;
     prefs: Prefs;
   },
-): { report: (kind: SourceKind, aspect: number) => void; layout: StageFit | undefined; cornerAspect: number } {
+): {
+  report: (kind: SourceKind, aspect: number) => void;
+  layout: StageFit | undefined;
+  cornerAspect: number;
+  /** The band under the main picture has room for "What you missed" beside the subtitles, off the slide. */
+  missedLow: boolean;
+} {
   const [size, setSize] = useState<{ width: number; height: number; dockReach: number }>();
   const [aspects, setAspects] = useState<Partial<Record<SourceKind, number>>>({});
   const report = useCallback((kind: SourceKind, aspect: number) => {
@@ -333,7 +354,8 @@ function useStageFit(
           gap: FIT_GAP,
         })
       : undefined;
-  return { report, layout: layoutFit, cornerAspect };
+  const free = layoutFit && size ? layoutFit.bottom - size.dockReach - FIT_GAP - (captions ?? 0) : 0;
+  return { report, layout: layoutFit, cornerAspect, missedLow: free >= MISSED_ROOM };
 }
 
 /** The split divider: drag, or arrow keys when focused, to move it. */

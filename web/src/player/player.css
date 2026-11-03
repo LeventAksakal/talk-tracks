@@ -822,6 +822,11 @@
   box-shadow: var(--tt-shadow-2);
   font-size: var(--tt-text-small);
 }
+/* With a band under the main picture, it sits there, above the dock, and leaves the slide's headline clear. */
+.tt-missed[data-low] {
+  top: auto;
+  bottom: calc(var(--player-dock-reach) + 4px);
+}
 .tt-toast {
   position: absolute;
   left: 50%;
@@ -1656,6 +1661,8 @@ img.tt-preview-thumb {
   grid-template-columns: 52px 1fr;
   gap: 2px 8px;
   line-height: 1.45;
+  /* room for the current line's bar, clear of the timestamp */
+  padding-inline-start: 8px;
 }
 .tt-dual .tt-line {
   grid-template-columns: 52px 1fr 1fr;

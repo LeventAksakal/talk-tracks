@@ -253,6 +253,11 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   #loading: Promise<void> | undefined;
   /** A clock for rooms with no archived media. */
   #clock: ClockMedia | undefined;
+  /**
+   * The clock stands in only because the room catalog (its epoch) or the elements were not in yet when a rewind
+   * opened: the archive opens once they come, and meanwhile the picture is loading, not missing.
+   */
+  #awaiting = false;
   #subs: Closable[] = [];
   #timers: ReturnType<typeof setInterval>[] = [];
   #closed = false;
@@ -291,6 +296,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
       { close: () => clearTimeout(loopWait) },
       watchRoomCatalog(transport, room, (catalog) => {
         this.#catalog = catalog;
+        this.#retryArchive();
         this.#listeners.emit();
       }),
       // A catalog track only (the looper repeats it every 2 s): no agent works for it.
@@ -361,6 +367,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   attach(elements: RoomMediaElements | undefined): void {
     this.#elements = elements;
     if (elements && this.#mode === "live" && this.#wantLive) this.#startLive();
+    if (elements) this.#retryArchive();
   }
 
   /** Start live playback (call from a tap: browsers start sound only after a user gesture). */
@@ -403,7 +410,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#archive?.pause();
     this.#clock?.pause();
     // A rewind with no archived media keeps saying so while paused.
-    this.#status = this.#clock ? "no-media" : "idle";
+    this.#status = this.#clock ? (this.#awaiting ? "loading" : "no-media") : "idle";
     this.#listeners.emit();
   }
 
@@ -487,6 +494,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
 
   goLive(): void {
     this.#mode = "live";
+    this.#awaiting = false;
     this.#closeArchive();
     this.#clock?.close();
     this.#clock = undefined;
@@ -567,11 +575,12 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     const e = this.#catalog?.tt.E;
     const loop = this.#loopInfo();
     if (!video || e === undefined || (!loop && !this.#playlist?.ranges.length)) {
-      this.#useClock(ms, edge);
+      this.#useClock(ms, edge, !video || e === undefined);
       return;
     }
     this.#clock?.close();
     this.#clock = undefined;
+    this.#awaiting = false;
     try {
       this.#archive ??= loop
         ? new LoopPlayback(video, this.#loopUrl, loop)
@@ -617,15 +626,24 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#presented = { mediaTime: undefined, handle: video.requestVideoFrameCallback(onFrame) };
   }
 
-  #useClock(ms: number, edge: number | undefined): void {
+  /** A rewind that fell back to the clock while the catalog or the elements were missing opens the archive now. */
+  #retryArchive(): void {
+    if (!this.#awaiting || this.#closed || this.#mode !== "rewound" || !this.#elements || !this.#catalog) return;
+    this.#awaiting = false;
+    void this.#seekArchive(this.#clock?.position() ?? 0, this.liveEdge());
+  }
+
+  #useClock(ms: number, edge: number | undefined, awaiting = false): void {
     this.#closeArchive();
     this.#clock?.close();
-    const clock = new ClockMedia({ now: this.#now, tickMs: 0, status: "no-media" });
+    this.#awaiting = awaiting;
+    const status: MediaStatus = awaiting ? "loading" : "no-media";
+    const clock = new ClockMedia({ now: this.#now, tickMs: 0, status });
     if (edge !== undefined) clock.setLiveEdge(edge);
     clock.seek(ms);
     clock.setRate(this.#rate);
     this.#clock = clock;
-    this.#status = "no-media";
+    this.#status = status;
     this.#listeners.emit();
   }
 

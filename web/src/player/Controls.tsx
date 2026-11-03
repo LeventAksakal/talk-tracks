@@ -46,7 +46,8 @@ export function Controls({ quality }: { quality: boolean }) {
             <media-mute-button className="tt-mc-button" />
             <media-volume-range className="tt-volume-range" />
           </span>
-          <media-time-display className="tt-time" showduration={state.recording ? "" : undefined} />
+          {/* Text, not a button: a toggle's fixed name ("playback time") would not match the time it shows. */}
+          <media-time-display className="tt-time" notoggle="" showduration={state.recording ? "" : undefined} />
           {state.canGoLive ? (
             <button type="button" className="tt-pill tt-pill-behind" onClick={goLive} title="Go live (G)">
               {state.pill} · Go live

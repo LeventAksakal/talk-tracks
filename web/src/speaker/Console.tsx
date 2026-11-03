@@ -726,7 +726,7 @@ function ConsoleView({
           <nav className="slide-nav" aria-label="Slides">
             <Button label="Previous" size="sm" isDisabled={!deck || index === 0} onClick={() => void goTo(index - 1)} />
             <span className="slide-count" aria-live="polite" data-testid="slide-count">
-              {deck ? `${index + 1} / ${deck.count}` : "– / –"}
+              {deck ? `${index + 1} / ${deck.count}` : "No slides"}
             </span>
             <Button
               label="Next"
@@ -755,7 +755,7 @@ function ConsoleView({
           </section>
           <section className="panel notes">
             <label htmlFor="notes" className="panel-title">
-              Your notes for slide {deck ? index + 1 : "–"}
+              {deck ? `Your notes for slide ${index + 1}` : "Your notes"}
             </label>
             <textarea
               id="notes"
