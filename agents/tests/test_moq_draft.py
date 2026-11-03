@@ -79,6 +79,21 @@ def test_agents_advertise_short_quic_timers(moq: Any) -> None:
     assert made["keep_alive_interval"] == 1.0
 
 
+@pytest.mark.parametrize(("value", "credit"), [(None, None), ("", None), ("x", None), ("0", None), ("8192", 8192)])
+def test_the_bidi_stream_credit_is_raised_only_when_the_flag_says_so(
+    moq: Any, monkeypatch: pytest.MonkeyPatch, value: str | None, credit: int | None
+) -> None:
+    """moq-relay holds one of our bidi streams per namespace it advertises to us (about 470 on 2026-11-03), which
+    left too few of aiopquic's 512 for its SUBSCRIBE and FETCH: ``TT_MOQ_MAX_STREAMS_BIDI`` grants more, unset keeps
+    aiopquic's default."""
+    if value is None:
+        monkeypatch.delenv("TT_MOQ_MAX_STREAMS_BIDI", raising=False)
+    else:
+        monkeypatch.setenv("TT_MOQ_MAX_STREAMS_BIDI", value)
+    moq.relay_client("moqt://relay:4443")
+    assert getattr(RecordingClient.made[-1]["configuration"], "max_streams_bidi", None) == credit
+
+
 def test_no_other_aiomoqt_client_is_built() -> None:
     """Every connection goes through ``moq.relay_client``, so the pin above covers them all."""
     builders = {

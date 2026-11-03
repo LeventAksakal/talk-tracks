@@ -18,6 +18,11 @@ and handled here:
   halves are closed. aiomoqt closes ours on STOP_SENDING but not when the relay resets its half or a served FETCH
   ends, so a busy publisher ran out of credit and stopped answering the relay (R2, 2026-11-03):
   ``_retire_request_streams`` closes our half then, only with ``TT_MOQ_RETIRE_STREAMS`` set (see ``retiring_streams``);
+* the same credit also carries moq-relay's unsolicited PUBLISH_NAMESPACE: one bidi stream per namespace it knows,
+  held for as long as the namespace lives (moq-net 0.3.16 ``ietf/publisher.rs`` ``run_publish_namespaces``,
+  ``advertise_namespace``). With 52 translation tracks per room the relay knew about 470 namespaces (2026-11-03), so a
+  fresh connection had a few dozen streams left for requests and the relay's SUBSCRIBE and FETCH to it waited for
+  credit forever, with nothing in its log. ``TT_MOQ_MAX_STREAMS_BIDI`` grants more (``stream_credit``);
 * a SUBSCRIBE the relay cancels before aiomoqt's handler runs is accepted anyway, with no cancel left to end it: a
   ghost subscriber the track writes to forever (the relay's "unknown track alias") and fake demand for a lazy agent.
   ``_drop_cancelled_subscribes`` ends it.
@@ -89,6 +94,23 @@ FIN_GRACE_S = 2.0  # a served FETCH's request stream closes this long after its 
 # ``_retire_request_streams`` is off unless this is set (1/true/yes/on): with it, image c1c4914, the relay stopped
 # sending any request to every publisher connection within 7 s-6 min (2026-11-03); see ``retiring_streams``.
 RETIRE_STREAMS_ENV = "TT_MOQ_RETIRE_STREAMS"
+# The bidi stream credit we grant the relay (aiopquic's default is 512). Unset keeps the default; see ``stream_credit``.
+MAX_STREAMS_BIDI_ENV = "TT_MOQ_MAX_STREAMS_BIDI"
+
+
+def stream_credit() -> int | None:
+    """The bidi stream credit to grant the relay (``TT_MOQ_MAX_STREAMS_BIDI``), or None for aiopquic's 512. Every
+    request the relay sends us and every namespace it advertises to us holds one stream, so the credit must exceed
+    the namespaces the relay knows plus the requests in flight. Unproven in production: one service at a time."""
+    raw = os.environ.get(MAX_STREAMS_BIDI_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        credit = int(raw)
+    except ValueError:
+        log.warning("%s=%r is not a number: keeping the default stream credit", MAX_STREAMS_BIDI_ENV, raw)
+        return None
+    return credit if credit > 0 else None
 
 
 def relay_client(url: str, *, token: str | None = None, insecure: bool = False) -> Any:
@@ -101,6 +123,8 @@ def relay_client(url: str, *, token: str | None = None, insecure: bool = False) 
     cfg = QuicConfiguration(is_client=True, max_data=2**24, max_stream_data=2**24, max_datagram_frame_size=64 * 1024)
     cfg.idle_timeout = QUIC_IDLE_S
     cfg.keep_alive_interval = QUIC_KEEP_ALIVE_S
+    if (credit := stream_credit()) is not None:
+        cfg.max_streams_bidi = credit
     return MOQTClient(
         u.hostname,
         u.port or 443,
