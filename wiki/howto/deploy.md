@@ -219,3 +219,9 @@ After `up -d relay auth`, `restart relay` was run on its own as a test.
 
   Every later `up` must name the override too, or it turns retiring off again. That is also the rollback: run `up -d`
   without the override.
+- The relay advertises every namespace it knows to each agent connection, and each advertisement holds one of the
+  agent's bidi streams for as long as the namespace lives (moq-net 0.3.16 `run_publish_namespaces`). With the lazy
+  languages that is about 470 namespaces, so aiopquic's default credit of 512 left the relay's SUBSCRIBE and FETCH
+  waiting forever, with nothing in its log (2026-11-03). The VM's `deploy/.env` sets `TT_MOQ_MAX_STREAMS_BIDI=16384`
+  for every agent. If translations or recordings stop answering again, compare the agents' published namespaces with
+  that credit before anything else. Roll back by removing the line and running `up -d`.
