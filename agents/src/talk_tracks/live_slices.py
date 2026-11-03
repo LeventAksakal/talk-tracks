@@ -311,7 +311,7 @@ class SlicedTrack:
                 log.warning("%s: no back-fill of slice %d: %s", self.info.name, k, exc)
                 raise Refused("out of back-fill budget") from exc
             except LookupError as exc:
-                raise Refused(f"no input: {exc}"[:100]) from exc
+                raise Refused(f"no input: {exc}") from exc  # whole in our log; moq cuts the wire reason to 100
         objects = [carry_in(k, carry)] + [encode([record(d)]) for d in items]
         stored, created = self.archive.create(k, [SliceObject(object_id=o, payload=p) for o, p in enumerate(objects)])
         if not created:

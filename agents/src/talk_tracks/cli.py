@@ -479,6 +479,8 @@ async def serve_translate_room(
                 await asyncio.gather(*runners)
                 return
             work = asyncio.ensure_future(asyncio.gather(*runners))
+            # Ending the tracks for a new session may fail a runner after the wait: its error is read here, not lost.
+            work.add_done_callback(_retrieved)
             moved = asyncio.ensure_future(epoch_changed(room_time, epoch))
             try:
                 await asyncio.wait({work, moved}, return_when=asyncio.FIRST_COMPLETED)
@@ -537,6 +539,12 @@ async def session_epoch(room_time: Any) -> int:
     """The ``E`` of a demo room's current live session: the first room catalog's (the session player publishes it
     before its teacher comes on air)."""
     return await room_time.wait_epoch()
+
+
+def _retrieved(work: asyncio.Future[Any]) -> None:
+    """Read a finished future's error (asyncio otherwise logs "exception was never retrieved") and log it."""
+    if not work.cancelled() and (exc := work.exception()) is not None:
+        logging.getLogger("talk_tracks").info("a runner ended with %s: %s", type(exc).__name__, exc)
 
 
 async def epoch_changed(room_time: Any, epoch: int) -> None:

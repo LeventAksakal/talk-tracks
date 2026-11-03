@@ -36,6 +36,7 @@ from pathlib import Path
 POLL_S = 0.4
 HOLD_S = 2.5  # how long a settled call waits for the record its agent publishes after it
 MATCH_S = 12.0  # how long a published record waits for the call that paid for it
+BACKFILL_HOLD_S = 30.0  # a back-fill call's record comes when its whole slice is done, one call per cue
 LABEL = re.compile(r"^(?P<api>chat|asr) (?P<model>\S+) (?P<what>.+)$")
 KINDS = {"translate": "translate", "describe": "describe", "outline": "chapters", "punctuate": "punctuate"}
 COLOURS = {"translate": "36", "describe": "35", "chapters": "33", "captions": "32", "punctuate": "34"}
@@ -160,6 +161,7 @@ class Archive:
         self.root = root
         self.room = room
         self.seen: dict[tuple[str, str], int] = {}  # (track dir, slice number) -> lines read
+        self.slices: dict[str, set[str]] = {}  # track dir -> slice numbers seen, so a back-filled old one is new
         self.captions: dict[tuple[str, str], str] = {}  # (room, cue id) -> final caption text
 
     def dirs(self) -> list[tuple[str, str, Path]]:
@@ -188,7 +190,13 @@ class Archive:
                 k, ext = n.rsplit(".", 1)
                 if ext == "slice" or k not in latest:
                     latest[k] = n
-            for k in sorted(latest)[-2:]:
+            known = self.slices.get(str(d))
+            self.slices[str(d)] = set(latest)
+            ordered = sorted(latest, key=lambda k: int(k) if k.isdigit() else -1)
+            # the newest two (live slices grow), and any slice that appeared since the last scan: a FETCH back-filled it
+            fresh = [] if known is None else [k for k in ordered[:-2] if k not in known]
+            for k in [*fresh, *ordered[-2:]]:
+                backfill = k in fresh
                 key = (str(d), k)
                 try:
                     text = (d / latest[k]).read_text(encoding="utf-8", errors="replace")
@@ -197,7 +205,7 @@ class Archive:
                 start = self.seen.get(key, 0)
                 complete = text[: text.rfind("\n") + 1].splitlines()  # a line still being written waits
                 for raw in complete[start:]:
-                    events += self.records(room, agent, d.name, raw, emit)
+                    events += [{**ev, "backfill": backfill} for ev in self.records(room, agent, d.name, raw, emit)]
                 self.seen[key] = max(start, len(complete))
         return events
 
@@ -234,13 +242,32 @@ class Archive:
                 if data.get("final") and self.remember(room, r) and emit:
                     out.append({"room": room, "kind": "captions", "agent": "captions", "text": f"“{data['text']}”"})
             elif agent.startswith("translate-"):
-                lang = agent[len("translate-") :]
+                lang = translated_lang(agent)
                 source = self.captions.get((room, str(data.get("id"))), "")
                 text = f"“{source}” → “{data['text']}”" if source else f"→ “{data['text']}”"
                 out.append({"room": room, "kind": "translate", "agent": f"translate {lang}", "text": text})
             elif agent == "describe":
                 out.append({"room": room, "kind": "describe", "agent": "describe slide", "text": f"“{data['text']}”"})
         return out if emit else []
+
+    def backfill_lang(self, room: str, t: float) -> str | None:
+        """The language of a back-fill translation call at Unix time ``t``: the ledger names none, so it is the
+        ``translate-<lang>`` track of the room whose slice file was written closest to the call (within a minute)."""
+        best: tuple[float, str] | None = None
+        agents = self.root / room / "agents"
+        try:
+            dirs = [d for d in agents.iterdir() if d.name.startswith("translate-")]
+        except OSError:
+            return None
+        for agent_dir in dirs:
+            try:
+                files = list((agent_dir / "items").glob("*.slice"))
+                gap = min((abs(f.stat().st_mtime - t) for f in files), default=None)
+            except OSError:
+                continue
+            if gap is not None and gap <= 60 and (best is None or gap < best[0]):
+                best = (gap, translated_lang(agent_dir.name))
+        return best[1] if best else None
 
     def remember(self, room: str, record: object) -> bool:
         data = record.get("data", {}) if isinstance(record, dict) else {}
@@ -255,6 +282,15 @@ class Archive:
         return new
 
 
+def translated_lang(agent: str) -> str:
+    """``translate-de`` -> ``de``."""
+    return agent[len("translate-") :]
+
+
+def hold_s(call: dict) -> float:
+    return BACKFILL_HOLD_S if call["backfill"] and call["kind"] == "translate" else HOLD_S
+
+
 def stat_of(call: dict) -> str:
     if call["audio_min"]:
         return f"1 min ${call['usd']:.4f}"
@@ -265,8 +301,11 @@ def stat_of(call: dict) -> str:
     return f"{took}${call['usd']:.4f}"
 
 
-def show_call(out: Out, call: dict, record: dict | None) -> None:
+def show_call(out: Out, call: dict, record: dict | None, archive: Archive | None = None) -> None:
     agent = record["agent"] if record else {"captions": "captions"}.get(call["kind"], call["kind"])
+    if record is None and call["kind"] == "translate" and archive is not None:
+        lang = archive.backfill_lang(call["room"], call["t"]) if call["backfill"] else None
+        agent = f"translate {lang}" if lang else agent
     if call["backfill"]:
         agent += " ⟲"
     snippet = record["text"] if record else ("audio paid a minute ahead" if call["audio_min"] else "")
@@ -300,7 +339,7 @@ def main() -> int:
         cutoff = time.time() - args.since * 60
         for call in ledger.read():
             if call["t"] >= cutoff and wanted(call["room"]):
-                show_call(out, call, None)
+                show_call(out, call, None, archive)
     else:
         ledger.skip_to_end()
     if args.no_follow:
@@ -337,14 +376,14 @@ def main() -> int:
                     (
                         i
                         for i, (_, ev) in enumerate(records)
-                        if (ev["room"], ev["kind"]) == (call["room"], call["kind"])
+                        if (ev["room"], ev["kind"], ev["backfill"]) == (call["room"], call["kind"], call["backfill"])
                     ),
                     None,
                 )
                 if match is not None:
                     show_call(out, call, records.pop(match)[1])
-                elif call["audio_min"] or call["refused"] or now - at >= HOLD_S:
-                    show_call(out, call, None)
+                elif call["audio_min"] or call["refused"] or now - at >= hold_s(call):
+                    show_call(out, call, None, archive)
                 else:
                     keep.append((at, call))
             pending = keep
