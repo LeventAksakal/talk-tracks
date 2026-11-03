@@ -866,8 +866,7 @@ def _offline(args: argparse.Namespace) -> None:
 def _find_regions(args: argparse.Namespace) -> None:
     """``find-regions``: the lecture's slide and webcam regions into ``regions.json`` beside it; with ``--sheet``, a
     JPEG to check them by eye (it holds the lecture's slides: look, then delete it; never commit or serve it)."""
-    from .regions import beside, contact_sheet, find_regions
-    from .slideshow import find_slides
+    from .regions import beside, contact_sheet, deck_slides, find_regions
 
     media = args.media or need(args.recording, "--media or --recording") / "lecture.mp4"
     started = time.monotonic()
@@ -878,9 +877,9 @@ def _find_regions(args: argparse.Namespace) -> None:
     print(f" ({len(regions.camera_spans)} places)" if regions.camera_spans else "", end="")
     print(f", {time.monotonic() - started:.0f} s")
     if args.sheet is not None:
-        slides = find_slides(media, regions.slides)
+        slides = deck_slides(media, regions)
         args.sheet.write_bytes(contact_sheet(media, regions, slides, found.sample_ms))
-        print(f"{args.sheet}: {len(slides)} slides cut from the slide region")
+        print(f"{args.sheet}: the {len(slides)} slides --slides auto sends")
 
 
 async def _revise(args: argparse.Namespace) -> None:

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RoomTt } from "../contracts/types";
 import { parseRoomCatalog } from "../contracts/validate";
-import { cameraRegion, framing } from "./CameraSurface";
+import { cameraRegion, framing, inSpans, offLayoutSpans } from "./CameraSurface";
 import { slideAspect } from "./SlideSurface";
 
 const tt = (regions: unknown) => ({ E: 0, shift: {}, regions }) as unknown as RoomTt;
@@ -30,13 +30,33 @@ describe("the camera tile of a composed lecture video", () => {
   it("reads the region from a room catalog the player accepts", () => {
     const catalog = {
       tracks: [],
-      tt: { E: 0, shift: {}, regions: { slides: [0.01, 0.01, 0.76, 0.76], camera: webcam } },
+      tt: { E: 0, shift: {}, regions: { slides: [0.01, 0.01, 0.76, 0.76], camera: webcam, off_layout: [[0, 6000]] } },
     };
     const parsed = parseRoomCatalog(JSON.stringify(catalog));
     expect(parsed.ok).toBe(true);
     expect(cameraRegion(parsed.ok ? parsed.value.tt : undefined)).toEqual(webcam);
     const outside = { ...catalog, tt: { ...catalog.tt, regions: { slides: [0, 0, 1.2, 1] } } };
     expect(parseRoomCatalog(JSON.stringify(outside)).ok).toBe(false);
+  });
+
+  it("shows the whole picture while the video is off its layout, such as the opening stage shot", () => {
+    const spans = offLayoutSpans(
+      tt({
+        slides: [0, 0, 1, 1],
+        camera: webcam,
+        off_layout: [
+          [0, 6000],
+          [90000, 96000],
+        ],
+      }),
+    );
+    expect(inSpans(spans, 0)).toBe(true);
+    expect(inSpans(spans, 5999)).toBe(true);
+    expect(inSpans(spans, 6000)).toBe(false); // the layout again: the webcam inset
+    expect(inSpans(spans, 93000)).toBe(true);
+    expect(inSpans(spans, undefined)).toBe(false);
+    expect(offLayoutSpans(tt({ slides: [0, 0, 1, 1], off_layout: [[5, 5], "x", [1]] }))).toEqual([]);
+    expect(offLayoutSpans(undefined)).toEqual([]);
   });
 
   it("shows the whole picture for a speaker's own camera or a broken region", () => {

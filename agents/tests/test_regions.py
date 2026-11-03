@@ -16,6 +16,7 @@ from talk_tracks.regions import (
     LectureRegions,
     beside,
     contact_sheet,
+    deck_slides,
     decode_jpeg,
     find_regions,
     load,
@@ -56,6 +57,7 @@ def lectures(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "moved": make_layout_lecture(root / "moved.mp4", move_at_s=60),
         "boxed": make_layout_lecture(root / "boxed.mp4", seconds=80, bars=40, cut_s=(30, 40)),
         "full": make_layout_lecture(root / "full.mp4", seconds=100, cut_s=(40, 60), full_frame=True),
+        "zoomed": make_layout_lecture(root / "zoomed.mp4", seconds=80, zoom_s=(10, 20)),
     }
 
 
@@ -85,6 +87,7 @@ def test_a_letterboxed_slide_loses_its_bars_and_a_stage_cut_is_left_out(lectures
     x, y, w, h = SLIDES
     assert_near(found.slides, (x + 40, y, x + w - 40, y + h))
     assert found.found["off_layout"] == 10  # the keyframes of the 10 s stage shot, one a second
+    assert found.off_layout == ((30_000, 40_000),)  # the camera tile shows the whole picture then
     assert found.camera is not None
     assert_near(found.camera, edges(CAMERA))
 
@@ -95,6 +98,23 @@ def test_full_frame_slides_cut_with_the_stage_are_the_whole_frame_and_no_inset(l
     assert found.slides == Crop(0, 0, 1, 1)
     assert found.camera is None  # the camera tile shows the whole video, which is the stage camera half the time
     assert found.found["off_layout"] == 20  # the 20 s stage shot
+    assert found.off_layout == ((40_000, 60_000),)
+    assert found.stage == ((40_000, 60_000),)  # a camera's picture: it moves (sensor noise) between keyframes
+    # a "slide" found in the stage shot is the camera's picture: the deck leaves it out
+    every = find_slides(lectures["full"], found.slides)
+    deck = deck_slides(lectures["full"], found)
+    assert any(40_000 <= s.at_ms < 60_000 for s in every)
+    assert deck and not any(40_000 <= s.at_ms < 60_000 for s in deck)
+
+
+def test_a_slide_shown_full_frame_is_kept_and_cut_from_the_whole_frame(lectures: dict[str, Path]) -> None:
+    found = find_regions(lectures["zoomed"]).regions
+    assert found.off_layout == ((10_000, 20_000),)  # the camera tile shows the whole picture: the zoomed slide
+    assert found.stage == ()  # a still digital picture, not a camera's
+    assert_near(found.slides, edges(SLIDES))
+    zoomed = [s for s in deck_slides(lectures["zoomed"], found) if 10_000 <= s.at_ms < 20_000]
+    assert len(zoomed) == 1
+    assert decode_jpeg(zoomed[0].jpeg).shape[:2] == (H, W)  # the whole frame, which the slide fills
 
 
 def test_find_regions_writes_regions_json_beside_the_lecture(tmp_path: Path, lectures: dict[str, Path]) -> None:
@@ -120,18 +140,25 @@ def test_every_slide_is_cut_whole_from_the_found_area(lectures: dict[str, Path])
 
 
 def test_regions_json_round_trips_and_feeds_the_catalog(tmp_path: Path) -> None:
-    regions = LectureRegions(slides=Crop(0.01, 0.02, 0.75, 0.75), camera=Crop(0.78, 0.55, 0.2, 0.4), frame=(W, H))
+    regions = LectureRegions(
+        slides=Crop(0.01, 0.02, 0.75, 0.75), camera=Crop(0.78, 0.55, 0.2, 0.4), frame=(W, H), off_layout=((0, 6000),)
+    )
     media = tmp_path / "lecture.mp4"
     assert load(beside(media)) is None
     regions.write(beside(media))
     assert beside(media).name == FILE
     again = load(beside(media))
     assert again is not None and again.slides == regions.slides and again.camera == regions.camera
+    assert again.off_layout == ((0, 6000),) and not again.in_layout(5999) and again.in_layout(6000)
 
     catalog = RoomCatalog(0, (), sources=speaker_sources("virus", camera=True), regions=regions.wire()).to_json()
     tt = catalog["tt"]
     assert isinstance(tt, dict)
-    assert tt["regions"] == {"slides": [0.01, 0.02, 0.75, 0.75], "camera": [0.78, 0.55, 0.2, 0.4]}
+    assert tt["regions"] == {
+        "slides": [0.01, 0.02, 0.75, 0.75],
+        "camera": [0.78, 0.55, 0.2, 0.4],
+        "off_layout": [[0, 6000]],
+    }
     MsfRoomCatalog.model_validate(json.loads(json.dumps(catalog)))
     assert "regions" not in RoomCatalog(0, ()).to_json()["tt"]  # type: ignore[operator]
 

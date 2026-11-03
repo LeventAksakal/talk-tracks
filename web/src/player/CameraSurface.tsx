@@ -2,6 +2,8 @@ import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { RoomTt } from "../contracts/types";
 import type { MediaStatus } from "../playback/media";
 import { usePlayer } from "./context";
+import { useFrameValue } from "./frameClock";
+import { useSlideTime } from "./SlideSurface";
 import { SourceTile } from "./SourceTile";
 
 /** [x, y, w, h], fractions of the video frame. */
@@ -21,6 +23,26 @@ export function cameraRegion(tt: RoomTt | undefined): Rect | undefined {
   if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1.000001 || y + h > 1.000001) return undefined;
   return [x, y, w, h];
 }
+
+/** [from, to) in lecture ms. */
+export type Span = readonly [number, number];
+
+/**
+ * When a composed lecture video is not its layout (`tt.regions.off_layout`: the opening stage shot, a cut to the stage
+ * camera, a zoom on a slide), in lecture ms: the whole picture is the camera's then, and the webcam crop would show a
+ * meaningless corner of it.
+ */
+export function offLayoutSpans(tt: RoomTt | undefined): Span[] {
+  const spans = (tt as { regions?: { off_layout?: unknown } | null } | undefined)?.regions?.off_layout;
+  if (!Array.isArray(spans)) return [];
+  return spans.filter(
+    (s): s is [number, number] =>
+      Array.isArray(s) && s.length === 2 && typeof s[0] === "number" && typeof s[1] === "number" && s[0] < s[1],
+  );
+}
+
+export const inSpans = (spans: readonly Span[], ms: number | undefined): boolean =>
+  ms !== undefined && spans.some(([a, b]) => a <= ms && ms < b);
 
 /**
  * The camera tile for a video of frame aspect `frame` (width / height): with a region, the tile takes the region's
@@ -63,12 +85,19 @@ export function cameraNote(live: boolean, status: MediaStatus): string | undefin
  * mode. Volume applies to the archive element here; live audio is @moq/watch's own.
  */
 export function CameraSurface() {
-  const { media, view, prefs } = usePlayer();
+  const { media, view, prefs, clock, origin } = usePlayer();
+  const frameTime = useSlideTime();
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const live = view.timeline.mode === "live";
   const [aspect, setAspect] = useState<number>();
   const [region, setRegion] = useState<Rect>();
+  const [spans, setSpans] = useState<Span[]>([]);
+  // Lecture time is room time from the talk clock's 00:00 (a demo session and its recording room).
+  const offLayout = useFrameValue(clock, (t) => {
+    const at = frameTime(t);
+    return inSpans(spans, at === undefined ? undefined : at - origin);
+  });
   const [status, setStatus] = useState<MediaStatus>("idle");
 
   useEffect(() => {
@@ -105,8 +134,11 @@ export function CameraSurface() {
           ? v.videoWidth / v.videoHeight
           : undefined;
       setAspect((a) => (a === next ? a : next));
-      const r = cameraRegion(media.catalog()?.tt);
+      const tt = media.catalog()?.tt;
+      const r = cameraRegion(tt);
       setRegion((old) => (old?.join() === r?.join() ? old : r));
+      const s = offLayoutSpans(tt);
+      setSpans((old) => (old.join() === s.join() ? old : s));
       setStatus(media.status());
     };
     read();
@@ -125,8 +157,9 @@ export function CameraSurface() {
     );
 
   const note = cameraNote(live, status);
-  // A recorded talk's video is the whole stage frame: the tile shows only its webcam inset, once the frame is known.
-  const framed = aspect === undefined ? undefined : framing(aspect, region);
+  // A recorded talk's video is the whole composed frame: the tile shows only its webcam inset, once the frame is known,
+  // and the whole picture while the video is off its layout (the stage camera).
+  const framed = aspect === undefined ? undefined : framing(aspect, offLayout ? undefined : region);
   return (
     <SourceTile kind="camera" aspect={framed?.aspect ?? 16 / 9} label="Speaker camera">
       <canvas
