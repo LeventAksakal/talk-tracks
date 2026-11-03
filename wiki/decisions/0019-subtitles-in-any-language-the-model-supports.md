@@ -2,7 +2,12 @@
 status: accepted
 date: 2026-10-30
 decision-makers: project owner
+superseded-in-part-by: 0035
 ---
+
+> Superseded in part by [decision 0035](0035-all-translations-lazy.md) (2026-11-03): the demo rooms' pre-made tr, es
+> and ar tracks are dropped; every language, in every room (recording rooms included), is made lazily on first pick,
+> from the one list in `contracts/languages.json`.
 
 # Subtitles translate into any language the Muse model supports
 
