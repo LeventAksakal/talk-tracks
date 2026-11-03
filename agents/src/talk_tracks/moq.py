@@ -12,7 +12,15 @@ and handled here:
 * aiomoqt does not reconnect: when the relay session closes the agent exits and Docker starts a fresh instance;
 * the writer queues objects while nobody subscribes, so its queue is small and drops the oldest snapshot;
 * the relay subscribes upstream while anyone subscribes and cancels within ms of the last leave, which the writer
-  sees as ``producing`` (wiki/howto/lazy-agents.md); ``close_reader`` alone does not unsubscribe on the wire.
+  sees as ``producing`` (wiki/howto/lazy-agents.md); ``close_reader`` alone does not unsubscribe on the wire;
+* in draft 18 every request the relay sends us (SUBSCRIBE, FETCH) opens a QUIC bidi stream, and the stream credit we
+  grant (aiopquic ``max_streams_bidi``, 512) is the only cap on them. A stream's credit comes back only once both
+  halves are closed. aiomoqt closes ours on STOP_SENDING but not when the relay resets its half or a served FETCH
+  ends, so a busy publisher ran out of credit and stopped answering the relay (R2, 2026-11-03):
+  ``_retire_request_streams`` closes our half then;
+* a SUBSCRIBE the relay cancels before aiomoqt's handler runs is accepted anyway, with no cancel left to end it: a
+  ghost subscriber the track writes to forever (the relay's "unknown track alias") and fake demand for a lazy agent.
+  ``_drop_cancelled_subscribes`` ends it.
 """
 
 from __future__ import annotations
@@ -75,6 +83,14 @@ WRITER_QUEUE = 4  # snapshots are self-contained: an unsent old one is worth not
 SLICED_QUEUE = 256  # objects of a sliced track; each one counts, and a FETCH serves what the queue dropped
 FETCH_TIMEOUT_S = 8.0  # a forwarded FETCH may back-fill a slice upstream: 1-3 s of model calls, maybe chained
 FETCH_NOT_FOUND = 0x10  # moq-relay passes it on as 'not found'
+RESET_CANCELLED = 0x1  # aiomoqt StreamResetCode.CANCELLED
+FIN_GRACE_S = 2.0  # a served FETCH's request stream closes this long after its data stream, never before it
+# The watchdog (``answering``): a publisher subscribes to its own probe track through the relay on a second
+# connection; this many misses in a row, once one has been answered, and the process exits for Docker to restart it.
+PROBE_TRACK = "health"
+PROBE_EVERY_S = 30.0
+PROBE_TIMEOUT_S = 10.0
+PROBE_MISSES = 3
 
 
 def relay_client(url: str, *, token: str | None = None, insecure: bool = False) -> Any:
@@ -244,6 +260,130 @@ async def _produce_with_group_ends(self: Any, out: Any) -> None:
             self._queue.task_done()
 
 
+def _peer_opened_bidi(session: Any, stream_id: int) -> bool:
+    """A bidi stream the relay opened: in draft 18, a request it sent us. QUIC stream id bits 0-1: 0 client bidi,
+    1 server bidi."""
+    return stream_id & 3 == (1 if session._is_client else 0)
+
+
+def _retire_request_streams(session: Any) -> None:
+    """Close our half of each request stream the relay has finished with, so QUIC retires it and gives its credit
+    back: at once when the relay resets its half (the request is cancelled, nothing more of ours matters), and for a
+    served FETCH once both its data stream is done and the relay has ended its half (FIN), after ``FIN_GRACE_S``.
+    A request still being answered keeps its stream."""
+    loop = asyncio.get_running_loop()
+    peer_ended: set[int] = set()  # request streams the relay closed with FIN
+    served: set[int] = set()  # request streams of FETCHes whose data stream is done
+    terminated = session._on_request_stream_terminated
+    on_control_data = session._on_control_data
+    serve_fetch = session.serve_fetch
+
+    def close_later(stream_id: int) -> None:
+        peer_ended.discard(stream_id)
+        served.discard(stream_id)
+        rid = session._bidi_stream_requests.pop(stream_id, None)
+        if rid is not None and session._bidi_streams.get(rid) == stream_id:
+            del session._bidi_streams[rid]
+        loop.call_later(FIN_GRACE_S, session.stream_fin, stream_id)
+
+    def on_terminated(stream_id: int, *, stop_sending_code: int | None = None) -> None:
+        terminated(stream_id, stop_sending_code=stop_sending_code)
+        # STOP_SENDING is answered with a reset by aiomoqt itself; a reset of the relay's half was not.
+        if stop_sending_code is None and _peer_opened_bidi(session, stream_id):
+            peer_ended.discard(stream_id)
+            served.discard(stream_id)
+            session.stream_reset(stream_id, RESET_CANCELLED)
+
+    def on_data(stream_id: int, data: Any, end_stream: bool, *, is_request_bidi: bool = False) -> None:
+        on_control_data(stream_id, data, end_stream, is_request_bidi=is_request_bidi)
+        if end_stream and is_request_bidi and _peer_opened_bidi(session, stream_id):
+            peer_ended.add(stream_id)
+            if stream_id in served:
+                close_later(stream_id)
+
+    async def on_serve_fetch(request_id: int, objects: Any, **kw: Any) -> int:
+        stream_id = session._bidi_streams.get(request_id)
+        sent = await serve_fetch(request_id, objects, **kw)
+        if stream_id is not None:
+            served.add(stream_id)
+            if stream_id in peer_ended:
+                close_later(stream_id)
+        return sent
+
+    session._on_request_stream_terminated = on_terminated
+    session._on_control_data = on_data
+    session.serve_fetch = on_serve_fetch
+
+
+def _drop_cancelled_subscribes(track: Any) -> None:
+    """End a subscription the relay cancelled before aiomoqt's SUBSCRIBE handler ran (it abandons a request it held
+    when its viewer gives up): the handler still binds it and registers a cancel that never comes, so the track would
+    write to it forever. aiomoqt already marks it gone and dropped our SUBSCRIBE_OK; this fires the cancel."""
+    stock = track._on_subscribe
+
+    async def on_subscribe(session: Any, msg: Any) -> None:
+        try:
+            await stock(session, msg)
+        finally:
+            rid = msg.request_id
+            gone = session._gone_requests
+            if gone and rid in gone and rid in session._request_cancel_handlers:
+                log.info("%s: subscription %s was cancelled before it was accepted: ended", track.trackname, rid)
+                session._notify_request_cancelled(rid, "a cancel before the SUBSCRIBE was handled")
+
+    track._on_subscribe = on_subscribe
+
+
+async def answering(
+    relay: Relay,
+    namespace: str,
+    *,
+    track: str = PROBE_TRACK,
+    every_s: float = PROBE_EVERY_S,
+    timeout_s: float = PROBE_TIMEOUT_S,
+    misses: int = PROBE_MISSES,
+) -> None:
+    """The watchdog: every ``every_s``, subscribe to our own ``track`` through ``relay`` (a second connection, so the
+    relay asks the publisher) and wait ``timeout_s`` for an object. Returns after ``misses`` misses in a row, once a
+    probe has been answered: the publisher is no longer answering the relay. Never returns if no probe is ever
+    answered (the token may not subscribe there), so a probe that cannot work never restarts anything."""
+    armed, missed = False, 0
+    while True:
+        if await _probe(relay, namespace, track, timeout_s):
+            if not armed:
+                log.info("watchdog: %s/%s answers; armed", namespace, track)
+            armed, missed = True, 0
+        elif armed:
+            missed += 1
+            log.warning("watchdog: %s/%s unanswered for %.0f s (%d of %d)", namespace, track, timeout_s, missed, misses)
+            if missed >= misses:
+                return
+        await asyncio.sleep(every_s)
+
+
+async def _probe(relay: Relay, namespace: str, track: str, timeout_s: float) -> bool:
+    ref = TrackRef(namespace=namespace, name=track)
+    t_end = time.monotonic() + timeout_s
+    reader = None
+    try:
+        reader = await asyncio.wait_for(
+            relay.agent.reader(SubscribeSpec(track=ref, start_at=StartAt(mode="latest"), buffer=4)), timeout_s
+        )
+        while not reader.done and time.monotonic() < t_end:
+            if any(o.payload for o in await reader.read(1, timeout=READ_DEADLINE_S) + reader.drain()):
+                return True
+        return False
+    except Exception as exc:  # refused, or timed out: a miss
+        log.debug("watchdog probe of %s/%s: %s", namespace, track, exc)
+        return False
+    finally:
+        if reader is not None:
+            relay._unsubscribe(reader, str(ref))
+        else:
+            with contextlib.suppress(Exception):
+                relay.agent.close_reader(str(ref))
+
+
 class Relay:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -257,6 +397,7 @@ class Relay:
         """``queue`` bounds the objects held while nobody subscribes; the oldest group goes first."""
         spec = PublishSpec(track=TrackRef(namespace=namespace, name=track), buffer=queue, on_full="drop_oldest")
         writer = self.agent.writer(spec)
+        _drop_cancelled_subscribes(writer._track)
         await writer.start()
         log.info("publishing %s/%s", namespace, track)
         return TrackWriter(writer)
@@ -266,6 +407,7 @@ class Relay:
         spec = PublishSpec(track=TrackRef(namespace=namespace, name=track), buffer=SLICED_QUEUE, on_full="drop_oldest")
         writer = self.agent.writer(spec)
         out = SlicedOut(writer)
+        _drop_cancelled_subscribes(writer._track)
         await writer.start()
         log.info("publishing %s/%s", namespace, track)
         return out
@@ -427,6 +569,7 @@ async def connect(url: str, *, token: str | None = None, insecure: bool = False)
         await session.client_session_init()
         if (draft := getattr(session, "negotiated_draft", None)) != DRAFT:
             raise ConnectionError(f"the relay negotiated MoQT draft {draft}, not {DRAFT}")
+        _retire_request_streams(session)
         relay = Relay(session)
         log.info("connected to %s (draft %d)", urlsplit(url).hostname, DRAFT)
         try:
