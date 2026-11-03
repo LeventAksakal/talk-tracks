@@ -69,6 +69,9 @@ Measured on 2026-10-29 against Docker on Linux (WSL2 kernel 6.6.87, 16 vCPUs, 15
 
 ## Live VM / submission-video demo script
 
+The submission video no longer follows this section: its script is [submission-video.md](../submission-video.md) and its
+runbook [demo-video-shoot.md](demo-video-shoot.md). What follows is the architecture walk-through for judges who ask.
+
 Follow this runbook when recording the submission video or presenting live to judges on the VM (`ssh $VM`).
 
 ### Setup and baseline check
