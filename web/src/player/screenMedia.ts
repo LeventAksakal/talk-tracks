@@ -7,7 +7,7 @@
 // Whether the screen is on the stage: live, the teacher's hang catalog names a `screen` rendition (it does exactly
 // while the speaker shares); rewound, the screen playlist covers the frame on screen.
 //
-// A 404 for the playlist means no share is archived (a recording room, or a talk nobody shared a screen in): the
+// A 404 (or the server's silent 204, deploy/Caddyfile) for the playlist means no share is archived (a recording room, or a talk nobody shared a screen in): the
 // playlist is not asked for again until a share ends, and then until it is there.
 
 import { HANG_CATALOG_TRACK, SCREEN_TRACK, teacherPath } from "../contracts/names";
@@ -166,7 +166,7 @@ export class ScreenMedia {
       }) as typeof fetch;
       const state = await archiveState(this.#url, probe);
       if (this.#closed) return;
-      this.#absent = status === 404;
+      this.#absent = status === 404 || status === 204;
       if (state) this.#due = false;
       const before = JSON.stringify(this.#wallRanges);
       this.#wallRanges = state?.ranges ?? [];

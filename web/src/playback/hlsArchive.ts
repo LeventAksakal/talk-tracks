@@ -74,7 +74,7 @@ export async function archivedWallRanges(url: string, fetchFn: typeof fetch = fe
 export async function archiveState(url: string, fetchFn: typeof fetch = fetch): Promise<ArchiveState | undefined> {
   const get = async (u: string) => {
     const r = await fetchFn(u, { cache: "no-store" });
-    return r.ok ? r.text() : undefined;
+    return r.ok && r.status !== 204 ? r.text() : undefined; // 204: nothing archived (deploy/Caddyfile)
   };
   const top = await get(url);
   if (top === undefined) return undefined;

@@ -85,12 +85,12 @@ describe("the shared screen in the player", () => {
   describe("with no screen archived", () => {
     afterEach(() => vi.useRealTimers());
 
-    it("asks for the playlist once and stops at a 404, as in a recording room", async () => {
+    it.each([404, 204])("asks for the playlist once and stops at a %i, as in a recording room", async (status) => {
       vi.useFakeTimers();
       const urls: string[] = [];
       const fetchFn = (async (url: string) => (
         urls.push(url),
-        new Response("", { status: 404 })
+        new Response(status === 204 ? null : "", { status })
       )) as unknown as typeof fetch;
       const state = { mode: "rewound" as Mode, at: 10_000 };
       const screen = new ScreenMedia(undefined, `${ROOM}-recording`, fakeMedia(state), {
