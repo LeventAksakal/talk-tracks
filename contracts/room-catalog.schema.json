@@ -125,7 +125,7 @@
     },
     "Regions": {
       "additionalProperties": false,
-      "description": "Where a composed lecture video's frame holds the slides and the speaker's webcam inset (a recorded conference\ntalk: ``regions.json``, found by ``find-regions``). The player shows the camera tile from ``camera`` of the\nspeaker's video; without it, the whole video.",
+      "description": "Where a composed lecture video's frame holds the slides and the speaker's webcam inset (a recorded conference\ntalk: ``regions.json``, found by ``find-regions``). The player shows the camera tile from ``camera`` of the\nspeaker's video; without it, or during an ``off_layout`` span, the whole video.",
       "properties": {
         "camera": {
           "anyOf": [
@@ -147,6 +147,29 @@
           "default": null,
           "description": "The webcam inset: what the camera tile shows",
           "title": "Camera"
+        },
+        "off_layout": {
+          "anyOf": [
+            {
+              "items": {
+                "description": "[from, to), lecture ms",
+                "items": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the video is not the composed layout (a cut to the stage camera, a zoom on a slide, a clip), in lecture ms, which is room ms in a demo session and its recording room: the camera tile shows the whole picture, and no slide is cut from it",
+          "title": "Off Layout"
         },
         "slides": {
           "description": "The slide area, which the deck's images are cut from",

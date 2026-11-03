@@ -33,6 +33,7 @@ describe("a recording's slices from the archive", () => {
 
   it("asks the relay for a slice the archive lacks (a translation nobody made yet), or cannot read", async () => {
     for (const answer of [
+      async () => ({ ok: true, status: 204, text: async () => "" }),
       async () => ({ ok: false, status: 404, text: async () => "" }),
       async () => ({ ok: true, status: 200, text: async () => "not json" }),
       async () => Promise.reject(new TypeError("network")),
@@ -43,6 +44,22 @@ describe("a recording's slices from the archive", () => {
       expect(text(got)).toEqual(["relay"]);
       expect(inner.fetchGroup).toHaveBeenCalledOnce();
     }
+  });
+
+  it("reads the archive alone for the whole transcript: a slice nobody made is none, and the relay is not asked", async () => {
+    const inner = relay();
+    const fetch = vi.fn(async (url: string) =>
+      url.includes("/captions/")
+        ? { ok: true, status: 200, text: async () => file }
+        : { ok: true, status: 204, text: async () => "" },
+    );
+    const source = new ArchiveFirstSource(inner, { fetch });
+    expect(text((await source.readArchive("talk/r-recording/agents/captions", "items", 3))!)).toEqual([
+      "[]",
+      '{"a":1}',
+    ]);
+    expect(await source.readArchive("talk/r-recording/agents/translate-de", "items", 3)).toBeUndefined();
+    expect(inner.fetchGroup).not.toHaveBeenCalled();
   });
 
   it("stops at a FETCH that was called off", async () => {

@@ -39,6 +39,11 @@ export interface TrackView {
   enabled: boolean;
   /** A sliced track at the playhead (or everything held, live). */
   sliced: SlicedView | undefined;
+  /**
+   * A recording's whole track, every line from 0:00 on, in start order: the slices the archive holds and those held
+   * for the playhead. Undefined in a live room, or for a track the archive is not read for.
+   */
+  transcript: LineItem[] | undefined;
   /** The newest outline: always the latest snapshot, live or rewound (design §4.3). */
   outline: Outline | undefined;
   /** Media ranges this viewer holds for the track. */
@@ -80,7 +85,35 @@ export interface AiTracksOptions {
    * FETCH of the slice in which its upstream subscription began (wiki/benchmark.md).
    */
   fetchTimeoutMs?: number;
+  /**
+   * A recording's archive (decision 0035): reads one finished slice, undefined when the archive has none. Given, an
+   * opted-in captions or translation track is read whole from it, slice 0 to the end, and never from the relay, so the
+   * transcript covers the lecture at no cost; a slice the archive lacks stays a hole until the playhead asks for it.
+   */
+  archive?: ArchiveRead;
+  /** Archive reads in flight at once per track, for the whole-track read. */
+  archiveInFlight?: number;
 }
+
+export type ArchiveRead = (
+  path: string,
+  track: string,
+  group: number,
+  signal: AbortSignal,
+) => Promise<Uint8Array[] | undefined>;
+
+/** The whole-track read of a recording (`AiTracksOptions.archive`). */
+interface Whole {
+  log: SliceLog;
+  controller: AbortController;
+  /** Slices below this have been asked for. */
+  upTo: number;
+  /** Its lines, until the log changes. */
+  lines: LineItem[] | undefined;
+}
+
+/** The kinds a recording reads whole: what the transcript shows. */
+const WHOLE_KINDS: ReadonlySet<TrackKind | undefined> = new Set(["captions", "translation"]);
 
 interface Entry {
   ref: TrackRef;
@@ -96,6 +129,7 @@ interface Entry {
   firstLive: number | undefined;
   /** Slices that were not found, with when. */
   missing: Map<number, number>;
+  whole: Whole | undefined;
 }
 
 interface Job {
@@ -118,6 +152,9 @@ export class AiTracks {
   #maxSlices: number;
   #retryMissing: number;
   #fetchTimeout: number;
+  #archive: ArchiveRead | undefined;
+  #archiveInFlight: number;
+  #wholeTimer: ReturnType<typeof setTimeout> | undefined;
   #entries = new Map<string, Entry>();
   #announce: Closable;
   #mode: Mode = "live";
@@ -140,6 +177,8 @@ export class AiTracks {
     this.#maxSlices = options.maxSlices ?? 90;
     this.#retryMissing = options.retryMissingMs ?? 15_000;
     this.#fetchTimeout = options.fetchTimeoutMs ?? 2_000;
+    this.#archive = options.archive;
+    this.#archiveInFlight = options.archiveInFlight ?? 4;
     this.#announce = source.announced(agentsPrefix(room), ({ path, active }) => {
       const agent = parseAgentPath(path);
       if (agent) this.#onAnnounce(agent, active);
@@ -169,6 +208,7 @@ export class AiTracks {
       entry.missing.clear();
     }
     this.#syncSubscription(entry);
+    this.#syncWhole(entry);
     this.#plan();
     this.#changed();
   }
@@ -204,6 +244,7 @@ export class AiTracks {
   setLiveEdge(ms: number | undefined): void {
     if (ms === this.#externalEdge) return;
     this.#externalEdge = ms;
+    for (const entry of this.#entries.values()) this.#syncWhole(entry);
     this.#changed();
   }
 
@@ -243,6 +284,8 @@ export class AiTracks {
   close(): void {
     this.#closed = true;
     this.#announce.close();
+    clearTimeout(this.#wholeTimer);
+    for (const entry of this.#entries.values()) entry.whole?.controller.abort();
     for (const job of [...this.#queue]) this.#cancel(job);
     for (const entry of this.#entries.values()) entry.subscription?.close();
     this.#listeners.clear();
@@ -267,6 +310,7 @@ export class AiTracks {
           lastLiveAt: undefined,
           firstLive: undefined,
           missing: new Map(),
+          whole: undefined,
         };
         this.#entries.set(id, entry);
       }
@@ -358,6 +402,12 @@ export class AiTracks {
       for (const [entry, list] of lists) {
         const k = list[i];
         if (k === undefined || !entry.log.needs(k, edge)) continue;
+        // The whole-track read has it already: no second read.
+        const read = entry.whole?.log.get(k);
+        if (read) {
+          entry.log.addFetched(k, read.carry ? { items: read.carry, capped: read.capped } : undefined, read.items);
+          continue;
+        }
         if (this.#queue.some((j) => j.entry === entry && j.slice === k && j.into === entry.log)) continue;
         const missedAt = entry.missing.get(k);
         if (missedAt !== undefined && this.#now() - missedAt < this.#retryMissing) continue;
@@ -410,15 +460,7 @@ export class AiTracks {
         abortion(job.controller.signal),
       ]);
       if (job.controller.signal.aborted || !entry.enabled) return;
-      let carry: { items: Item[]; capped: boolean } | undefined;
-      const items: Item[] = [];
-      objects.forEach((payload, index) => {
-        const parsed = parseObject(payload, entry.ref.kind, index);
-        if (!parsed.ok) return;
-        const o = parsed.value;
-        if (o.kind === "carry") carry = { items: o.items, capped: o.capped };
-        else if (o.kind === "items") items.push(...o.items);
-      });
+      const { carry, items } = groupOf(entry, objects);
       // The slice at the live edge may still be growing: fetch it again once it is over.
       const edge = this.#edgeSlice();
       into.addFetched(slice, carry, items, edge === undefined || slice >= edge);
@@ -436,6 +478,71 @@ export class AiTracks {
       job.resolve();
       this.#pump();
     }
+  }
+
+  // --- a recording's whole track -------------------------------------------------------------------
+
+  /** Read an opted-in track of a recording whole from the archive, once the end is known; drop it when opted out. */
+  #syncWhole(entry: Entry): void {
+    const wanted = this.#archive && entry.enabled && entry.ref.sliced && WHOLE_KINDS.has(entry.ref.kind);
+    if (!wanted) {
+      if (entry.whole) {
+        entry.whole.controller.abort();
+        entry.whole = undefined;
+      }
+      return;
+    }
+    const edge = this.#edgeSlice();
+    if (edge === undefined || this.#closed) return;
+    entry.whole ??= { log: new SliceLog(), controller: new AbortController(), upTo: 0, lines: undefined };
+    if (entry.whole.upTo > edge) return;
+    const from = entry.whole.upTo;
+    entry.whole.upTo = edge + 1;
+    void this.#readWhole(entry, entry.whole, from, edge + 1);
+  }
+
+  async #readWhole(entry: Entry, whole: Whole, from: number, to: number): Promise<void> {
+    const read = this.#archive!;
+    const signal = whole.controller.signal;
+    let next = from;
+    const worker = async () => {
+      while (next < to && !signal.aborted) {
+        const k = next++;
+        const held = entry.log.get(k);
+        if (held && !held.partial) {
+          whole.log.addFetched(k, held.carry ? { items: held.carry, capped: held.capped } : undefined, held.items);
+          continue;
+        }
+        let objects: Uint8Array[] | undefined;
+        try {
+          objects = await read(entry.path, entry.ref.track, k, signal);
+        } catch {
+          objects = undefined; // a failed read is a hole, like a slice nobody made
+        }
+        if (signal.aborted || !objects) continue;
+        const { carry, items } = groupOf(entry, objects);
+        whole.log.addFetched(k, carry, items);
+        whole.lines = undefined;
+        this.#wholeChanged();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, this.#archiveInFlight) }, worker));
+  }
+
+  /** Whole-track reads land in bursts: one view update per burst, not one per slice. */
+  #wholeChanged(): void {
+    if (this.#wholeTimer !== undefined || this.#closed) return;
+    this.#wholeTimer = setTimeout(() => {
+      this.#wholeTimer = undefined;
+      this.#changed();
+    }, 100);
+  }
+
+  #transcriptOf(e: Entry, near: SlicedView | undefined): LineItem[] | undefined {
+    const whole = e.whole;
+    if (!whole) return undefined;
+    whole.lines ??= whole.log.view(undefined).lines;
+    return mergeLines(whole.lines, near?.lines ?? []);
   }
 
   #cancel(job: Job): void {
@@ -487,6 +594,7 @@ export class AiTracks {
           (j) => j.entry === e && j.into === e.log && (k === undefined || j.slice === k),
         );
         const track = trackOf(catalog, e.path, e.ref.track);
+        const sliced = e.ref.sliced && e.enabled ? e.log.view(at) : undefined;
         return {
           id: e.id,
           agent: e.ref.agent,
@@ -497,7 +605,8 @@ export class AiTracks {
           costUsd: statusOf(catalog, e.ref.agent)?.spend_usd ?? 0,
           announced: e.announced,
           enabled: e.enabled,
-          sliced: e.ref.sliced && e.enabled ? e.log.view(at) : undefined,
+          sliced,
+          transcript: e.enabled ? this.#transcriptOf(e, sliced) : undefined,
           outline: e.outline?.outline,
           held: e.log.ranges(),
           loading,
@@ -508,6 +617,34 @@ export class AiTracks {
       .sort((a, b) => order(a) - order(b) || a.id.localeCompare(b.id));
     return { mode: this.#mode, position: this.#position, liveEdgeMs: this.#liveEdgeMs(), tracks };
   }
+}
+
+/** One group's objects as a carry-in and items; objects that break the contract are left out. */
+function groupOf(
+  entry: Entry,
+  objects: Uint8Array[],
+): { carry: { items: Item[]; capped: boolean } | undefined; items: Item[] } {
+  let carry: { items: Item[]; capped: boolean } | undefined;
+  const items: Item[] = [];
+  objects.forEach((payload, index) => {
+    const parsed = parseObject(payload, entry.ref.kind, index);
+    if (!parsed.ok) return;
+    const o = parsed.value;
+    if (o.kind === "carry") carry = { items: o.items, capped: o.capped };
+    else if (o.kind === "items") items.push(...o.items);
+  });
+  return { carry, items };
+}
+
+/**
+ * Lines of a whole track and those held near the playhead, one per id (the near copy, which may be newer, wins), in
+ * start order.
+ */
+export function mergeLines(whole: readonly LineItem[], near: readonly LineItem[]): LineItem[] {
+  if (near.length === 0) return [...whole];
+  const byId = new Map(whole.map((l) => [l.id, l] as const));
+  for (const l of near) byId.set(l.id, l);
+  return [...byId.values()].sort((a, b) => a.startMs - b.startMs || a.id.localeCompare(b.id));
 }
 
 function isStale(e: Entry, mode: Mode, now: number | undefined): boolean {

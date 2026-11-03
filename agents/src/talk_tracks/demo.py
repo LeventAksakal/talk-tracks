@@ -80,8 +80,8 @@ from .lecture import clock as hang_clock
 from .moq import AUDIO_IDLE_S, WRITER_QUEUE, Relay, TrackWriter, connect, until_closed
 from .origin import ComputedTrack
 from .recording import RecordingWriter, load_manifest
+from .regions import AUTO, LectureRegions, SlidesSpec, beside, deck_slides, load, resolve
 from .regions import FILE as REGIONS_FILE
-from .regions import LectureRegions, SlidesSpec, beside, load, resolve
 from .replay import Cue, MediaClock, event_us, session_events
 from .room_catalog import CATALOG_TRACK as ROOM_CATALOG_TRACK
 from .room_catalog import RoomCatalog, room_service_tracks, speaker_sources, speaker_tracks
@@ -531,11 +531,16 @@ async def record_room(relay: Relay, room: str, rec: RecordingWriter) -> None:
 
 async def _find_slides(media: Path, spec: SlidesSpec, regions: LectureRegions | None = None) -> list[Slide] | None:
     """Before connecting: the scan decodes every keyframe (about a minute for a 20-minute lecture). ``spec`` ``auto``
-    cuts the slides from the lecture's slide region (``regions.json``, the whole frame without one)."""
-    crop = resolve(spec, regions if regions is not None else load(beside(media)))
+    cuts the slides from the lecture's slide region (``regions.json``; the whole frame without one), from the whole
+    frame while a slide fills it, and none from a stage shot (``regions.deck_slides``)."""
+    regions = regions if regions is not None else load(beside(media))
+    crop = resolve(spec, regions)
     if crop is None:
         return None
-    found = await asyncio.to_thread(find_slides, media, crop)
+    if spec == AUTO and regions is not None:
+        found = await asyncio.to_thread(deck_slides, media, regions)
+    else:
+        found = await asyncio.to_thread(find_slides, media, crop)
     log.info("slides: %d found in %s", len(found), media.name)
     return found
 

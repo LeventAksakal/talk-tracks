@@ -1667,6 +1667,13 @@ img.tt-preview-thumb {
 .tt-line-translation {
   color: var(--tt-color-text-muted);
 }
+/* A recording's transcript holds the whole lecture: what is still to come is quieter, the line at the playhead marked. */
+.tt-line-ahead {
+  opacity: 0.6;
+}
+.tt-line-current {
+  box-shadow: inset 2px 0 0 var(--tt-color-accent, currentColor);
+}
 .tt-jump {
   position: absolute;
   bottom: 8px;

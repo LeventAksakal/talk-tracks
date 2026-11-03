@@ -10,7 +10,7 @@ import { notesMarkdown } from "./notes";
 import type { TrackView } from "../playback/aiTracks";
 import type { PanelTab } from "./prefs";
 import { chapterAt } from "./timeline";
-import { translationFor } from "./tracks";
+import { transcriptLines, translationFor } from "./tracks";
 import { TranscriptDownload } from "./TranscriptDownload";
 
 // The side panel's jobs (decision 0033): each answers one thing the viewer is doing. Talking with the room (Chat),
@@ -157,30 +157,42 @@ function Seek({ ms, children }: { ms: number; children?: ReactNode }) {
 // --- transcript ------------------------------------------------------------------------------------
 
 function Transcript() {
-  const { tracks, prefs, ui, setUi } = usePlayer();
+  const { tracks, prefs, ui, setUi, at } = usePlayer();
   const captions = tracks.captions;
   const search = useRef<HTMLInputElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
   const translation =
     prefs.cc && prefs.subtitleLang !== "original" ? translationFor(tracks, prefs.subtitleLang) : undefined;
-  const lines = captions?.enabled ? (captions.sliced?.lines ?? []) : [];
-  const translated = new Map(
-    (translation?.enabled ? (translation.sliced?.lines ?? []) : []).map((l) => [l.id, l] as const),
-  );
+  // A recording's transcript is the whole lecture from 0:00 (read from the archive); a live room's, what is held.
+  const whole = captions?.enabled === true && captions.transcript !== undefined;
+  const lines = transcriptLines(captions);
+  const translated = new Map(transcriptLines(translation).map((l) => [l.id, l] as const));
   const query = fold(ui.search.trim());
   const shown = query.length >= 2 ? lines.filter((l) => fold(l.text).includes(query)) : lines;
   const last = shown.at(-1);
+  // The line at the playhead, which the whole lecture's transcript follows instead of the newest line.
+  const current = whole ? lines.findLast((l) => at === undefined || l.startMs <= at)?.id : undefined;
 
   useEffect(() => {
     if (ui.focusSearch) search.current?.focus();
   }, [ui.focusSearch]);
 
-  // Follow the newest line until the viewer scrolls up; "Jump to latest" brings it back.
+  // Follow the newest line (live) or the line at the playhead (a recording) until the viewer scrolls away; the
+  // jump button brings it back.
   useLayoutEffect(() => {
     const el = body.current;
-    if (el && following) el.scrollTop = el.scrollHeight;
-  }, [following, last?.id, last?.text, shown.length]);
+    if (!el || !following) return;
+    if (!whole) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    const line = el.querySelector<HTMLElement>("[data-current]");
+    if (!line) return;
+    const box = el.getBoundingClientRect();
+    const r = line.getBoundingClientRect();
+    if (r.top < box.top || r.bottom > box.bottom) el.scrollTop += r.top - box.top - el.clientHeight / 3;
+  }, [following, whole, current, last?.id, last?.text, shown.length]);
 
   if (!captions) return <p className="tt-empty">This room has no transcript yet.</p>;
 
@@ -214,7 +226,13 @@ function Transcript() {
         className={`tt-transcript-body${translation ? " tt-dual" : ""}`}
         onScroll={(e) => {
           const el = e.currentTarget;
-          setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+          if (!whole) return setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+          // Following while the line at the playhead is in view (no line yet, before the first word: following).
+          const line = el.querySelector<HTMLElement>("[data-current]");
+          if (!line) return;
+          const box = el.getBoundingClientRect();
+          const r = line.getBoundingClientRect();
+          setFollowing(r.bottom > box.top && r.top < box.bottom);
         }}
       >
         {shown.length === 0 && query ? <p className="tt-muted">No line matches.</p> : null}
@@ -225,12 +243,14 @@ function Transcript() {
             lang={captions.lang ?? "en"}
             translation={translated.get(l.id)}
             transLang={transLang}
+            current={l.id === current}
+            ahead={whole && at !== undefined && l.startMs > at}
           />
         ))}
       </div>
       {!following ? (
         <button type="button" className="tt-jump" onClick={() => setFollowing(true)}>
-          Jump to latest
+          {whole ? "Jump to now" : "Jump to latest"}
         </button>
       ) : null}
       {translation ? (
@@ -245,14 +265,24 @@ function TranscriptLine({
   lang,
   translation,
   transLang,
+  current = false,
+  ahead = false,
 }: {
   line: LineItem;
   lang: string;
   translation: LineItem | undefined;
   transLang: string;
+  /** The line at the playhead. */
+  current?: boolean;
+  /** Still to come in a recording. */
+  ahead?: boolean;
 }) {
   return (
-    <div className={`tt-line${line.final ? "" : " tt-line-interim"}`}>
+    <div
+      className={`tt-line${line.final ? "" : " tt-line-interim"}${current ? " tt-line-current" : ""}${ahead ? " tt-line-ahead" : ""}`}
+      data-current={current ? "" : undefined}
+      aria-current={current ? "true" : undefined}
+    >
       <Seek ms={line.startMs} />
       <span lang={lang} dir={dirOf(lang)}>
         {line.text}

@@ -5,7 +5,8 @@ H.264 (no B-frames, a keyframe a second), no audio. A static dark backdrop with 
 ``SLIDES``, some with content at their very edges (the margins a fixed crop cut); a webcam in ``CAMERA``: a textured
 wall with sensor noise and a speaker who sways and nods. With ``move_at_s`` the inset jumps to ``CAMERA_MOVED``.
 With ``full_frame``, no layout: the slides fill the frame and the video cuts to the stage camera for ``cut_s`` (the
-``qrcode`` lecture), some slides with a photo out to the frame's left edge.
+``qrcode`` lecture), some slides with a photo out to the frame's left edge; its stage shot is still but for sensor
+noise. With ``zoom_s``, a zoom on the slide on screen fills the whole frame for that stretch.
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ def make_layout_lecture(
     bars: int = 0,
     cut_s: tuple[float, float] | None = None,
     full_frame: bool = False,
+    zoom_s: tuple[float, float] | None = None,
 ) -> Path:
     rng = np.random.default_rng(7)
     backdrop = np.zeros((H, W, 3), dtype=np.uint8)
@@ -86,7 +88,14 @@ def make_layout_lecture(
             if not full_frame:
                 img[y : y + ch, x : x + cw] = np.clip(cam, 0, 255).astype(np.uint8)
             if cut_s is not None and cut_s[0] <= t < cut_s[1]:
-                img = np.roll(stage, i, axis=1)
+                if full_frame:  # a still stage shot, but a camera's: sensor noise
+                    img = np.clip(stage + rng.normal(0, 20, stage.shape), 0, 255).astype(np.uint8)
+                else:  # a pan
+                    img = np.roll(stage, i, axis=1)
+            if zoom_s is not None and zoom_s[0] <= t < zoom_s[1]:
+                rows = sh // 2 + np.arange(H) * (sh - sh // 2) // H  # the lower-right quarter, where slide 1 has
+                cols = sw // 2 + np.arange(W) * (sw - sw // 2) // W  # its picture, fills the frame
+                img = slides[int(t // 10)][rows][:, cols]
             frame = av.VideoFrame.from_ndarray(img, format="rgb24")
             frame.pts, frame.time_base = i, Fraction(1, fps)
             for packet in video.encode(frame):

@@ -350,20 +350,27 @@ in the camera tile, so it needs both rectangles. `find-regions` measures them on
 
 - `slides` and `camera` are `[x, y, w, h]` in fractions of the frame. `camera` is `null` when nothing in the frame
   is a webcam inset (`qrcode` cuts between the stage camera and full-frame slides). `camera_spans` appears only when
-  the inset moves during the talk; `camera` is then their union.
+  the inset moves during the talk; `camera` is then their union. `off_layout` lists, in lecture ms (room ms in a
+  session and its recording room), when the video is not that layout: the opening stage shot, a cut to the stage
+  camera, a zoom on a slide, a slide shown full-frame, a clip (at least 2 keyframes in a row). `stage` lists the parts
+  of those where the picture is a camera's: a camera's picture changes between any two keyframes (sensor noise,
+  people; 1.5 % of pixels or more), a still digital slide does not. `stage` stays in the file, for the deck.
 - **How:** on the keyframes, the webcam is the patch that changes between nearly every two of them (the speaker
   moves), grown to the inset's border; the slides are the extent of all content outside it over the talk, moved to
   the slide image's border (a straight edge that persists, with still backdrop beyond it). Each side is placed to the
   pixel and then 2 px inside, so no sliver of backdrop shows. A side with no border goes out to the frame's edge, so
   nothing is cut. Frames that are not the usual layout (a cut to the stage camera) are left out.
 - **Who reads it:** `--slides auto` (`play`, `generate`, `session`, `serve-recording`, `redescribe`) cuts the slides
-  from `slides`; without the file it uses the whole frame and logs a warning. `session` and `serve-recording` put
-  both regions in the room catalog (`tt.regions`) whenever the file exists, and the player's camera tile then shows
-  only `camera` of the speaker's video, in its own shape (`web/src/player/CameraSurface.tsx`). The slide tile takes
+  from `slides`, from the whole frame during an `off_layout` span (a slide shown full-frame fills it: `rsa` opens with
+  its title and map slides full-frame, which the slide region would cut), and none from a `stage` span (the stage is
+  the camera's picture, not a slide: at the `dataviz` recording's 00:00 the main area and the camera tile showed the
+  same stage shot). Without the file it uses the whole frame and logs a warning. `session` and `serve-recording` put the regions in the room catalog (`tt.regions`)
+  whenever the file exists, and the player's camera tile then shows only `camera` of the speaker's video, in its own
+  shape, and the whole picture during an `off_layout` span (`web/src/player/CameraSurface.tsx`). The slide tile takes
   each slide's own shape and letterboxes it in its cell, never cutting it. `record-archive` copies the file into the
   recording room's folder, so `serve-recording` finds it there without `--media`.
 - `--sheet FILE` also writes a JPEG to check the regions by eye: sample frames with the slide region (green) and the
-  webcam (orange) outlined, and every slide the deck would have. It holds the lecture's slides (ticket 0001): look at
+  webcam (orange) outlined, and every slide `--slides auto` sends. It holds the lecture's slides (ticket 0001): look at
   it, then delete it; never commit or serve it.
 
 | Lecture | `slides` (x, y, w, h) | `camera` | Notes |
