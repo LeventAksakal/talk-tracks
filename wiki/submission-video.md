@@ -1,108 +1,340 @@
-# Demo video script: a live lecture from three points of view
+# Demo video script: one live lecture, three points of view
 
-**Length:** 2:58 at most; aim for 2:50. Judges stop watching at 3:00
-([rules](workstreams/07-submission.md#the-rules-checked-2026-11-02)).
-**Format (owner's choice, 2026-11-03):** a real live lecture. The owner teaches it as the speaker; one or two
-friends join as viewers on their own machines and use the player. Each point of view (POV) is screen-recorded, then
-mixed in DaVinci Resolve with a terminal that prints every Meta model call as it happens (`deploy/meta-calls.py`).
-**How to shoot it:** [howto/demo-video-shoot.md](howto/demo-video-shoot.md).
-**Cards:** `web/public/brand/video/title.png` and `end.png`, both 1920×1080.
+The final script for the 3-minute submission video, beat by beat. The runbook for the night (setup, rehearsal,
+takes, the DaVinci edit, export, upload) is [howto/demo-video-shoot.md](howto/demo-video-shoot.md); the storyboard
+frames are in [howto/demo-video-shoot/](howto/demo-video-shoot/).
 
-What scores, and where the video earns it:
+**Length: 2:49.** Judges stop at 3:00; the 11 s left over are the buffer. The voice-over (VO) is **351 spoken
+words, 140 s of speech at 150 words a minute, inside 169 s**: every beat's words fit at that pace with time to spare,
+and the spare seconds are where the speaker's own voice and the screens carry the beat. Each beat lists its word
+count and the seconds those words take at 150 wpm.
 
-| Weight | What the judges look for | Where it is in the cut |
+**Story order:** impact first (a lecture anyone follows live in their own language, beats 2–4), then Meta's models
+at work in the terminal (5–6), then what it does for a viewer (7–8), then the technical depth in one beat (9), then
+the recording and the end (10–11).
+
+**The rules this cut answers** ([workstreams/07-submission.md](workstreams/07-submission.md#the-rules-checked-2026-11-02)):
+under 3:00; in English; the working product, never slides about it; only what was built from Oct 27; the opening
+line says what pre-existed; the end-to-end flow with live Meta calls visible (the terminal band from beat 3 on);
+submitted as a link; an AI voice-over is allowed.
+
+## Two choices left open, and how either slots in (ticket 0026)
+
+[Which languages the viewers pick and whose voice narrates (ticket 0026)](../tickets/0026-demo-video-languages-and-voice.md)
+is the owner's call. The script is written so either answer drops in with no retiming:
+
+- **Languages.** Written with **Turkish** (viewer 1) and **Japanese** (viewer 2), the recommended option (the friends'
+  own languages). For option (b), replace every *Turkish* with *Spanish* and every *Japanese* with *Arabic*: the word
+  counts do not change. Friends type the first three letters with a capital first: **Tur**, **Jap**, **Spa**, **Ara**
+  (why: [the typing trap](#the-typing-trap-in-the-language-search)).
+- **Voice.** Written in the owner's voice (first person: "I'm giving one now"). For an AI voice, use the bracketed
+  alternative where a line has one, `[AI: …]`; each has the same number of words or fewer. Read the VO column into
+  the AI tool as it stands, beat by beat, one clip per beat, so the edit can place each on its timecode.
+
+## Who and what is filmed
+
+| Source | Who | What it records | Storyboard |
+|---|---|---|---|
+| **S** speaker POV | the owner | the speaker console window (OBS), his mic on its own track: the master audio | [b02-speaker-console](howto/demo-video-shoot/b02-speaker-console.jpg) (pre-flight; on air it shows the live stage) |
+| **V1** viewer 1 POV | friend 1 | her Chrome, full screen, on `/watch/<room>`; picks Turkish | [b03-subtitles-picked](howto/demo-video-shoot/b03-subtitles-picked.jpg) |
+| **V2** viewer 2 POV | friend 2 | his Chrome, full screen, on `/watch/<room>`; picks Japanese, rewinds | [b04-second-language](howto/demo-video-shoot/b04-second-language.jpg) |
+| **T** terminal | the owner's laptop | `meta-calls.py --room <room> --width 110` over ssh, recorded as a window | [b05-terminal-band](howto/demo-video-shoot/b05-terminal-band.jpg) (mock lines) |
+| **R** screen recording | the owner's browser, after the talk | the ended room as a recording, Turkish on | [b10-recording](howto/demo-video-shoot/b10-recording.jpg) |
+| **P** phone camera | owner's phone on a stand (and, if they can, a friend's selfie) | people: the owner speaking at his desk; a friend reading her subtitles | described in beats 1 and 3 |
+
+If only one friend can come, [the alternate cut](#the-alternate-cut-one-viewer-or-none) keeps every beat.
+
+## What the viewers must switch on before the talk starts
+
+Every AI track is lazy: it runs only while someone has it open. Three of them have to be opened **before** the
+speaker reaches the moment that needs them, or that moment has nothing to show:
+
+| Who | Opens, before the speaker starts | Without it |
 |---|---|---|
-| Impact 30 | real people a talk normally loses | a viewer in her own language (0:40), a slide described for someone who cannot see it (1:22), a late joiner catching up (1:45) |
-| Use of Meta AI 25 | beyond a basic integration | five model jobs, each its own live track; the terminal shows every call with its input and output; lazy: a call runs only for a track someone watches |
-| Technical depth 20 | it holds up, it is hard | rewind with no new model call (the terminal stays quiet), stats for nerds, one MoQ publisher per agent |
-| Demo 25 | working end to end | one unbroken flow: the speaker goes on air, viewers pick tracks, the talk ends as a recording |
+| V1 | side panel (**S**) → **Chapters** → **Slides** | no slide description in beat 6 (the describe agent never starts) |
+| V2 | side panel (**S**) → **Chapters** → **Chapters** | no chapters, glossary or recap in beat 8 |
+| both | subtitles stay **Off** until their beat | the language pick (beats 3–4) would already be done |
 
-Only features built during the event (Oct 27 – Nov 4) are shown. The relay, the browser MoQ libraries and Media
-Chrome are named once, in the opening line, as not ours.
+Check in the rehearsal with **I** (stats for nerds): V1's row *Slide descriptions* and V2's row *Chapters, glossary
+and recap* must say **on**. The live panels say "Starting from now: the chapters fills in as the talk goes" until the
+first revision lands.
+
+## Waits measured on the live site (11-03), and what the cut does with them
+
+| Action | Measured | Beat allows | Plan |
+|---|---|---|---|
+| Open a room until the player runs | 1.7–2.4 s | off screen | open before the take |
+| **Live:** pick a language until its first subtitle | **7–12 s** (11-03, a picked language in a live room) | 20 s, beat 3 | cut on the wait: hold the click, jump cut to the first line with a small "8 seconds later" tag |
+| Recording: pick a language at a part already made | 0.97–1.0 s (this run); 3.2–3.8 s the first time | — | — |
+| Recording: seek to a part already made | **0.24–0.27 s** | 10 s, beat 10 | play a part that was translated live during the talk |
+| Recording: seek to a part not made yet | **13–21 s** (two runs) | — | never on camera: pick the language before seeking, and seek only into the watched part |
+| Live: rewind 30 s (**J** ×3) until the picture runs | 0.46–0.53 s | 20 s, beat 7 | no cut needed |
+| Live: **Go live** until the picture runs | 0.21–0.23 s | — | no cut needed |
+| Recording: Chapters tab to its list | 0.1 s | — | (a recording's chapters exist) |
+| Live: first chapters revision | 1–2 min of talk (runbook estimate) | — | V2 opens Chapters before the talk; beat 8 is shot after 3:00 of talk |
+| Live: slide description after a page turn | 5–15 s (runbook estimate) | 17 s, beat 6 | V1's Slides view is open already; cut on the wait |
+| Stats for nerds (**I**) | instant | — | — |
+
+Measured with the storyboard script, muted headless Chromium at 1920×1080, on `dataviz` (live session) and
+`dataviz-recording`; the raw numbers are in [timings.json](howto/demo-video-shoot/timings.json). The live
+language-pick wait is the 11-03 measurement from the brief; this lane picked languages only in a recording room.
+
+### The typing trap in the language search
+
+On the 11-03 build the player's keys still fire while **Search any language** has focus: a lowercase **k** or a
+**space** pauses the talk, a lowercase **j** jumps 10 s back (measured: typing `Turk` paused at the k; typing `jap`
+jumped from 0:06 to 0:00). Typed with a capital first letter, three letters are safe and enough to leave one match:
+**Tur**, **Jap**, **Spa**, **Ara**. If the player lane fixes it before the shoot, typing anything is fine; the
+friends' message says "type Tur" either way.
 
 ## The opening line
 
-Said over the title card, 0:00–0:09, about 30 words:
+> "Talk Tracks was built this week, from the first commit on October 27th: the AI agents, the track model, the
+> speaker console and the player. Not ours: the open-source MoQ relay, the player controls, and Meta's models."
 
-> "Talk Tracks was built this week, from the first commit on October 27th: the AI agents, the track model, the speaker
-> console and the player. Not ours: the open-source MoQ relay, the player controls, and Meta's models."
+The facts behind it, checked on 2026-11-03: first commit `8321f2b`, 2026-10-27 12:13 +03; every commit since is
+inside the building period (Oct 26 – Nov 4); before the event there were feasibility measurements and notes, no code
+(README, *Built during the hackathon*). Pre-existing, used under their licences ([NOTICE](../NOTICE)): moq-relay and
+the `@moq/*` browser libraries, aiomoqt, Media Chrome, hls.js, PDF.js, perfect-freehand, PyAV, the fonts; Meta's
+models (Muse Voice Transcribe, Muse Spark); the four EMF 2026 demo lectures (CC BY-SA 4.0).
 
-The facts behind it, checked on 2026-11-03:
+## The lecture the owner gives
 
-- First commit `8321f2b`, 2026-10-27 12:13 +03 ("Add agent core: ..."); 460 commits since, every one between
-  Oct 27 and Nov 3, inside the building period (Oct 26 – Nov 4). Nothing in the repository is older: before the event
-  the owner ran feasibility measurements and kept notes, no code (README, *Built during the hackathon*).
-- **Pre-existing, used under their licences ([NOTICE](../NOTICE)):** moq-relay and the `@moq/*` browser libraries,
-  aiomoqt (the agents' MoQ client), Media Chrome (the player's controls), hls.js, PDF.js, perfect-freehand, PyAV,
-  the fonts; Meta's models (Muse Voice Transcribe, Muse Spark); the four EMF 2026 demo lectures (CC BY-SA 4.0).
-- **Built this week:** the agents and their track formats, the room service, archive and recordings, the spend
-  ledger and access codes, the speaker console, the viewer and its tracks, rewind, the demo sessions, the benchmark.
+A short talk he really gives, 5–6 minutes on the clock, with his own 4-page PDF (his own text and drawings, no
+third-party images). Every caption and translation comes from it, so he speaks in **full, plain sentences**, pausing
+a beat between them (a translation is made per finished caption line). A topic he knows well; the page that matters
+is page 3, **a diagram** (beat 6). Lines that make good on-screen captions, used as cues below:
 
-## Who is on screen
-
-| POV | Who | Machine | Opens | Records |
-|---|---|---|---|---|
-| **S** | the owner, speaking | his laptop | the speaker console (app window, no address bar) | OBS: the console; mic on its own track |
-| **V1** | friend 1, a viewer in her language | her machine | `/watch/<room>` in Chrome | OBS (or the OS recorder): the whole screen, her mic on its own track |
-| **V2** | friend 2, arrives late | his machine | `/watch/<room>` in Chrome, 2 minutes in | as V1 |
-| **T** | the Meta-call terminal | the owner's laptop, ssh to the VM | `python3 ~/talk-tracks/deploy/meta-calls.py --room <room>` | a second recorder on the terminal window (runbook) |
-
-**The frame in the edit:** the POV that is acting fills the top 1440×810 (75 %). The terminal is a band along the
-bottom, 1920×270, about six lines. The top-right 480×810 holds a small picture of another POV (the speaker's
-console while a viewer acts, a viewer while the speaker acts), or the friend's webcam if filmed. When the terminal
-line that matters appears, highlight it (a soft box, 1 s) so the eye finds it.
-
-**The lecture itself:** a short talk the owner really gives, 5–6 minutes, with his own 4-page PDF (his own text and
-drawings; no third-party images). It is the source of every caption and translation, so speak in full sentences.
-The speaker lines in the table are suggestions that make good captions; the voice-over (VO) is recorded afterwards
-and laid over the lecture audio, which is ducked to about −20 dB under it.
+- p1, opening: "Today I want to show you how one lecture can reach people who don't share its language."
+- p2: "Every AI job in this talk is its own track, and you pick the tracks you need."
+- p3, the diagram: "This diagram shows the speaker, the relay, and the agents that listen." (draws a circle on it)
+- p4, close: "Thank you for listening. The recording stays online with every track."
 
 ## Beats
 
-Times are where each beat starts and ends in the final cut, not on the shoot: the shoot runs about 6 minutes and is
-cut down. "T shows" is the terminal line that must be readable in that beat.
+Timecodes are the final cut. On the shoot the talk runs about six minutes and every beat is cut from it; the **talk
+clock** (T+m:ss, from the clap) says when each action happens during the take, so the friends can follow their own
+stopwatch. Spoken words are timed at 150 words a minute.
 
-| # | Time | On screen | What happens (exact actions) | Voice-over / speaker line | T shows |
-|---|---|---|---|---|---|
-| 1 | 0:00–0:09 | **Title card** | Hold. | VO: the opening line above. | — (no band yet) |
-| 2 | 0:09–0:24 | **S** full, V1 small | Already on air: the owner speaks to camera, turns to page 1 of his PDF. | VO: "A talk reaches only the people who can hear it, follow its language, see the slides, and arrive on time. Talk Tracks is a live lecture player where every AI job is a track in the broadcast, and each listener picks the tracks they need." | the band fades in: `captions  muse-voice-transcribe-1.0  turn  "…"` lines scrolling with the speaker's words |
-| 3 | 0:24–0:40 | **S**, a fast montage | Cut from the shoot's start: home → **Start a talk** → title, name, room name, access code (blurred) → **Start** → **Open console** → allow the microphone and camera, drop in the PDF → **Go on air**. | VO: "I give the talk from my browser. An access code gives me a room with its own spending cap. My voice, my camera, my slides and my pen go out over Media over QUIC." | `captions … 1 min $0.0030  audio paid a minute ahead`: the first Muse Voice Transcribe minute, paid before it is sent |
-| 4 | 0:40–1:05 | **V1** full, S small | V1 opens **CC**, captions appear. She types her language (for example *Turkish*) in **Search any language** and picks it. Subtitles switch to Turkish about seven seconds later. | Speaker (heard under the VO): a full sentence. VO: "My friend opens the subtitles. Captions come from Muse Voice Transcribe, listening right now. She types Turkish: nothing ran for Turkish until this moment. A Muse Spark agent starts a Turkish track for this room, translating each line with the lines before it as context. The first Turkish line is on screen in about seven seconds." | `translate tr  muse-spark-1.3  ~7s to first line  $0.0004` with `"<English line>" → "<Turkish line>"` below it; highlight one |
-| 5 | 1:05–1:22 | **V1** with **V2** split (or V1 alone) | V2 (or V1's second window, see the alternate cut) picks a second language, for example *Japanese*. Both subtitles run under the same slide. | VO: "Any language the model handles, one track each, made only while someone watches it. Ten viewers in one language cost the same as one: the relay fans the track out." | `translate tr` and `translate ja` lines interleaving: two calls per English line |
-| 6 | 1:22–1:45 | **S** turns a page, then **V1** | The owner turns to his diagram page and draws a circle with the pen (D). V1 opens the side panel (**S** key), tab **Chapters** → view **Slides**: the new slide's description appears; she turns on *Speaker and slide descriptions* in the sound menu for a second. | Speaker: "This diagram shows …" VO: "A new slide goes to Muse Spark with vision. Its description is a track too: the text alternative for a listener who cannot see the slide, read by the screen reader or aloud." | `describe slide  muse-spark-1.3  ~4s $0.003` with `"<the description>"` below |
-| 7 | 1:45–2:12 | **V2** full | V2 joins two minutes late. Side panel → **Chapters**, the *So far* recap at the top; then press **J** three times: "You missed" appears, the slide, the ink and the subtitles replay as they were. Press **B** to bookmark. Press **G**: back to live. | VO: "My second friend is late. Chapters, a glossary and a recap are Muse Spark's running outline of the talk, revised as it goes. He rewinds: the slides, my ink and his subtitles replay exactly as they were. Look at the terminal: rewind made no model call. The past comes from the same tracks, cached by the relay." | first a `chapters  muse-spark-1.3  ~6s  "4 chapters, 7 glossary terms · latest: …"` line; then, during the rewind, **no new line**: hold the band on screen and let the silence show |
-| 8 | 2:12–2:30 | **V1**, stats | V1 presses **I** (stats for nerds): the track list, subscribers per track, the agents running, WebTransport. | VO: "Under the hood, every agent is its own publisher in the room: captions, each language, slides, chapters. Each viewer subscribes only to the tracks it wants. Every model call goes through one spend ledger, with a cap per room." | keep scrolling lines; optional overlay of the line count and dollars so far |
-| 9 | 2:30–2:46 | **S** ends, then a recording | The owner says goodbye and presses **End talk**. Cut to home → *Recordings* → a demo lecture (`/watch/dataviz-recording`): the speaker's camera tile beside letterboxed slides; drag to the middle, pick a language. | VO: "Every lecture also comes as a recording, with the speaker beside the slides. Pick a language there and the translation is made for the part you watch: under a second once it exists." | `translate es ⟲  muse-spark-1.3` back-fill lines (⟲ = made for a past slice someone fetched), in room `dataviz-recording` |
-| 10 | 2:46–2:58 | **End card** | Hold; lower third `talk-tracks.leventaksakal.com`. | VO: "Talk Tracks. Live talks for everyone in the room, and everyone who isn't. Try it live." | — |
+---
 
-About 330 words of voice-over: an easy pace for 2:49 of talk time.
+### 1 · 0:00–0:17 · The opening line
 
-**Beat 9 needs the terminal started without `--room`** (or a second terminal on `--room dataviz-recording`), and the
-recording rooms served with the live-agents switch on (decision 0035). If that is not ready, cut beat 9 to the
-recording alone (no language pick, no terminal line) and give its 16 s to beat 7.
+**Frame:** [b01-title.jpg](howto/demo-video-shoot/b01-title.jpg) for 0:00–0:03, then the phone camera.
 
-## The alternate cut: one viewer, two browsers
+- **Spoken (VO, 38 words, 15.2 s; "27th" said as "twenty-seventh"):** "Talk Tracks was built this week, from the first commit on October 27th: the AI
+  agents, the track model, the speaker console and the player. Not ours: the open-source MoQ relay, the player
+  controls, and Meta's models."
+- **On screen:** the title card (0:00–0:03), then **P**: the owner at his desk with the laptop, mid-sentence, the
+  console on the screen behind him (0:03–0:10); then a 1 s glimpse each of V1 and V2 screens with the player
+  running (0:10–0:17). Lower third at 0:04: *Talk Tracks · built Oct 27 – Nov 4*.
+- **Source:** title card, **P**, then V1 and V2 (any second of the take before beat 3's pick).
+- **On camera:** nothing to do; the phone runs from before the clap.
+- **Can go wrong → fallback:** no phone footage, or it is shaky → hold the title card to 0:06, then S full frame.
 
-If only one friend can join, V2 is the same friend in a second browser window on the same machine, or the owner's
-second device:
+### 2 · 0:17–0:29 · A live lecture, and who it leaves out
 
-- **One friend, two windows.** V1 in Chrome, V2 in Edge (or a second Chrome profile), side by side, each 960×1080.
-  She plays both parts: beat 4 in the left window, beat 5 picks the second language in the right one, beat 7 is the
-  right window opened late. Her screen recording already holds both, so the edit crops each half to full size for
-  its beat. Keep one of the two windows muted (the tab's mute), or the speaker echoes.
-- **No friend at all.** The owner's second machine (or a phone-free spare laptop) runs V1 and V2 as two windows; the
-  owner operates it between speaking beats, so beats 4–7 are cut from moments when he pauses. Say "a viewer" in the
-  VO, not "my friend".
-- Timing is unchanged: 0:00–2:58, the same ten beats.
+**Frame:** [b02-speaker-console.jpg](howto/demo-video-shoot/b02-speaker-console.jpg) (pre-flight; on air the stage
+shows his slide and camera, the pill says *On air*) and [b02-viewer-live.jpg](howto/demo-video-shoot/b02-viewer-live.jpg)
+(a viewer of a live room).
 
-## After recording
+- **Spoken (VO, 27 words, 10.8 s):** "A live lecture usually reaches only the people who speak its language. I'm giving
+  one now, from my browser; two friends are watching on their own laptops."
+  `[AI: "… its language. Here is one, given live from a browser; two friends are watching on their own laptops."]`
+- **Under it:** the owner's own voice at −20 dB, saying the p1 line, so the judges hear a real talk.
+- **On screen:** **S** fills the top 1440×810 (the console on air, page 1); the right column 480×810 holds V1 above
+  V2, small; no terminal yet.
+- **Source:** S (talk clock T+0:05–0:20), V1 and V2 insets from the same seconds.
+- **On camera:** the owner speaks the p1 line, looks at the camera, does not touch anything.
+- **Can go wrong → fallback:** the console did not reach *On air* on the first try → use the second take; never show
+  a reload. Speaker link or token visible anywhere → the console is an app window (no address bar), so this should
+  not happen; if it does, blur.
 
-- [ ] Total under 3:00 (aim for 2:50); the opening line is in the first 10 s.
-- [ ] Freeze-frame check: no access code, speaker link or token, VM address or hostname, e-mail address, or a
+### 3 · 0:29–0:49 · She picks Turkish
+
+**Frames:** [b03-search-language.jpg](howto/demo-video-shoot/b03-search-language.jpg) (the menu, *Tur* typed, one
+match) → [b03-subtitles-picked.jpg](howto/demo-video-shoot/b03-subtitles-picked.jpg) (Turkish over the stage, and
+beside each line in the transcript).
+
+- **Spoken (VO, 39 words, 15.6 s):** "My friend opens the subtitles and types Turkish. Nothing was translating into
+  Turkish until this click. Now a Muse Spark agent starts a Turkish track for this room, and seconds later she
+  follows the lecture in her own language."
+  `[AI: "A viewer opens the subtitles …" ; "… seconds later she follows the lecture in her own language."]`
+- **On screen:** **V1** fills the top; terminal band fades in along the bottom (1920×270) at 0:35 showing
+  `captions … turn` lines; right column: the speaker small. When the first `translate tr` line prints, a soft box
+  on it for 1 s. Under the Turkish subtitle, an English caption of the same line (V7 text track): *"Every AI job in
+  this talk is its own track."* so judges see what was translated.
+- **Source:** V1 (talk clock T+0:30–1:00), T (same seconds), P optional: a 2 s shot of friend 1's face reading.
+- **On camera (V1), click by click:** move the mouse over the player → click **CC** (bottom right of the dock) →
+  click in **Search any language** → type **Tur** (capital T) → click **Türkçe · Turkish** → move the mouse off the
+  player and wait. Do not touch anything until the Turkish line has been on screen for 5 s.
+- **Wait:** 7–12 s until the first Turkish line (11-03). **Cut on the wait:** keep 2 s after the click, jump cut to
+  the first Turkish line with a small *8 seconds later* tag (or the real number), and let the VO run over the cut.
+- **Can go wrong → fallback:** nothing after 20 s → look at the terminal: `translate tr` lines but no subtitle →
+  she reloads and picks again (re-shoot the beat at T+1:00); `refused, $0` → pick Spanish and change the VO;
+  no line at all → the agent is not serving the room (runbook, *If something fails*). The player paused when she
+  typed → she typed a lowercase k or a space; press play, use the next take or re-shoot the pick.
+
+### 4 · 0:49–1:03 · He picks Japanese: one sentence, two languages
+
+**Frame:** [b04-second-language.jpg](howto/demo-video-shoot/b04-second-language.jpg).
+
+- **Spoken (VO, 28 words, 11.2 s):** "My second friend picks Japanese. Same sentence, two languages, at the same time.
+  Any of fifty languages works, and each one is made only while someone watches it."
+  `[AI: "A second viewer picks Japanese. …"]`
+- **On screen:** split screen, V1 left and V2 right (each cropped to 960×810 around the stage and subtitles), the
+  terminal band below with `translate tr` and `translate ja` lines interleaving; one English caption above both:
+  the sentence they share.
+- **Source:** V1 and V2 from the same seconds (talk clock T+1:00–1:30), T.
+- **On camera (V2):** CC → **Search any language** → type **Jap** (capital J) → **日本語 · Japanese** → hands off.
+- **Wait:** 7–12 s, as beat 3; cut on the wait the same way. Then find a moment where the same English line is on
+  both screens (sync on the clap makes this exact).
+- **Can go wrong → fallback:** Japanese weak or refused → Korean or Arabic (change one word). No V2 → [the
+  alternate cut](#the-alternate-cut-one-viewer-or-none).
+
+### 5 · 1:03–1:26 · Meta's models at work
+
+**Frame:** [b05-terminal-band.jpg](howto/demo-video-shoot/b05-terminal-band.jpg) (the layout; its terminal lines
+are a mock).
+
+- **Spoken (VO, 53 words, 21.2 s):** "This terminal prints every Meta model call as it happens. Muse Voice Transcribe
+  turns my voice into captions. Each caption line goes to Muse Spark once per language, with the lines before it
+  as context. A line costs a fraction of a cent; a whole twenty-minute lecture, about fourteen cents per language."
+  `[AI: "… turns the speaker's voice into captions. …"]`
+- **On screen:** **T** grows: the terminal takes the bottom half (1920×540, about 12 lines), V1 and V2 side by side
+  above it (960×540 each). Three highlights, 1 s each, in order with the VO: a `captions … turn` line, a
+  `translate tr` line with its `"English" → "Turkish"` snippet, its `$0.0004` cost.
+- **Source:** T (talk clock T+1:00–1:40), V1, V2.
+- **On camera:** no action; the owner keeps lecturing (p2 line).
+- **Can go wrong → fallback:** the terminal shows nothing → it was started without the right `--room`, or the ssh
+  dropped; restart it before the next take (the runbook's pre-take check). Lines too small to read → zoom the
+  terminal clip to 150 % on the highlighted line (Resolve *Transform → Zoom*) instead of the full band.
+
+### 6 · 1:26–1:43 · A slide described for someone who cannot see it
+
+**Frames:** [b06-terminal-describe.jpg](howto/demo-video-shoot/b06-terminal-describe.jpg) (layout, mock lines) and
+[b06-slide-descriptions.jpg](howto/demo-video-shoot/b06-slide-descriptions.jpg) (the Slides view with a real
+description).
+
+- **Spoken (VO, 30 words, 12 s):** "When I turn to a new slide, Muse Spark looks at it and writes a description: a
+  text alternative for anyone who can't see the slide, read aloud on request."
+  `[AI: "When the speaker turns to a new slide, …" (31 words)]`
+- **On screen:** 1:26–1:30 **S** full: the owner turns to page 3 and draws a circle with the pen. 1:30–1:43 **V1**:
+  the side panel's *Slides* view, the new description at the top; terminal band below with the `describe slide`
+  line highlighted.
+- **Source:** S (talk clock about T+2:00), V1 and T 5–15 s later.
+- **On camera:** owner: **Next** to page 3, pick **Pen**, draw one circle round the diagram's centre, say the p3
+  line. V1: nothing (the Slides view is already open, from before the talk).
+- **Wait:** 5–15 s from the page turn to the description. **Cut on the wait:** from the pen stroke straight to the
+  description arriving.
+- **Can go wrong → fallback:** no description after 30 s → V1's Slides view was not open (stats: *Slide
+  descriptions off*); open it and turn the page again in the next take. As a last resort, use
+  [b06-slide-descriptions.jpg](howto/demo-video-shoot/b06-slide-descriptions.jpg)'s source, `dataviz-recording`'s
+  Slides view, and change the VO's "When I turn" to "When a speaker turns".
+
+### 7 · 1:43–2:03 · Missed something? Rewind, and the terminal stays quiet
+
+**Frame:** [b07-rewound.jpg](howto/demo-video-shoot/b07-rewound.jpg) (thirty seconds back: the pill says
+*−0:31 · Go live*).
+
+- **Spoken (VO, 42 words, 16.8 s):** "Missed something? My friend jumps back thirty seconds: the slide, my pen strokes
+  and the Japanese subtitles replay exactly as they were. Watch the terminal: rewinding made no new model call.
+  The past comes from the same tracks, cached by the relay."
+  `[AI: "… A viewer jumps back thirty seconds: the slide, the pen strokes and …"]`
+- **On screen:** **V2** fills the top, the terminal band below. As V2 rewinds, a soft box around the terminal band
+  with a small label *no new calls* while it stays still (the captions keep printing for the live talk; that is
+  fine, there is no `translate ja` line for the past). Then **G** and the pill turns red again.
+- **Source:** V2 (talk clock about T+3:00), T.
+- **On camera (V2), click by click:** click once on the stage (focus the player, not a field) → **J J J** → wait 8 s
+  while the circle and the Japanese subtitles replay → **G** (back to live).
+- **Wait:** 0.5 s to rewind, 0.2 s to go live (measured); no cut needed.
+- **Can go wrong → fallback:** J did nothing → the focus was in a field; click the stage first. A `translate ja`
+  line appears during the rewind → it is the live talk's next line, not the past; cut before it or trim the band.
+
+### 8 · 2:03–2:13 · Chapters, a glossary and a recap
+
+**Frame:** [b08-chapters.jpg](howto/demo-video-shoot/b08-chapters.jpg) (a recording's Chapters view; the live one
+fills in as the talk goes).
+
+- **Spoken (VO, 22 words, 8.8 s):** "Muse Spark also keeps a running outline: chapters, a glossary and a recap of what
+  you missed, revised as the talk goes."
+- **On screen:** **V2** with the side panel on **Chapters**: the list, then **Terms** for 2 s; terminal band with a
+  `chapters … N chapters, M glossary terms · latest: "…"` line highlighted.
+- **Source:** V2 (talk clock T+3:30 or later), T.
+- **On camera (V2):** the Chapters tab is already open → click **Terms** → after 2 s click **Chapters** again.
+- **Can go wrong → fallback:** no chapters yet → V2 did not open Chapters before the talk; use the later take or
+  cut this beat (its 10 s go to beat 9's pause).
+
+### 9 · 2:13–2:35 · Under the hood
+
+**Frame:** [b09-stats.jpg](howto/demo-video-shoot/b09-stats.jpg) (stats for nerds: WebTransport, the tracks on and
+off).
+
+- **Spoken (VO, 50 words, 20 s; "Media-over-QUIC" counted as three):** "Under the hood, every AI job is its own Media-over-QUIC track. Agents are lazy:
+  they work and pay only while someone subscribes. Hardest bug this week: fifty lazy languages made the relay's
+  announcements use up each agent's QUIC stream credit, so requests stalled silently; we raised the credit."
+- **On screen:** **V1** presses **I**: stats for nerds over the stage (connection *webtransport*, each track *on* or
+  *off*, the lazy ones listed as off). Zoom 140 % onto the stats box (2:15–2:25), then pull back; the terminal
+  band keeps scrolling below.
+- **Source:** V1 (talk clock about T+4:00), T.
+- **On camera (V1):** click the stage → **I** → hold 12 s → close it (×).
+- **Can go wrong → fallback:** the stats box covers the subtitles in a way that reads badly → use
+  [b09-stats.jpg](howto/demo-video-shoot/b09-stats.jpg)'s source room (`dataviz`) as a 4 s insert. The bug sentence
+  is the one technical claim: it comes from [howto/deploy.md](howto/deploy.md) (the relay held one agent stream per
+  advertised namespace, about 470 against aiopquic's default credit of 512; the VM now sets 16384).
+
+### 10 · 2:35–2:45 · The talk ends; it stays as a recording
+
+**Frame:** [b10-recording.jpg](howto/demo-video-shoot/b10-recording.jpg) (a recording with a translation on; on the
+night it is the owner's own room).
+
+- **Spoken (VO, 17 words, 6.8 s):** "When I end the talk, it stays online as a recording, with every track, in any
+  language." `[AI: "When the talk ends, it stays …" (16 words)]`
+- **On screen:** 2:35–2:38 **S**: the owner says the p4 line and presses **End talk** → confirms. 2:38–2:45 **R**: the
+  same room's link in the owner's browser, now a recording; Turkish on; the timeline is clicked into the middle of
+  the part that was watched live, and the subtitle is there at once.
+- **Source:** S (end of the take), R (recorded right after the take).
+- **On camera (R, the owner after the take):** open `/watch/<room>` (muted tab) → CC → Tur → **Türkçe** → click the
+  timeline at about a third (inside the minutes V1 watched in Turkish) → hold 5 s.
+- **Wait:** a made part plays its translation in 0.24–0.27 s; an unmade part takes 13–21 s, so only seek inside the
+  part watched live.
+- **Can go wrong → fallback:** the ended room does not open as a recording → record `/watch/dataviz-recording`
+  instead (Turkish was made for its first minute on 11-03) and change "When I end the talk, it stays" to "Every talk
+  stays" (14 words).
+
+### 11 · 2:45–2:49 · End card
+
+**Frame:** [b11-end.jpg](howto/demo-video-shoot/b11-end.jpg).
+
+- **Spoken (VO, 5 words, 2 s):** "Talk Tracks. Try it live."
+- **On screen:** the end card; lower third `talk-tracks.leventaksakal.com`.
+- **Source:** end card. **Fallback:** none needed.
+
+---
+
+**Totals:** 11 beats, 2:49; VO 38 + 27 + 39 + 28 + 53 + 30 + 42 + 22 + 50 + 17 + 5 = **351 spoken words**, 140 s
+of speech at 150 wpm inside 169 s. The tightest beats are 1 (15.2 s in 17 s) and 5 (21.2 s in 23 s): read them at an
+even pace, without pauses between sentences. The `[AI: …]` alternatives are the same length or one word longer.
+
+## The alternate cut: one viewer, or none
+
+- **One friend, two windows.** V1 in Chrome and V2 in Edge (or a second Chrome profile), side by side at 960×1080
+  each, her screen recording holds both. She plays both parts: beat 3 in the left window, beat 4's pick and beats
+  7–8 in the right. Mute one window's tab. The edit crops each half to full size for its beat. VO: "my friend" in
+  beat 3, "In a second window, Japanese" in beat 4 (same count).
+- **No friend at all.** The owner's second machine runs both windows; he operates it in the pauses of his talk, and
+  the VO says "a viewer" (the `[AI: …]` lines already do).
+- **No live talk at all** (the console cannot go on air): the friends open the demo live session `/watch/dataviz`;
+  the terminal runs with `--room dataviz`; beats 2, 6 and 10 change to "a live session of a recorded lecture" and
+  the speaker shots are dropped. Timing is unchanged.
+
+## After the edit (checked before upload)
+
+- [ ] Total at most 2:50; the opening line ends by 0:17.
+- [ ] Freeze-frame check: no access code, speaker link or token, VM address, hostname of the VM, e-mail, or a
       friend's notification readable in any frame, the terminal band included.
-- [ ] Burned-in English captions or an uploaded caption file for the voice-over (the video is about accessibility).
+- [ ] English captions for the voice-over (YouTube caption file from the VO text, or burned in).
+- [ ] An English caption under any non-English speech or the first Turkish and Japanese subtitle lines.
 - [ ] Credit line in the description: "Demo lectures: Electromagnetic Field 2026, EMF Video Team and C3VOC,
-      CC BY-SA 4.0 (media.ccc.de). Trimmed, re-encoded, AI tracks added."
+      CC BY-SA 4.0 (media.ccc.de). Trimmed, re-encoded, AI tracks added." (only if a demo room is in the cut)
 - [ ] The friends agreed to appear (voice, name, screen) in a public video.
-- [ ] Upload to YouTube (unlisted or public), open the link in a logged-out window, paste it into the form and into
-      [submission.md](submission.md#demo-video-owner).

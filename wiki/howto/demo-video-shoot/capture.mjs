@@ -192,12 +192,12 @@ const G = "#7fd67f", C = "#5fd7e8", M = "#d78ae8", Y = "#e8d26a", D = "#9aa3b2";
 try {
   // b01 title card, b10 end card: the brand stills.
   if (want("b01")) await still("b01-title", join(repo, "web/public/brand/video/title.png"));
-  if (want("b10")) await still("b10-end", join(repo, "web/public/brand/video/end.png"));
+  if (want("b11")) await still("b11-end", join(repo, "web/public/brand/video/end.png"));
   // b02 the speaker: the console (pre-flight; on air it adds the live stage). Shot live on the night.
   if (want("b02")) await still("b02-speaker-console", CONSOLE_PNG);
 
   // b03, b04, b09: a recording room with real language picks (paid, cents).
-  if (PAY && (want("b03") || want("b04") || want("b09") || want("b05"))) {
+  if (PAY && (want("b03") || want("b04") || want("b06") || want("b08") || want("b10") || want("b05"))) {
     log(`recording ${REC}: ${LANG1}`);
     const a = await newPage();
     timings.waits.recordingOpenMs = await open(a, REC);
@@ -226,13 +226,13 @@ try {
     log(`  unmade part after seek: ${timings.waits[`unmadePartAfterSeek_${LANG1}_ms`]} ms`);
     paidSeconds += 25;
     await sleep(3_000);
-    await shot(a, "b09-recording-translated");
+    await shot(a, "b10-recording");
     // Chapters and transcript of the recording: time to the first item.
     let tt = await openTab(a, "Chapters");
     await a.getByRole("tabpanel").getByRole("button").first().waitFor({ timeout: 15_000 }).catch(() => {});
     timings.waits.recordingChaptersMs = Date.now() - tt;
     await sleep(800);
-    await shot(a, "b07-chapters-recording");
+    await shot(a, "b08-chapters");
     const views = await a.getByRole("tabpanel").getByRole("button", { name: /^Slides$/ }).count();
     if (views) {
       tt = Date.now();
@@ -267,7 +267,7 @@ try {
   }
 
   // b07, b08: a demo live session, watched only (no language picked).
-  if (want("b07") || want("b08") || want("b05")) {
+  if (want("b02") || want("b07") || want("b09")) {
     log(`live ${LIVE}`);
     const l = await newPage();
     timings.waits.liveOpenMs = await open(l, LIVE);
@@ -276,7 +276,7 @@ try {
     await l.waitForFunction(() => (document.querySelector("tt-room-media")?.readyState ?? 0) >= 2, null, { timeout: 20_000 }).catch(() => {});
     timings.waits.livePlayToPictureMs = Date.now() - tp;
     await sleep(6_000);
-    await shot(l, "b05-live-viewer");
+    await shot(l, "b02-viewer-live");
     await blur(l);
     const tr = Date.now();
     for (let i = 0; i < 3; i++) {
@@ -298,12 +298,12 @@ try {
     await blur(l);
     await l.keyboard.press("i");
     await sleep(2_500);
-    await shot(l, "b08-stats");
+    await shot(l, "b09-stats");
     await l.context().close();
   }
 
   // b05: the edit's layout with the terminal band (mock lines; the real ones are recorded on the night).
-  if (want("b05")) {
+  if (want("b05") || want("b06")) {
     await layout("b05-terminal-band", join(OUT, "b03-subtitles-picked.jpg"), "viewer 2 POV, or the speaker's console", [
       [D, "Meta model calls · room lecture · Ctrl-C to stop"],
       [G, "21:14:02  captions        muse-voice-transcribe-1.0           turn  “Every AI job in this talk is its own track.”"],
