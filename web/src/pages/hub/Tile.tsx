@@ -98,7 +98,7 @@ export function Tile({ item }: { item: HubItem }) {
             {item.subtitleLanguages ? (
               <div>
                 <dt>Subtitles</dt>
-                <dd>Any of {item.subtitleLanguages} languages, translated when you pick one</dd>
+                <dd>Any of {item.subtitleLanguages} languages</dd>
               </div>
             ) : null}
             <div>

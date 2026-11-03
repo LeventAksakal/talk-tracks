@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { LineItem } from "../playback/wire";
 import { MoqTransport } from "../transport/moq";
 import { dirOf } from "../viewer/lang";
@@ -300,6 +300,7 @@ function TranscriptLine({
 
 function Chapters() {
   const { tracks, at, view } = usePlayer();
+  const recapId = useId();
   const outline = tracks.outline;
   if (!outline) return <p className="tt-empty">This room has no chapters yet.</p>;
   const o = outline.enabled ? outline.outline : undefined;
@@ -310,8 +311,8 @@ function Chapters() {
   return (
     <div className="tt-chapters" lang={lang} dir={dirOf(lang)}>
       {o.recap ? (
-        <section className="tt-recap" aria-label="So far">
-          <strong>So far</strong>
+        <section className="tt-recap" aria-labelledby={recapId}>
+          <strong id={recapId}>So far</strong>
           <p>{o.recap}</p>
         </section>
       ) : null}

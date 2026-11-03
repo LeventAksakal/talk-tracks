@@ -3,6 +3,7 @@ import type { RoomTt } from "../contracts/types";
 import { parseRoomCatalog } from "../contracts/validate";
 import { cameraRegion, framing, inSpans, offLayoutSpans } from "./CameraSurface";
 import { slideAspect } from "./SlideSurface";
+import { sourceShown } from "./Stage";
 
 const tt = (regions: unknown) => ({ E: 0, shift: {}, regions }) as unknown as RoomTt;
 const frac = (css: string | number | undefined) => parseFloat(String(css)) / 100;
@@ -57,6 +58,41 @@ describe("the camera tile of a composed lecture video", () => {
     expect(inSpans(spans, undefined)).toBe(false);
     expect(offLayoutSpans(tt({ slides: [0, 0, 1, 1], off_layout: [[5, 5], "x", [1]] }))).toEqual([]);
     expect(offLayoutSpans(undefined)).toEqual([]);
+  });
+
+  it("puts the whole picture on the stage, alone, during an off-layout span, and the slide back after it", () => {
+    const pip = { layout: "pip", single: "slides", board: "screen" } as const;
+    const lecture = ["camera", "slides"] as const;
+    // dataviz: the opening title card and two stage cuts; qrcode has no webcam region, only spans.
+    for (const regions of [
+      {
+        slides: [0, 0, 0.77, 0.77],
+        camera: webcam,
+        off_layout: [
+          [0, 4000],
+          [96000, 112000],
+          [946000, 974000],
+        ],
+      },
+      {
+        slides: [0, 0, 1, 1],
+        off_layout: [
+          [0, 26000],
+          [60000, 66000],
+        ],
+      },
+    ]) {
+      const spans = offLayoutSpans(tt(regions));
+      const shown = (ms: number) => lecture.filter((kind) => sourceShown(kind, pip, lecture, inSpans(spans, ms)));
+      expect(shown(0)).toEqual(["camera"]);
+      expect(shown(3999)).toEqual(["camera"]);
+      expect(shown(62000)).toEqual(regions.camera ? ["camera", "slides"] : ["camera"]);
+      // the layout again: the slide on the stage, the webcam in the corner
+      expect(shown(30000)).toEqual(["camera", "slides"]);
+    }
+    // A shared screen keeps its place, off layout or not.
+    const all = ["camera", "slides", "screen"] as const;
+    expect(sourceShown("screen", pip, all, true)).toBe(true);
   });
 
   it("shows the whole picture for a speaker's own camera or a broken region", () => {

@@ -59,6 +59,32 @@ export function framing(frame: number, region: Rect | undefined): { aspect: numb
   };
 }
 
+/**
+ * Whether the frame on screen is in one of the room's off-layout spans (lecture time: room time from the talk clock's
+ * 00:00, as in a demo session and its recording room). Then the video's whole picture is the stage (Stage.tsx).
+ */
+export function useOffLayout(): boolean {
+  const { media, clock, origin } = usePlayer();
+  const frameTime = useSlideTime();
+  const [spans, setSpans] = useState<Span[]>([]);
+  // The catalog changes rarely: a slow poll keeps React out of the frame loop.
+  useEffect(() => {
+    if (!media) return;
+    const read = () => {
+      const s = offLayoutSpans(media.catalog()?.tt);
+      setSpans((old) => (old.join() === s.join() ? old : s));
+    };
+    read();
+    const timer = setInterval(read, 500);
+    return () => clearInterval(timer);
+  }, [media]);
+  return useFrameValue(clock, (t) => {
+    if (!media || !spans.length) return false;
+    const at = frameTime(t);
+    return inSpans(spans, at === undefined ? undefined : at - origin);
+  });
+}
+
 /** A canvas @moq/watch has not sized yet keeps the HTML default 300 × 150. */
 const unsized = (w: number, h: number) => (w === 300 && h === 150) || w === 0 || h === 0;
 
@@ -84,20 +110,13 @@ export function cameraNote(live: boolean, status: MediaStatus): string | undefin
  * RoomMedia once and never re-mounted (the live player keeps the canvas it was given), one visible per
  * mode. Volume applies to the archive element here; live audio is @moq/watch's own.
  */
-export function CameraSurface() {
-  const { media, view, prefs, clock, origin } = usePlayer();
-  const frameTime = useSlideTime();
+export function CameraSurface({ offLayout = false }: { offLayout?: boolean }) {
+  const { media, view, prefs } = usePlayer();
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const live = view.timeline.mode === "live";
   const [aspect, setAspect] = useState<number>();
   const [region, setRegion] = useState<Rect>();
-  const [spans, setSpans] = useState<Span[]>([]);
-  // Lecture time is room time from the talk clock's 00:00 (a demo session and its recording room).
-  const offLayout = useFrameValue(clock, (t) => {
-    const at = frameTime(t);
-    return inSpans(spans, at === undefined ? undefined : at - origin);
-  });
   const [status, setStatus] = useState<MediaStatus>("idle");
 
   useEffect(() => {
@@ -137,8 +156,6 @@ export function CameraSurface() {
       const tt = media.catalog()?.tt;
       const r = cameraRegion(tt);
       setRegion((old) => (old?.join() === r?.join() ? old : r));
-      const s = offLayoutSpans(tt);
-      setSpans((old) => (old.join() === s.join() ? old : s));
       setStatus(media.status());
     };
     read();
@@ -158,7 +175,7 @@ export function CameraSurface() {
 
   const note = cameraNote(live, status);
   // A recorded talk's video is the whole composed frame: the tile shows only its webcam inset, once the frame is known,
-  // and the whole picture while the video is off its layout (the stage camera).
+  // and the whole picture while the video is off its layout (the stage camera), when the stage shows it large.
   const framed = aspect === undefined ? undefined : framing(aspect, offLayout ? undefined : region);
   return (
     <SourceTile kind="camera" aspect={framed?.aspect ?? 16 / 9} label="Speaker camera">
