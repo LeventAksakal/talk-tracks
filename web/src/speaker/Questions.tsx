@@ -58,8 +58,8 @@ export function Questions({
       {status !== "open" ? (
         <p className="muted small" role="status">
           {status === "refused"
-            ? "The room service did not accept this speaker link."
-            : "Waiting for the room service (it holds the room once you are on air)…"}
+            ? "Talk Tracks did not accept this speaker link."
+            : "Viewers' questions and comments appear here once you are on air."}
         </p>
       ) : threads.length === 0 ? (
         <p className="muted small">{all ? "No comments yet." : "No questions yet."}</p>

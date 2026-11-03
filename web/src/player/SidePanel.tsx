@@ -128,7 +128,7 @@ function TrackStatus({ track, what, empty }: { track: TrackView; what: string; e
   const { view } = usePlayer();
   const live = view.timeline.mode === "live";
   const text = !track.enabled
-    ? `Subscribing to the ${what}…`
+    ? `Starting the ${what}…`
     : track.sliced?.capped
       ? `The ${what} is unavailable right now.`
       : empty && (track.loading || (track.sliced && !track.sliced.loaded))

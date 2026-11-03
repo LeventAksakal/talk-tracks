@@ -25,6 +25,7 @@ import {
   useRoomService,
 } from "./listening";
 import type { SlideTracks } from "./slideTracks";
+import { isTyping } from "./typing";
 import { CHALK_BOX, inkColor } from "../theme/ink";
 
 /** The Discussion tab's id in the side panel. */
@@ -58,12 +59,6 @@ const hasOptions = (t: ListenerTool) => hasColor(t) || hasWidth(t);
 /** The stroke width a tool draws with at a width step. */
 function widthOf(tool: ListenerTool, step: WidthStep): number {
   return (tool === "highlighter" ? WIDTHS.highlighter : isShape(tool) ? WIDTHS.shape : WIDTHS.pen)[step];
-}
-
-/** Whether a key press goes to a text field (the name, a comment), where Ctrl+Z is the field's own. */
-function inTextField(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return !!el && typeof el.closest === "function" && (el.isContentEditable || !!el.closest("input, textarea, select"));
 }
 
 /** Whether the playhead is at the live edge: drawing changes the live slide only. */
@@ -103,7 +98,7 @@ export function AnnotateBar({
   const keys = useRef<(e: KeyboardEvent) => void>(() => undefined);
   useEffect(() => {
     keys.current = (e) => {
-      if (!listening || !state?.annotating || !on || !canWrite || inTextField(e.target)) return;
+      if (!listening || !state?.annotating || !on || !canWrite || isTyping(e)) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const key = e.key.toLowerCase();
       const redo = key === "y" || (key === "z" && e.shiftKey);

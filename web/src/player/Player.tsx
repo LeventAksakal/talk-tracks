@@ -37,6 +37,7 @@ import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SidePanel } from "./SidePanel";
 import type { SlideTracks } from "./slideTracks";
 import { sourceShown, Stage } from "./Stage";
+import { isTyping, TYPING_HOTKEYS } from "./typing";
 import { forcedInput, playerState, type PlayerStateKind } from "./state";
 import { guardOf } from "../package/download";
 import {
@@ -94,6 +95,9 @@ const STALLED_AFTER_MS = 15_000;
 
 /** A connected relay has announced the room's slides by now, if it has any (the first announcements come at once). */
 const SOURCES_WAIT_MS = 1_500;
+
+/** Media Chrome's own hotkeys, bar Shift+/ (its shortcuts dialog: ours answers "?"). */
+const HOTKEYS = "noshift+/";
 
 /** The keys Media Chrome answers to (media-controller): forwarded to it from anywhere on the page. */
 const MEDIA_KEYS = new Set([
@@ -543,7 +547,7 @@ export function Player(props: PlayerProps) {
             ref={controller}
             className="tt-controller"
             gesturesdisabled=""
-            hotkeys="noshift+/"
+            hotkeys={HOTKEYS}
             novolumepref=""
             nomutedpref=""
             nosubtitleslangpref=""
@@ -657,7 +661,7 @@ function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElem
       const c = latest.current;
       if (!c || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target instanceof Element ? e.target : null;
-      if (target?.closest("input, textarea, select, [contenteditable='true']")) {
+      if (isTyping(e)) {
         if (e.key === "Escape") c.setUi({ menu: undefined });
         return;
       }
@@ -711,8 +715,23 @@ function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElem
       }
       e.preventDefault();
     };
+    // Media Chrome's controller answers keys bubbling through it with no regard for text fields: typing "k", "j"
+    // or a space in the subtitle language search would pause or rewind the talk. Before it sees a key, switch its
+    // hotkeys off while a field takes the keys, and back on for any other key.
+    const guard = (e: KeyboardEvent) => {
+      const mc = controller.current;
+      if (!mc) return;
+      const want = isTyping(e) ? TYPING_HOTKEYS : HOTKEYS;
+      if (mc.getAttribute("hotkeys") !== want) mc.setAttribute("hotkeys", want);
+    };
+    window.addEventListener("keydown", guard, true);
+    window.addEventListener("keyup", guard, true);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", guard, true);
+      window.removeEventListener("keyup", guard, true);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [controller]);
 }
 
