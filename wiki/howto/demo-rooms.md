@@ -227,8 +227,9 @@ $D --profile live --profile recordings up -d --remove-orphans   # the session pl
 Check:
 
 - `$D ps --services | grep -c '^translate-'` prints 1 (`translate-any`);
-- each `record-archive` run printed `3 AI tracks`, and `ls ~/tt-data/archive/virus-recording/agents/` has no
-  `translate-*` folder until a viewer picks a language;
+- each `record-archive` run printed `3 AI tracks`, and `find ~/tt-data/archive/virus-recording/agents/ -path
+  '*translate-*' -name '*.slice' | wc -l` prints 0 until a viewer picks a language (the `translate-*` folders exist
+  from the start: each language's `track.json` is written when `translate-any` starts serving the room);
 - `$D logs --since 5m translate-any | grep "recording room"` shows the four rooms ("serving its translations on
   demand"), and `grep -c '"room": "virus-recording"' ~/tt-data/ledger.jsonl` stays 0 while nobody watches;
 - on `/watch/virus-recording`, the CC menu's "Search any language" lists every language; picking German shows German

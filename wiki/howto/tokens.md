@@ -128,7 +128,7 @@ speaker link has no token (a local relay needs none).
 
 ```bash
 export TT_AGENT_TOKEN=$(cat agents/data/keys/agent-dev.jwt) TT_SPEAKER_TOKEN=$(cat agents/data/keys/speaker-dev.jwt)
-docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml up -d relay auth captions translate-tr
+docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml up -d relay auth captions translate-any
 docker compose -f deploy/compose.local.yml -f deploy/compose.auth.yml --profile dev up -d teacher watch
 ```
 

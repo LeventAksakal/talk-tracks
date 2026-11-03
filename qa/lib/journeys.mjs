@@ -5,8 +5,15 @@
 // Cost guard (deployed site): subtitles and translations are picked only from what the room already lists as running
 // ("in this room"); a new language would wake a paid translation agent. Nothing here submits a valid Start a talk
 // form, and capture.mjs aborts any POST to /api/rooms on top of that.
+//
+// Every translation is lazy (decision 0035): none is made ahead, so none is free. With TT_DEMO_LIVE_AGENTS off the
+// demo and recording rooms offer no translation at all; on, each one is paid while watched. So the translation steps
+// run only when asked (--translation <name>), and even then only on a language the room already runs.
 
 import { sleep } from "./util.mjs";
+
+const NO_TRANSLATION =
+  "skipped: every translation is lazy and paid (decision 0035), none is made ahead; pass --translation <name> to pick one the room already runs";
 
 const slug = (s) =>
   s
@@ -115,11 +122,12 @@ async function walkPlayer(j, { live }) {
   });
 
   await step("translation", async () => {
+    if (!j.opts.translation) throw new Error(NO_TRANSLATION);
     await page.getByRole("button", { name: "Subtitles", exact: true }).click();
     await sleep(500);
     // Only a language the room already lists as running: never wake a paid agent.
-    // And of those, the one asked for (--translation, default Arabic: generated once for every demo room), so a
-    // language another viewer happened to wake is never the one the harness keeps subscribed.
+    // And of those, the one asked for (--translation), so a language another viewer happened to wake is never the
+    // one the harness keeps subscribed unasked.
     const want = new RegExp(j.opts.translation, "i");
     const running = page
       .getByRole("group", { name: "Languages" })
@@ -320,6 +328,7 @@ export const JOURNEYS = [
         await shot("subtitles-on", "recording + subtitles: the original's recorded subtitles at the playhead");
       });
       await step("translation", async () => {
+        if (!opts.translation) throw new Error(NO_TRANSLATION);
         await page.getByRole("button", { name: "Subtitles", exact: true }).click();
         await sleep(500);
         const want = new RegExp(opts.translation, "i");
@@ -330,12 +339,12 @@ export const JOURNEYS = [
           .filter({ hasText: want });
         if ((await choice.count()) === 0) {
           await closeMenus(page);
-          throw new Error(`skipped: the recording does not list ${opts.translation}`);
+          throw new Error(`skipped: the recording does not list ${opts.translation} as running (picking it would pay)`);
         }
         await choice.first().click();
         await closeMenus(page);
         await sleep(6_000);
-        await shot("translation", `recording + translation: ${opts.translation} subtitles, recorded with the lecture`);
+        await shot("translation", `recording + translation: ${opts.translation} subtitles at the playhead, back-filled from the recorded captions`);
       });
       await step("subtitles off", async () => {
         await page.getByRole("button", { name: "Subtitles", exact: true }).click();

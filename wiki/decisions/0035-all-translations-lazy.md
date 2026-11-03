@@ -39,16 +39,24 @@ Asked through the question prompt on 2026-11-03, the owner chose:
 * **Recording rooms** are served with the switch on, back-fill only:
   * **Found in the archive.** `translate-any` lists `<archive>/<id>-recording/room.json` (what `record-archive`
     writes) and serves each such room for good, read again every 60 s. A recording room has no speaker to come on air
-    and is ended from the start, so neither starts nor stops it.
+    and is ended from the start, so neither starts nor stops it. Only the archive scan makes a room a recording room,
+    never its name: a live room whose speaker goes on air is served live whatever it is called, and creating a room
+    whose name ends in `-recording` is refused.
   * **All past.** The room's clock edge is just past its end (its `room` track's last slice), so a FETCH of any
     slice up to the end is translated once from the captions slice `serve-recording` answers from the archive, then
-    served from disk. Nothing runs live and nothing is made without a FETCH.
+    served from disk. Nothing runs live and nothing is made without a FETCH: no slice clock runs, and an idle track
+    rewrites its `track.json` only when its state changes.
   * **Spend.** The room's own cap (`TT_ROOM_CAP_USD`, or a caps batch that lists it, as decision 0034's demo batch
     does), with the whole cap open to back-fill (share 1.0, not the 25 % a live room keeps for live work: a
-    recording room has none).
+    recording room has none). Out of budget, the track is capped and the catalog says so.
   * **Catalog.** `serve-recording` publishes only the baked tracks and, on every catalog heartbeat, lists the
     translations announced in the room now. A translation is listed only while its agent is up to answer for it, and
     each track has one publisher.
+* **Switch off, no translation in a demo lecture's rooms.** With `TT_DEMO_LIVE_AGENTS` off, neither a demo room
+  nor its recording room offers any translation at all: no language is listed, none can be picked, and no model call
+  happens in either (decision 0034). This follows from dropping the pre-made tracks, and is accepted.
+* **Generation rooms.** `translate-any` never serves a `gen-*` room, where `generate` records a demo lecture:
+  translations are never recorded, so a viewer there could only spend.
 * **No pre-made translation.** `generate` subscribes no translation track (its recorder skips them), and a
   recording's translations are left out wherever it is replayed (`session.honest_recording`): a switch-off session
   and `record-archive`. The offline fixes for them, `retranslate` and `resplit`, are removed: nothing else used them.
