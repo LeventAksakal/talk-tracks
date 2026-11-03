@@ -116,6 +116,8 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     slides,
     clock,
     tracks,
+    looped,
+    vod,
   } = usePlayer();
   const stage = useRef<HTMLDivElement>(null);
   const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -145,14 +147,18 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     if (sharing) update({ board: "screen" });
   }, [sharing, update]);
   const offLayout = useOffLayout();
-  // No slide at the frame on screen (the slide track says none, no description stands in) and none seen before it in
-  // this session: the camera alone, centred. A slide seen earlier stays up instead (SlideSurface holds it).
+  // No slide at the frame on screen (the slide track says none, no description stands in) and, in a demo lecture, none
+  // seen before it in this session: the camera alone, centred. In a demo lecture a slide seen earlier stays up instead
+  // (SlideSurface holds it); a live speaker's Hide slides is theirs, and the console tells them viewers see the camera.
   const slideTime = useSlideTime();
+  const holds = looped || vod === true;
   const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const noSlide = useFrameValue(clock, (t) => {
     const time = slideTime(t);
     const now = slides?.slideAt(time);
-    return now !== undefined && !now.slide && described === undefined && slides?.heldSlide(time) === undefined;
+    return (
+      now !== undefined && !now.slide && described === undefined && !(holds && slides?.heldSlide(time) !== undefined)
+    );
   });
   const offWhole = wholePicture(offLayout, sources);
   // Before the first slide the camera is the stage's only picture, but not a video call: centred, at most CAMERA_CAP of

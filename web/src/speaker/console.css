@@ -417,6 +417,9 @@
   flex-wrap: wrap;
   gap: 6px 16px;
 }
+.toolbar button:not(.tool-options-toggle) {
+  padding-inline: 8px;
+}
 .slide-edit {
   display: flex;
   align-items: center;

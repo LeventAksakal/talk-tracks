@@ -107,8 +107,11 @@ describe("the hub", () => {
       transport.announce("talk/virus/teacher");
     });
     await settle();
+    // Every live session says Watch live, a demo lecture's between its runs too (the hub never changes under the
+    // reader): the talk on air comes first, then the demo lectures' sessions.
     const links = within(row("Live now")).getAllByRole("link", { name: named("Watch live") });
-    expect(hrefs(links)).toEqual(["/watch/physics-101"]);
+    expect(hrefs(links)[0]).toBe("/watch/physics-101");
+    expect(hrefs(links).slice(1)).not.toContain("/watch/physics-101");
   });
 
   it("opens a card's extended view by keyboard: its play button, languages and tracks have names", () => {

@@ -90,10 +90,11 @@ shadow; the form is unchanged.
   recorded talk replayed live. How the connection runs (the WebSocket fallback) is in Stats for nerds.
 * No slide at this moment (the speaker hid the slides, or a stretch with none): the rule is "a slide, never a face",
   so the stage keeps a slide whenever it has one.
-  * A slide was seen earlier in this session, at or before the playhead: that slide stays on the stage, without its
-    marks and ink (they were on it then), and the camera keeps its corner. A seek back before the first slide seen
-    falls to the next case.
-  * No slide seen yet (a talk's first minutes): the camera is the one picture, centred and at most 64 % of the
+  * In a demo lecture (a live replay or its recording), a slide was seen earlier in this session, at or before the
+    playhead: that slide stays on the stage, without its marks and ink (they were on it then), and the camera keeps
+    its corner. A seek back before the first slide seen falls to the next case. A live speaker's own Hide slides (B)
+    is honoured: the console tells them viewers then see the camera, so the player does not keep a slide up.
+  * No slide seen yet (a talk's first minutes), or a live speaker hid the slides: the camera is the one picture, centred and at most 64 % of the
     stage's width, under the title bar, with a hairline and rounded corners: a speaker in a room before the slides
     start, not a video call filling the screen. Unlabelled: nothing beside it to tell it from.
   * Off its layout (a recorded frame of the stage camera, a title card, a zoom on a slide; the `off_layout` spans) the

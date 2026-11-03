@@ -91,7 +91,8 @@ const loadName = () => {
 };
 
 /** The toolbar, in groups; the digit keys pick tools in this order (keys.ts TOOL_ORDER). */
-const TOOLS: { tool: Tool; label: string; key: string }[][] = [
+/** The drawing tools in their groups; `name` is the accessible name when the short label leaves out what it acts on. */
+const TOOLS: { tool: Tool; label: string; key: string; name?: string }[][] = [
   [
     { tool: "laser", label: "Laser", key: "L" },
     { tool: "pen", label: "Pen", key: "D" },
@@ -105,8 +106,8 @@ const TOOLS: { tool: Tool; label: string; key: string }[][] = [
     { tool: "diamond", label: "Diamond", key: "G" },
   ],
   [
-    { tool: "underline", label: "Underline text", key: "U" },
-    { tool: "highlight", label: "Highlight text", key: "M" },
+    { tool: "underline", label: "Underline", key: "U", name: "Underline text" },
+    { tool: "highlight", label: "Highlight", key: "M", name: "Highlight text" },
     { tool: "eraser", label: "Eraser", key: "E" },
   ],
 ];
@@ -660,7 +661,7 @@ function ConsoleView({
                     return (
                       <span key={t.tool} className="tool-slot">
                         <ToggleButton
-                          label={`${t.label} (${t.key})`}
+                          label={`${t.name ?? t.label} (${t.key})`}
                           size="sm"
                           isPressed={tool === t.tool}
                           isDisabled={!deck}

@@ -419,6 +419,9 @@
   gap: 3%;
   container-type: inline-size;
 }
+.tt-slide-pending {
+  background: transparent;
+}
 .tt-slide-title {
   font-size: clamp(14px, 5cqw, 40px);
   line-height: 1.15;

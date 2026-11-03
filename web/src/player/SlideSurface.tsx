@@ -54,7 +54,7 @@ interface Mark {
  * state of the tracks at the room time of the frame on screen.
  */
 export function SlideSurface() {
-  const { tracks, slides, clock, audienceShown, openTab } = usePlayer();
+  const { tracks, slides, clock, audienceShown, openTab, looped, vod } = usePlayer();
   const slideTime = useSlideTime();
   useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
   const at = useFrameValue(clock, (t) => slides?.slideAt(slideTime(t)), sameSlide);
@@ -62,10 +62,13 @@ export function SlideSurface() {
   const described = describe?.sliced?.slide;
   const lang = describe?.lang ?? "en";
   const on = at?.slide ?? null;
-  // The speaker shows no slide now: the last one seen here stays up, without its marks (they were on it then, not now).
+  // A demo lecture shows no slide now: the last one seen here stays up, without its marks (they were on it then, not
+  // now). A live speaker's Hide slides is honoured (Stage.tsx).
+  const holds = looped || vod === true;
   const held = useFrameValue(
     clock,
     (t) => {
+      if (!holds) return undefined;
       const time = slideTime(t);
       const now = slides?.slideAt(time);
       return now && !now.slide && described === undefined ? slides?.heldSlide(time) : undefined;
@@ -121,6 +124,10 @@ export function SlideSurface() {
           draggable={false}
           data-slide={pictured ? pictured.index + 1 : undefined}
         />
+      ) : at === undefined && !description && slides?.isActive("slide") ? (
+        // Subscribed, nothing read yet (a second or two on opening): the tile stays dark, so no placeholder copy on a
+        // pale panel flashes before the first slide.
+        <div className="tt-slide tt-slide-pending" />
       ) : (
         <div className="tt-slide">
           <strong className="tt-slide-title">{slideTitle()}</strong>

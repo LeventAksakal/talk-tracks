@@ -611,8 +611,9 @@
   max-width: 90ch;
   text-wrap: pretty;
 }
+/* The credit is one line on a desktop: wrapped at the paragraph measure it left a name or a licence half alone. */
 .hub-foot .hub-credits {
-  text-wrap: balance;
+  max-width: none;
 }
 .hub-foot a {
   color: var(--hub-text);
