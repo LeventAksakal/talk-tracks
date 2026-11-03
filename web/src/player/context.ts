@@ -91,6 +91,8 @@ export interface PlayerCtx {
   roomService: RoomService | undefined;
   /** A demo room: a live session of a recorded lecture (decision 0032; the old name kept). */
   looped: boolean;
+  /** A recording (`<id>-recording`, decision 0032): video on demand, with nobody in the room to chat with. */
+  vod?: boolean;
   /** The playhead for display, room ms (live: the live position). */
   at: number | undefined;
   /** A room time as the talk's clock shows it ("12:34"); in a demo session or loop, the time since its start. */

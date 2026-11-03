@@ -36,10 +36,13 @@ function WatchRoom({ room }: { room: string }) {
   // demo room it takes chat only (archive.looped), so the threads are not asked for there.
   const demo = demoRoom(room);
   // A demo lecture's live session or its recording (decision 0032): either way the lecture's title and credit.
-  const lecture = lectureOf(room)?.lecture;
+  const of = lectureOf(room);
+  const lecture = of?.lecture;
+  // A recording is video on demand: nobody is in its room, so there is no room service to chat or draw through.
+  const vod = of?.kind === "recording";
   const roomService = useResource(
-    () => new RoomServiceClient(roomServiceBase(), room, { comments: !demo }),
-    [room, demo],
+    () => (vod ? undefined : new RoomServiceClient(roomServiceBase(), room, { comments: !demo })),
+    [room, demo, vod],
   );
   // The hub lists it under "Continue watching".
   useEffect(() => rememberRoom({ room, title: lecture?.title, at: Date.now() }), [room, lecture]);
@@ -61,6 +64,7 @@ function WatchRoom({ room }: { room: string }) {
       credit={lecture ? DEMO_CREDIT : undefined}
       noRoomService={demo ? DEMO_NO_ROOM_SERVICE : undefined}
       looped={demo !== undefined}
+      vod={vod}
     />
   );
 }

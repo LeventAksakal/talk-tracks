@@ -314,7 +314,7 @@ export function Player(props: PlayerProps) {
   const stalled = useHeldFor(looking, STALLED_AFTER_MS);
   // A recording opens at its start (it is video on demand): once its span is known the playhead moves there, once.
   const vod = props.vod ?? false;
-  const [vodStarted, _setVodStarted] = useState(false);
+  const [vodStarted, setVodStarted] = useState(false);
   const real = {
     connection: status?.status,
     everConnected: everConnected || status?.status === "connected",
@@ -417,6 +417,17 @@ export function Player(props: PlayerProps) {
     });
   });
 
+  // A recording opens at its start: once the element plays this room and the recording's span is known, the playhead
+  // moves to 0:00, once (it then plays like any rewind; the end card waits for the real end).
+  const vodStart =
+    vod && !vodStarted && state.kind === "ended" && timeline?.liveEdge !== undefined ? timeline.start : undefined;
+  useEffect(() => {
+    if (vodStart === undefined || !el || el.playback !== playback) return;
+    seekRoom(el, origin, vodStart);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- records the seek just made on the element, once
+    setVodStarted(true);
+  }, [vodStart, el, playback, origin]);
+
   const togglePlay = useCallback(() => {
     const e = el;
     if (!e) return;
@@ -465,6 +476,7 @@ export function Player(props: PlayerProps) {
           listening: toolsOff ? undefined : listening,
           roomService,
           looped: props.looped ?? false,
+          vod,
           at,
           talkClock,
           origin,
