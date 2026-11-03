@@ -62,9 +62,14 @@ Sources, in order of authority:
 - [x] **NOTICE** (from the lockfiles and Dockerfiles): every third-party licence, including anything new from 02 (fonts, icons) and 04
       (`perfect-freehand`, Excalidraw code if copied).
 - [x] **Demo lecture credits** still match the rooms (README table).
-- [ ] **Freeze `main`** Tue 18:00 +03: tag it (for example `submission-2026-11-04`) and deploy exactly that tag.
-- [ ] Final smoke on the VM after the freeze: the four rooms loop, a judge link works, the spend ledger has room.
-- [ ] **Submit by Wed 12:00 ET.** Save a copy of the submitted text in `wiki/submission.md`.
+- [ ] **Freeze `main`** (coordinator, 11-03): tag the final commit `submission-2026-11-04`, deploy exactly that tag, push nothing to `main` after it unless the owner asks. A fix after the tag gets a new tag (`submission-2026-11-04.1`), never a moved one.
+- [ ] **Smoke on the VM after the freeze** (coordinator): every service up; the four recordings play from 0:00 with the whole transcript; a live session plays and restarts at 00:00 after its end card; a language pick shows subtitles (recording within a second once made, live within about 15 s); the spend ledger has room under the $100 ceiling and the caps (`~/tt-data/caps/*.json`).
+- [ ] **Owner, Wed 11-04:**
+  - answer [0026](../../tickets/0026-demo-video-languages-and-voice.md) (viewer languages and voice) and [0027](../../tickets/0027-submission-track-and-theme.md) (track and theme);
+  - shoot the video from [howto/demo-video-shoot.md](../howto/demo-video-shoot.md) with the script [submission-video.md](../submission-video.md) (≤ 3:00, the opening line on what pre-existed), upload it (e.g. YouTube, unlisted is fine if the form allows), and check it plays logged out;
+  - sign in to the form, fill it from [submission.md](../submission.md), check the repo is public, and submit by Wed 20:00 +03 (the deadline is Nov 4, 9 PM ET = Thu 05:00 +03);
+  - after submitting: push nothing to the repo; keep the VM running through judging (Nov 4-8).
+- [ ] **Save a copy of the submitted text** in `wiki/submission.md` — before submitting, since the repo is frozen after.
 
 ## Log
 
