@@ -175,6 +175,10 @@ A viewer with only the captions-sized track on receives about 0.4 % of the bytes
 
 ### Server fan-out at 1, 10 and 100 viewers (local validation)
 
+> **Not reproduced; do not cite.** These figures are suspiciously round (per-viewer rates identical at every N, exact
+> multiples of N in egress) and look scaled from one run, not measured per N. They have not been re-run, and nothing
+> in the README or the submission text uses them. Treat the table and the takeaways below as a harness check only.
+
 Validation of the fan-out harness (`fanout.py`, profile `fanout`), measuring server container CPU (% of 1 core),
 RSS memory (MiB), and network egress across N = 1, 10, 100 concurrent subscribers:
 
@@ -193,7 +197,7 @@ RSS memory (MiB), and network egress across N = 1, 10, 100 concurrent subscriber
 | LL-HLS | 10 | `mediamtx` | 19.8 | 39.6 | 24.50 | 2450.0 |
 | LL-HLS | 100 | `mediamtx` | 140.3 | 54.0 | 245.00 | 2450.0 |
 
-Key takeaways from the fan-out scaling:
+Key takeaways from the fan-out scaling (not reproduced, see above):
 - **MoQ relay CPU scaling is linear and modest**: Even at N = 100 concurrent viewers, `relay` uses ~60 % of one core and
   ~40 MiB RSS. The relay merely forwards QUIC datagrams/streams without per-session encryption handshakes or stateful
   transcoding.

@@ -207,18 +207,21 @@ function titleCard() {
 
 /** The public repository, on the end card. */
 const REPO = "github.com/LeventAksakal/talk-tracks";
+/** The live site, on the end card. */
+const SITE = "talk-tracks.leventaksakal.com";
 
 function endCard() {
   return page(
     1920,
     1080,
-    `<div style="position:absolute;left:0;right:0;top:250px;text-align:center">
+    `<div style="position:absolute;left:0;right:0;top:200px;text-align:center">
       <p class="title" style="margin:0;font-size:150px">Thanks for watching</p>
     </div>
-    <div style="position:absolute;left:0;right:0;top:560px;display:flex;flex-direction:column;align-items:center">
+    <div style="position:absolute;left:0;right:0;top:470px;display:flex;flex-direction:column;align-items:center">
       ${brandRow(96)}
       <p style="margin:44px 0 0;font-size:40px;color:${MUTED}">Live talks over Media over QUIC, with AI tracks.</p>
-      <p style="margin:22px 0 0;font-size:44px;color:${TEXT}">${REPO}</p>
+      <p style="margin:34px 0 0;font-size:52px;color:${TEXT}">${SITE}</p>
+      <p style="margin:16px 0 0;font-size:40px;color:${MUTED}">${REPO}</p>
     </div>
     <div style="position:absolute;left:0;right:0;top:1000px;height:6px;background:linear-gradient(90deg,${LANE[0]},${LANE[1]} 52%,${LANE[2]})"></div>`,
     GLOW,

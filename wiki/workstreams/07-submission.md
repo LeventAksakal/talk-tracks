@@ -51,7 +51,7 @@ Sources, in order of authority:
 
 - [x] **Re-read the hackathon rules** for video length, required fields, image sizes, and use of Meta models and
       marks. Note them here before anything else. (2026-11-02, table above; the owner still checks sources 3 and 4.)
-- [ ] **Demo video** (script: [submission-video.md](../submission-video.md); the owner records) along the golden path in journeys.md (J8 → J1 → J6), with the title and end cards from 02.
+- [ ] **Demo video** (script: [submission-video.md](../submission-video.md); the owner records) along the beats in submission-video.md, with the title and end cards from 02.
       Show the four demo moments ([howto/demo-moments.md](../howto/demo-moments.md)), Muse models at work, and the
       drawing replaying in rewind.
 - [x] **Submission text** (draft in [submission.md](../submission.md), owner fills track, theme, video link, access code): problem, what it does, how it is built (MoQ, one publisher per agent, the track model),
