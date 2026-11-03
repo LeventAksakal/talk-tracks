@@ -77,7 +77,7 @@ export function Audience({
       ) : null}
       {!catalog ? (
         <p className="muted small">
-          No room service yet: the features listeners use show here once it lists this room.
+          What viewers turn on (subtitle languages, chapters, slide descriptions) shows here once you are on air.
         </p>
       ) : list.length === 0 ? (
         <p className="muted small">No feature in use yet. Each one starts when a listener picks or opens it.</p>
