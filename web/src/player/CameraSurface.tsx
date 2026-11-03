@@ -43,10 +43,15 @@ const unsized = (w: number, h: number) => (w === 300 && h === 150) || w === 0 ||
 /**
  * What the camera tile says while it has no picture. Live, the picture comes with the live player, which starts on
  * play (a browser plays sound only after a tap): before that there is nothing to say, the stage asks for the tap.
- * Only a live player that plays and has painted no frame has audio without a picture.
+ * Only a live player that plays and has painted no frame has audio without a picture. Rewound or in a recording,
+ * the archive's picture loads with its first segment: only archived media that plays without one is audio only.
  */
 export function cameraNote(live: boolean, status: MediaStatus): string | undefined {
-  if (!live) return "Audio only here";
+  if (!live) {
+    if (status === "playing") return "Audio only here";
+    if (status === "no-media") return "Nothing recorded here";
+    return status === "loading" ? "Loading the picture…" : undefined;
+  }
   if (status === "playing") return "Speaker audio, no picture yet";
   if (status === "loading") return "Loading the picture…";
   return undefined;
@@ -137,10 +142,8 @@ export function CameraSurface() {
         aria-label="Speaker video, rewound"
         playsInline
       />
-      {aspect === undefined && note !== undefined ? (
-        <div className="tt-camera-empty">
-          <span className="tt-camera-note">{note}</span>
-        </div>
+      {aspect === undefined && (note !== undefined || !live) ? (
+        <div className="tt-camera-empty">{note ? <span className="tt-camera-note">{note}</span> : null}</div>
       ) : null}
       <span className="tt-source-tag">Camera</span>
     </SourceTile>

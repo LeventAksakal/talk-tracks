@@ -1,5 +1,8 @@
-import type { CSSProperties, ReactNode } from "react";
+import { createContext, type CSSProperties, type ReactNode, useContext, useEffect } from "react";
 import type { SourceKind } from "./prefs";
+
+/** Tiles tell the stage their shape, so it can keep the corner tile and the subtitles off the main picture. */
+export const TileAspects = createContext<((kind: SourceKind, aspect: number) => void) | undefined>(undefined);
 
 /**
  * One source's box (decision 0020): its CSS aspect-ratio is the source's, centred in its layout cell, and
@@ -20,6 +23,10 @@ export function SourceTile({
   children: ReactNode;
   overlay?: ReactNode;
 }) {
+  const report = useContext(TileAspects);
+  useEffect(() => {
+    if (Number.isFinite(aspect) && aspect > 0) report?.(kind, aspect);
+  }, [report, kind, aspect]);
   return (
     <div
       className={`tt-tile tt-tile-${kind}`}

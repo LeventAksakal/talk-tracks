@@ -60,7 +60,14 @@ const sameShown = (a: Shown, b: Shown) => sameLines(a.original, b.original) && s
  * room time of the frame on screen, dragged anywhere with Pointer Events and remembered as fractions of the
  * canvas, so they keep their place through resizes and layout changes.
  */
-export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivElement | null> }) {
+export function SubtitleOverlay({
+  stageRef,
+  below,
+}: {
+  stageRef: RefObject<HTMLDivElement | null>;
+  /** Where the stage keeps room for unmoved subtitles, under the main picture (stageFit), in px. */
+  below?: { x: number; top: number; maxWidth: number };
+}) {
   const { tracks, prefs, update, clock, view, sources } = usePlayer();
   const live = view.timeline.mode === "live";
   const translating = prefs.subtitleLang !== "original";
@@ -125,10 +132,20 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
     return undefined;
   }
 
+  // Unmoved, they hang from the top of the room the stage keeps for them under the main picture, so they never
+  // cover it; moved, the viewer's place (their bottom centre), as fractions of the canvas.
+  const hang = !prefs.subtitlePos ? below : undefined;
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || !box.current) return;
     box.current.setPointerCapture(e.pointerId);
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from: pos, to: pos };
+    // A drag starts from where the box is drawn: its bottom centre.
+    const rect = stageRef.current?.getBoundingClientRect();
+    const b = box.current.getBoundingClientRect();
+    const from =
+      hang && rect && rect.width > 0 && rect.height > 0
+        ? { x: (b.left + b.width / 2 - rect.left) / rect.width, y: (b.bottom - rect.top) / rect.height }
+        : pos;
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from, to: from };
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
@@ -138,6 +155,7 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
     // Moved directly while dragging; saved (and re-rendered) once on release.
     box.current.style.left = `${d.to.x * 100}%`;
     box.current.style.top = `${d.to.y * 100}%`;
+    box.current.removeAttribute("data-below");
   };
   const endDrag = () => {
     const d = drag.current;
@@ -146,11 +164,15 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
   };
 
   const style = {
-    left: `${pos.x * 100}%`,
-    top: `${pos.y * 100}%`,
+    ...(hang
+      ? { left: `${hang.x}px`, top: `${hang.top}px`, maxWidth: `${hang.maxWidth}px` }
+      : {
+          left: `${pos.x * 100}%`,
+          top: `${pos.y * 100}%`,
+          ...(place.maxWidth !== undefined ? { maxWidth: `calc(${place.maxWidth * 100}% - 8px)` } : {}),
+        }),
     "--sub-size": `${prefs.style.size}px`,
     "--sub-bg": prefs.style.background,
-    ...(place.maxWidth !== undefined ? { maxWidth: `calc(${place.maxWidth * 100}% - 8px)` } : {}),
   } as CSSProperties;
   const origLang = tracks.captions?.lang ?? "en";
   const transLang = shownTrack?.lang ?? prefs.subtitleLang;
@@ -161,6 +183,7 @@ export function SubtitleOverlay({ stageRef }: { stageRef: RefObject<HTMLDivEleme
       className="tt-subs"
       data-preset={prefs.style.preset}
       data-placed={prefs.subtitlePos ? "" : undefined}
+      data-below={hang ? "" : undefined}
       style={style}
       title="Drag to move the subtitles"
       aria-label="Subtitles"
