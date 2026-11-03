@@ -510,6 +510,11 @@
   font-size: var(--tt-text-micro);
   line-height: 1.4;
 }
+/* Each fact on one line with its separator: a dd is a block, so the "·" before it would sit on a line of its own. */
+.tile-facts > div {
+  display: flex;
+  min-width: 0;
+}
 .tile-facts dd {
   margin: 0;
 }
@@ -522,6 +527,7 @@
   min-width: 0;
 }
 .tile-tracks dd {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -593,6 +599,7 @@
 }
 .hub-foot a {
   color: var(--hub-text);
+  text-decoration: underline;
   text-underline-offset: 2px;
 }
 
