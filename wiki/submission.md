@@ -39,13 +39,17 @@ https://talk-tracks.leventaksakal.com
 
 `<YouTube link, unlisted or public, checked in a logged-out window>`
 
+The video is a real live lecture filmed from three points of view (the speaker and two viewers), with a terminal of
+the VM's Meta model calls along the bottom: [script](submission-video.md), [shoot runbook](howto/demo-video-shoot.md).
+
 ## How judges try it (put in the description, or a notes field if the form has one)
 
 > Open https://talk-tracks.leventaksakal.com in desktop Chrome. No account needed.
 >
 > 1. **Watch a live session.** Pick a lecture under *Live now*. Each one plays once from 00:00 and starts again. Open
->    **CC** and pick Arabic, Spanish, Turkish, or type any language. The captions and translations come from agents
->    listening to that session right now. Open the side panel for chapters, glossary and transcript.
+>    **CC** and type any language in *Search any language*. A translation is made only once someone picks it, so the
+>    first subtitles come a sentence later. The captions and translations come from agents listening to that
+>    session right now. Open the side panel for chapters, glossary and transcript.
 > 2. **Rewind.** Drag the progress bar back (or press J). Slides, drawings and subtitles replay at that moment. Press
 >    G to go live.
 > 3. **Stats for nerds.** Press I, or right-click the video: every track in the room, who subscribes to it, which
@@ -53,7 +57,8 @@ https://talk-tracks.leventaksakal.com
 > 4. **Give a talk.** Press *Start a talk*, enter a title, your name, a room name and the access code
 >    **`<ACCESS CODE: owner pastes it here in the form only>`**. Open the speaker link, allow the microphone, pick a
 >    PDF or share a screen, press **Go on air**, and open the audience link in a second window.
-> 5. **Recordings** are under *Recordings*: the whole lecture, seekable, AI tracks labelled as recorded.
+> 5. **Recordings** are under *Recordings*: the whole lecture, seekable, the speaker's camera beside the slides, AI
+>    tracks labelled as recorded. Pick a language there too: it is translated for the part you watch.
 >
 > If the network is bad, `/demo` plays the player on a scripted room, offline.
 
@@ -73,15 +78,16 @@ with a microphone, a camera, a PDF deck or a shared screen, a pen and a laser po
 pick what they want:
 
 - **captions** as the speaker talks;
-- **subtitles in their language**: Turkish, Spanish and Arabic ready, or any other language they type, started on
-  demand;
+- **subtitles in their language**: any language in the list, each made only when the first viewer picks it, in live
+  talks and recordings alike;
 - **slide descriptions**, so a listener who cannot see the slide hears or reads what is on it;
 - **chapters, a glossary and a recap**, so a late joiner can catch up;
 - **rewind** to any moment, with the slides, drawings and subtitles exactly as they were, and **Go live** back;
 - **chat**, private notes and bookmarks, and a download of the transcript or of the whole lecture as a package.
 
 When the talk ends, the same tracks become the recording. The site runs four public lectures (Electromagnetic Field
-2026, CC BY-SA 4.0) as live sessions with live agents, and as recordings.
+2026, CC BY-SA 4.0) as live sessions with live agents, and as recordings that show the speaker's camera in a tile
+beside the letterboxed slides.
 
 ### How it is built
 
@@ -109,7 +115,8 @@ When the talk ends, the same tracks become the recording. The site runs four pub
 - **Muse Voice Transcribe** (realtime, endpointing) turns the speaker's audio into caption lines. It is the source text
   for every other AI track.
 - **Muse Spark** translates each caption line, with the lines before it as context, into any language a viewer asks
-  for. Each language is its own track, started by the first viewer who picks it.
+  for. Each language is its own track, started by the first viewer who picks it, and nothing is translated before
+  that (decision 0035). In a recording, a language is translated slice by slice for the part a viewer fetches.
 - **Muse Spark with vision** describes each new slide for listeners who cannot see it. A slide shown again reuses its
   description.
 - **Muse Spark** builds the chapters, glossary and recap as the talk goes, revising them as the transcript grows.
@@ -151,3 +158,16 @@ All code in the repository was written from Oct 27, 2026 (first commit), in the 
 ran feasibility measurements only. Third-party parts, used under their licences and listed in NOTICE: moq-relay and the
 `@moq/*` browser libraries, Media Chrome (player controls), hls.js, PDF.js, perfect-freehand, aiomoqt, PyAV, the
 fonts, and the four EMF 2026 lectures (CC BY-SA 4.0, credited in the README).
+
+## Before pressing Submit (owner)
+
+- [ ] **Demo video** link is on YouTube, **unlisted or public** (not private), opens in a logged-out window, and is
+      3:00 or less.
+- [ ] **Repository** https://github.com/LeventAksakal/talk-tracks is **public** and opens logged out.
+- [ ] **Live project** link opens, a live session plays with captions, and the access code in the form works (try
+      it once with a throwaway room name).
+- [ ] The access code is typed **only into the form**, never into this file or the repository.
+- [ ] Track, theme and team member filled in; the description pasted from the blocks above.
+- [ ] `main` is tagged and is what the VM runs.
+- [ ] **After submitting, push nothing to the repository** ("Changing the repository after the deadline will mark
+      this project late"). Later work waits on a branch until judging ends, or until the owner says otherwise.

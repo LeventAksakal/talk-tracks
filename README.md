@@ -23,8 +23,8 @@ account.
 
 | What | Where | What to look at |
 |---|---|---|
-| **Live sessions** of four demo lectures | **Live now** row, or `/watch/virus`, `/watch/dataviz`, `/watch/rsa`, `/watch/qrcode` | Each session plays its lecture once from 00:00, ends, and a new session starts. Open the **CC** menu for captions or a translation (Turkish, Spanish, Arabic, or any other language you pick), the side panel for chapters, glossary and transcript. Each slide's description is its text alternative for a screen reader, and the sound menu can read it aloud ("Speaker and slide descriptions"). On demo days the live AI tracks come from agents running on the session's audio in real time. |
-| **Recordings** of the same lectures | **Recordings** row, or `/watch/virus-recording` and so on | The whole lecture, seekable from the start. Its AI tracks were made by the same agents and are labelled as recorded. |
+| **Live sessions** of four demo lectures | **Live now** row, or `/watch/virus`, `/watch/dataviz`, `/watch/rsa`, `/watch/qrcode` | Each session plays its lecture once from 00:00, ends, and a new session starts. Open the **CC** menu for captions or a translation into any listed language (each is made only once a viewer picks it), the side panel for chapters, glossary and transcript. Each slide's description is its text alternative for a screen reader, and the sound menu can read it aloud ("Speaker and slide descriptions"). On demo days the live AI tracks come from agents running on the session's audio in real time. |
+| **Recordings** of the same lectures | **Recordings** row, or `/watch/virus-recording` and so on | The whole lecture, seekable from the start, with the speaker's camera in a tile beside the slides. Its captions, slide descriptions and chapters were made by the same agents and are labelled as recorded; a translation is made when you pick it, for the part you watch. |
 | **Rewind** a live session | drag the progress bar back, or press J | The player leaves the live edge, shows what you missed, and **Go live** (G) returns. Slides, ink and subtitles replay at the time you seek to. |
 | **Stats for nerds** | press I, or right-click the video | Every track of the room, its subscribers, which agents are running, and whether the connection is WebTransport or the WebSocket fallback. |
 | **Offline demo** | `/demo` (and `/demo/rewind`) | The player on a scripted room, with no relay and no agents: useful when the network is bad. |
@@ -59,7 +59,7 @@ flowchart LR
     R(("moq-relay<br/>one relay, one cache"))
     subgraph Agents["AI agents, one publisher each"]
         C["captions<br/>Muse Voice Transcribe"]
-        T["translate-tr / -es / -ar / any<br/>Muse Spark"]
+        T["translate, one track per language<br/>Muse Spark"]
         D["describe<br/>Muse Spark vision"]
         O["chapters, glossary, recap<br/>Muse Spark"]
     end
@@ -103,7 +103,7 @@ More: [the track system](wiki/design/moq-track-system.md), [decisions](wiki/deci
 | Job | Model | What it does |
 |---|---|---|
 | Live captions | Muse Voice Transcribe (`muse-voice-transcribe-1.0`), realtime endpointing | Turns the speaker's audio into caption lines as they speak. It is the source text for every other AI track. |
-| Translation | Muse Spark (`muse-spark-1.3`, Standard mode) | Translates each caption line into Turkish, Spanish, Arabic, or any language a viewer asks for, with the three lines before it as context. |
+| Translation | Muse Spark (`muse-spark-1.3`, Standard mode) | Translates each caption line into any listed language a viewer picks, made only while someone watches it, with the three lines before it as context. |
 | Slide description | Muse Spark, vision input | Describes each new slide for a listener who cannot see it; a slide shown again reuses its description. |
 | Chapters, glossary, recap | Muse Spark | Splits the talk into chapters as it goes, explains the technical terms in a glossary, and writes a recap for late joiners. |
 | Punctuation of recordings | Muse Spark | Adds sentence and clause marks to a recording's caption lines without changing a word, so subtitles break on sentences. |
@@ -175,9 +175,9 @@ Changes made:
   licence card. The biology and RSA talks end at section breaks before the concluding Q&A or final parts; the design
   and QR code talks are used whole.
 - Each is re-encoded for streaming (720p H.264, mono Opus).
-- AI-generated tracks are added by this project's agents with Meta models: captions, translations into Turkish,
-  Spanish and Arabic, slide descriptions, and chapters with a glossary and recap. The recordings carry tracks made
-  once; the live sessions get theirs from the live agents.
+- AI-generated tracks are added by this project's agents with Meta models: captions, slide descriptions, and
+  chapters with a glossary and recap, and translations made on demand. The recordings carry tracks made once (their
+  translations are made when a viewer picks a language); the live sessions get theirs from the live agents.
 
 The trimmed videos and the tracks derived from them are shared under CC BY-SA 4.0 too. The cuts are in
 `deploy/media/demo-lectures.sh`. The videos themselves are not in this repository.
