@@ -1,14 +1,18 @@
+# pyright: reportPrivateUsage=false
+# (the stubs stand in for aiomoqt internals, whose names are private)
 """Every aiomoqt client is pinned to MoQT draft 18 (aiomoqt offers draft 22 first when left to choose).
 
 aiomoqt has no Windows wheels, so ``talk_tracks.moq`` is imported here against a stub that records how the client
 is built.
 """
 
+import contextlib
 import importlib
 import json
 import re
 import sys
 import types
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -374,3 +378,272 @@ def test_the_relay_subscriptions_of_a_sliced_track_feed_its_demand(moq: Any) -> 
     assert out.demand.open() == 1 and calls == ["subscribe"]
     track._on_request_cancelled(5)  # pyright: ignore[reportPrivateUsage]
     assert out.demand.open() == 0 and calls == ["subscribe", "cancelled"]
+
+
+# --- R2 (2026-11-03): a recording publisher stopped answering the relay ----------------------------------------
+
+
+class RequestStreams:
+    """aiomoqt's request-stream handling as it is: a reset of the relay's half and a served FETCH leave our half open.
+    Records what we send on each stream."""
+
+    _is_client = True
+
+    def __init__(self) -> None:
+        self._bidi_stream_requests: dict[int, int] = {}
+        self._bidi_streams: dict[int, int] = {}
+        self.resets: list[int] = []
+        self.fins: list[int] = []
+
+    def bind(self, stream_id: int, request_id: int) -> None:
+        self._bidi_stream_requests[stream_id] = request_id
+        self._bidi_streams[request_id] = stream_id
+
+    def _on_request_stream_terminated(self, stream_id: int, *, stop_sending_code: int | None = None) -> None:
+        self._bidi_stream_requests.pop(stream_id, None)
+
+    def _on_control_data(self, stream_id: int, data: Any, end_stream: bool, *, is_request_bidi: bool = False) -> None:
+        pass
+
+    async def serve_fetch(self, request_id: int, objects: Any, **kw: Any) -> int:
+        return 99  # the data stream, FIN'd
+
+    def stream_reset(self, stream_id: int, error_code: int = 1) -> None:
+        self.resets.append(stream_id)
+
+    def stream_fin(self, stream_id: int) -> None:
+        self.fins.append(stream_id)
+
+    _gone_requests: ClassVar[dict[int, None]] = {}
+    _half_open: Any = None  # set by _retire_request_streams
+
+    def _send_on_request_stream(self, request_id: int, msg: Any, fin: bool = False) -> None:
+        if fin:  # aiomoqt FINs with stream_write, not stream_fin
+            self.fins.append(self._bidi_streams[request_id])
+
+    def stop_sending(self, stream_id: int) -> None:
+        """The relay's STOP_SENDING, as aiomoqt handles it: our half is reset, then the request is told."""
+        self.stream_reset(stream_id, 0)
+        self._on_request_stream_terminated(stream_id, stop_sending_code=0)
+
+
+def test_a_request_stream_the_relay_resets_is_closed_on_our_side_so_its_credit_comes_back(moq: Any) -> None:
+    """Draft 18 caps the relay's requests to us only by QUIC bidi credit (512), which a stream gives back once both
+    halves are closed. The relay ends a subscription by resetting its half; ours must close too."""
+    import asyncio
+
+    async def scenario() -> list[int]:
+        session = RequestStreams()
+        moq._retire_request_streams(session)  # pyright: ignore[reportPrivateUsage]
+        session.bind(5, 2)
+        session._on_request_stream_terminated(5)  # the relay reset its half of a SUBSCRIBE it sent (stream 5)
+        session._on_request_stream_terminated(9, stop_sending_code=0)  # STOP_SENDING: aiomoqt resets ours itself
+        session._on_request_stream_terminated(4)  # a stream we opened: our own request, not ours to retire
+        return session.resets
+
+    assert asyncio.run(scenario()) == [5]
+
+
+@pytest.mark.parametrize("relay_first", [False, True])
+def test_a_served_fetch_closes_its_request_stream_once_the_relay_has_closed_its_half(
+    moq: Any, monkeypatch: pytest.MonkeyPatch, relay_first: bool
+) -> None:
+    """A FETCH's request stream carried FETCH_OK; once its data stream is done and the relay has FIN'd its half, ours
+    closes (a grace later), whichever comes first. A subscription the relay FINs but still holds keeps its stream."""
+    import asyncio
+
+    monkeypatch.setattr(moq, "FIN_GRACE_S", 0.01)
+
+    async def scenario() -> tuple[list[int], list[int], dict[int, int]]:
+        session = RequestStreams()
+        moq._retire_request_streams(session)  # pyright: ignore[reportPrivateUsage]
+        session.bind(13, 3)  # a FETCH
+        session.bind(17, 4)  # a SUBSCRIBE
+        if relay_first:
+            session._on_control_data(13, b"", True, is_request_bidi=True)
+        await asyncio.sleep(0.05)
+        assert session.fins == []  # not before the FETCH is served
+        await session.serve_fetch(3, [])
+        if not relay_first:
+            await asyncio.sleep(0.05)
+            assert session.fins == []  # not before the relay ends its half
+            session._on_control_data(13, b"", True, is_request_bidi=True)
+        session._on_control_data(17, b"", True, is_request_bidi=True)
+        await asyncio.sleep(0.05)
+        return session.fins, session.resets, session._bidi_streams
+
+    fins, resets, bound = asyncio.run(scenario())
+    assert fins == [13] and resets == []
+    assert bound == {4: 17}  # the served FETCH is forgotten; the subscription is untouched
+
+
+class GhostSession:
+    """A SUBSCRIBE whose cancel aiomoqt handled before the track's handler ran: marked gone, no handler to call."""
+
+    def __init__(self, gone: set[int]) -> None:
+        self._gone_requests = dict.fromkeys(gone)
+        self._request_cancel_handlers: dict[int, Any] = {}
+
+    def _notify_request_cancelled(self, request_id: int, why: str) -> None:
+        cb = self._request_cancel_handlers.pop(request_id, None)
+        if cb is not None:
+            cb(request_id)
+
+
+class SubscribedTrack:
+    """aiomoqt's ``_on_subscribe``: accepts, adds the subscriber, registers the cancel that ends it."""
+
+    trackname = "catalog"
+
+    def __init__(self) -> None:
+        self.subscribers: set[int] = set()
+
+    async def _on_subscribe(self, session: Any, msg: Any) -> None:
+        self.subscribers.add(msg.request_id)
+        session._request_cancel_handlers[msg.request_id] = self.subscribers.discard
+
+
+def test_a_subscribe_cancelled_before_it_was_handled_leaves_no_ghost_subscriber(moq: Any) -> None:
+    """The relay abandons a SUBSCRIBE its viewer gave up on as soon as it sends it. Without this the track wrote to
+    the ghost every 2 s for over an hour (the relay's "unknown track alias", 2026-11-03), and a lazy agent would see
+    a subscriber forever."""
+    import asyncio
+
+    track = SubscribedTrack()
+    moq._drop_cancelled_subscribes(track)  # pyright: ignore[reportPrivateUsage]
+    session = GhostSession(gone={86})
+
+    async def scenario() -> None:
+        await track._on_subscribe(session, types.SimpleNamespace(request_id=86))  # pyright: ignore[reportPrivateUsage]
+        await track._on_subscribe(session, types.SimpleNamespace(request_id=90))  # pyright: ignore[reportPrivateUsage]
+
+    asyncio.run(scenario())
+    assert track.subscribers == {90}
+    assert set(session._request_cancel_handlers) == {90}
+
+
+def test_a_request_stream_leaves_the_bookkeeping_once_both_halves_are_closed(moq: Any) -> None:
+    """Every way a request stream of the relay's ends takes it out of what ``_retire_request_streams`` remembers, so
+    a publisher that runs for days holds only the streams still open."""
+    import asyncio
+
+    async def scenario() -> tuple[Any, list[int]]:
+        session = RequestStreams()
+        moq._retire_request_streams(session)
+        session.bind(21, 6)  # a refused FETCH: REQUEST_ERROR with FIN, then the relay's FIN
+        session._send_on_request_stream(6, "REQUEST_ERROR", fin=True)
+        session._on_control_data(21, b"", True, is_request_bidi=True)
+        session.bind(25, 7)  # a SUBSCRIBE the relay FINs at once, ended later by our PUBLISH_DONE
+        session._on_control_data(25, b"", True, is_request_bidi=True)
+        session._send_on_request_stream(7, "PUBLISH_DONE", fin=True)
+        session.bind(29, 8)  # a subscription the relay ends with STOP_SENDING, then FIN
+        session.stop_sending(29)
+        session._on_control_data(29, b"", True, is_request_bidi=True)
+        session.bind(33, 9)  # a served FETCH the relay ends with STOP_SENDING, then a reset
+        await session.serve_fetch(9, [])
+        session.stop_sending(33)
+        session._on_request_stream_terminated(33)
+        return session._half_open, session.resets
+
+    half, resets = asyncio.run(scenario())
+    assert (half.peer_ended, half.ours_ended, half.served) == (set(), set(), set())
+    assert resets == [29, 33]
+
+
+def test_stop_sending_then_a_reset_resets_our_half_once(moq: Any) -> None:
+    import asyncio
+
+    async def scenario() -> list[int]:
+        session = RequestStreams()
+        moq._retire_request_streams(session)
+        session.bind(37, 10)
+        session.stop_sending(37)  # aiomoqt resets our half
+        session._on_request_stream_terminated(37)  # then the relay resets its own
+        return session.resets
+
+    assert asyncio.run(scenario()) == [37]
+
+
+class ProbeReader(ClockReader):
+    def __init__(self, sub: tuple[int, int]) -> None:
+        super().__init__([b"ok"])
+        self.sub = sub
+
+
+class ProbeWire:
+    """The relay as the watchdog's probes meet it. A probe's SUBSCRIBE is on the wire from when it is sent until it
+    is unsubscribed or its connection closes: a probe that times out waiting for an answer stays subscribed, as with
+    aiomoqt, which drops only its local routes. While any probe is subscribed the relay holds its own subscription
+    upstream and answers a new probe from it; otherwise the probe reaches the publisher, which answers or hangs
+    (``publisher``, in turn).
+
+    Called, it opens a new connection; used as a Relay, it is the one connection it already holds."""
+
+    def __init__(self, publisher: list[bool]) -> None:
+        self.publisher = publisher
+        self.live: list[tuple[int, int]] = []  # (connection, probe), subscribed on the wire
+        self.connection = 0
+        self.probes = 0
+        self.asked = 0  # probes the relay passed on to the publisher
+        self.agent = types.SimpleNamespace(reader=self._reader, close_reader=self._close_reader)
+
+    async def _reader(self, spec: Any) -> ProbeReader:
+        import asyncio
+
+        self.probes += 1
+        reader = ProbeReader((self.connection, self.probes))
+        upstream = bool(self.live)
+        self.live.append(reader.sub)
+        if upstream:
+            return reader  # answered from the relay's upstream subscription: the publisher is not asked
+        self.asked += 1
+        if self.publisher and self.publisher.pop(0):
+            return reader
+        await asyncio.Event().wait()  # the publisher never answers (out of stream credit)
+        raise AssertionError
+
+    def _unsubscribe(self, reader: ProbeReader, name: str) -> None:
+        self.live.remove(reader.sub)
+
+    def _close_reader(self, name: str) -> None:
+        pass  # local only, as in aiomoqt: nothing leaves the wire
+
+    @contextlib.asynccontextmanager
+    async def __call__(self) -> AsyncGenerator["ProbeWire"]:
+        self.connection += 1
+        mine = self.connection
+        try:
+            yield self
+        finally:  # closing a connection ends its subscriptions
+            self.live = [sub for sub in self.live if sub[0] != mine]
+
+
+def test_a_probe_that_times_out_leaves_nothing_subscribed_and_every_probe_asks_the_publisher(
+    moq: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe the publisher never answers must not stay subscribed: the relay would answer every later probe from
+    its upstream subscription and a stalled publisher would never be seen again (review of R2, 2026-11-03). One
+    miss is forgiven; three in a row once armed end the watchdog; never armed, it never gives up."""
+    import asyncio
+
+    for name in ("TrackRef", "SubscribeSpec", "StartAt"):
+        monkeypatch.setattr(moq, name, types.SimpleNamespace)
+
+    def watch(wire: ProbeWire) -> Any:
+        return moq.answering(wire, "talk/r/catalog", every_s=0, timeout_s=0.05, misses=3)
+
+    wire = ProbeWire([True, False, True, False, False, False])
+    asyncio.run(asyncio.wait_for(watch(wire), 2))
+    assert wire.live == []
+    assert wire.asked == wire.probes == 6
+
+    never = ProbeWire([False] * 50)  # a token that may not subscribe there: never armed, never gives up
+
+    async def unarmed() -> None:
+        await asyncio.wait_for(watch(never), 0.5)
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(unarmed())
+    assert never.live == []
+    assert never.asked == never.probes > 3
+    assert never.probes > 3

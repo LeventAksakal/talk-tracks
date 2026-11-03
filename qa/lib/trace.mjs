@@ -131,8 +131,11 @@ export async function runTrace({ runDir, path, seconds, opts, log }) {
     await step("player ready", async () => {
       await page.waitForFunction(
         () => {
-          const el = document.querySelector('[aria-label="Time in the talk"]');
-          return el && !/^–:––/.test(el.textContent ?? "");
+          // Media Chrome's time display (its text lives in its shadow root): known once it has a time to show.
+          const el = document.querySelector('media-time-display[aria-label="playback time"]');
+          if (!el) return false;
+          const told = el.getAttribute("aria-description") ?? "";
+          return (told !== "" && !/not loaded/.test(told)) || Number(el.getAttribute("mediacurrenttime")) > 0;
         },
         null,
         { timeout: 30_000 },
@@ -140,8 +143,13 @@ export async function runTrace({ runDir, path, seconds, opts, log }) {
     });
     await mark(page, "qa:loaded");
     await step("play", async () => {
-      const play = page.getByRole("button", { name: "Play (K)" });
-      if (await play.isVisible().catch(() => false)) await play.click();
+      // The big button over a paused talk, else Media Chrome's play button (named "play" while paused).
+      for (const play of [page.getByRole("button", { name: "Play the talk" }), page.getByRole("button", { name: "play", exact: true })]) {
+        if (await play.isVisible().catch(() => false)) {
+          await play.click();
+          break;
+        }
+      }
     });
     await step("subtitles on (original only)", async () => {
       await page.getByRole("button", { name: "Subtitles", exact: true }).click();
@@ -195,8 +203,9 @@ export async function runTrace({ runDir, path, seconds, opts, log }) {
 
     await mark(page, "qa:seek");
     await step("seek back a minute", async () => {
-      await page.getByRole("slider", { name: "Position in the talk" }).focus();
-      await page.keyboard.press("PageDown");
+      // J is 10 s back: Media Chrome's keyboard seek, which the player forwards from anywhere but a field.
+      await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      for (let i = 0; i < 6; i++) await page.keyboard.press("j");
       await sleep(5_000);
       return (await page.locator(".tt-pill").first().textContent()) ?? "";
     });
