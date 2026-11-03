@@ -57,18 +57,11 @@ fullscreen, M mute, I stats, ? every shortcut.
 
 ## Screenshots
 
-<!--
-  Placeholders: the coordinator adds the final screenshots from the QA run under docs/screenshots/ (file names and
-  what each shows are in docs/screenshots/README.md), then removes this comment and the line below it.
-
-![Home: live sessions and recordings](docs/screenshots/01-hub.png)
-![Player: Arabic subtitles, chapters and a slide description](docs/screenshots/02-player-tracks.png)
-![Rewind: "You missed" and Go live](docs/screenshots/03-rewind.png)
-![Speaker console on air, drawing on a slide](docs/screenshots/04-console.png)
-![Stats for nerds: tracks and subscribers](docs/screenshots/05-stats.png)
--->
-
-_Screenshots of the final build are added after the QA run; until then the title card above shows the idea._
+![Home: the live talk on air in the hero with the tracks it carries, and the Live now row](docs/screenshots/01-hub.png)
+![Recording: the slide on the stage, the speaker's camera beside it, and the AI chapters with a recap of the talk so far in the side panel](docs/screenshots/02-player-tracks.png)
+![Live talk rewound a minute and paused: the dock offers Go live, the transcript keeps up](docs/screenshots/03-rewind.png)
+![Speaker console before going on air: checks for microphone, camera, screen and slides, the slide stage and the drawing tools](docs/screenshots/04-console.png)
+![Stats for nerds over a live talk: connection, playhead, the room's tracks and their subscriber counts](docs/screenshots/05-stats.png)
 
 ## How it works
 
