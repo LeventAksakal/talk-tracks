@@ -72,7 +72,8 @@ export function Hero({ items, paused = false }: { items: HubItem[]; paused?: boo
             {[
               item.speaker,
               item.minutes ? `${item.minutes} min` : undefined,
-              item.languages.length ? `${item.languages.length} languages` : undefined,
+              item.spoken?.name,
+              item.subtitleLanguages ? `subtitles in ${item.subtitleLanguages} languages` : undefined,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -111,7 +112,7 @@ function TrackLanes({ item }: { item: HubItem }) {
   const lanes = [
     { name: "Speaker", kind: "media" },
     { name: "Captions", kind: "text" },
-    ...item.languages.slice(1, 3).map((l) => ({ name: l.name, kind: "text", lang: l.code })),
+    { name: "Translations", kind: "text" },
     { name: "Slide descriptions", kind: "slides" },
     { name: "Chapters", kind: "marks" },
   ] as { name: string; kind: string; lang?: string }[];

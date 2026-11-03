@@ -17,6 +17,21 @@ export interface MoqTransportOptions {
   url: URL;
   /** Publish token (decision 0005), sent to the relay as `?jwt=`. Watching needs none. */
   token?: string;
+  /**
+   * The one prefix this transport reads from the relay, e.g. `talk/<room>`: only its announcements are asked for.
+   * Unset, the relay announces every broadcast it holds, hundreds of them, and @moq/net matches each against every
+   * reader as it lands (2.8 s of main thread on the watch page, QA 2026-11-03).
+   */
+  scope?: string;
+}
+
+/**
+ * The origin handle a connection feeds the relay's announcements into: narrowed to `scope`, the connection asks the
+ * relay for that prefix only. Requests outside it still resolve, blind, the way they do without discovery.
+ */
+export function consumeScope(origin: Moq.Origin.Producer, scope?: string): Moq.Origin.Producer {
+  if (!scope) return origin;
+  return origin.scope(Moq.Path.empty(), new Moq.Path.Patterns([Moq.Path.Pattern.subtree(Moq.Path.from(scope))]));
 }
 
 export function relayUrl(base: string, token?: string): URL {
@@ -41,11 +56,12 @@ export class MoqTransport implements Transport {
   #closed = false;
 
   constructor(options: MoqTransportOptions) {
+    filterCloseError();
     this.origin = new Moq.Origin.Producer();
     this.connection = new Moq.Connection({
       url: options.url,
       publish: this.origin.consume(),
-      consume: this.origin,
+      consume: consumeScope(this.origin, options.scope),
       websocket: { enabled: true },
       // Retry forever: a talk outlives any relay restart. An auth refusal still stops the loop.
       delay: { timeout: Moq.Time.Milli(0) },
@@ -180,6 +196,8 @@ export class MoqTransport implements Transport {
 const CLOSE_QUIET_MS = 3_000;
 const CLOSE_ERROR = "fatal error running connection";
 let quietUntil = 0;
+/** The page is being left (pagehide, until a pageshow brings it back from the back-forward cache). */
+let leaving = false;
 let consoleError: typeof console.error | undefined;
 
 /**
@@ -189,13 +207,32 @@ let consoleError: typeof console.error | undefined;
  */
 function muteCloseError(now = Date.now()): void {
   quietUntil = now + CLOSE_QUIET_MS;
+  filterCloseError();
+}
+
+/**
+ * Leaving the page (a link, reload, the address bar) closes no transport: the browser tears the session down under
+ * @moq/net, which logs the same line as an error (Firefox, QA 2026-11-03: twice, while the "unknown room" journey
+ * navigated away from /watch/qa-no-such-room). Once the page is hiding, that line becomes a warning.
+ */
+function filterCloseError(): void {
   if (consoleError) return;
   const original = console.error.bind(console);
   consoleError = original;
   console.error = (...args: unknown[]) => {
-    if (Date.now() < quietUntil && typeof args[0] === "string" && args[0].startsWith(CLOSE_ERROR)) return;
+    if (typeof args[0] === "string" && args[0].startsWith(CLOSE_ERROR)) {
+      if (Date.now() < quietUntil) return;
+      if (leaving) {
+        console.warn("connection ended as the page was left:", ...args);
+        return;
+      }
+    }
     original(...args);
   };
+  if (typeof addEventListener === "function") {
+    addEventListener("pagehide", () => (leaving = true));
+    addEventListener("pageshow", () => (leaving = false));
+  }
 }
 
 /** Read groups as they arrive, each in its own task: a broken group is skipped, never the track's end. */
