@@ -4,8 +4,10 @@ import {
   type MouseEvent,
   type PointerEvent,
   type RefObject,
+  useCallback,
   useEffect,
   useRef,
+  useState,
 } from "react";
 import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
@@ -15,6 +17,8 @@ import { Icon } from "./icons";
 import { type BoardKind, clamp, type LayoutKind, PIP_WIDTH, type Prefs, type SourceKind } from "./prefs";
 import { ScreenSurface } from "./ScreenSurface";
 import { SlideSurface } from "./SlideSurface";
+import { TileAspects } from "./SourceTile";
+import { fitStage, type StageFit } from "./stageFit";
 import { StatsForNerds } from "./StatsForNerds";
 import { SubtitleOverlay } from "./SubtitleOverlay";
 
@@ -119,9 +123,19 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 
   const pip = prefs.pipPos;
+  const fit = useStageFit(stage, {
+    layout,
+    small: layout === "pip" && placed.length > 1 && shown(first) ? first : undefined,
+    main: first === cornerKind || placed.length < 2 ? board : cornerKind,
+    placedByViewer: pip !== undefined,
+    prefs,
+  });
   const style = {
     "--split": prefs.split,
     "--pip-w": prefs.pipWidth,
+    "--corner-ar": fit.cornerAspect,
+    "--fit-right": `${fit.layout?.right ?? 0}px`,
+    "--fit-bottom": `${fit.layout?.bottom ?? 0}px`,
     ...(pip ? { "--pip-x": pip.x, "--pip-y": pip.y } : {}),
   } as CSSProperties;
   const card = state.card;
@@ -134,121 +148,192 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
     ) : null;
 
   return (
-    <div
-      ref={stage}
-      className={`tt-stage tt-layout-${layout}${prefs.swap ? " tt-swapped" : ""}${pip ? " tt-pip-placed" : ""}${
-        card?.dim ? " tt-dimmed" : ""
-      }${covered ? " tt-covered" : ""}`}
-      style={style}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setUi((u) => ({ stats: !u.stats, menu: undefined }));
-      }}
-    >
-      {hasCamera ? (
-        <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
-          {corner("camera")}
-          <CameraSurface />
-        </div>
-      ) : null}
-      {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}
-      {hasSlides ? (
-        <div className={`tt-cell tt-cell-slides tt-cell-${role("slides")}${shown("slides") ? "" : " tt-hidden"}`}>
-          {corner("slides")}
-          <SlideSurface />
-        </div>
-      ) : null}
-      {hasScreen ? (
-        <div className={`tt-cell tt-cell-screen tt-cell-${role("screen")}${shown("screen") ? "" : " tt-hidden"}`}>
-          {corner("screen")}
-          <ScreenSurface />
-        </div>
-      ) : null}
+    <TileAspects.Provider value={fit.report}>
+      <div
+        ref={stage}
+        className={`tt-stage tt-layout-${layout}${prefs.swap ? " tt-swapped" : ""}${pip ? " tt-pip-placed" : ""}${
+          card?.dim ? " tt-dimmed" : ""
+        }${covered ? " tt-covered" : ""}`}
+        style={style}
+        onClick={onClick}
+        onDoubleClick={onDoubleClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setUi((u) => ({ stats: !u.stats, menu: undefined }));
+        }}
+      >
+        {hasCamera ? (
+          <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
+            {corner("camera")}
+            <CameraSurface />
+          </div>
+        ) : null}
+        {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}
+        {hasSlides ? (
+          <div className={`tt-cell tt-cell-slides tt-cell-${role("slides")}${shown("slides") ? "" : " tt-hidden"}`}>
+            {corner("slides")}
+            <SlideSurface />
+          </div>
+        ) : null}
+        {hasScreen ? (
+          <div className={`tt-cell tt-cell-screen tt-cell-${role("screen")}${shown("screen") ? "" : " tt-hidden"}`}>
+            {corner("screen")}
+            <ScreenSurface />
+          </div>
+        ) : null}
 
-      <SubtitleOverlay stageRef={stage} />
+        <SubtitleOverlay stageRef={stage} below={fit.layout?.captions} />
 
-      {view.missed && !card && !ui.stats ? (
-        <div className="tt-missed" role="status">
-          <span>
-            You missed {formatClock(view.missed.toMs - view.missed.fromMs)}
-            {view.missed.chapters.length > 0
-              ? ` · ${view.missed.chapters.length} chapter${view.missed.chapters.length === 1 ? "" : "s"}`
-              : ""}
-          </span>
-          {view.missed.chapters.length > 0 || (view.missed.outlineAnnounced && !view.missed.outlineOn) ? (
+        {view.missed && !card && !ui.stats ? (
+          <div className="tt-missed" role="status">
+            <span>
+              You missed {formatClock(view.missed.toMs - view.missed.fromMs)}
+              {view.missed.chapters.length > 0
+                ? ` · ${view.missed.chapters.length} chapter${view.missed.chapters.length === 1 ? "" : "s"}`
+                : ""}
+            </span>
+            {view.missed.chapters.length > 0 || (view.missed.outlineAnnounced && !view.missed.outlineOn) ? (
+              <button
+                type="button"
+                className="tt-link"
+                onClick={() => {
+                  openTab("chapters");
+                  playback.dismissMissed();
+                }}
+              >
+                Chapters
+              </button>
+            ) : null}
             <button
               type="button"
               className="tt-link"
               onClick={() => {
-                openTab("chapters");
+                openTab("transcript");
                 playback.dismissMissed();
               }}
             >
-              Chapters
+              Transcript
             </button>
-          ) : null}
-          <button
-            type="button"
-            className="tt-link"
-            onClick={() => {
-              openTab("transcript");
-              playback.dismissMissed();
-            }}
-          >
-            Transcript
+            <button
+              type="button"
+              className="tt-icon-button tt-small"
+              aria-label="Dismiss"
+              onClick={() => playback.dismissMissed()}
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+        ) : null}
+
+        {ui.stats ? <StatsForNerds /> : null}
+
+        {needsGesture ? (
+          <button type="button" className="tt-big-play" onClick={onToggle}>
+            <Icon name="play" />
+            <span>Play the talk</span>
           </button>
-          <button
-            type="button"
-            className="tt-icon-button tt-small"
-            aria-label="Dismiss"
-            onClick={() => playback.dismissMissed()}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-      ) : null}
+        ) : null}
 
-      {ui.stats ? <StatsForNerds /> : null}
+        {card ? (
+          <div className="tt-state-card" role="status" data-kind={state.kind}>
+            <span className="tt-state-glyph" aria-hidden="true" />
+            <strong>{card.title}</strong>
+            {card.body ? <span>{card.body}</span> : null}
+            {card.retry ? (
+              <button type="button" className="tt-button" onClick={() => location.reload()}>
+                Try again
+              </button>
+            ) : null}
+            {card.replay ? (
+              <button type="button" className="tt-button" onClick={() => seek(view.timeline.start)}>
+                Replay from the start
+              </button>
+            ) : null}
+            {card.hub ? (
+              <Link href="/" className="tt-link">
+                Back to the hub
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
 
-      {needsGesture ? (
-        <button type="button" className="tt-big-play" onClick={onToggle}>
-          <Icon name="play" />
-          <span>Play the talk</span>
-        </button>
-      ) : null}
-
-      {card ? (
-        <div className="tt-state-card" role="status" data-kind={state.kind}>
-          <span className="tt-state-glyph" aria-hidden="true" />
-          <strong>{card.title}</strong>
-          {card.body ? <span>{card.body}</span> : null}
-          {card.retry ? (
-            <button type="button" className="tt-button" onClick={() => location.reload()}>
-              Try again
-            </button>
-          ) : null}
-          {card.replay ? (
-            <button type="button" className="tt-button" onClick={() => seek(view.timeline.start)}>
-              Replay from the start
-            </button>
-          ) : null}
-          {card.hub ? (
-            <Link href="/" className="tt-link">
-              Back to the hub
-            </Link>
-          ) : null}
-        </div>
-      ) : null}
-
-      {ui.toast ? (
-        <div className="tt-toast" aria-hidden="true">
-          {ui.toast}
-        </div>
-      ) : null}
-    </div>
+        {ui.toast ? (
+          <div className="tt-toast" aria-hidden="true">
+            {ui.toast}
+          </div>
+        ) : null}
+      </div>
+    </TileAspects.Provider>
   );
+}
+
+/** The space between the pictures on the stage, px (player.css `.tt-stage` gap and the dock gap). */
+const FIT_GAP = 12;
+/** The dock's reach above the stage's bottom edge when player.css cannot be read, px. */
+const DOCK_REACH = 112;
+
+/**
+ * The stage's size and its tiles' shapes, and from them where the main picture goes (`fitStage`): the corner tile
+ * the player places and the subtitles the viewer has not moved never cover the slides or a shared screen.
+ */
+function useStageFit(
+  stage: RefObject<HTMLDivElement | null>,
+  {
+    layout,
+    small,
+    main,
+    placedByViewer,
+    prefs,
+  }: {
+    layout: LayoutKind;
+    /** The corner tile's source, while it shows. */
+    small: SourceKind | undefined;
+    /** The main picture's source. */
+    main: SourceKind;
+    placedByViewer: boolean;
+    prefs: Prefs;
+  },
+): { report: (kind: SourceKind, aspect: number) => void; layout: StageFit | undefined; cornerAspect: number } {
+  const [size, setSize] = useState<{ width: number; height: number; dockReach: number }>();
+  const [aspects, setAspects] = useState<Partial<Record<SourceKind, number>>>({});
+  const report = useCallback((kind: SourceKind, aspect: number) => {
+    setAspects((a) => (Math.abs((a[kind] ?? 0) - aspect) < 1e-3 ? a : { ...a, [kind]: aspect }));
+  }, []);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = () => {
+      const dockReach = parseFloat(getComputedStyle(el).getPropertyValue("--player-dock-reach")) || DOCK_REACH;
+      const { width, height } = el.getBoundingClientRect();
+      setSize((s) =>
+        s && s.width === width && s.height === height && s.dockReach === dockReach ? s : { width, height, dockReach },
+      );
+    };
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [stage]);
+  const cornerAspect = (small && aspects[small]) || 16 / 9;
+  const translating = prefs.subtitleLang !== "original";
+  const lines = prefs.style.lines + (translating && prefs.dual ? 1 : 0);
+  const captions = prefs.cc && !prefs.subtitlePos ? Math.ceil(lines * prefs.style.size * 1.3 + 12) : undefined;
+  const layoutFit =
+    size && size.width > 0 && size.height > 0
+      ? fitStage({
+          width: size.width,
+          height: size.height,
+          main: aspects[main] ?? 16 / 9,
+          corner:
+            layout === "pip" && small && !placedByViewer
+              ? { aspect: cornerAspect, widthFrac: prefs.pipWidth }
+              : undefined,
+          captions,
+          dockReach: size.dockReach,
+          gap: FIT_GAP,
+        })
+      : undefined;
+  return { report, layout: layoutFit, cornerAspect };
 }
 
 /** The split divider: drag, or arrow keys when focused, to move it. */

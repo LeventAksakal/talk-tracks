@@ -156,7 +156,16 @@ describe("the camera tile without a picture", () => {
     expect(cameraNote(true, "loading")).toBeDefined();
     expect(cameraNote(true, "playing")).toBeDefined();
     expect(cameraNote(true, "playing")).not.toBe(cameraNote(true, "loading"));
-    expect(cameraNote(false, "idle")).toBeDefined(); // rewound with no picture archived
+  });
+
+  it("never calls a recording audio only before its picture has had a chance to load", () => {
+    // A recording opens paused at 0:00 (QA 11-03, R1): its first segment brings the picture.
+    expect(cameraNote(false, "idle")).toBeUndefined();
+    expect(cameraNote(false, "loading")).toBeDefined();
+    expect(cameraNote(false, "loading")).not.toBe(cameraNote(false, "playing"));
+    // Archived media that plays with no picture is audio only; no archived media at all says so too.
+    expect(cameraNote(false, "playing")).toBeDefined();
+    expect(cameraNote(false, "no-media")).toBeDefined();
   });
 });
 
