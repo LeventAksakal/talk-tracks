@@ -167,9 +167,10 @@ export function playerState(input: PlayerStateInput): PlayerState {
   const ended =
     !input.looped &&
     (input.room !== undefined ? input.room === "ended" : input.onAir === false && input.liveEdge !== undefined);
-  // Rewound into a stretch where the speaker had paused (or nobody published): say so over that moment.
+  // Rewound into a stretch where the speaker had paused (or nobody published): say so over that moment. Not in a
+  // recording: it plays from its start to its end, and a stretch whose room record did not arrive is no pause.
   const pausedThen =
-    mode === "rewound" && (input.roomAt === "paused" || input.roomAt === "waiting")
+    !input.vod && mode === "rewound" && (input.roomAt === "paused" || input.roomAt === "waiting")
       ? {
           title: input.roomAt === "waiting" ? "Not started yet here" : "Paused here",
           body: "The speaker was not on air at this point. Seek on, or go live.",
