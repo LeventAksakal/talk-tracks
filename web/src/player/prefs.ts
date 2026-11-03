@@ -38,6 +38,11 @@ export interface Prefs {
   cc: boolean;
   /** "original", or the BCP 47 tag of a translation. */
   subtitleLang: string;
+  /**
+   * The room the subtitle language was picked in. Elsewhere a remembered translation applies only when it costs
+   * nothing more there (tracks.roomSubtitles); a paid one is offered, never subscribed unasked.
+   */
+  subtitleRoom?: string;
   /** The original, small, above the translation. */
   dual: boolean;
   style: SubtitleStyle;

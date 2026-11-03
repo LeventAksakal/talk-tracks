@@ -60,6 +60,23 @@ export function languageReadiness(
   }
 }
 
+/**
+ * The subtitle prefs that apply in `room`. A translation picked in another room (the language is remembered per
+ * device) carries over only when reading it costs nothing more here (whyFree: running, recorded, already subscribed);
+ * a paid one would wake an agent the listener never asked for in this room, so the original shows instead and the
+ * language is offered (LanguageOffer). Picking a language here makes it this room's.
+ */
+export function roomSubtitles<P extends Pick<Prefs, "cc" | "subtitleLang" | "subtitleRoom">>(
+  prefs: P,
+  room: string,
+  tracks: RoomTracks,
+  guard: LanguageGuard,
+): P {
+  if (!prefs.cc || prefs.subtitleLang === "original" || prefs.subtitleRoom === room) return prefs;
+  const t = translationFor(tracks, prefs.subtitleLang);
+  return t && whyFree(t, guard) ? prefs : { ...prefs, subtitleLang: "original" };
+}
+
 /** The side panel tab on screen, or undefined while the panel is closed. */
 export function openTab(prefs: Pick<Prefs, "panel" | "tab">): PanelTab | undefined {
   return prefs.panel ? prefs.tab : undefined;

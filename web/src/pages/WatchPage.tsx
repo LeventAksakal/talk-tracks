@@ -26,7 +26,11 @@ export function WatchPage({ room }: { room: string }) {
  */
 function WatchRoom({ room }: { room: string }) {
   const transport = useMoqTransport();
-  const playback = usePlayback(transport, room);
+  // A demo lecture's live session or its recording (decision 0032): either way the lecture's title and credit.
+  const of = lectureOf(room);
+  // A recording is video on demand: its AI tracks are finished files in the archive, read from there first.
+  const vod = of?.kind === "recording";
+  const playback = usePlayback(transport, room, { recording: vod });
   const slides = useResource(() => {
     if (!(transport instanceof MoqTransport) || !playback) return undefined;
     const media = playback.media instanceof RoomMedia ? playback.media : undefined;
@@ -35,11 +39,8 @@ function WatchRoom({ room }: { room: string }) {
   // Listeners draw, mark, comment and chat through the room service (decision 0024), never the relay. In a looped
   // demo room it takes chat only (archive.looped), so the threads are not asked for there.
   const demo = demoRoom(room);
-  // A demo lecture's live session or its recording (decision 0032): either way the lecture's title and credit.
-  const of = lectureOf(room);
   const lecture = of?.lecture;
-  // A recording is video on demand: nobody is in its room, so there is no room service to chat or draw through.
-  const vod = of?.kind === "recording";
+  // Nobody is in a recording's room, so there is no room service to chat or draw through.
   const roomService = useResource(
     () => (vod ? undefined : new RoomServiceClient(roomServiceBase(), room, { comments: !demo })),
     [room, demo, vod],

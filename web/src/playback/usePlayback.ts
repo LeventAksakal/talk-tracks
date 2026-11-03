@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { MoqTransport } from "../transport/moq";
 import type { Transport } from "../transport/types";
+import { ArchiveFirstSource } from "./archiveSource";
 import { FakeHistorySource } from "./fakeSource";
 import { FakeRoom, fakeTalk } from "./fixtures";
 import { ClockMedia, RoomMedia } from "./media";
@@ -8,10 +9,16 @@ import { MoqHistorySource } from "./moqSource";
 import { Playback, type PlaybackView } from "./playback";
 import { watchSessions } from "./session";
 
+export interface RoomOptions {
+  /** A recording room (decision 0032): its AI track slices are read from the archive first (ArchiveFirstSource). */
+  recording?: boolean;
+}
+
 /** A Playback for a room on the relay: AI tracks over MoQ, speaker media live and from the archive. */
-export function createRoomPlayback(transport: MoqTransport, room: string): Playback {
+export function createRoomPlayback(transport: MoqTransport, room: string, options: RoomOptions = {}): Playback {
   const media = new RoomMedia(transport, room);
-  return new Playback(new MoqHistorySource(transport), media, room, {
+  const relay = new MoqHistorySource(transport);
+  return new Playback(options.recording ? new ArchiveFirstSource(relay) : relay, media, room, {
     catalog: () => media.catalog(),
   });
 }
@@ -39,18 +46,23 @@ export function createDemoPlayback(room: string, startMs = 180_000, options: { a
  * session ends and the next starts (decision 0032), the playback says so (the end card), and a fresh one joins the
  * new session from 00:00; the old one closes after the new one is handed out, so the player never unmounts.
  */
-export function usePlayback(transport: Transport | undefined, room: string): Playback | undefined {
+export function usePlayback(
+  transport: Transport | undefined,
+  room: string,
+  options: RoomOptions = {},
+): Playback | undefined {
+  const recording = options.recording ?? false;
   const [playback, setPlayback] = useState<Playback>();
   useEffect(() => {
     if (!(transport instanceof MoqTransport)) return;
-    let current = createRoomPlayback(transport, room);
+    let current = createRoomPlayback(transport, room, { recording });
     let stop: () => void;
     const watch = (pb: Playback) => {
       const media = pb.media as RoomMedia;
       stop = watchSessions(media, {
         ended: () => pb.endSession(),
         restart: () => {
-          const next = createRoomPlayback(transport, room);
+          const next = createRoomPlayback(transport, room, { recording });
           stop();
           current = next;
           watch(next);
@@ -67,7 +79,7 @@ export function usePlayback(transport: Transport | undefined, room: string): Pla
       current.close();
       setPlayback(undefined);
     };
-  }, [transport, room]);
+  }, [transport, room, recording]);
   return playback;
 }
 

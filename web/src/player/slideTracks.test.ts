@@ -233,6 +233,14 @@ describe("the room's state", () => {
     });
     expect([back.kind, back.canGoLive, back.card?.dim]).toEqual(["behind", true, true]);
   });
+
+  it("never says the speaker was off air at a moment of a recording", () => {
+    const base = { connection: "connected", everConnected: true, liveEdge: 1_140_000, behindMs: 570_000 } as const;
+    for (const roomAt of ["paused", "waiting"] as const) {
+      const at = playerState({ ...base, mode: "rewound", vod: true, onAir: false, room: "ended", roomAt });
+      expect([at.kind, at.card]).toEqual(["ended", undefined]);
+    }
+  });
 });
 
 describe("text marks and ink on the slide", () => {

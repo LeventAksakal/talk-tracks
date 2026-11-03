@@ -62,7 +62,10 @@ export interface PlayerCtx {
   roomName: string;
   title: string;
   tracks: RoomTracks;
+  /** The prefs as they apply in this room (tracks.roomSubtitles). */
   prefs: Prefs;
+  /** The remembered translation this room does not carry over unasked (a paid one picked elsewhere): offered. */
+  carried?: string | undefined;
   update: (change: Partial<Prefs> | ((p: Prefs) => Partial<Prefs>)) => void;
   ui: UiState;
   setUi: (change: Partial<UiState> | ((u: UiState) => Partial<UiState>)) => void;

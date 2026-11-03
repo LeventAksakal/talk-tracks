@@ -121,7 +121,8 @@ export function SidePanel() {
 
 /**
  * Where a tab's track stands (decision 0026: a panel is a subscription): subscribing, loading what came before the
- * playhead, or starting from now and filling as the talk goes. Nothing once it has something to show.
+ * playhead, or starting from now and filling as the talk goes. Nothing once it has something to show: lines already
+ * shown are what there is so far, and a slice still on its way only adds to them.
  */
 function TrackStatus({ track, what, empty }: { track: TrackView; what: string; empty: boolean }) {
   const { view } = usePlayer();
@@ -130,7 +131,7 @@ function TrackStatus({ track, what, empty }: { track: TrackView; what: string; e
     ? `Subscribing to the ${what}…`
     : track.sliced?.capped
       ? `The ${what} is unavailable right now.`
-      : track.loading || (track.sliced && !track.sliced.loaded)
+      : empty && (track.loading || (track.sliced && !track.sliced.loaded))
         ? `Loading the ${what} so far…`
         : empty && live
           ? `Starting from now: the ${what} fills in as the talk goes.`
