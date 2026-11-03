@@ -35,6 +35,7 @@ x-agent: &agent
     TT_ROOM: ${TT_LIVE_ROOM:-live}
     TT_TOKEN: ${TT_AGENT_TOKEN:-}
     TT_LEDGER: /data/ledger.jsonl
+    TT_MOQ_MAX_STREAMS_BIDI: ${TT_MOQ_MAX_STREAMS_BIDI:-}  # bidi stream credit for the relay; unset keeps 512 (moq.py stream_credit)
     TT_STATE_DIR: /data/state
     TT_ARCHIVE_DIR: /data/archive  # each agent's slices: what it serves FETCH from and restarts from
     TT_ARCHIVE_BUCKET: ${TT_ARCHIVE_BUCKET:-}  # slices missing on disk are read from it (decision 0012)
