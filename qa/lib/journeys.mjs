@@ -32,9 +32,20 @@ async function key(page, k, times = 1) {
   }
 }
 
+/**
+ * Close whatever menu is open. Escape in a Media Chrome submenu (Settings > Speed) goes back to its parent menu
+ * instead of closing it, so press it until no settings menu shows (at most three times).
+ */
 async function closeMenus(page) {
-  await page.keyboard.press("Escape");
-  await sleep(300);
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press("Escape");
+    await sleep(300);
+    const open = await page.evaluate(() => {
+      const m = document.querySelector("media-settings-menu");
+      return (m && !m.hidden) || document.querySelector("[data-menu-root] [role=dialog], .tt-menu") !== null;
+    });
+    if (!open) return;
+  }
 }
 
 /** The shared player walk: a demo room on the relay, or the offline demo. */
@@ -264,6 +275,123 @@ export const JOURNEYS = [
     async run(j) {
       await j.go(`/watch/${j.opts.room}`);
       await walkPlayer(j, { live: true });
+    },
+  },
+  {
+    id: "recording",
+    title: "A demo lecture's recording (decision 0032): play, seek, subtitles, speed, panel, full screen, end, replay",
+    relay: true,
+    async run(j) {
+      const { page, go, shot, step, opts } = j;
+      const room = opts.recording ?? `${opts.room}-recording`;
+      await go(`/watch/${room}`);
+      await step("opened", async () => {
+        try {
+          await waitForPlayer(page);
+        } catch (e) {
+          await shot("not-ready", "recording: the player never showed a time in 25 s; this frame is what a viewer sees then");
+          throw e;
+        }
+        await sleep(3_000);
+        await shot("opened", "recording: opens at 0:00 on the first slide, ready to play; the pill says Recording; no chat or live-only tabs");
+      });
+      await step("playing", async () => {
+        const big = page.getByRole("button", { name: /^Play/ }).filter({ hasNotText: /^$/ });
+        const play = page.getByRole("button", { name: "play", exact: true });
+        if (await play.isVisible().catch(() => false)) await play.click();
+        else if (await big.first().isVisible().catch(() => false)) await big.first().click();
+        await sleep(5_000);
+        await shot("playing", "recording + playing: the time counts up from 0:00 of the whole length");
+      });
+      await step("seek middle", async () => {
+        const range = page.locator("media-time-range").first();
+        const box = await range.boundingBox();
+        if (!box) throw new Error("no time range");
+        await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2);
+        await sleep(4_000);
+        await shot("seeked-middle", "recording + seek: a click on the timeline jumped to the middle; slide and time follow, no live pill");
+      });
+      await step("subtitles on", async () => {
+        await page.getByRole("button", { name: "Subtitles", exact: true }).click();
+        await sleep(500);
+        await page.getByRole("button", { name: /^Original/ }).first().click();
+        await closeMenus(page);
+        await sleep(5_000);
+        await shot("subtitles-on", "recording + subtitles: the original's recorded subtitles at the playhead");
+      });
+      await step("translation", async () => {
+        await page.getByRole("button", { name: "Subtitles", exact: true }).click();
+        await sleep(500);
+        const want = new RegExp(opts.translation, "i");
+        const choice = page
+          .getByRole("group", { name: "Languages" })
+          .getByRole("button")
+          .filter({ hasText: /in this room/ })
+          .filter({ hasText: want });
+        if ((await choice.count()) === 0) {
+          await closeMenus(page);
+          throw new Error(`skipped: the recording does not list ${opts.translation}`);
+        }
+        await choice.first().click();
+        await closeMenus(page);
+        await sleep(6_000);
+        await shot("translation", `recording + translation: ${opts.translation} subtitles, recorded with the lecture`);
+      });
+      await step("subtitles off", async () => {
+        await page.getByRole("button", { name: "Subtitles", exact: true }).click();
+        await sleep(400);
+        await page.getByRole("button", { name: /^Off/ }).first().click();
+        await closeMenus(page);
+        await sleep(1_500);
+        await shot("subtitles-off", "recording + subtitles off: no subtitle box and no status line on the stage");
+      });
+      await step("speed", async () => {
+        await page.getByRole("button", { name: /^settings$/i }).click();
+        await sleep(400);
+        await page.getByRole("menuitem", { name: /Speed/ }).click();
+        await sleep(400);
+        await page.getByRole("menuitemradio", { name: /1\.5/ }).first().click();
+        await sleep(600);
+        await closeMenus(page);
+        await sleep(2_000);
+        await shot("speed-1-5", "recording + 1.5x: the talk plays faster; nothing on screen claims otherwise");
+      });
+      await step("side panel", async () => {
+        const toggle = page.getByRole("button", { name: "Side panel (S)" });
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+        await sleep(600);
+        const labels = await page.getByRole("tablist", { name: "Side panel" }).getByRole("tab").allTextContents();
+        for (const label of labels) {
+          await page.getByRole("tab", { name: label, exact: true }).click();
+          await sleep(1_500);
+          await shot(`panel-${slug(label)}`, `recording side panel + ${label}: a job that makes sense for a recording`);
+        }
+      });
+      await step("keys", async () => {
+        await key(page, "j", 3);
+        await sleep(1_500);
+        await shot("keys-back", "recording + J three times: thirty seconds back, the time says so");
+      });
+      await step("fullscreen", async () => {
+        await key(page, "f");
+        await sleep(1_500);
+        await shot("fullscreen", "recording + full screen: the player and its side panel fill the screen");
+        await key(page, "f");
+        await sleep(800);
+      });
+      await step("ended", async () => {
+        await page.evaluate(() => {
+          const m = document.querySelector("tt-room-media");
+          if (m && Number.isFinite(m.duration)) m.currentTime = Math.max(0, m.duration - 4);
+        });
+        await sleep(9_000);
+        await shot("ended", "recording + end: the end card says the lecture is over and offers Replay and the hub");
+      });
+      await step("replay", async () => {
+        await page.getByRole("button", { name: /Replay/ }).first().click();
+        await sleep(4_000);
+        await shot("replayed", "recording + replay: back at 0:00 and playing");
+      });
     },
   },
   {

@@ -20,6 +20,43 @@ export function parseArgs(argv) {
   return out;
 }
 
+// House rule: no QA run makes a sound on this machine. Every browser the harness launches is muted at launch, so a
+// later run cannot forget. Chromium, Chrome and Edge take a flag; Firefox a pref; WebKit has neither, so its pages get
+// an init script that mutes every media element and routes Web Audio through a silent gain node.
+export const CHROMIUM_MUTE_ARGS = ["--mute-audio"];
+export const FIREFOX_MUTE_PREFS = { "media.volume_scale": "0.0" };
+export const WEBKIT_MUTE_SCRIPT = () => {
+  const mute = (el) => {
+    try {
+      el.muted = true;
+    } catch {}
+  };
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...a) {
+    mute(this);
+    return play.apply(this, a);
+  };
+  for (const C of [window.AudioContext, window.webkitAudioContext].filter(Boolean)) {
+    const desc = Object.getOwnPropertyDescriptor(C.prototype, "destination") ??
+      Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "destination");
+    if (!desc?.get) continue;
+    const silent = new WeakMap();
+    Object.defineProperty(C.prototype, "destination", {
+      configurable: true,
+      get() {
+        let g = silent.get(this);
+        if (!g) {
+          g = this.createGain();
+          g.gain.value = 0;
+          g.connect(desc.get.call(this));
+          silent.set(this, g);
+        }
+        return g;
+      },
+    });
+  }
+};
+
 export const list = (v, fallback) =>
   (typeof v === "string" ? v : fallback)
     .split(",")

@@ -67,6 +67,11 @@ export interface PlayerProps {
   noRoomService?: string;
   /** A demo room, a live session of a recorded lecture (decision 0032): its live state says so. */
   looped?: boolean;
+  /**
+   * A recording (`<id>-recording`, decision 0032): it opens at 0:00 and plays like video on demand; nothing live
+   * (chat, the room service's tools) is offered, since nobody is in the room.
+   */
+  vod?: boolean;
 }
 
 const noop = () => () => {};
@@ -74,6 +79,9 @@ const zero = () => 0;
 
 /** A connected relay that shows nothing of a room for this long means there is no such room. */
 const UNKNOWN_AFTER_MS = 6_000;
+
+/** A room with signs of life (announced, listed) that still sends nothing to play after this long is not answering. */
+const STALLED_AFTER_MS = 15_000;
 
 /** A connected relay has announced the room's slides by now, if it has any (the first announcements come at once). */
 const SOURCES_WAIT_MS = 1_500;
@@ -297,6 +305,16 @@ export function Player(props: PlayerProps) {
   const unknown = useHeldFor(nothing, UNKNOWN_AFTER_MS);
   const known = unknown ? false : status?.status === "connected" && !nothing ? true : undefined;
   const sessions = media?.hasSessions() ?? false;
+  const looking =
+    status?.status === "connected" &&
+    known !== false &&
+    roomNow === undefined &&
+    onAir !== true &&
+    timeline?.liveEdge === undefined;
+  const stalled = useHeldFor(looking, STALLED_AFTER_MS);
+  // A recording opens at its start (it is video on demand): once its span is known the playhead moves there, once.
+  const vod = props.vod ?? false;
+  const [vodStarted, _setVodStarted] = useState(false);
   const real = {
     connection: status?.status,
     everConnected: everConnected || status?.status === "connected",
@@ -315,6 +333,9 @@ export function Player(props: PlayerProps) {
     roomName: room,
     sessions,
     sessionEnded: view?.sessionEnded ?? false,
+    vod,
+    vodOpening: vod && !vodStarted,
+    stalled,
   } as const;
   const state = playerState({ ...real, ...(forceState ? forcedInput(forceState) : {}) });
   const origin = media?.talkOrigin() ?? 0;
