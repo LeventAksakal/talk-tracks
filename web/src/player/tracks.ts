@@ -7,6 +7,7 @@
 import { agentPath } from "../contracts/names";
 import { type LanguageGuard, whyFree } from "../package/languages";
 import type { TrackView } from "../playback/aiTracks";
+import type { LineItem } from "../playback/wire";
 import type { PanelTab, Prefs } from "./prefs";
 import { AUDIENCE_TRACKS, SPEAKER_TRACKS, type TrackId } from "./slideTracks";
 
@@ -24,6 +25,15 @@ export function roomTracks(tracks: readonly TrackView[]): RoomTracks {
     describe: tracks.find((t) => t.kind === "slides"),
     outline: tracks.find((t) => t.kind === "outline"),
   };
+}
+
+/**
+ * The lines a track's transcript shows: a recording's whole track from 0:00, else the lines held up to the playhead;
+ * none while the track is not subscribed.
+ */
+export function transcriptLines(track: TrackView | undefined): LineItem[] {
+  if (!track?.enabled) return [];
+  return track.transcript ?? track.sliced?.lines ?? [];
 }
 
 /** The translation track for a subtitle language, if the room has one. */

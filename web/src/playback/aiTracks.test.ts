@@ -356,6 +356,76 @@ describe("AiTracks: rewind", () => {
   });
 });
 
+describe("AiTracks: a recording's whole transcript from the archive", () => {
+  // A recording 200 s long: its archive holds every captions slice and the translation slices 0 to 9 (back-filled
+  // before); the relay answers whatever the playhead asks for.
+  function recording() {
+    const relay = new FakeHistorySource();
+    const room = new FakeRoom(relay, ROOM, fakeTalk());
+    room.start(200_000);
+    const store = new FakeHistorySource();
+    new FakeRoom(store, ROOM, fakeTalk()).start(200_000);
+    const reads: { track: string; group: number }[] = [];
+    const archive = vi.fn(async (path: string, track: string, group: number, signal: AbortSignal) => {
+      reads.push({ track: path.split("/").at(-1)!, group });
+      if (path.endsWith("translate-tr") && group >= 10) return undefined;
+      return store.fetchGroup(path, track, group, { priority: 0, signal }).catch(() => undefined);
+    });
+    tracks = new AiTracks(relay, ROOM, { liveBack: 0, archive });
+    tracks.setLiveEdge(200_000);
+    return { relay, room, tracks, reads };
+  }
+  // Every line said in the 200 s recorded.
+  const said = (room: FakeRoom) => room.talk.captions.filter((l) => l.endMs <= 200_000);
+
+  it("holds every line from 0:00 after a seek; the whole read never goes to the source the playhead asks", async () => {
+    const { relay, room, tracks } = recording();
+    tracks.setEnabled("captions/items", true);
+    tracks.seek(140_000);
+    await settle(200);
+    await vi.waitFor(() => expect(view(tracks, "captions/items").transcript?.length).toBe(said(room).length));
+    const lines = view(tracks, "captions/items").transcript!;
+    expect(lines.map((l) => l.id)).toEqual(said(room).map((l) => l.id));
+    expect(lines[0]!.startMs).toBeLessThan(10_000);
+    const k = sliceOf(140_000);
+    const asked = () => relay.fetchedGroups(room.path("captions"), ITEMS_TRACK);
+    expect(asked().every((g) => g >= k - 1 && g < k + 10)).toBe(true);
+    // A seek into what the whole read holds asks nothing more.
+    const before = asked().length;
+    tracks.seek(20_000);
+    await settle(50);
+    expect(asked()).toHaveLength(before);
+    expect(view(tracks, "captions/items").sliced!.lines.at(-1)!.startMs).toBeLessThanOrEqual(20_000);
+  });
+
+  it("asks the relay (back-fill) for translation slices around the playhead only", async () => {
+    const { relay, room, tracks, reads } = recording();
+    tracks.setEnabled("captions/items", true);
+    tracks.setEnabled("translate-tr/items", true);
+    tracks.seek(140_000);
+    await settle(200);
+    await vi.waitFor(() =>
+      expect(reads.filter((r) => r.track === "translate-tr").map((r) => r.group)).toHaveLength(sliceOf(199_999)),
+    );
+    await settle(50);
+    const k = sliceOf(140_000);
+    const asked = relay.fetchedGroups(room.path("translate-tr"), ITEMS_TRACK);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(Math.min(...asked)).toBeGreaterThanOrEqual(k - 1);
+    expect(Math.max(...asked)).toBeLessThan(k + 10);
+    // Lines translated earlier sit beside the whole transcript, from 0:00.
+    const translated = view(tracks, "translate-tr/items").transcript!;
+    expect(translated[0]!.startMs).toBeLessThan(10_000);
+  });
+
+  it("reads nothing whole without an archive (a live room)", async () => {
+    const { tracks } = setup(100_000);
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    expect(view(tracks, "captions/items").transcript).toBeUndefined();
+  });
+});
+
 describe("AiTracks: outline track is never fetched", () => {
   it("opens only a live subscription", async () => {
     const { source, room, tracks } = setup(100_000);

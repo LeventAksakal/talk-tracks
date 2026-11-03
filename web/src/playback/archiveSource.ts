@@ -65,17 +65,33 @@ export class ArchiveFirstSource implements HistorySource {
     return this.#inner.subscribe(path, track, onObject, options);
   }
 
-  async fetchGroup(path: string, track: string, group: number, options: FetchOptions): Promise<Uint8Array[]> {
+  /**
+   * The archive's copy of a group, or undefined when it has none: the server answers 204 for a slice nobody made
+   * (deploy/Caddyfile), so an unmade translation slice logs no error; a 404, an unreadable file or a failed read is
+   * none too. Never asks the relay.
+   */
+  readArchive = async (
+    path: string,
+    track: string,
+    group: number,
+    signal?: AbortSignal,
+  ): Promise<Uint8Array[] | undefined> => {
     const url = sliceUrl(path, track, group, this.#base);
-    if (url) {
-      try {
-        const res = await this.#fetch(url, { signal: options.signal });
-        if (res.ok) return parseSliceFile(await res.text());
-      } catch {
-        // A broken file or a failed read: the relay may still have it (unless the FETCH was called off).
-        options.signal?.throwIfAborted();
-      }
+    if (!url) return undefined;
+    try {
+      const res = await this.#fetch(url, { signal });
+      if (!res.ok || res.status === 204) return undefined;
+      return parseSliceFile(await res.text());
+    } catch {
+      // A broken file or a failed read: none here (unless the read was called off).
+      signal?.throwIfAborted();
+      return undefined;
     }
-    return this.#inner.fetchGroup(path, track, group, options);
+  };
+
+  async fetchGroup(path: string, track: string, group: number, options: FetchOptions): Promise<Uint8Array[]> {
+    const held = await this.readArchive(path, track, group, options.signal);
+    // Not in the archive: the relay's FETCH may have it, or wakes the agent to back-fill it.
+    return held ?? this.#inner.fetchGroup(path, track, group, options);
   }
 }

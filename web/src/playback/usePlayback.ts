@@ -18,8 +18,11 @@ export interface RoomOptions {
 export function createRoomPlayback(transport: MoqTransport, room: string, options: RoomOptions = {}): Playback {
   const media = new RoomMedia(transport, room);
   const relay = new MoqHistorySource(transport);
-  return new Playback(options.recording ? new ArchiveFirstSource(relay) : relay, media, room, {
+  const archive = options.recording ? new ArchiveFirstSource(relay) : undefined;
+  return new Playback(archive ?? relay, media, room, {
     catalog: () => media.catalog(),
+    // A recording's transcript is read whole from the archive, never through the relay (no back-fill).
+    archive: archive?.readArchive,
   });
 }
 

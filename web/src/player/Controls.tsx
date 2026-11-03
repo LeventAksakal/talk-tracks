@@ -11,6 +11,7 @@ import { fold } from "./languages";
 import { CaptionsMenu, LayoutMenu } from "./menus";
 import { DEFAULT_STYLE, type SubtitlePreset, SUBTITLE_PRESETS } from "./prefs";
 import { chapterAt, holesIn } from "./timeline";
+import { transcriptLines } from "./tracks";
 
 const noop = () => () => {};
 const zero = () => 0;
@@ -226,10 +227,7 @@ function TimeRange() {
   const inSpan = (ms: number) => ms >= start && ms <= end;
   const slideMarks = tracks.describe?.enabled ? (tracks.describe.sliced?.slides ?? []) : [];
   const query = fold(ui.search.trim());
-  const matches =
-    query.length >= 2 && tracks.captions?.enabled
-      ? (tracks.captions.sliced?.lines ?? []).filter((l) => fold(l.text).includes(query))
-      : [];
+  const matches = query.length >= 2 ? transcriptLines(tracks.captions).filter((l) => fold(l.text).includes(query)) : [];
   const shown = preview !== undefined && deck ? deck.previewAt(preview) : undefined;
   const thumb = shown && deck ? deck.picture(shown.deck, shown.index) : undefined;
   const at = (ms: number) => ({ left: `${frac(ms) * 100}%` }) as CSSProperties;
