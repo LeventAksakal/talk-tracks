@@ -107,6 +107,29 @@ describe("the player's controls", () => {
     expect(media().currentTime).toBeGreaterThan(back + 8);
   });
 
+  it("leaves playback alone while the viewer types K, J and Space into the language search", async () => {
+    close = setup();
+    await advance(300);
+    fireEvent.click(screen.getByRole("button", { name: "Subtitles" }));
+    await advance(50);
+    const search = screen.getByPlaceholderText("Search any language");
+    search.focus();
+    const before = media().currentTime;
+    for (const key of ["k", "j", " "]) {
+      fireEvent.keyDown(search, { key });
+      fireEvent.keyUp(search, { key });
+      await advance(50);
+    }
+    expect(media().paused).toBe(false);
+    expect(media().currentTime).toBeGreaterThanOrEqual(before);
+    // Out of the field, the keys work again.
+    search.blur();
+    press("k");
+    fireEvent.keyUp(document.body, { key: "k" });
+    await advance(50);
+    expect(media().paused).toBe(true);
+  });
+
   it("mutes and unmutes with M", async () => {
     close = setup();
     await advance(300);

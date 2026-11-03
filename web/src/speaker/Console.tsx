@@ -569,7 +569,7 @@ function ConsoleView({
       {connection.status === "disconnected" && phase === "on-air" ? (
         <Banner
           status="warning"
-          title="Connection to the relay dropped"
+          title="Connection dropped"
           description="Reconnecting. Keep talking: the console sends again as soon as it is back."
           role="alert"
         />
@@ -891,7 +891,7 @@ function WireStatus({
   if (!live) {
     if (phase === "preflight") return <>Nothing goes out before you go on air.</>;
     if (clock.kind === "no-clock") return <>Your broadcast has no clock: reload and go on air again.</>;
-    return <>Slides go out once the room service starts the room clock…</>;
+    return <>Slides go out once the room clock starts…</>;
   }
   const counts = Object.values(echo ?? {});
   const ok = counts.reduce((n, c) => n + c.ok, 0);
@@ -927,9 +927,9 @@ function tokenText(t: TokenCheck, required: boolean): [state: "ok" | "off" | "ba
       return required
         ? [
             "bad",
-            "This link has no speaker token, so you can't go on air: the relay takes a talk only from a speaker link. Paste yours below, or ask the organiser for one.",
+            "This link has no speaker token, so you can't go on air: only a speaker link can start a talk. Paste yours below, or ask the organiser for one.",
           ]
-        : ["off", "No speaker token in this link. This local relay needs none."];
+        : ["off", "No speaker token in this link. This local server needs none."];
     case "unreadable":
       return ["bad", "The token in this link is damaged. Ask for a new speaker link."];
     case "expired":
@@ -1054,13 +1054,13 @@ function Sources(props: {
         </Check>
         <Check
           state={props.connection === "connected" ? "ok" : props.connection === "failed" ? "bad" : "wait"}
-          title="Relay"
+          title="Connection"
         >
           <p className="small">
             {props.connection === "connected"
-              ? "Connected."
+              ? "Connected to Talk Tracks."
               : props.connection === "failed"
-                ? "The relay refused the connection. Check the token."
+                ? "Talk Tracks refused the connection. Check your speaker link."
                 : "Connecting…"}
           </p>
         </Check>
@@ -1073,10 +1073,10 @@ function Sources(props: {
               {props.clock.kind === "ready"
                 ? props.clock.local
                   ? "Local clock (development: no room service)."
-                  : "Set by the room service: slides, ink and laser line up with your voice."
+                  : "Running: slides, ink and laser line up with your voice."
                 : props.clock.kind === "no-clock"
                   ? "Your broadcast carries no clock. Reload the page and go on air again."
-                  : "Waiting for the room service to start the room clock…"}
+                  : "Starting the room clock…"}
             </p>
           </Check>
         ) : null}
@@ -1184,7 +1184,7 @@ function Ended({ room, ending, retry }: { room: string; ending: Ending; retry: (
       {ending === "refused" ? (
         <Banner
           status="warning"
-          title="The room service did not take the end of the talk"
+          title="Talk Tracks did not take the end of the talk"
           description="Viewers may see the talk as paused. This link may not be the speaker's, or it expired."
           role="alert"
           endContent={<Button label="Try again" size="sm" variant="secondary" onClick={retry} />}
