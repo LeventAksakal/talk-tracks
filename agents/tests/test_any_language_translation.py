@@ -477,6 +477,26 @@ async def test_a_recording_rooms_translation_back_fills_any_slice_to_its_end_and
         await track.slice(3, produce)
 
 
+async def test_back_fill_reads_a_finished_captions_slice_from_disk_and_fetches_only_the_rest(tmp_path: Path) -> None:
+    """The captions the recording room serves lie in the same archive: a finished slice is read from disk, byte for
+    byte what its FETCH would bring, and only a slice that is missing or still open goes to the relay."""
+    from talk_tracks.archive.slices import TrackArchive
+
+    store = TrackArchive("virus-recording", "translate-de", "items", root=tmp_path)
+    captions = TrackArchive("virus-recording", "captions", "items", root=tmp_path)
+    captions.create(5, [SliceObject(0, carry_in(5, [])), SliceObject(1, encode([record(cue(20))]))])
+    captions.write(7, SliceObject(0, carry_in(7, [])))  # open: a .part
+    relay = CaptionsRelay({k: [carry_in(k, []), encode([record(cue(k * 4))])] for k in (6, 7)})
+    produce = cli.translation_backfill(relay, "virus-recording", "de", store, FakeLlm(), Priority())
+
+    _, made = await produce(5)
+    assert [c.id for c in made] == ["20000"] and made[0].text.startswith("[de] cue 20")
+    assert relay.fetched == []
+    await produce(6)
+    await produce(7)
+    assert relay.fetched == [("talk/virus-recording/agents/captions", "items", k) for k in (6, 7)]
+
+
 def test_serve_recording_publishes_only_baked_tracks_and_lists_the_translations_announced_now(tmp_path: Path) -> None:
     """One publisher per track: serve-recording never publishes a translation folder (the translation agent's),
     and its catalog lists a translation only while the translation agent announces it."""

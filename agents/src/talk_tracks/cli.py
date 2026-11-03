@@ -251,13 +251,20 @@ def build(args: argparse.Namespace, room: str) -> Agent:
 def translation_backfill(
     relay: Any, room: str, lang: str, archive: TrackArchive, llm: Llm, priority: Priority
 ) -> Produce:
-    """Back-fill one translation slice ``k`` (design §5.7): translate the captions slice fetched through the relay,
-    carrying in the end of this track's slice before when the archive has it, one at a time behind live calls."""
+    """Back-fill one translation slice ``k`` (design §5.7): translate the captions slice, carrying in the end of this
+    track's slice before when the archive has it, one at a time behind live calls. A captions slice finished in the
+    archive this agent writes to (a recording room's, or a live room's on this host) is read from disk; only a
+    missing one is FETCHed through the relay, which stopped forwarding requests to publishers (2026-11-03)."""
     from . import runtime
+    from .live_slices import finished_payloads
     from .records import cues_of
 
+    captions = TrackArchive(room, "captions", ITEMS_TRACK, root=archive.root)
+
     async def produce(k: int) -> Any:
-        source = await relay.fetch_group(agent_path(room, "captions"), ITEMS_TRACK, k)
+        source = finished_payloads(captions, k)
+        if source is None:
+            source = await relay.fetch_group(agent_path(room, "captions"), ITEMS_TRACK, k)
         if not source:
             raise LookupError(f"captions slice {k} is empty")
         before = archive.read_local(k - 1) if k > 0 else None
