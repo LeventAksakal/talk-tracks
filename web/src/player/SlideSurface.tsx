@@ -28,6 +28,18 @@ const sameSlide = (a: SlideAt | undefined, b: SlideAt | undefined) =>
     a.marks.length === b.marks.length &&
     a.marks.every((k, i) => k.data.id === b.marks[i]!.data.id && k.data.span === b.marks[i]!.data.span));
 
+/**
+ * The slide tile's shape: the picture's own, so the whole slide shows letterboxed in its cell, never stretched or cut
+ * (a deck's slides need not share one shape: the deck's aspect is its first slide's); the deck's aspect until the
+ * picture is in; 16:9 before anything is known.
+ */
+export function slideAspect(picture: { image: { width: number; height: number } } | undefined, deck?: number): number {
+  const w = picture?.image.width ?? 0;
+  const h = picture?.image.height ?? 0;
+  if (w > 0 && h > 0) return w / h;
+  return deck !== undefined && deck > 0 ? deck : 16 / 9;
+}
+
 interface Mark {
   id: string;
   style: "underline" | "highlight";
@@ -52,7 +64,7 @@ export function SlideSurface() {
   const on = at?.slide ?? null;
   const picture = on && slides ? slides.picture(on.deck, on.index) : undefined;
   const info = on && slides ? slides.deckInfo(on.deck) : undefined;
-  const aspect = info?.aspect ?? (picture ? picture.image.width / picture.image.height : 16 / 9);
+  const aspect = slideAspect(picture, info?.aspect);
   const runs = picture?.image.runs ?? [];
   const marks: Mark[] = on
     ? (at?.marks ?? []).flatMap(({ data }) =>

@@ -1,7 +1,41 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
+import type { RoomTt } from "../contracts/types";
 import type { MediaStatus } from "../playback/media";
 import { usePlayer } from "./context";
 import { SourceTile } from "./SourceTile";
+
+/** [x, y, w, h], fractions of the video frame. */
+export type Rect = readonly [number, number, number, number];
+
+/**
+ * The webcam inset of a composed lecture video (a recorded conference talk: the slides as the main area, the speaker
+ * as a small picture in a corner), from the room catalog's `tt.regions.camera` (agents' `find-regions`). Undefined
+ * for a speaker's own camera, or a region that is not a non-empty box inside the frame.
+ */
+export function cameraRegion(tt: RoomTt | undefined): Rect | undefined {
+  const regions = (tt as { regions?: { camera?: unknown } | null } | undefined)?.regions;
+  const r = regions?.camera;
+  if (!Array.isArray(r) || r.length !== 4 || !r.every((v) => typeof v === "number" && Number.isFinite(v)))
+    return undefined;
+  const [x, y, w, h] = r as [number, number, number, number];
+  if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1.000001 || y + h > 1.000001) return undefined;
+  return [x, y, w, h];
+}
+
+/**
+ * The camera tile for a video of frame aspect `frame` (width / height): with a region, the tile takes the region's
+ * shape and the picture is scaled and shifted so exactly the region fills it (the tile clips the rest); without
+ * one, the whole picture.
+ */
+export function framing(frame: number, region: Rect | undefined): { aspect: number; media?: CSSProperties } {
+  if (!region) return { aspect: frame };
+  const [x, y, w, h] = region;
+  const pct = (v: number) => `${+(v * 100).toFixed(4)}%`;
+  return {
+    aspect: (frame * w) / h,
+    media: { inset: "auto", left: pct(-x / w), top: pct(-y / h), width: pct(1 / w), height: pct(1 / h) },
+  };
+}
 
 /** A canvas @moq/watch has not sized yet keeps the HTML default 300 × 150. */
 const unsized = (w: number, h: number) => (w === 300 && h === 150) || w === 0 || h === 0;
@@ -29,6 +63,7 @@ export function CameraSurface() {
   const video = useRef<HTMLVideoElement>(null);
   const live = view.timeline.mode === "live";
   const [aspect, setAspect] = useState<number>();
+  const [region, setRegion] = useState<Rect>();
   const [status, setStatus] = useState<MediaStatus>("idle");
 
   useEffect(() => {
@@ -65,6 +100,8 @@ export function CameraSurface() {
           ? v.videoWidth / v.videoHeight
           : undefined;
       setAspect((a) => (a === next ? a : next));
+      const r = cameraRegion(media.catalog()?.tt);
+      setRegion((old) => (old?.join() === r?.join() ? old : r));
       setStatus(media.status());
     };
     read();
@@ -83,12 +120,20 @@ export function CameraSurface() {
     );
 
   const note = cameraNote(live, status);
+  // A recorded talk's video is the whole stage frame: the tile shows only its webcam inset, once the frame is known.
+  const framed = aspect === undefined ? undefined : framing(aspect, region);
   return (
-    <SourceTile kind="camera" aspect={aspect ?? 16 / 9} label="Speaker camera">
-      <canvas ref={canvas} className={live ? "tt-media" : "tt-media tt-hidden"} aria-label="Speaker video, live" />
+    <SourceTile kind="camera" aspect={framed?.aspect ?? 16 / 9} label="Speaker camera">
+      <canvas
+        ref={canvas}
+        className={live ? "tt-media" : "tt-media tt-hidden"}
+        style={framed?.media}
+        aria-label="Speaker video, live"
+      />
       <video
         ref={video}
         className={live ? "tt-media tt-hidden" : "tt-media"}
+        style={framed?.media}
         aria-label="Speaker video, rewound"
         playsInline
       />
