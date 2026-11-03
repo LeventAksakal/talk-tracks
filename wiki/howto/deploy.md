@@ -207,3 +207,15 @@ After `up -d relay auth`, `restart relay` was run on its own as a test.
   crash does. Start it again with `docker compose -f deploy/compose.vm.yml up -d`.
 - Clients that connect in the moment between the relay and the auth server starting are refused; agents restart by
   themselves.
+- Request-stream retiring (`TT_MOQ_RETIRE_STREAMS`, off by default, `agents/src/talk_tracks/moq.py`) is unproven:
+  with it on for every agent on 2026-11-03, the relay stopped forwarding requests to the publishers within minutes.
+  The compose file does not pass it, so turn it on for one service at a time with an override file kept outside the
+  repo, then compare that service's upstream subscribes in the relay log with the others' for about an hour:
+
+  ```bash
+  printf 'services:\n  recording-virus:\n    environment:\n      TT_MOQ_RETIRE_STREAMS: "1"\n' > ~/tt-retire.yml
+  docker compose -f deploy/compose.vm.yml -f ~/tt-retire.yml --profile live --profile recordings up -d recording-virus
+  ```
+
+  Every later `up` must name the override too, or it turns retiring off again. That is also the rollback: run `up -d`
+  without the override.
