@@ -59,7 +59,7 @@ export function SubtitleOverlay({
   /** Where the stage keeps room for the subtitles, under the main picture (stageFit), in px. */
   below?: { x: number; top: number; maxWidth: number };
 }) {
-  const { tracks, prefs, clock, view, sources } = usePlayer();
+  const { tracks, prefs, clock, view, sources, ui } = usePlayer();
   const live = view.timeline.mode === "live";
   const translating = prefs.subtitleLang !== "original";
   const trackFor = (lang: string) => (lang === "original" ? tracks.captions : translationFor(tracks, lang));
@@ -82,12 +82,20 @@ export function SubtitleOverlay({
   const shownTrack = standIn ? trackFor(standIn) : translation;
   const translated = prefs.cc && shownTrack?.enabled ? (shownTrack.sliced?.lines ?? []) : [];
   const max = prefs.style.lines;
+  // Paused, the subtitles hold at the moment of the pause: a live room's edge runs on behind a pause, and lines must
+  // neither advance nor expire until play (owner QA, 11-04).
+  const [heldAt, setHeldAt] = useState<{ t: number | undefined }>();
+  if (!ui.playing && !heldAt) setHeldAt({ t: clock.now() });
+  if (ui.playing && heldAt) setHeldAt(undefined);
   const shown = useFrameValue(
     clock,
-    (t): Shown => ({
-      original: cuesAt(original, t, live, translating ? 1 : max).filter((l) => l.final || prefs.style.interim),
-      translation: cuesAt(translated, t, live, max).filter((l) => l.final || prefs.style.interim),
-    }),
+    (now): Shown => {
+      const t = heldAt ? heldAt.t : now;
+      return {
+        original: cuesAt(original, t, live, translating ? 1 : max).filter((l) => l.final || prefs.style.interim),
+        translation: cuesAt(translated, t, live, max).filter((l) => l.final || prefs.style.interim),
+      };
+    },
     sameShown,
   );
 

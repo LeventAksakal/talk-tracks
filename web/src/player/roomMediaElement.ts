@@ -329,6 +329,7 @@ export class RoomMediaElement extends HTMLElement {
         pb.seek(resumeAt);
       }
     }
+    pb.tracks.setPaused(false);
     pb.media.play?.();
     if (this.#paused) {
       this.#paused = false;
@@ -343,6 +344,8 @@ export class RoomMediaElement extends HTMLElement {
     if (this.#paused || !pb) return;
     if (pb.media.mode() === "live") this.#pausedAt = pb.position() ?? pb.liveEdge();
     pb.media.pause?.();
+    // The AI tracks pause with the media: no line advances or appears, nothing is fetched.
+    pb.tracks.setPaused(true);
     this.#paused = true;
     this.#fire("pause");
     this.#onChange();
