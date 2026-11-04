@@ -27,12 +27,6 @@
   --stream: var(--stream-camera);
 }
 
-/* Material Symbols are filled shapes. */
-.tt-icon {
-  fill: currentColor;
-  stroke: none;
-}
-
 /* --- the stage: rounded tiles with room between them --- */
 .tt-ws {
   --ws-gap: 10px;
