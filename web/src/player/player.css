@@ -433,6 +433,36 @@
 .tt-slide-hint {
   color: #6b7280;
 }
+/* No slide on screen: a centred note on the tile's own dark ground. */
+.tt-slide[data-empty] {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 24px 48px;
+  background: #18181b;
+  color: var(--tt-color-text);
+  text-align: center;
+}
+.tt-slide[data-empty] .tt-slide-title {
+  font-size: clamp(14px, 2.4cqw, 22px);
+  font-weight: var(--tt-weight-strong);
+}
+.tt-slide[data-empty] .tt-slide-hint {
+  max-width: 36ch;
+  font-size: clamp(12px, 1.6cqw, 15px);
+  color: var(--tt-color-text-muted);
+}
+.tt-slide[data-empty] .tt-link {
+  margin-top: 4px;
+  font-size: clamp(12px, 1.6cqw, 15px);
+}
+/* A small tile keeps the note to its title; the link would run into the tile's name. */
+@container (max-width: 360px) {
+  .tt-slide[data-empty] .tt-slide-hint,
+  .tt-slide[data-empty] .tt-link {
+    display: none;
+  }
+}
 
 /* --- the slide's picture and its overlays (decisions 0020, 0021) --- */
 .tt-slide-image {
@@ -1579,7 +1609,7 @@ img.tt-preview-thumb {
 .tt-transcript-tools {
   display: flex;
   gap: var(--tt-space-2);
-  align-items: center;
+  align-items: stretch;
 }
 .tt-transcript-tools > .tt-input {
   flex: 1;
@@ -1588,6 +1618,7 @@ img.tt-preview-thumb {
 .tt-download {
   position: relative;
   flex: none;
+  display: flex;
 }
 .tt-download > button {
   display: inline-flex;

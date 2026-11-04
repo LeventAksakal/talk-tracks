@@ -62,8 +62,8 @@ export function ChatTab() {
 /**
  * The room's chat (ticket 0021). Mounted, it subscribes to talk/<room>/chat; unmounted, it unsubscribes (decision
  * 0026: a panel is a subscription). It says when it is loading what came before and when it starts from now. Live,
- * it shows the last 50 messages and every new one; rewound, the chat as it was at the playhead. A listener without a
- * name gets a random one, which "Change name" replaces.
+ * it shows the last 50 messages and every new one; rewound, the chat as it was at the playhead. A listener posts under
+ * the name the room gave them (no account, nothing to edit).
  */
 export function Chat({ source, room, service, rewound, at, talkClock, readOnly, looped }: ChatProps) {
   const feed = useMemo(() => (source ? new ChatFeed(source, room) : undefined), [source, room]);
@@ -144,7 +144,6 @@ function Composer({ service, rewound }: { service: RoomService; rewound: boolean
   const [text, setText] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [naming, setNaming] = useState(false);
   const status = service.status();
   const me = service.me();
 
@@ -187,33 +186,13 @@ function Composer({ service, rewound }: { service: RoomService; rewound: boolean
 
   return (
     <div className="tt-chat-composer">
-      {naming ? (
-        <NameForm
-          current={me?.name ?? ""}
-          onDone={(name) => {
-            if (name) service.setName(name);
-            setNaming(false);
-          }}
-        />
-      ) : (
-        <div className="tt-row tt-chat-me">
-          <span className="tt-muted">
-            You are <strong>{me?.name ?? "…"}</strong>
-          </span>
-          {me && !me.speaker ? (
-            <button type="button" className="tt-button tt-secondary tt-small" onClick={() => setNaming(true)}>
-              Change name
-            </button>
-          ) : null}
-        </div>
-      )}
       <form className="tt-row tt-chat-send" onSubmit={(e) => void send(e)}>
         <textarea
           className="tt-input"
           rows={1}
           maxLength={CHAT_MAX}
           aria-label="Chat message"
-          placeholder={rewound ? "Say something (sent live)" : "Say something"}
+          placeholder={`${me?.name ? `Message as ${me.name}` : "Send a message"}${rewound ? " (sent live)" : ""}`}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -234,47 +213,5 @@ function Composer({ service, rewound }: { service: RoomService; rewound: boolean
         </p>
       ) : null}
     </div>
-  );
-}
-
-/** The optional name dialog: the display name shown with what this listener writes, kept in this browser. */
-function NameForm({ current, onDone }: { current: string; onDone: (name: string | undefined) => void }) {
-  const [name, setName] = useState(current);
-  const box = useRef<HTMLInputElement>(null);
-  useEffect(() => box.current?.select(), []);
-  return (
-    <form
-      className="tt-chat-name"
-      aria-label="Your name"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onDone(name.trim() || undefined);
-      }}
-    >
-      <label className="tt-menu-heading" htmlFor="tt-chat-name">
-        Your name, shown with what you write
-      </label>
-      <div className="tt-row">
-        <input
-          ref={box}
-          id="tt-chat-name"
-          className="tt-input"
-          value={name}
-          maxLength={60}
-          autoComplete="nickname"
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Escape") onDone(undefined);
-          }}
-        />
-        <button type="submit" className="tt-button tt-small" disabled={!name.trim()}>
-          Save
-        </button>
-        <button type="button" className="tt-button tt-secondary tt-small" onClick={() => onDone(undefined)}>
-          Cancel
-        </button>
-      </div>
-    </form>
   );
 }

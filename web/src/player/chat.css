@@ -45,21 +45,18 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.tt-chat-composer,
-.tt-chat-name {
+.tt-chat-composer {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-top: 8px;
   border-top: 1px solid var(--tt-color-line);
 }
-.tt-chat-me,
 .tt-chat-send {
   align-items: center;
   justify-content: space-between;
 }
-.tt-chat-send .tt-input,
-.tt-chat-name .tt-input {
+.tt-chat-send .tt-input {
   flex: 1;
   width: auto;
   resize: none;

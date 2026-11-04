@@ -119,6 +119,20 @@ export function SlideSurface() {
       kind="slides"
       aspect={aspect}
       label={label}
+      chrome={
+        slides && slides.isActive("slide") && pictured && picture ? (
+          <SlideNav
+            slides={slides}
+            view={pictured}
+            following={following}
+            pinned={pinned}
+            range={range}
+            count={info?.count}
+            live={live}
+            onPin={setPinned}
+          />
+        ) : null
+      }
       overlay={
         slides && slides.isActive("slide") ? (
           <>
@@ -136,18 +150,6 @@ export function SlideSurface() {
                 <AnnotateBar on={on} slides={slides} time={slideTime} />
               </>
             )}
-            {pictured && picture ? (
-              <SlideNav
-                slides={slides}
-                view={pictured}
-                following={following}
-                pinned={pinned}
-                range={range}
-                count={info?.count}
-                live={live}
-                onPin={setPinned}
-              />
-            ) : null}
           </>
         ) : null
       }
@@ -165,7 +167,8 @@ export function SlideSurface() {
         // pale panel flashes before the first slide.
         <div className="tt-slide tt-slide-pending" />
       ) : (
-        <div className="tt-slide">
+        // Without a description there is no slide to stand in for: a quiet note on the dark tile, not a pale card.
+        <div className="tt-slide" data-empty={description ? undefined : ""}>
           <strong className="tt-slide-title">{slideTitle()}</strong>
           {description ? (
             <p className="tt-slide-description" lang={lang} dir={dirOf(lang)}>

@@ -41,8 +41,8 @@ const RATES = "0.5 0.75 1 1.25 1.5 2";
 /** The side panel buttons' icons; a later lane's panel gets the generic one. */
 const PANEL_ICON: Record<string, IconName> = {
   chat: "chat",
-  transcript: "transcript",
-  chapters: "chapters",
+  transcript: "notes",
+  chapters: "bulletedList",
   discussion: "discussion",
 };
 
