@@ -160,14 +160,20 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
       now !== undefined && !now.slide && described === undefined && !(holds && slides?.heldSlide(time) !== undefined)
     );
   });
-  const offWhole = wholePicture(offLayout, sources);
+  // The camera with no picture yet (before play, the first segment loading) is left out while there is another picture
+  // to show: an empty box labelled "Camera" is not one. It stays mounted, so the live canvas is never re-created.
+  const [cameraBlank, setCameraBlank] = useState(false);
+  const cameraOut =
+    cameraBlank && !wholePicture(offLayout, sources) && !cameraAlone(noSlide, sources) && sources.length > 1;
+  const pictured = cameraOut ? sources.filter((k) => k !== "camera") : sources;
+  const offWhole = wholePicture(offLayout, pictured);
   // Before the first slide the camera is the stage's only picture, but not a video call: centred, at most CAMERA_CAP of
   // the stage's width. Off its layout the recorded frame is one picture on purpose, shown whole.
-  const capped = !offWhole && cameraAlone(noSlide, sources);
+  const capped = !offWhole && cameraAlone(noSlide, pictured);
   const whole = offWhole || capped;
-  const placed = stageSources(sources, prefs.board);
+  const placed = stageSources(pictured, prefs.board);
   const layout = whole ? "single" : effectiveLayout(prefs.layout, placed);
-  const hasCamera = placed.includes("camera");
+  const hasCamera = sources.includes("camera");
   const hasSlides = sources.includes("slides");
   const hasScreen = sources.includes("screen");
   // The main picture and the corner one (the camera, or with no camera the other of slides and screen). The source
@@ -177,7 +183,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   // Which source is "first": the left one in split, the corner tile in the default layout.
   const first: SourceKind = prefs.swap ? board : cornerKind;
   // Until the room says what it sends, no picture: the tiles stay mounted (the live canvas with them), unseen.
-  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources, offLayout, noSlide);
+  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, pictured, offLayout, noSlide);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 
@@ -229,7 +235,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         {hasCamera ? (
           <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
             {corner("camera")}
-            <CameraSurface offLayout={wholePicture(offLayout, sources)} alone={whole} />
+            <CameraSurface offLayout={wholePicture(offLayout, sources)} alone={whole} onBlank={setCameraBlank} />
           </div>
         ) : null}
         {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}

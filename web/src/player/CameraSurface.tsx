@@ -110,7 +110,16 @@ export function cameraNote(live: boolean, status: MediaStatus): string | undefin
  * RoomMedia once and never re-mounted (the live player keeps the canvas it was given), one visible per
  * mode. Volume applies to the archive element here; live audio is @moq/watch's own.
  */
-export function CameraSurface({ offLayout = false, alone = false }: { offLayout?: boolean; alone?: boolean }) {
+export function CameraSurface({
+  offLayout = false,
+  alone = false,
+  onBlank,
+}: {
+  offLayout?: boolean;
+  alone?: boolean;
+  /** Told whether the tile has no picture yet (a room's media, no frame painted): the stage then leaves it out. */
+  onBlank?: (blank: boolean) => void;
+}) {
   const { media, view, prefs, state } = usePlayer();
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -162,6 +171,11 @@ export function CameraSurface({ offLayout = false, alone = false }: { offLayout?
     const timer = setInterval(read, 500);
     return () => clearInterval(timer);
   }, [media, live]);
+
+  // No picture yet (before play, or while the first segment loads): an empty black box labelled "Camera" says
+  // nothing, so the stage leaves the tile out until a frame is there. With no media at all, the tile says so.
+  const blank = media !== undefined && aspect === undefined;
+  useEffect(() => onBlank?.(blank), [onBlank, blank]);
 
   if (!media)
     return (
