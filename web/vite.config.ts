@@ -29,6 +29,8 @@ export default defineConfig({
   // Routes are split (App.tsx, routes.ts): the hub's entry is about 250 KB (80 KB gzipped). The largest chunk is
   // hls.js (575 KB), already a chunk of its own; warn if anything grows past it.
   build: { chunkSizeWarningLimit: 600 },
+  // PowerPoint test fixtures (speaker/fixtures) are read as assets.
+  assetsInclude: ["**/*.pptx"],
   test: {
     environment: "happy-dom",
     setupFiles: ["src/test/setup.ts"],

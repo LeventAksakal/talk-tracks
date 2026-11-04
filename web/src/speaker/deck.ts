@@ -29,8 +29,13 @@ export interface Deck {
   /** Stable for the same file: keys the speaker's private notes. */
   fingerprint: string;
   render(index: number): Promise<RenderedSlide>;
+  /** A small picture of a slide for the thumbnail strip (object URL), cheaper than `render`; nothing is sent. */
+  thumbnail?(index: number): Promise<string>;
   close(): void;
 }
+
+/** Thumbnails are this wide: enough for a strip, a fraction of a full render. */
+export const THUMB_WIDTH = 240;
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const url = await new Promise<string>((resolve, reject) => {
@@ -42,10 +47,41 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return url.slice(url.indexOf(",") + 1);
 }
 
-function toBlob(canvas: HTMLCanvasElement, mime: string, quality: number): Promise<Blob> {
+export function toBlob(canvas: HTMLCanvasElement, mime: string, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("could not encode the slide"))), mime, quality),
   );
+}
+
+/** A slide drawn on a canvas, encoded for the `deck` track (WebP, else JPEG) and the describe agent (JPEG). */
+export async function slideFromCanvas(
+  index: number,
+  canvas: HTMLCanvasElement,
+  runs: TextRun[],
+): Promise<RenderedSlide> {
+  let blob = await toBlob(canvas, "image/webp", 0.85);
+  // A browser without a WebP encoder hands back PNG.
+  if (blob.type !== "image/webp") blob = await toBlob(canvas, "image/jpeg", 0.85);
+  const frameCanvas = document.createElement("canvas");
+  frameCanvas.width = FRAME_WIDTH;
+  frameCanvas.height = Math.round((canvas.height * FRAME_WIDTH) / canvas.width);
+  frameCanvas.getContext("2d")?.drawImage(canvas, 0, 0, frameCanvas.width, frameCanvas.height);
+  const jpeg = await toBlob(frameCanvas, "image/jpeg", 0.8);
+  return {
+    index,
+    runs,
+    url: URL.createObjectURL(blob),
+    image: {
+      kind: "image",
+      index,
+      mime: blob.type === "image/webp" ? "image/webp" : "image/jpeg",
+      width: canvas.width,
+      height: canvas.height,
+      data_b64: await blobToBase64(blob),
+      runs,
+    },
+    frame: { mime: "image/jpeg", data_b64: await blobToBase64(jpeg) },
+  };
 }
 
 /** Open a PDF file as a deck. Throws with a message a speaker can act on. */
@@ -59,8 +95,12 @@ export async function openPdf(file: File): Promise<Deck> {
   try {
     doc = await task.promise;
   } catch (e) {
+    if (e instanceof Error && e.name === "PasswordException")
+      throw new Error(`${file.name} is password-protected. Save a copy without a password, then add that copy.`, {
+        cause: e,
+      });
     const reason = e instanceof Error ? e.message : String(e);
-    throw new Error(`This file could not be opened as a PDF (${reason}).`, { cause: e });
+    throw new Error(`${file.name} could not be opened as a PDF (${reason}).`, { cause: e });
   }
   const first = await doc.getPage(1);
   const base = first.getViewport({ scale: 1 });
@@ -77,34 +117,24 @@ export async function openPdf(file: File): Promise<Deck> {
     canvas.width = Math.round(viewport.width);
     canvas.height = Math.round(viewport.height);
     await page.render({ canvas, viewport }).promise;
-    let blob = await toBlob(canvas, "image/webp", 0.85);
-    // A browser without a WebP encoder hands back PNG.
-    if (blob.type !== "image/webp") blob = await toBlob(canvas, "image/jpeg", 0.85);
-    const frameCanvas = document.createElement("canvas");
-    frameCanvas.width = FRAME_WIDTH;
-    frameCanvas.height = Math.round((canvas.height * FRAME_WIDTH) / canvas.width);
-    frameCanvas.getContext("2d")?.drawImage(canvas, 0, 0, frameCanvas.width, frameCanvas.height);
-    const jpeg = await toBlob(frameCanvas, "image/jpeg", 0.8);
     const content = await page.getTextContent();
     type Item = (typeof content.items)[number];
     const items = content.items.filter((i): i is Extract<Item, { transform: unknown }> => "transform" in i);
     const runs = textRuns(items, viewport);
     page.cleanup();
-    return {
-      index,
-      runs,
-      url: URL.createObjectURL(blob),
-      image: {
-        kind: "image",
-        index,
-        mime: blob.type === "image/webp" ? "image/webp" : "image/jpeg",
-        width: canvas.width,
-        height: canvas.height,
-        data_b64: await blobToBase64(blob),
-        runs,
-      },
-      frame: { mime: "image/jpeg", data_b64: await blobToBase64(jpeg) },
-    };
+    return slideFromCanvas(index, canvas, runs);
+  };
+
+  const thumbs = new Map<number, Promise<string>>();
+  const renderThumb = async (index: number): Promise<string> => {
+    const page = await doc.getPage(index + 1);
+    const unit = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: THUMB_WIDTH / unit.width });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    await page.render({ canvas, viewport }).promise;
+    return URL.createObjectURL(await toBlob(canvas, "image/jpeg", 0.8));
   };
 
   return {
@@ -118,8 +148,14 @@ export async function openPdf(file: File): Promise<Deck> {
       if (!p) rendered.set(index, (p = renderPage(index)));
       return p;
     },
+    thumbnail(index) {
+      let p = thumbs.get(index);
+      if (!p) thumbs.set(index, (p = renderThumb(index)));
+      return p;
+    },
     close() {
       for (const p of rendered.values()) void p.then((s) => URL.revokeObjectURL(s.url)).catch(() => undefined);
+      for (const p of thumbs.values()) void p.then((u) => URL.revokeObjectURL(u)).catch(() => undefined);
       void task.destroy();
     },
   };

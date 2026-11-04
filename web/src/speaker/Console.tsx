@@ -34,6 +34,7 @@ import { LevelMeter, ScreenPreview, SelfView, useLevel } from "./MediaViews";
 import { useNotes } from "./notes";
 import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
+import { SLIDE_ACCEPT } from "./slideFiles";
 import { Questions, useQuestionCounts } from "./Questions";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
@@ -599,7 +600,7 @@ function ConsoleView({
           <input
             ref={fileInput}
             type="file"
-            accept="application/pdf,.pdf"
+            accept={SLIDE_ACCEPT}
             className="sr-only"
             tabIndex={-1}
             aria-label="Choose a PDF deck"
