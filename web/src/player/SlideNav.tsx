@@ -113,6 +113,7 @@ export function SlideNav({
         >
           <Icon name="forward" />
         </button>
+        {range && range.last > range.first ? <span className="tt-slide-nav-sep" aria-hidden="true" /> : null}
         {range && range.last > range.first ? (
           <button
             type="button"
