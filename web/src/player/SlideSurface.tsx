@@ -1,4 +1,4 @@
-import { type CSSProperties, type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
+import { type CSSProperties, type RefObject, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { drawLaserTrail } from "../canvas/laser";
 import type { Region } from "../contracts/types";
 import { laserColor } from "../theme/ink";
@@ -7,6 +7,8 @@ import { AnnotateBar, AnnotateSurface, CommentMarks } from "./Annotate";
 import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import { drawInk, inkSignature, markBoxes } from "./overlays";
+import { SlideNav } from "./SlideNav";
+import { navRange, type SlideRef } from "./deckNav";
 import type { SlideAt, SlideTracks } from "./slideTracks";
 import { SourceTile } from "./SourceTile";
 
@@ -54,7 +56,7 @@ interface Mark {
  * state of the tracks at the room time of the frame on screen.
  */
 export function SlideSurface() {
-  const { tracks, slides, clock, audienceShown, openTab, looped, vod } = usePlayer();
+  const { tracks, slides, clock, audienceShown, openTab, looped, vod, playback } = usePlayer();
   const slideTime = useSlideTime();
   useSyncExternalStore(slides?.subscribe ?? noop, slides?.getVersion ?? zero);
   const at = useFrameValue(clock, (t) => slides?.slideAt(slideTime(t)), sameSlide);
@@ -75,24 +77,42 @@ export function SlideSurface() {
     },
     (a, b) => a === b || (a?.deck === b?.deck && a?.index === b?.index),
   );
-  const pictured = on ?? held ?? null;
+  // The slide the speaker (or the playhead) is on, and the one the listener stays on after a step (deckNav.ts).
+  const following = on ?? held ?? null;
+  const [pinned, setPinned] = useState<SlideRef | null>(null);
+  const pictured = pinned ?? following;
+  // Off the speaker's slide: their marks, ink and laser are on another slide, so none of them show here.
+  const off = pinned !== null && !(following && following.deck === pinned.deck && following.index === pinned.index);
+  // Live (not a replay, not rewound) the listener follows the speaker and pages the slides shown so far; otherwise
+  // the playhead, through the whole deck.
+  const live = useFrameValue(clock, () => !holds && playback.media.mode() !== "rewound");
   const picture = pictured && slides ? slides.picture(pictured.deck, pictured.index) : undefined;
   const info = pictured && slides ? slides.deckInfo(pictured.deck) : undefined;
+  const range =
+    pictured && slides
+      ? navRange({
+          count: info?.count,
+          whole: !live,
+          shown: slides.furthestShown(pictured.deck),
+          at: following?.deck === pictured.deck ? following.index : undefined,
+        })
+      : undefined;
   const aspect = slideAspect(picture, info?.aspect);
   const runs = picture?.image.runs ?? [];
-  const marks: Mark[] = on
-    ? (at?.marks ?? []).flatMap(({ data }) =>
-        markBoxes(data.span, runs).map((box, i) => ({
-          id: `${data.id}:${i}`,
-          style: data.style,
-          color: data.color,
-          box,
-        })),
-      )
-    : [];
+  const marks: Mark[] =
+    on && !off
+      ? (at?.marks ?? []).flatMap(({ data }) =>
+          markBoxes(data.span, runs).map((box, i) => ({
+            id: `${data.id}:${i}`,
+            style: data.style,
+            color: data.color,
+            box,
+          })),
+        )
+      : [];
   const label = pictured ? `Slide ${pictured.index + 1}` : "Slides";
   // A slide's description is its picture's text alternative, and stands in for a slide with no picture.
-  const description = described?.description;
+  const description = off ? undefined : described?.description;
 
   return (
     <SourceTile
@@ -102,16 +122,32 @@ export function SlideSurface() {
       overlay={
         slides && slides.isActive("slide") ? (
           <>
-            <div className="tt-marks" aria-hidden="true">
-              {marks.map((k) => (
-                <span key={k.id} className={`tt-textmark tt-textmark-${k.style}`} style={markStyle(k)} />
-              ))}
-            </div>
-            {audienceShown ? <CommentMarks slides={slides} on={on} runs={runs} time={slideTime} /> : null}
-            <InkLayer slides={slides} />
-            <LaserPointer slides={slides} />
-            <AnnotateSurface slides={slides} on={on} runs={runs} aspect={aspect} time={slideTime} />
-            <AnnotateBar on={on} slides={slides} time={slideTime} />
+            {off ? null : (
+              <>
+                <div className="tt-marks" aria-hidden="true">
+                  {marks.map((k) => (
+                    <span key={k.id} className={`tt-textmark tt-textmark-${k.style}`} style={markStyle(k)} />
+                  ))}
+                </div>
+                {audienceShown ? <CommentMarks slides={slides} on={on} runs={runs} time={slideTime} /> : null}
+                <InkLayer slides={slides} />
+                <LaserPointer slides={slides} />
+                <AnnotateSurface slides={slides} on={on} runs={runs} aspect={aspect} time={slideTime} />
+                <AnnotateBar on={on} slides={slides} time={slideTime} />
+              </>
+            )}
+            {pictured && picture ? (
+              <SlideNav
+                slides={slides}
+                view={pictured}
+                following={following}
+                pinned={pinned}
+                range={range}
+                count={info?.count}
+                live={live}
+                onPin={setPinned}
+              />
+            ) : null}
           </>
         ) : null
       }
