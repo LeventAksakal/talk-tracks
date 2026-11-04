@@ -1,121 +1,49 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { LineItem } from "../playback/wire";
-import { MoqTransport } from "../transport/moq";
 import { dirOf } from "../viewer/lang";
-import { ChatTab } from "./Chat";
 import { usePlayer } from "./context";
-import { Icon, type IconName } from "./icons";
 import { fold, languageOption } from "./languages";
-import { notesMarkdown } from "./notes";
 import type { TrackView } from "../playback/aiTracks";
 import type { PanelTab } from "./prefs";
 import { chapterAt } from "./timeline";
 import { transcriptLines, translationFor } from "./tracks";
 import { TranscriptDownload } from "./TranscriptDownload";
 
-// The side panel's jobs (decision 0033): each answers one thing the viewer is doing. Talking with the room (Chat),
-// following what is said (Transcript), finding a place in the talk (Chapters, with its terms and the slides as text),
-// keeping their own notes (Notes); Discussion joins them only where listeners can comment. Chat goes first when there
-// is a relay to read it from and a room to talk with (not a recording). A panel is a subscription (decision 0026):
-// its track is subscribed while it is open.
-const CHAT: [PanelTab, string] = ["chat", "Chat"];
-const JOBS: [PanelTab, string][] = [
-  ["transcript", "Transcript"],
-  ["chapters", "Chapters"],
-  ["notes", "Notes"],
-];
-/** The Chapters job's views: one track (the outline) for chapters and terms, the descriptions for the slides. */
+// The reading panels (decision 0033, owner QA 2026-11-04): each answers one thing the viewer is doing, and the
+// workspace (workspace/Workspace.tsx) docks them wherever the viewer likes. Following what is said (Transcript),
+// finding a place in the talk (Chapters, with its terms and the slides as text). A panel is a subscription (decision
+// 0026): its track is subscribed while it is on screen.
+
+/** The Chapters panel's views: one track (the outline) for chapters and terms, the descriptions for the slides. */
 const FIND: [PanelTab, string][] = [
   ["chapters", "Chapters"],
   ["glossary", "Terms"],
   ["descriptions", "Slides"],
 ];
-const ICON: Record<string, IconName> = { chat: "chat", transcript: "transcript", chapters: "chapters", notes: "notes" };
 
-/** The job a tab belongs to: the Chapters job holds its terms and slides. */
-const jobOf = (tab: PanelTab): PanelTab => (tab === "glossary" || tab === "descriptions" ? "chapters" : tab);
-
-/**
- * The side panel (ui-design §4.6), beside the player, never over it: one job at a time, picked from the tabs or by
- * what the viewer does (/ searches the transcript, N writes a note, the chapter name opens Chapters).
- */
-export function SidePanel() {
-  const { prefs, update, extraTabs, transport, vod } = usePlayer();
-  // A recording has nobody in the room to chat with.
-  const chat = transport instanceof MoqTransport && !vod;
-  const tabs: [PanelTab, string][] = [
-    ...(chat ? [CHAT] : []),
-    ...JOBS,
-    ...extraTabs.map((t): [PanelTab, string] => [t.id, t.label]),
-  ];
-  const job = tabs.some(([id]) => id === jobOf(prefs.tab)) ? jobOf(prefs.tab) : "transcript";
-  const current = job === "chapters" ? prefs.tab : job;
-  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const i = tabs.findIndex(([id]) => id === job);
-    const next = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : undefined;
-    if (next === undefined) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const [id] = tabs[(next + tabs.length) % tabs.length]!;
-    update({ tab: id });
-    document.getElementById(`tt-tab-${id}`)?.focus();
-  };
-  const extra = extraTabs.find((t) => t.id === job);
+/** The Chapters panel: chapters, terms or the slides as text (`prefs.tab` remembers which). */
+export function ChaptersPanel() {
+  const { prefs, update } = usePlayer();
+  const current = FIND.some(([id]) => id === prefs.tab) ? prefs.tab : "chapters";
   return (
-    <aside className="tt-panel" aria-label="Side panel">
-      <div className="tt-panel-head">
-        <div className="tt-tabs" role="tablist" aria-label="Side panel" onKeyDown={onKey}>
-          {tabs.map(([id, label]) => (
-            <button
-              key={id}
-              id={`tt-tab-${id}`}
-              type="button"
-              role="tab"
-              className="tt-tab"
-              aria-selected={job === id}
-              aria-controls={`tt-tabpanel-${id}`}
-              tabIndex={job === id ? 0 : -1}
-              onClick={() => update({ tab: id })}
-            >
-              <Icon name={ICON[id] ?? "comment"} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="tt-icon-button tt-small tt-panel-close"
-          aria-label="Close the side panel"
-          onClick={() => update({ panel: false })}
-        >
-          <Icon name="close" />
-        </button>
+    <>
+      <div className="tt-views" role="group" aria-label="Show">
+        {FIND.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className="tt-view"
+            aria-pressed={current === id}
+            onClick={() => update({ tab: id })}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <div className="tt-tabpanel" role="tabpanel" id={`tt-tabpanel-${job}`} aria-labelledby={`tt-tab-${job}`}>
-        {job === "chapters" ? (
-          <div className="tt-views" role="group" aria-label="Show">
-            {FIND.map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className="tt-view"
-                aria-pressed={current === id}
-                onClick={() => update({ tab: id })}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {current === "chat" ? <ChatTab /> : null}
-        {current === "transcript" ? <Transcript /> : null}
-        {current === "chapters" ? <Chapters /> : null}
-        {current === "glossary" ? <Glossary /> : null}
-        {current === "descriptions" ? <Descriptions /> : null}
-        {current === "notes" ? <Notes /> : null}
-        {extra ? extra.content : null}
-      </div>
-    </aside>
+      {current === "chapters" ? <Chapters /> : null}
+      {current === "glossary" ? <Glossary /> : null}
+      {current === "descriptions" ? <Descriptions /> : null}
+    </>
   );
 }
 
@@ -177,7 +105,7 @@ function readableLines(lines: readonly LineItem[], keepEach: boolean): LineItem[
   return out;
 }
 
-function Transcript() {
+export function TranscriptPanel() {
   const { tracks, prefs, ui, setUi, at } = usePlayer();
   const captions = tracks.captions;
   const search = useRef<HTMLInputElement>(null);
@@ -403,89 +331,5 @@ function Descriptions() {
         </li>
       ))}
     </ol>
-  );
-}
-
-// --- notes -----------------------------------------------------------------------------------------
-
-function Notes() {
-  const { notes, at, talkClock, ui, title, addBookmark, slideNumber } = usePlayer();
-  const [text, setText] = useState("");
-  const box = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (ui.focusNote) box.current?.focus();
-  }, [ui.focusNote]);
-  const save = () => {
-    if (!text.trim() || at === undefined) return;
-    notes.add({ at, text: text.trim(), slide: slideNumber });
-    setText("");
-  };
-  const exportMarkdown = () => {
-    const blob = new Blob([notesMarkdown(title, notes.notes, talkClock)], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "notes"}.md`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1_000);
-  };
-  return (
-    <div className="tt-notes">
-      <label className="tt-menu-heading" htmlFor="tt-note">
-        Note at {at === undefined ? "–" : talkClock(at)}
-      </label>
-      <textarea
-        id="tt-note"
-        ref={box}
-        className="tt-input"
-        rows={2}
-        value={text}
-        placeholder="Type a note (N)"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            save();
-          }
-        }}
-      />
-      <div className="tt-row">
-        <button type="button" className="tt-button" onClick={save} disabled={!text.trim()}>
-          Save note
-        </button>
-        <button type="button" className="tt-button tt-secondary" onClick={addBookmark}>
-          Bookmark (B)
-        </button>
-      </div>
-      {notes.notes.length === 0 ? (
-        <p className="tt-muted">Bookmarks and notes stay in this browser.</p>
-      ) : (
-        <ul className="tt-note-list" aria-label="Notes">
-          {notes.notes.map((n) => (
-            <li key={n.id}>
-              <Seek ms={n.at} />
-              <span>
-                {n.text || "★ Bookmark"}
-                {n.slide ? <span className="tt-muted"> · slide {n.slide}</span> : null}
-              </span>
-              <button
-                type="button"
-                className="tt-icon-button tt-small"
-                aria-label={`Delete note at ${talkClock(n.at)}`}
-                onClick={() => notes.remove(n.id)}
-              >
-                <Icon name="close" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {notes.notes.length > 0 ? (
-        <button type="button" className="tt-button tt-secondary" onClick={exportMarkdown}>
-          Export as Markdown
-        </button>
-      ) : null}
-    </div>
   );
 }

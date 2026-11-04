@@ -9,12 +9,12 @@ import type { Transport } from "../transport/types";
 import type { FrameClock } from "./frameClock";
 import type { RoomMediaElement } from "./roomMediaElement";
 import type { Listening } from "./listening";
-import type { NotesApi } from "./notes";
 import type { PanelTab, Prefs, SourceKind } from "./prefs";
 import type { ScreenMedia } from "./screenMedia";
 import type { SlideTracks } from "./slideTracks";
 import type { PlayerState } from "./state";
 import type { RoomTracks } from "./tracks";
+import type { WorkspaceApi } from "./workspace/Workspace";
 
 export type MenuKind = "cc" | "layout";
 
@@ -24,12 +24,11 @@ export interface UiState {
   shortcuts: boolean;
   /** Transcript search text. */
   search: string;
-  /** Bumped to move focus into the transcript search or the note box. */
+  /** Bumped to move focus into the transcript search. */
   focusSearch: number;
-  focusNote: number;
   /** The media element plays (Media Chrome's paused state, mirrored for the stage). */
   playing: boolean;
-  /** A short message for screen readers and the canvas ("Bookmark added"). */
+  /** A short message for screen readers and the canvas ("Subtitle size 28"). */
   toast: string | undefined;
 }
 
@@ -39,12 +38,11 @@ export const INITIAL_UI: UiState = {
   shortcuts: false,
   search: "",
   focusSearch: 0,
-  focusNote: 0,
   playing: false,
   toast: undefined,
 };
 
-/** An extra side panel tab, for lanes that come later (Discussion). */
+/** An extra panel, for lanes that come later (Discussion). */
 export interface ExtraTab {
   id: string;
   label: string;
@@ -71,7 +69,8 @@ export interface PlayerCtx {
   setUi: (change: Partial<UiState> | ((u: UiState) => Partial<UiState>)) => void;
   state: PlayerState;
   clock: FrameClock;
-  notes: NotesApi;
+  /** The panels and their arrangement (workspace/Workspace.tsx). */
+  workspace: WorkspaceApi;
   /** What the speaker sends at the frame shown (camera, slides, a shared screen); Stage lays out stageSources(sources). */
   sources: SourceKind[];
   /**
@@ -81,9 +80,9 @@ export interface PlayerCtx {
   sourcesPending: boolean;
   /** The speaker's slide tracks, the audience's annotations and the room's state; undefined with no relay. */
   slides: SlideTracks | undefined;
-  /** The slides are on screen in the current layout, so their tracks are subscribed (decision 0010). */
+  /** The slides are on screen in the workspace, so their tracks are subscribed (decision 0010). */
   slidesShown: boolean;
-  /** The audience's ink, marks and comment marks are shown (and subscribed): the Discussion tab or the tools are open. */
+  /** The audience's ink, marks and comment marks are shown (and subscribed): the Discussion panel or the tools are open. */
   audienceShown: boolean;
   /** The number of the slide on screen at the playhead (1-based), from the slide track or the descriptions. */
   slideNumber: number | undefined;
@@ -112,7 +111,6 @@ export interface PlayerCtx {
   /** Keep these tracks subscribed (a download gathering them) until the returned release is called. */
   holdTracks(ids: readonly string[]): () => void;
   togglePlay(): void;
-  addBookmark(): void;
   announce(message: string): void;
 }
 

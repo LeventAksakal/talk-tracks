@@ -29,27 +29,20 @@ import { languageOption } from "./languages";
 import { LanguageOffer } from "./LanguageOffer";
 import { Listening, useListening, useRoomService } from "./listening";
 import { MediaUIEvents } from "./mediaChrome";
-import { useNotes } from "./notes";
 import "./player.css";
 import { type PanelTab, type Prefs, type SourceKind, usePrefs } from "./prefs";
 import type { RoomMediaElement, SubtitleChoice } from "./roomMediaElement";
 import { ScreenMedia } from "./screenMedia";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { SidePanel } from "./SidePanel";
 import type { SlideTracks } from "./slideTracks";
-import { sourceShown, Stage } from "./Stage";
+import { Stage } from "./Stage";
 import { isTyping, TYPING_HOTKEYS } from "./typing";
 import { forcedInput, playerState, type PlayerStateKind } from "./state";
 import { guardOf } from "../package/download";
-import {
-  Linger,
-  type RoomTracks,
-  roomSubtitles,
-  roomTracks,
-  openTab as shownTab,
-  wantedSlideTracks,
-  wantedTracks,
-} from "./tracks";
+import { Linger, type RoomTracks, roomSubtitles, roomTracks, wantedSlideTracks, wantedTracks } from "./tracks";
+import { MoqTransport } from "../transport/moq";
+import { isPicture, type PanelId } from "./workspace/layout";
+import { useWorkspace } from "./workspace/Workspace";
 
 export interface PlayerProps {
   playback: Playback;
@@ -143,7 +136,6 @@ export function Player(props: PlayerProps) {
       setUiState((u) => ({ ...u, ...(typeof change === "function" ? change(u) : change) })),
     [],
   );
-  const notes = useNotes(room);
   const clock = useMemo(() => new FrameClock(() => playback.media.frameTime()), [playback]);
   const media = playback.media instanceof RoomMedia ? playback.media : undefined;
   const root = useRef<HTMLDivElement>(null);
@@ -197,8 +189,9 @@ export function Player(props: PlayerProps) {
   const tracks = useMemo(() => roomTracks(view?.tracks.tracks ?? []), [view?.tracks.tracks]);
   // The catalog (whether a translation is running or free here) changes with the view, which re-renders.
   const carriesOver = roomSubtitles(saved, room, tracks, guardOf({ media, transport, roomName: room })) === saved;
+  // The workspace has no corner tile: the subtitles take their default place over the main picture (subtitlePlace).
   const prefs = useMemo<Prefs>(
-    () => (carriesOver ? saved : { ...saved, subtitleLang: "original" }),
+    () => ({ ...(carriesOver ? saved : { ...saved, subtitleLang: "original" }), layout: "split" }),
     [saved, carriesOver],
   );
   const carried = carriesOver ? undefined : saved.subtitleLang;
@@ -228,25 +221,46 @@ export function Player(props: PlayerProps) {
   const sourcesWaited = useHeldFor(status?.status === "connected", SOURCES_WAIT_MS);
   const sourcesPending = !sourcesTold && !sourcesWaited;
 
+  // The panels this room has: its pictures, Chat where there is a room to talk with (not a recording), the reading
+  // panels, and later lanes' panels (Discussion).
+  const chatOn = transport instanceof MoqTransport && !props.vod;
+  const availableKey = [
+    ...sources,
+    ...(chatOn ? ["chat"] : []),
+    "transcript",
+    "chapters",
+    ...extraTabs.map((t) => t.id),
+  ].join(",");
+  const available = useMemo<PanelId[]>(() => availableKey.split(","), [availableKey]);
+  const labels = useMemo(() => Object.fromEntries(extraTabs.map((t) => [t.id, t.label])), [extraTabs]);
+  const workspace = useWorkspace(available, labels);
+  const onScreen = workspace.visible;
+
   // What is picked and open decides what is subscribed (decisions 0010, 0026), and a track let go lingers 30 s.
-  // The slides count as on while the layout shows them; the audience's ink and marks while the listener shows
-  // them (the Discussion tab or their own tools); the room's state is always read.
-  const tab = shownTab(prefs);
+  // The slides count as on while their panel is on screen; the audience's ink and marks while the listener shows
+  // them (the Discussion panel or their own tools); the room's state is always read.
+  const tabs = panelTabs(onScreen, prefs.tab);
   // Tracks held for something in progress (a transcript download), on top of what is picked and open.
   const [holds, setHolds] = useState<readonly (readonly string[])[]>([]);
   const holdTracks = useCallback((ids: readonly string[]) => {
     setHolds((h) => [...h, ids]);
     return () => setHolds((h) => h.filter((x) => x !== ids));
   }, []);
+  const tabsKey = tabs.join(",");
   const wanted = useMemo(
-    () => new Set([...wantedTracks(prefs, tracks, tab), ...holds.flat()]),
+    () =>
+      new Set([
+        ...wantedTracks(prefs, tracks, undefined),
+        ...tabs.flatMap((t) => [...wantedTracks(prefs, tracks, t)]),
+        ...holds.flat(),
+      ]),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the fields wantedTracks reads
-    [prefs.cc, prefs.subtitleLang, prefs.dual, prefs.sound, tracks, tab, holds],
+    [prefs.cc, prefs.subtitleLang, prefs.dual, prefs.sound, tracks, tabsKey, holds],
   );
   const held = useLingered(wanted);
-  const slidesShown = sourceShown("slides", prefs, sources);
+  const slidesShown = sources.includes("slides") && onScreen.has("slides");
   const annotating = useListening(listening)?.annotating ?? false;
-  const audienceShown = tab === DISCUSSION_TAB || annotating;
+  const audienceShown = onScreen.has(DISCUSSION_TAB) || annotating;
   useEffect(() => {
     slides?.setWanted(wantedSlideTracks(slidesShown, audienceShown));
   }, [slides, slidesShown, audienceShown]);
@@ -292,7 +306,7 @@ export function Player(props: PlayerProps) {
     return () => clearTimeout(timer);
   }, [ui.toast, setUi]);
 
-  // Full screen takes the whole player, side panel included: Media Chrome's fullscreen element is the player.
+  // Full screen takes the whole player, every panel included: Media Chrome's fullscreen element is the player.
   const hasView = view !== undefined;
   useEffect(() => {
     const c = controller.current as (HTMLElement & { fullscreenElement?: HTMLElement }) | null;
@@ -485,15 +499,20 @@ export function Player(props: PlayerProps) {
     else e.pause();
   }, [el]);
 
-  const openTab = useCallback((tab: PanelTab) => update({ panel: true, tab }), [update]);
+  // A reading panel asked for (the chapter name, "Catch up", a comment): opened where it was docked, in front.
+  const openPanel = workspace.open;
+  const openTab = useCallback(
+    (tab: PanelTab) => {
+      if (tab === "chapters" || tab === "glossary" || tab === "descriptions") {
+        update({ tab });
+        openPanel("chapters");
+      } else openPanel(tab);
+    },
+    [update, openPanel],
+  );
   const shownSlide = slidesShown && at !== undefined ? slides?.slideAt(at)?.slide : undefined;
   const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const slideNumber = shownSlide ? shownSlide.index + 1 : described ? described.id + 1 : undefined;
-  const addBookmark = useCallback(() => {
-    if (at === undefined) return;
-    notes.add({ at, text: "", slide: slideNumber });
-    announce(`Bookmark at ${formatClock(media ? media.talkTime(at) : at)}`);
-  }, [at, slideNumber, notes, announce, media]);
 
   useReadAloud(prefs.sound === "describe", tracks.describe?.sliced?.slide, timeline?.mode === "live");
 
@@ -515,7 +534,7 @@ export function Player(props: PlayerProps) {
           setUi,
           state,
           clock,
-          notes,
+          workspace,
           sources,
           sourcesPending,
           slides,
@@ -541,7 +560,6 @@ export function Player(props: PlayerProps) {
           openTab,
           holdTracks,
           togglePlay,
-          addBookmark,
           announce,
         }
       : undefined;
@@ -559,13 +577,13 @@ export function Player(props: PlayerProps) {
     <PlayerContext.Provider value={ctx}>
       <div
         ref={root}
-        className={`tt-player${prefs.panel ? " tt-with-panel" : ""}${fullscreen ? " tt-fullscreen" : ""}`}
+        className={`tt-player${fullscreen ? " tt-fullscreen" : ""}`}
         data-state={state.kind}
         onPointerMove={engaged ? undefined : engage}
         onPointerDown={engaged ? undefined : engage}
         onKeyDown={engaged ? undefined : engage}
       >
-        {/* The skip link's target: the talk itself, its canvas and controls (the side panel beside). */}
+        {/* The skip link's target: the talk itself, its panels and controls. */}
         <main className="tt-main" id="main" tabIndex={-1}>
           <media-controller
             ref={controller}
@@ -611,7 +629,6 @@ export function Player(props: PlayerProps) {
             <Controls quality={false} />
           </media-controller>
         </main>
-        {prefs.panel ? <SidePanel /> : null}
         {ui.shortcuts ? <ShortcutsDialog onClose={() => setUi({ shortcuts: false })} /> : null}
         <div className="sr-only" aria-live="polite">
           {announcement}
@@ -677,8 +694,8 @@ export function listenerToolsOff(status: ServiceStatus | undefined, noService: s
 /**
  * Keyboard shortcuts on the whole page (the player is the page). Media Chrome answers the media keys (Space and K,
  * J and L, the arrows, M, F, C, < and >) inside its controller; pressed anywhere else on the page they are handed to
- * it. The room's own keys are ours: G go live, S side panel, B bookmark, N note, / search, [ and ] subtitle size, ?
- * these shortcuts, I Stats for nerds.
+ * it. The room's own keys are ours: G go live, / search the transcript, [ and ] subtitle size, ? these shortcuts,
+ * I Stats for nerds.
  */
 function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElement | null>): void {
   const latest = useRef(ctx);
@@ -716,18 +733,8 @@ function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElem
           c.announce(`Subtitle size ${size}`);
           break;
         }
-        case "s":
-          update({ panel: !prefs.panel });
-          break;
-        case "b":
-          c.addBookmark();
-          break;
-        case "n":
-          c.openTab("notes");
-          setUi((u) => ({ focusNote: u.focusNote + 1 }));
-          break;
         case "/":
-          update({ panel: true, tab: "transcript" });
+          c.openTab("transcript");
           setUi((u) => ({ focusSearch: u.focusSearch + 1 }));
           break;
         case "i":
@@ -762,6 +769,20 @@ function useShortcuts(ctx: PlayerCtx | undefined, controller: RefObject<HTMLElem
       document.removeEventListener("keydown", onKey);
     };
   }, [controller]);
+}
+
+/**
+ * The reading tabs on screen, for the tracks they subscribe (tracks.wantedTracks): the transcript, the Chapters
+ * panel's view (chapters, terms or the slides as text), Discussion.
+ */
+function panelTabs(onScreen: ReadonlySet<PanelId>, tab: PanelTab): PanelTab[] {
+  const out: PanelTab[] = [];
+  for (const id of onScreen) {
+    if (isPicture(id)) continue;
+    if (id === "chapters") out.push(tab === "glossary" || tab === "descriptions" ? tab : "chapters");
+    else out.push(id);
+  }
+  return out.sort();
 }
 
 /** True once `on` has held for `ms` without a break; false again as soon as it breaks. */

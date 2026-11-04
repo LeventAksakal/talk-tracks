@@ -2,8 +2,6 @@
 // so what goes in the .zip is tested without a browser. Times in the package are talk time: ms from the start of
 // the talk, as the player's clock shows it.
 
-import type { Note } from "../player/notes";
-import { notesMarkdown } from "../player/notes";
 import { clockOf, exportTranscript, type TranscriptLanguage } from "../player/transcriptExport";
 import type { Outline } from "../playback/wire";
 import type { TextRun } from "../contracts/types";
@@ -46,7 +44,6 @@ export interface PackageInput {
   languages: readonly TranscriptLanguage[];
   outline: Outline | undefined;
   slides: readonly PackageSlide[];
-  notes: readonly Note[];
   /** Translations the room has that were not gathered (no agent was running for them), by name. */
   leftOut: readonly string[];
   /** The slide descriptions were gathered (the describe agent was running or recorded); undefined: left out. */
@@ -62,8 +59,7 @@ type Role =
   | "glossary"
   | "slide-image"
   | "slide-image-mine"
-  | "slide-text"
-  | "notes";
+  | "slide-text";
 
 interface FileOut {
   path: string;
@@ -184,12 +180,6 @@ export function lectureFiles(input: PackageInput): ZipEntry[] {
     };
   });
 
-  files.push({
-    path: "notes.md",
-    role: "notes",
-    mediaType: "text/markdown",
-    data: notesMarkdown(`${input.title}: my notes`, input.notes, clock),
-  });
   files.push({ path: "lecture.md", role: "lecture", mediaType: "text/markdown", data: lectureMarkdown(input, stem) });
   files.push({ path: "README.md", role: "readme", mediaType: "text/markdown", data: readme(input) });
 
@@ -211,7 +201,6 @@ export function lectureFiles(input: PackageInput): ZipEntry[] {
     leftOut: { languages: [...input.leftOut] },
     chapters: chapters.length,
     glossary: glossary.length,
-    notes: input.notes.length,
     descriptions: input.descriptions ? input.slides.filter((s) => s.description).length : null,
     slides,
     files: files.map((f) => ({
@@ -326,14 +315,6 @@ function lectureMarkdown(input: PackageInput, stem: (s: PackageSlide) => string)
     for (const g of glossary) out.push(`- **${g.term}**: ${g.definition}`);
     out.push("");
   }
-  if (input.notes.length) {
-    out.push("## My notes", "");
-    for (const n of input.notes) {
-      const where = `${clock(n.at)}${n.slide ? ` · slide ${n.slide}` : ""}`;
-      out.push(n.text ? `- **${where}** ${n.text}` : `- **${where}** Bookmark`);
-    }
-    out.push("");
-  }
   return `${out.join("\n").trimEnd()}\n`;
 }
 
@@ -371,7 +352,6 @@ function readme(input: PackageInput): string {
             "`slides/NN.md` and `lecture.md`. Useful for charts and figures that have no text layer.",
         ]
       : []),
-    "- `notes.md`: the listener's own notes and bookmarks, stamped with the talk time and slide.",
     "",
     "## How to read it",
     "",
@@ -379,10 +359,9 @@ function readme(input: PackageInput): string {
     "- The transcript, translations, chapters, summaries and glossary are machine-generated live during the talk. " +
       "They can mishear names and technical terms; when the slide text and the transcript disagree, the slide is " +
       "usually right.",
-    "- The notes are the listener's. They show what the listener found important or was unsure about.",
   ];
   if (input.slides.some((s) => s.mine?.png))
-    parts.push("- So are the annotations in `slides/NN.mine.png`: what the listener marked on the slides.");
+    parts.push("- The annotations in `slides/NN.mine.png` are the listener's: what they marked on the slides.");
   if (input.live) parts.push("- The talk was still going when this was downloaded: the package ends there.");
   if (input.leftOut.length)
     parts.push(

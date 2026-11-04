@@ -28,7 +28,7 @@ const ALL = "all";
  */
 export function TranscriptDownload() {
   const ctx = usePlayer();
-  const { tracks, prefs, playback, view, media, title, roomName, holdTracks, slides, notes, state } = ctx;
+  const { tracks, prefs, playback, view, media, title, roomName, holdTracks, slides, state } = ctx;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string>();
@@ -128,7 +128,6 @@ export function TranscriptDownload() {
         talkMs: (ms) => talkMs(ms, span.from),
         languages,
         outline: gotOutline,
-        notes: notes.notes,
         mine,
         descriptions,
         leftOut: left.map((t) => languageName(t.lang, false)),
@@ -194,7 +193,7 @@ export function TranscriptDownload() {
               Lecture package (.zip)
             </button>
             <p className="tt-muted tt-small">
-              Transcripts, chapters, slides with ink, your notes and your own marks, for an AI assistant.
+              Transcripts, chapters, slides with ink and your own marks, for an AI assistant.
             </p>
           </div>
           {progress ? (

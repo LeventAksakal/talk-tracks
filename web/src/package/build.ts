@@ -5,7 +5,6 @@
 
 import { type InkElement, SLICE_MS, type TextMark } from "../contracts/types";
 import type { TranscriptLanguage } from "../player/transcriptExport";
-import type { Note } from "../player/notes";
 import type { HistorySource } from "../playback/source";
 import type { Outline, SlideItem } from "../playback/wire";
 import { lectureFiles, type PackageSlide, slideText } from "./lecture";
@@ -33,7 +32,6 @@ export interface BuildPackageInput {
   talkMs: (ms: number) => number;
   languages: readonly TranscriptLanguage[];
   outline: Outline | undefined;
-  notes: readonly Note[];
   /**
    * The listener's author id on the audience track: their own ink and text marks go in a second picture per slide.
    * Undefined when they have none to read (no room service identity).
@@ -148,7 +146,6 @@ export async function buildLecturePackage(input: BuildPackageInput): Promise<Bui
     languages: input.languages,
     outline: input.outline,
     slides,
-    notes: input.notes,
     leftOut: input.leftOut,
     descriptions: input.descriptions !== undefined,
   });

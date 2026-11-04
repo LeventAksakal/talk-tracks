@@ -172,7 +172,6 @@ describe("the lecture package", () => {
       talkMs: (ms) => ms,
       languages: [en, es],
       outline: OUTLINE,
-      notes: [{ id: "n1", at: 66_000, slide: 3, text: "Ask about oxbow lakes" }],
       leftOut: ["العربية"],
       render: async ({ ink }) => new Uint8Array([137, 80, 78, 71, ink.length]),
       onProgress: (p) => progress.push(p.fraction),
@@ -195,8 +194,7 @@ describe("the lecture package", () => {
     const listed = manifest.files.map((f) => f.path).sort();
     expect(listed).toEqual([...files.keys()].filter((p) => p !== "manifest.json").sort());
     for (const f of manifest.files) expect(files.get(f.path)!.length).toBe(f.bytes);
-    for (const p of ["README.md", "lecture.md", "chapters.json", "glossary.json", "notes.md"])
-      expect(files.has(p)).toBe(true);
+    for (const p of ["README.md", "lecture.md", "chapters.json", "glossary.json"]) expect(files.has(p)).toBe(true);
     expect(manifest.languages.map((l) => l.lang)).toEqual(["en", "es"]);
     for (const p of ["transcript/en.vtt", "transcript/en.md", "transcript/es.vtt", "transcript/es.md"])
       expect(files.has(p)).toBe(true);
@@ -210,7 +208,6 @@ describe("the lecture package", () => {
     }
     expect(JSON.parse(text(files.get("chapters.json"))).chapters).toHaveLength(3);
     expect(JSON.parse(text(files.get("glossary.json")))).toEqual(OUTLINE.glossary);
-    expect(text(files.get("notes.md"))).toContain("Ask about oxbow lakes");
 
     const lecture = text(files.get("lecture.md"));
     for (const [i, c] of OUTLINE.chapters.entries()) expect(lecture).toContain(`## ${i + 1}. ${c.title}`);
@@ -223,7 +220,6 @@ describe("the lecture package", () => {
     expect(at("**Slide 3**")).toBeGreaterThan(at("## 2. Meanders"));
     const slideThree = text(files.get("slides/03.md")).split("\n").slice(-2)[0]!;
     expect(lecture).toContain(slideThree);
-    expect(lecture).toContain("Ask about oxbow lakes");
   });
 
   it("adds a second picture of each slide the listener annotated, and the slide descriptions when given", async () => {
@@ -241,7 +237,6 @@ describe("the lecture package", () => {
       talkMs: (ms: number) => ms,
       languages: [],
       outline: undefined,
-      notes: [],
       leftOut: [],
       render: async ({ ink, marks }: { ink: readonly unknown[]; marks: readonly unknown[] }) =>
         new Uint8Array([137, 80, 78, 71, ink.length, marks.length]),
@@ -299,7 +294,6 @@ describe("the lecture package", () => {
       talkMs: (ms) => ms,
       languages: [],
       outline: undefined,
-      notes: [],
       leftOut: [],
       fetchTimeoutMs: 50,
     });

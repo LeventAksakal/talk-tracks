@@ -8,7 +8,8 @@ import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore }
 import { usePlayer } from "./context";
 import { Icon } from "./icons";
 import { fold } from "./languages";
-import { CaptionsMenu, LayoutMenu } from "./menus";
+import { CaptionsMenu } from "./menus";
+import { WorkspaceMenu } from "./workspace/Workspace";
 import { DEFAULT_STYLE, type SubtitlePreset, SUBTITLE_PRESETS } from "./prefs";
 import { chapterAt, holesIn } from "./timeline";
 import { transcriptLines } from "./tracks";
@@ -27,7 +28,7 @@ export const SUBTITLE_SIZES: [number, string][] = [
 const RATES = "0.5 0.75 1 1.25 1.5 2";
 
 export function Controls({ quality }: { quality: boolean }) {
-  const { ui, setUi, prefs, update, state, at, goLive, openTab, tracks, sources } = usePlayer();
+  const { ui, setUi, prefs, state, at, goLive, openTab, tracks, workspace } = usePlayer();
   const chapters = tracks.outline?.enabled ? (tracks.outline.outline?.chapters ?? []) : [];
   const chapter = chapterAt(chapters, at);
   const toggleMenu = (menu: NonNullable<typeof ui.menu>) =>
@@ -77,26 +78,15 @@ export function Controls({ quality }: { quality: boolean }) {
           >
             <Icon name="cc" />
           </button>
-          {sources.length > 1 ? (
-            <button
-              type="button"
-              className="tt-bar-button"
-              aria-label="Layout"
-              aria-haspopup="dialog"
-              aria-expanded={ui.menu === "layout"}
-              onClick={() => toggleMenu("layout")}
-            >
-              <Icon name="layout" />
-            </button>
-          ) : null}
           <button
             type="button"
             className="tt-bar-button"
-            aria-label="Side panel (S)"
-            aria-pressed={prefs.panel}
-            onClick={() => update({ panel: !prefs.panel })}
+            aria-label="Layout"
+            aria-haspopup="dialog"
+            aria-expanded={ui.menu === "layout"}
+            onClick={() => toggleMenu("layout")}
           >
-            <Icon name="panel" />
+            <Icon name="layout" />
           </button>
           <media-settings-menu-button className="tt-mc-button">
             <Icon name="gear" slot="icon" />
@@ -104,7 +94,7 @@ export function Controls({ quality }: { quality: boolean }) {
           <media-pip-button className="tt-mc-button" />
           <media-fullscreen-button className="tt-mc-button" />
           {ui.menu === "cc" ? <CaptionsMenu /> : null}
-          {ui.menu === "layout" ? <LayoutMenu /> : null}
+          {ui.menu === "layout" ? <WorkspaceMenu api={workspace} onDone={() => setUi({ menu: undefined })} /> : null}
         </media-control-bar>
       </div>
     </>
@@ -202,11 +192,11 @@ function SettingsMenu({ quality }: { quality: boolean }) {
 
 /**
  * Media Chrome's time range (chapter segments from the element's chapters track), with the room's marks laid over it
- * (holes where nobody broadcast, slide changes, notes, transcript search matches) and a preview of the slide at the
+ * (holes where nobody broadcast, slide changes, transcript search matches) and a preview of the slide at the
  * pointer.
  */
 function TimeRange() {
-  const { view, tracks, notes, ui, origin, slides: slideTracks, slidesShown } = usePlayer();
+  const { view, tracks, ui, origin, slides: slideTracks, slidesShown } = usePlayer();
   const deck = slidesShown ? slideTracks : undefined;
   useSyncExternalStore(deck?.subscribe ?? noop, deck?.getVersion ?? zero);
   const t = view.timeline;
@@ -261,11 +251,6 @@ function TimeRange() {
           .filter((s) => inSpan(s.atMs))
           .map((s) => (
             <span key={`s${s.id}:${s.atMs}`} className="tt-mark tt-mark-slide" style={at(s.atMs)} />
-          ))}
-        {notes.notes
-          .filter((n) => inSpan(n.at))
-          .map((n) => (
-            <span key={`n${n.id}`} className="tt-mark tt-mark-note" style={at(n.at)} />
           ))}
         {matches
           .filter((l) => inSpan(l.startMs))

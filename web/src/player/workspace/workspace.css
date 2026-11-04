@@ -1,0 +1,416 @@
+/* The workspace (workspace/Workspace.tsx): four zones in a grid between the title bar and the dock, panels as quiet
+   cards with a thin title bar, floating windows with the one shadow a thing over content gets (design-intent:
+   opaque surfaces, hairlines, no glass or glow). */
+
+.tt-stage.tt-stage-ws {
+  display: block;
+}
+.tt-ws {
+  --ws-gap: 6px;
+  --ws-head: 32px;
+  position: absolute;
+  inset: var(--player-title-reach) 0 var(--player-dock-reach) 0;
+  display: grid;
+  grid-template-columns: var(--ws-left) minmax(0, 1fr) var(--ws-right);
+  grid-template-rows: minmax(0, 1fr) var(--ws-bottom);
+  padding: 0 var(--ws-gap);
+  user-select: none;
+}
+.tt-sources-pending .tt-ws-body[data-picture] .tt-ws-host {
+  visibility: hidden;
+}
+
+/* --- zones --- */
+.tt-ws-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: calc(var(--ws-gap) / 2);
+}
+.tt-ws-zone[data-zone="left"] {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+.tt-ws-zone[data-zone="centre"] {
+  grid-column: 2;
+  grid-row: 1;
+}
+.tt-ws-zone[data-zone="right"] {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+.tt-ws-zone[data-zone="bottom"] {
+  grid-column: 2;
+  grid-row: 2;
+}
+.tt-ws-zone[data-split] {
+  display: grid;
+  gap: var(--ws-gap);
+  grid-auto-rows: minmax(0, 1fr);
+}
+.tt-ws-zone[data-split][data-across] {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-rows: auto;
+  grid-template-rows: minmax(0, 1fr);
+}
+.tt-ws-zone[data-split][data-two][data-across] {
+  grid-template-columns: minmax(0, calc(var(--ws-share) * 100% - var(--ws-gap) / 2)) minmax(0, 1fr);
+}
+.tt-ws-zone[data-split][data-two]:not([data-across]) {
+  grid-template-rows: minmax(0, calc(var(--ws-share) * 100% - var(--ws-gap) / 2)) minmax(0, 1fr);
+}
+
+/* A panel card: a zone shown as tabs, a split zone's panel, a floating window. */
+.tt-ws-zone:not([data-split]),
+.tt-ws-pane,
+.tt-ws-float {
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-color-ground);
+  overflow: hidden;
+}
+.tt-ws-zone:has(> .tt-ws-body[data-picture]:not([hidden])),
+.tt-ws-pane:has(> .tt-ws-body[data-picture]),
+.tt-ws-float[data-picture] {
+  background: var(--player-stage);
+}
+.tt-ws-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+.tt-ws-pane > .tt-ws-head {
+  border-radius: var(--tt-radius-md) var(--tt-radius-md) 0 0;
+}
+.tt-ws-pane > .tt-ws-body {
+  border-radius: 0 0 var(--tt-radius-md) var(--tt-radius-md);
+  overflow: hidden;
+}
+.tt-ws-empty {
+  display: grid;
+  place-items: center;
+  padding: var(--tt-space-5);
+  color: var(--tt-color-text-muted);
+  text-align: center;
+}
+
+/* --- a panel's title bar: its tabs or title, then Move and Close --- */
+.tt-ws-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--ws-head);
+  padding: 0 2px 0 4px;
+  border-bottom: 1px solid var(--player-line);
+  background: var(--tt-color-surface);
+}
+.tt-ws-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  overflow: hidden;
+}
+.tt-ws-tab,
+.tt-ws-title {
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--tt-color-text-muted);
+  font: var(--tt-weight-strong) var(--tt-text-micro) var(--tt-font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: grab;
+  touch-action: none;
+}
+.tt-ws-tab {
+  flex: 0 1 auto;
+  box-shadow: inset 0 -2px 0 transparent;
+}
+.tt-ws-tab:hover {
+  color: var(--tt-color-text);
+}
+.tt-ws-tab[aria-selected="true"] {
+  color: var(--tt-color-text);
+  box-shadow: inset 0 -2px 0 var(--tt-color-text);
+}
+.tt-ws-title {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+}
+.tt-ws-dragging,
+.tt-ws-dragging * {
+  cursor: grabbing !important;
+}
+.tt-ws-actions {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.tt-ws-actions .tt-icon-button {
+  color: var(--tt-color-text-muted);
+}
+.tt-ws-actions .tt-icon-button:hover,
+.tt-ws-actions .tt-icon-button[aria-expanded="true"] {
+  color: var(--tt-color-text);
+}
+.tt-ws-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 4px;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-md);
+  background: var(--player-panel);
+  box-shadow: var(--tt-shadow-2);
+}
+.tt-ws-menu button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--tt-radius-sm);
+  background: none;
+  color: var(--tt-color-text);
+  font: var(--tt-text-small) var(--tt-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.tt-ws-menu button:hover {
+  background: var(--player-hover);
+}
+
+/* --- a panel's body: a picture centred in its own shape, or a panel to read --- */
+.tt-ws-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.tt-ws-body[hidden] {
+  display: none !important;
+}
+.tt-ws-body.tt-tabpanel {
+  user-select: text;
+}
+.tt-ws-host {
+  display: contents;
+}
+.tt-ws-park {
+  display: none;
+}
+/* Over the main picture: subtitles sit low on the picture's own panel, which already clears the dock. */
+.tt-ws .tt-ws-body .tt-subs.tt-subs:not([data-placed], [data-below]) {
+  translate: -50% -100%;
+}
+.tt-ws .tt-missed {
+  top: 10px;
+  left: 10px;
+}
+
+/* --- floating windows: the viewer's own picture-in-picture --- */
+.tt-ws-float {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  box-shadow: var(--tt-shadow-2);
+}
+.tt-ws-float[data-top] {
+  z-index: 5;
+}
+.tt-ws-float[data-picture] > .tt-ws-body {
+  flex: none;
+  aspect-ratio: 16 / 9;
+}
+.tt-ws-grip {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--tt-color-text-muted);
+  border-bottom: 2px solid var(--tt-color-text-muted);
+  border-bottom-right-radius: 3px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+/* --- resizing: a zone's inner edge, the divider between a split zone's two panels --- */
+.tt-ws-resizer,
+.tt-ws-share {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+.tt-ws-resizer[data-edge="right"],
+.tt-ws-resizer[data-edge="left"],
+.tt-ws-share[data-across] {
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+}
+.tt-ws-resizer[data-edge="right"] {
+  right: calc(-1 * var(--ws-gap) / 2 - 5px);
+}
+.tt-ws-resizer[data-edge="left"] {
+  left: calc(-1 * var(--ws-gap) / 2 - 5px);
+}
+.tt-ws-share[data-across] {
+  right: calc(-1 * var(--ws-gap) / 2 - 5px);
+}
+.tt-ws-resizer[data-edge="top"],
+.tt-ws-share:not([data-across]) {
+  left: 0;
+  right: 0;
+  height: 9px;
+  cursor: row-resize;
+}
+.tt-ws-resizer[data-edge="top"] {
+  top: calc(-1 * var(--ws-gap) / 2 - 5px);
+}
+.tt-ws-share:not([data-across]) {
+  bottom: calc(-1 * var(--ws-gap) / 2 - 5px);
+}
+.tt-ws-resizer::after,
+.tt-ws-share::after {
+  content: "";
+  position: absolute;
+  inset: 4px 3px;
+  border-radius: 2px;
+  transition: background var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-ws-resizer[data-edge="top"]::after,
+.tt-ws-share:not([data-across])::after {
+  inset: 3px 4px;
+}
+.tt-ws-resizer:hover::after,
+.tt-ws-resizer:focus-visible::after,
+.tt-ws-share:hover::after,
+.tt-ws-share:focus-visible::after {
+  background: var(--tt-color-text-muted);
+}
+
+/* --- while a panel is dragged: where it can dock, or float --- */
+.tt-ws-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.tt-ws-target,
+.tt-ws-ghost {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-md);
+  background: var(--player-panel);
+  color: var(--tt-color-text-muted);
+  font: var(--tt-weight-strong) var(--tt-text-micro) var(--tt-font-ui);
+}
+.tt-ws-target {
+  opacity: 0.92;
+}
+.tt-ws-target[data-zone="left"] {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14%;
+}
+.tt-ws-target[data-zone="right"] {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 14%;
+}
+.tt-ws-target[data-zone="bottom"] {
+  left: 14%;
+  right: 14%;
+  bottom: 0;
+  height: 20%;
+}
+.tt-ws-target[data-zone="centre"] {
+  left: 32%;
+  top: 28%;
+  width: 36%;
+  height: 34%;
+}
+.tt-ws-target[data-over] {
+  border-color: var(--tt-color-accent);
+  color: var(--tt-color-text);
+  background: color-mix(in srgb, var(--tt-color-accent) 22%, var(--player-panel));
+}
+.tt-ws-ghost {
+  width: 168px;
+  height: 96px;
+  translate: -50% 0;
+  border-color: var(--tt-color-text-muted);
+  color: var(--tt-color-text);
+}
+
+/* --- the Layout menu --- */
+.tt-ws-layout-menu {
+  width: 320px;
+}
+.tt-ws-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 2px 4px 6px;
+}
+.tt-ws-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-md);
+  background: none;
+  color: var(--tt-color-text);
+  font: var(--tt-weight-strong) 12px var(--tt-font-ui);
+  cursor: pointer;
+}
+.tt-ws-preset:hover {
+  background: var(--player-hover);
+}
+.tt-ws-glyph {
+  width: 48px;
+  height: 30px;
+}
+.tt-ws-glyph rect {
+  fill: none;
+  stroke: var(--tt-color-text-muted);
+  stroke-width: 1;
+}
+.tt-ws-glyph rect.tt-ws-glyph-fill {
+  fill: var(--tt-color-raised);
+}
+.tt-ws-hint {
+  margin: 6px 8px 2px;
+}
+.tt-ws-reset {
+  margin-top: 4px;
+  border-top: 1px solid var(--player-line);
+  border-radius: 0 0 6px 6px;
+}
