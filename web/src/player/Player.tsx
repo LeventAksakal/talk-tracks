@@ -43,6 +43,7 @@ import { Linger, type RoomTracks, roomSubtitles, roomTracks, wantedSlideTracks, 
 import { MoqTransport } from "../transport/moq";
 import { isPicture, type PanelId } from "./workspace/layout";
 import { useWorkspace } from "./workspace/Workspace";
+import "./meet.css";
 
 export interface PlayerProps {
   playback: Playback;
@@ -592,8 +593,9 @@ export function Player(props: PlayerProps) {
             nomutedpref=""
             nosubtitleslangpref=""
             defaultstreamtype="live"
-            autohide={holdControls ? "-1" : "2"}
-            noautohide={holdControls ? "" : undefined}
+            // The bar sits under the stage, as Meet's does, and never hides: it covers nothing.
+            autohide="-1"
+            noautohide=""
           >
             <tt-room-media ref={bindEl} slot="media" className="tt-media-element">
               <Stage onToggle={togglePlay} onFullscreen={toggleFullscreen} />

@@ -12,9 +12,10 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Icon } from "../icons";
+import { Icon, type IconName } from "../icons";
 import {
   activate,
+  applyView,
   close,
   DEFAULT_PRESET,
   dock,
@@ -30,17 +31,21 @@ import {
   preset,
   type PresetId,
   PRESETS,
+  promote,
   readLayout,
   resizeZone,
   resolve,
   setShare,
   setSplit,
-  toggle,
+  togglePanel,
   visible,
   writeLayout,
   type Zone,
   ZONES,
 } from "./layout";
+
+/** Each stream's icon (its tile's name label, the view thumbnails). */
+export const STREAM_ICON: Record<string, IconName> = { slides: "slides", screen: "screen", camera: "camera" };
 import "./workspace.css";
 
 /** The workspace as the rest of the player sees it: what is open and on screen, and the moves. */
@@ -57,6 +62,9 @@ export interface WorkspaceApi {
   change(move: (l: Layout) => Layout): void;
   /** Open a panel (where it was last docked) and bring it to the front. */
   open(id: PanelId): void;
+  /** A side panel button: show a reading panel in the right-hand card, or close it when it is on screen. */
+  togglePanel(id: PanelId): void;
+  /** Adjust view: arrange the streams as a view does. */
   preset(id: PresetId): void;
   /** Back to the default layout, and forget the saved one. */
   reset(): void;
@@ -87,7 +95,8 @@ export function useWorkspace(available: readonly PanelId[], labels: Readonly<Rec
       label: (id) => labels[id] ?? PANELS.find((p) => p.id === id)?.label ?? id,
       change,
       open: (id) => setLayout((l) => open(l, id)),
-      preset: (id) => setLayout(preset(id)),
+      togglePanel: (id) => setLayout((l) => togglePanel(l, id, onScreen)),
+      preset: (id) => setLayout((l) => applyView(l, id)),
       reset: () => {
         forgetLayout();
         saved.current = false;
@@ -335,7 +344,7 @@ function ZoneView({ zone: z, ...p }: PaneProps & { zone: Zone }) {
   if (s.panels.length === 0)
     return z === "centre" ? (
       <section className="tt-ws-zone tt-ws-empty" data-zone="centre">
-        <p>Nothing open here. Pick panels or a layout from Layout in the controls.</p>
+        <p>Nothing on the stage. Pick a view from More options, Adjust view.</p>
       </section>
     ) : null;
   const edge = z === "left" ? "right" : z === "right" ? "left" : z === "bottom" ? "top" : undefined;
@@ -372,64 +381,91 @@ function ZoneView({ zone: z, ...p }: PaneProps & { zone: Zone }) {
   };
   if (split) {
     const two = s.panels.length === 2;
+    const strip = s.strip === true;
     const across = z === "centre" || z === "bottom";
+    const pane = (id: PanelId, i: number) => (
+      <Pane key={id} id={id} zone={z} {...p}>
+        {two && i === 0 && !strip ? (
+          <ShareDivider
+            across={across}
+            share={s.share}
+            label={`Resize ${api.label(s.panels[0]!)} and ${api.label(s.panels[1]!)}`}
+            onChange={(v) => api.change((l) => setShare(l, z, v))}
+          />
+        ) : null}
+      </Pane>
+    );
     return (
       <section
         className="tt-ws-zone"
         data-zone={z}
         data-split=""
+        data-strip={strip ? "" : undefined}
+        data-count={s.panels.length}
         data-across={across ? "" : undefined}
-        style={two ? ({ "--ws-share": s.share } as CSSProperties) : undefined}
-        data-two={two ? "" : undefined}
+        style={two && !strip ? ({ "--ws-share": s.share } as CSSProperties) : undefined}
+        data-two={two && !strip ? "" : undefined}
       >
-        {s.panels.map((id, i) => (
-          <Pane key={id} id={id} zone={z} {...p}>
-            {two && i === 0 ? (
-              <ShareDivider
-                across={across}
-                share={s.share}
-                label={`Resize ${api.label(s.panels[0]!)} and ${api.label(s.panels[1]!)}`}
-                onChange={(v) => api.change((l) => setShare(l, z, v))}
-              />
-            ) : null}
-          </Pane>
-        ))}
+        {strip ? (
+          <>
+            {pane(s.panels[0]!, 0)}
+            <div className="tt-ws-strip">{s.panels.slice(1).map((id, i) => pane(id, i + 1))}</div>
+          </>
+        ) : (
+          s.panels.map(pane)
+        )}
         {resizer}
       </section>
     );
   }
+  const tabs = tabbed ? (
+    <div className="tt-ws-tabs" role="tablist" aria-label={`${ZONE_LABEL[z]} panels`} onKeyDown={onTabKey}>
+      {s.panels.map((id) => (
+        <button
+          key={id}
+          id={`tt-ws-tab-${id}`}
+          type="button"
+          role="tab"
+          className="tt-ws-tab"
+          aria-selected={s.active === id}
+          aria-controls={`tt-ws-panel-${id}`}
+          tabIndex={s.active === id ? 0 : -1}
+          data-panel={id}
+          data-stream={isPicture(id) ? id : undefined}
+          title="Drag to dock or float"
+          onPointerDown={(e) => p.startDrag(id, e)}
+          onClick={() => api.change((l) => activate(l, z, id))}
+        >
+          {isPicture(id) ? <Icon name={STREAM_ICON[id] ?? "slides"} /> : null}
+          {api.label(id)}
+        </button>
+      ))}
+    </div>
+  ) : null;
+  // A zone of streams shown one at a time (Spotlight): a tile, the others' names as chips over its top edge.
+  const active = s.active ?? s.panels[0]!;
+  if (isPicture(active) && s.panels.every(isPicture))
+    return (
+      <section className="tt-ws-zone tt-ws-tile" data-zone={z} data-stream={active} data-panel={active}>
+        {s.panels.map((id) => (
+          <PaneBody key={id} id={id} hidden={s.active !== id} tab={tabbed} {...p} />
+        ))}
+        {tabs ? <div className="tt-ws-chips">{tabs}</div> : null}
+        <TileLabel id={active} {...p} />
+        <span className="tt-ws-tile-actions">
+          <PaneActions id={active} zone={z} {...p} />
+        </span>
+        {resizer}
+      </section>
+    );
+  // A reading panel: Meet's side panel card, its title and a close button.
   return (
-    <section className="tt-ws-zone" data-zone={z}>
+    <section className="tt-ws-zone tt-ws-card" data-zone={z}>
       <div className="tt-ws-head">
-        {tabbed ? (
-          <div className="tt-ws-tabs" role="tablist" aria-label={`${ZONE_LABEL[z]} panels`} onKeyDown={onTabKey}>
-            {s.panels.map((id) => (
-              <button
-                key={id}
-                id={`tt-ws-tab-${id}`}
-                type="button"
-                role="tab"
-                className="tt-ws-tab"
-                aria-selected={s.active === id}
-                aria-controls={`tt-ws-panel-${id}`}
-                tabIndex={s.active === id ? 0 : -1}
-                data-panel={id}
-                title="Drag to dock or float"
-                onPointerDown={(e) => p.startDrag(id, e)}
-                onClick={() => api.change((l) => activate(l, z, id))}
-              >
-                {api.label(id)}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <span
-            className="tt-ws-title"
-            onPointerDown={(e) => p.startDrag(s.panels[0]!, e)}
-            title="Drag to dock or float"
-          >
+        {tabs ?? (
+          <h2 className="tt-ws-title" onPointerDown={(e) => p.startDrag(s.panels[0]!, e)} title="Drag to dock or float">
             {api.label(s.panels[0]!)}
-          </span>
+          </h2>
         )}
         {s.active ? <PaneActions id={s.active} zone={z} {...p} /> : null}
       </div>
@@ -441,8 +477,34 @@ function ZoneView({ zone: z, ...p }: PaneProps & { zone: Zone }) {
   );
 }
 
-/** A panel with a title bar of its own (a split zone's panel). */
+/** A stream's name, bottom left of its tile (Meet's participant name); drag it to dock or float the stream. */
+function TileLabel({ id, api, startDrag }: PaneProps & { id: PanelId }) {
+  return (
+    <span
+      className="tt-ws-label"
+      data-stream={id}
+      onPointerDown={(e) => startDrag(id, e)}
+      title="Drag to dock or float"
+    >
+      <Icon name={STREAM_ICON[id] ?? "slides"} />
+      {api.label(id)}
+    </span>
+  );
+}
+
+/** A split zone's panel: a stream's tile (framed in its colour, its name bottom left), or a panel with a title bar. */
 function Pane({ id, zone: z, children, ...p }: PaneProps & { id: PanelId; zone: Zone; children?: ReactNode }) {
+  if (isPicture(id))
+    return (
+      <div className="tt-ws-pane tt-ws-tile" data-panel={id} data-stream={id}>
+        <PaneBody id={id} hidden={false} tab={false} {...p} />
+        <TileLabel id={id} {...p} />
+        <span className="tt-ws-tile-actions">
+          <PaneActions id={id} zone={z} {...p} />
+        </span>
+        {children}
+      </div>
+    );
   return (
     <div className="tt-ws-pane" data-panel={id}>
       <div className="tt-ws-head">
@@ -502,28 +564,36 @@ function PaneActions({ id, zone: z, api, menu, setMenu }: PaneProps & { id: Pane
     api.change(move);
     setMenu(undefined);
   };
+  const picture = isPicture(id);
   return (
     <span className="tt-ws-actions" data-ws-menu="">
       <button
         type="button"
         className="tt-icon-button tt-small"
         aria-label={`Move ${label}`}
+        title={`Move ${label}`}
         aria-haspopup="menu"
         aria-expanded={menu === id}
         onClick={() => setMenu(menu === id ? undefined : id)}
       >
-        <Icon name="layout" />
+        <Icon name="more" />
       </button>
       <button
         type="button"
         className="tt-icon-button tt-small"
         aria-label={`Close ${label}`}
+        title={`Close ${label}`}
         onClick={() => api.change((l) => close(l, id))}
       >
         <Icon name="close" />
       </button>
       {menu === id ? (
         <div className="tt-ws-menu" role="menu" aria-label={`Move ${label}`}>
+          {picture && s?.split && s.panels.length > 1 && s.panels[0] !== id ? (
+            <button type="button" role="menuitem" onClick={() => run((l) => promote(l, id))}>
+              Show large
+            </button>
+          ) : null}
           {ZONES.filter((x) => x !== z).map((x) => (
             <button key={x} type="button" role="menuitem" onClick={() => run((l) => dock(l, id, x))}>
               Dock {ZONE_NAME[x]}
@@ -571,8 +641,9 @@ function FloatWindow({
   };
   return (
     <div
-      className="tt-ws-float"
+      className={`tt-ws-float${picture ? " tt-ws-tile" : ""}`}
       data-panel={box.id}
+      data-stream={picture ? box.id : undefined}
       data-picture={picture ? "" : undefined}
       data-top={top ? "" : undefined}
       role="dialog"
@@ -585,13 +656,25 @@ function FloatWindow({
         ...({ "--ws-ar": ar } as CSSProperties),
       }}
     >
-      <div className="tt-ws-head">
-        <span className="tt-ws-title" onPointerDown={(e) => p.startDrag(box.id, e)} title="Drag to move or dock">
-          {p.api.label(box.id)}
-        </span>
-        <PaneActions id={box.id} zone="floating" {...p} />
-      </div>
-      <PaneBody id={box.id} hidden={false} tab={false} {...p} />
+      {picture ? (
+        <>
+          <PaneBody id={box.id} hidden={false} tab={false} {...p} />
+          <TileLabel id={box.id} {...p} />
+          <span className="tt-ws-tile-actions">
+            <PaneActions id={box.id} zone="floating" {...p} />
+          </span>
+        </>
+      ) : (
+        <>
+          <div className="tt-ws-head">
+            <span className="tt-ws-title" onPointerDown={(e) => p.startDrag(box.id, e)} title="Drag to move or dock">
+              {p.api.label(box.id)}
+            </span>
+            <PaneActions id={box.id} zone="floating" {...p} />
+          </div>
+          <PaneBody id={box.id} hidden={false} tab={false} {...p} />
+        </>
+      )}
       <span
         className="tt-ws-grip"
         title="Drag to resize"
@@ -704,92 +787,118 @@ function ShareDivider({
 }
 
 /**
- * The Layout menu (the controls' Layout button): the presets one click away, every panel the room has to show or
- * hide, and a reset.
+ * Adjust view (Google Meet's dialog, from More options): the four views, each with a small drawing of its stage, the
+ * one shown checked; a reset. Picking a view arranges the streams at once and leaves the dialog open, as Meet does,
+ * so the viewer sees each one before closing it.
  */
-export function WorkspaceMenu({ api, onDone }: { api: WorkspaceApi; onDone: () => void }) {
+export function AdjustView({ api, onDone }: { api: WorkspaceApi; onDone: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const menu = ref.current;
-    menu?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    const box = ref.current;
+    (box?.querySelector<HTMLElement>("[aria-checked='true']") ?? box?.querySelector<HTMLElement>("button"))?.focus({
+      preventScroll: true,
+    });
     return () => {
       const now = document.activeElement;
-      if (before?.isConnected && (!now || now === document.body || menu?.contains(now)))
+      if (before?.isConnected && (!now || now === document.body || box?.contains(now)))
         before.focus({ preventScroll: true });
     };
   }, []);
+  const current = api.layout.view;
+  // Arrow keys move the pick through the views, as in any radio group.
+  const onKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const i = PRESETS.findIndex((p) => p.id === current);
+    const next = PRESETS[(i + step + PRESETS.length) % PRESETS.length]!;
+    api.preset(next.id);
+    ref.current?.querySelector<HTMLElement>(`[data-preset='${next.id}']`)?.focus();
+  };
   return (
-    <div ref={ref} className="tt-menu tt-ws-layout-menu" role="dialog" aria-label="Layout">
-      <span className="tt-menu-heading">Layouts</span>
-      <div className="tt-ws-presets">
+    <div ref={ref} className="tt-view-dialog" role="dialog" aria-labelledby="tt-view-title" data-menu-root="">
+      <div className="tt-view-head">
+        <h2 id="tt-view-title">Adjust view</h2>
+        <button type="button" className="tt-icon-button" aria-label="Close Adjust view" onClick={onDone}>
+          <Icon name="close" />
+        </button>
+      </div>
+      <p className="tt-view-sub">Your choice is kept on this device.</p>
+      <div className="tt-view-options" role="radiogroup" aria-label="View" onKeyDown={onKey}>
         {PRESETS.map((p) => (
           <button
             key={p.id}
             type="button"
-            className="tt-ws-preset"
+            role="radio"
+            className="tt-view-option"
             data-preset={p.id}
-            onClick={() => {
-              api.preset(p.id);
-              onDone();
-            }}
+            aria-checked={current === p.id}
+            tabIndex={current === p.id || (current === undefined && p.id === "auto") ? 0 : -1}
+            onClick={() => api.preset(p.id)}
           >
+            <span className="tt-view-radio" aria-hidden="true" />
+            <span className="tt-view-text">
+              <span className="tt-view-name">{p.label}</span>
+              <span className="tt-view-hint">{p.hint}</span>
+            </span>
             <PresetGlyph id={p.id} />
-            <span>{p.label}</span>
           </button>
         ))}
       </div>
-      <span className="tt-menu-heading">Panels</span>
-      {api.available.map((id) => (
+      {current === undefined ? (
+        <p className="tt-view-note" role="status">
+          Arranged by hand. Pick a view to tidy the stage.
+        </p>
+      ) : null}
+      <p className="tt-view-note">Drag a stream by its name to dock it on a side or float it in a small window.</p>
+      <div className="tt-view-foot">
         <button
-          key={id}
           type="button"
-          className="tt-menu-item"
-          aria-pressed={placed(api.layout, id)}
-          onClick={() => api.change((l) => toggle(l, id))}
+          className="tt-view-reset"
+          onClick={() => {
+            api.reset();
+            onDone();
+          }}
         >
-          <span>{api.label(id)}</span>
+          <Icon name="reset" />
+          Reset layout
         </button>
-      ))}
-      <p className="tt-muted tt-small-print tt-ws-hint">Drag a panel by its title to dock it or float it.</p>
-      <button
-        type="button"
-        className="tt-menu-item tt-ws-reset"
-        onClick={() => {
-          api.reset();
-          onDone();
-        }}
-      >
-        <span>Reset layout</span>
-      </button>
+        <button type="button" className="tt-view-done" onClick={onDone}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }
 
-/** A small drawing of a preset's arrangement. */
+/** A small drawing of a view's stage, each stream in its own colour: slides amber, screen green, speaker blue. */
 function PresetGlyph({ id }: { id: PresetId }) {
-  const r = (x: number, y: number, w: number, h: number, fill = false) => (
-    <rect x={x} y={y} width={w} height={h} rx={1.5} className={fill ? "tt-ws-glyph-fill" : undefined} />
+  const r = (x: number, y: number, w: number, h: number, stream: string) => (
+    <rect x={x} y={y} width={w} height={h} rx={2.5} data-stream={stream} />
   );
   return (
-    <svg className="tt-ws-glyph" viewBox="0 0 48 30" aria-hidden="true">
-      {id === "grid" ? (
+    <svg className="tt-view-glyph" viewBox="0 0 72 44" aria-hidden="true">
+      <rect className="tt-view-glyph-stage" x={0} y={0} width={72} height={44} rx={5} />
+      {id === "tiled" ? (
         <>
-          {r(1, 1, 22, 28, true)}
-          {r(25, 1, 10, 28, true)}
-          {r(37, 1, 10, 28)}
+          {r(4, 4, 31, 17, "slides")}
+          {r(37, 4, 31, 17, "screen")}
+          {r(20.5, 23, 31, 17, "camera")}
         </>
-      ) : id === "focus" ? (
+      ) : id === "spotlight" ? (
+        r(4, 4, 64, 36, "slides")
+      ) : id === "sidebar" ? (
         <>
-          {r(1, 1, 34, 28, true)}
-          {r(24, 19, 9, 7)}
-          {r(37, 1, 10, 28)}
+          {r(4, 4, 46, 36, "slides")}
+          {r(52, 9, 16, 11, "screen")}
+          {r(52, 24, 16, 11, "camera")}
         </>
       ) : (
         <>
-          {r(1, 1, 10, 28)}
-          {r(13, 1, 22, 28, true)}
-          {r(37, 1, 10, 28)}
+          {r(4, 4, 46, 36, "slides")}
+          {r(52, 16.5, 16, 11, "camera")}
         </>
       )}
     </svg>

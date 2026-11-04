@@ -1,8 +1,8 @@
-// The player's workspace (owner QA, 2026-11-04): the talk's pictures and the reading panels are panels the viewer
-// docks, tabs, splits, resizes, floats and closes, like an editor's workbench. Four zones (left, centre, right,
-// bottom) hold panels as tabs or side by side; any panel can float as a small window over the rest (the viewer's own
-// picture-in-picture). This file is the model: pure functions over a plain object, so every move is testable and the
-// whole layout is one JSON value kept per browser.
+// The player's workspace (owner QA, 2026-11-04): the speaker's streams are tiles on a stage arranged by a view
+// (Adjust view, after Google Meet: Auto, Tiled, Spotlight, Sidebar), and the reading panels open one at a time in a
+// card on the right. Underneath, every panel can still be docked in one of four zones (left, centre, right, bottom),
+// tabbed, split, resized or floated as a small window: the power user's workbench. This file is the model: pure
+// functions over a plain object, so every move is testable and the whole layout is one JSON value kept per browser.
 
 export type PanelId =
   "slides" | "screen" | "camera" | "chat" | "transcript" | "chapters" | "discussion" | (string & {});
@@ -13,7 +13,7 @@ export const ZONES: readonly Zone[] = ["left", "centre", "right", "bottom"];
 export const PANELS: readonly { id: PanelId; label: string; picture: boolean }[] = [
   { id: "slides", label: "Slides", picture: true },
   { id: "screen", label: "Screen share", picture: true },
-  { id: "camera", label: "Camera", picture: true },
+  { id: "camera", label: "Speaker", picture: true },
   { id: "chat", label: "Chat", picture: false },
   { id: "transcript", label: "Transcript", picture: false },
   { id: "chapters", label: "Chapters", picture: false },
@@ -21,6 +21,9 @@ export const PANELS: readonly { id: PanelId; label: string; picture: boolean }[]
 ];
 
 export const isPicture = (id: PanelId) => id === "slides" || id === "screen" || id === "camera";
+
+/** The speaker's streams, in the order a view lays them out. */
+export const PICTURES: readonly PanelId[] = ["slides", "screen", "camera"];
 
 export interface ZoneState {
   /** The panels docked here, in tab (or split) order. */
@@ -31,6 +34,8 @@ export interface ZoneState {
   split: boolean;
   /** Split with two panels: the first one's share of the zone. */
   share: number;
+  /** Split as a sidebar: the first panel large, the others in a column of small tiles beside it. */
+  strip?: boolean;
 }
 
 /** A floating window, as fractions of the workspace (a picture's height follows its width). */
@@ -50,14 +55,23 @@ export interface Layout {
   size: { left: number; right: number; bottom: number };
   /** Where a closed panel goes back to when reopened. */
   home: Partial<Record<PanelId, Zone>>;
+  /** The view picked in Adjust view; undefined once the viewer arranges the streams by hand. */
+  view?: PresetId;
 }
 
-export type PresetId = "grid" | "focus" | "study";
+/**
+ * The views of Adjust view (Google Meet's, for a lecture): they arrange the speaker's streams on the stage and leave
+ * the reading panels alone. Auto follows the talk (a shared screen, else the slides, large, the speaker beside them;
+ * the speaker alone when there is nothing else); Tiled puts every stream side by side; Spotlight shows one; Sidebar
+ * one large and the others in a column beside it.
+ */
+export type PresetId = "auto" | "tiled" | "spotlight" | "sidebar";
 
 export const PRESETS: readonly { id: PresetId; label: string; hint: string }[] = [
-  { id: "grid", label: "Slides + camera", hint: "Side by side, reading panels on the right" },
-  { id: "focus", label: "Slides focus", hint: "Slides large, the camera in a small window" },
-  { id: "study", label: "Study", hint: "Chapters left, slides centre, chat right" },
+  { id: "auto", label: "Auto", hint: "Follows the talk: what the speaker shows, large" },
+  { id: "tiled", label: "Tiled", hint: "Every stream side by side" },
+  { id: "spotlight", label: "Spotlight", hint: "One stream fills the stage" },
+  { id: "sidebar", label: "Sidebar", hint: "One stream large, the others beside it" },
 ];
 
 export const SIZE_LIMITS = { min: 220, max: 640 } as const;
@@ -72,47 +86,53 @@ const zone = (panels: PanelId[], split = false, share = 0.5, active = panels[0])
   share,
 });
 
-const READING: PanelId[] = ["chat", "transcript", "chapters", "discussion"];
-
-/** A preset layout, fresh. */
-export function preset(id: PresetId): Layout {
-  const size = { ...DEFAULT_SIZE };
-  switch (id) {
-    case "focus":
-      return withHomes({
-        zones: { left: zone([]), centre: zone(["slides", "screen"]), right: zone(READING), bottom: zone([]) },
-        floating: [cameraWindow()],
-        size,
-        home: { camera: "centre" },
-      });
-    case "study":
-      return withHomes({
-        zones: {
-          left: zone(["chapters", "camera"], true, 0.62),
-          centre: zone(["slides", "screen"]),
-          right: zone(["chat", "transcript", "discussion"]),
-          bottom: zone([]),
-        },
-        floating: [],
-        size,
-        home: {},
-      });
-    default:
-      return withHomes({
-        zones: {
-          left: zone([]),
-          centre: zone(["slides", "camera", "screen"], true, 0.66),
-          right: zone(READING),
-          bottom: zone([]),
-        },
-        floating: [],
-        size,
-        home: {},
-      });
-  }
+/** The stage (the centre zone) as a view arranges it. */
+function stageFor(id: PresetId, panels: PanelId[] = [...PICTURES]): ZoneState {
+  if (id === "tiled") return zone(panels, true);
+  if (id === "spotlight") return zone(panels, false);
+  return { ...zone(panels, true), strip: true };
 }
 
-export const DEFAULT_PRESET: PresetId = "grid";
+/** A view, fresh: the stage arranged, no reading panel open. */
+export function preset(id: PresetId): Layout {
+  return withHomes({
+    zones: { left: zone([]), centre: stageFor(id), right: zone([]), bottom: zone([]) },
+    floating: [],
+    size: { ...DEFAULT_SIZE },
+    home: {},
+    view: id,
+  });
+}
+
+export const DEFAULT_PRESET: PresetId = "auto";
+
+/**
+ * Switch to a view: the streams leave wherever they were (a side, a window) and take the stage as the view arranges
+ * them, the one in front first; the reading panels stay where they are.
+ */
+export function applyView(l: Layout, id: PresetId): Layout {
+  const was = l.zones.centre.active;
+  const front = was !== undefined && isPicture(was) && id !== "auto" ? was : undefined;
+  let out = l;
+  for (const p of PICTURES) out = detach(out, p);
+  const pictures = front ? [front, ...PICTURES.filter((p) => p !== front)] : [...PICTURES];
+  const stage = stageFor(id, [...pictures, ...out.zones.centre.panels]);
+  const home = { ...out.home };
+  for (const p of PICTURES) home[p] = "centre";
+  return { ...out, zones: { ...out.zones, centre: stage }, home, view: id };
+}
+
+/** Make a stream the large one: first in its zone and in front. Auto then stops choosing (it becomes Sidebar). */
+export function promote(l: Layout, id: PanelId): Layout {
+  const at = where(l, id);
+  if (!at || at === "floating") return l;
+  const s = l.zones[at];
+  return {
+    ...l,
+    zones: { ...l.zones, [at]: { ...s, panels: [id, ...s.panels.filter((p) => p !== id)], active: id } },
+    view: l.view === "auto" ? "sidebar" : l.view,
+  };
+}
 
 /** The camera's small window: bottom right, clear of a right-hand zone of the default width on a laptop screen. */
 function cameraWindow(): FloatBox {
@@ -124,6 +144,9 @@ function withHomes(l: Layout): Layout {
   for (const z of ZONES) for (const id of l.zones[z].panels) home[id] ??= z;
   return { ...l, home };
 }
+
+/** A move of a stream by hand ends the picked view; a reading panel's move keeps it. */
+const byHand = (l: Layout, id: PanelId): Layout => (isPicture(id) ? { ...l, view: undefined } : l);
 
 /** Where a panel is: a zone, floating, or closed (undefined). */
 export function where(l: Layout, id: PanelId): Zone | "floating" | undefined {
@@ -154,11 +177,14 @@ export function dock(l: Layout, id: PanelId, z: Zone, index?: number): Layout {
   const s = out.zones[z];
   const panels = [...s.panels];
   panels.splice(index === undefined ? panels.length : Math.max(0, Math.min(index, panels.length)), 0, id);
-  return {
-    ...out,
-    zones: { ...out.zones, [z]: { ...s, panels, active: id } },
-    home: { ...out.home, [id]: z },
-  };
+  return byHand(
+    {
+      ...out,
+      zones: { ...out.zones, [z]: { ...s, panels, active: id } },
+      home: { ...out.home, [id]: z },
+    },
+    id,
+  );
 }
 
 /** Float a panel as a small window (at `box`, else a default spot), on top. */
@@ -167,7 +193,7 @@ export function float(l: Layout, id: PanelId, box?: Omit<FloatBox, "id">): Layou
   const out = detach(l, id);
   const home = from && from !== "floating" ? { ...out.home, [id]: from } : out.home;
   const b = box ?? (isPicture(id) ? cameraWindow() : { x: 0.3, y: 0.18, w: 0.26, h: 0.5 });
-  return { ...out, floating: [...out.floating, clampBox({ ...b, id })], home };
+  return byHand({ ...out, floating: [...out.floating, clampBox({ ...b, id })], home }, id);
 }
 
 /** Move or resize a floating window, and bring it to the top. */
@@ -186,7 +212,7 @@ function clampBox(b: FloatBox): FloatBox {
 export function close(l: Layout, id: PanelId): Layout {
   const from = where(l, id);
   const out = detach(l, id);
-  return from && from !== "floating" ? { ...out, home: { ...out.home, [id]: from } } : out;
+  return byHand(from && from !== "floating" ? { ...out, home: { ...out.home, [id]: from } } : out, id);
 }
 
 /** Open a panel where it was last docked (a picture in the centre, anything else on the right), in front. */
@@ -205,6 +231,23 @@ export function toggle(l: Layout, id: PanelId): Layout {
   return where(l, id) ? close(l, id) : open(l, id);
 }
 
+/**
+ * Show a reading panel in the right-hand card (Meet's side panel): it replaces the reading panel shown there. One the
+ * viewer docked elsewhere or floated is brought to the front where it is.
+ */
+export function showPanel(l: Layout, id: PanelId): Layout {
+  const at = where(l, id);
+  if (at && at !== "right") return open(l, id);
+  let out = l;
+  for (const p of l.zones.right.panels) if (p !== id && !isPicture(p)) out = close(out, p);
+  return at === "right" ? activate(out, "right", id) : dock(out, id, "right");
+}
+
+/** The side panel buttons: show a reading panel in the card, or close it when it is already on screen. */
+export function togglePanel(l: Layout, id: PanelId, onScreen: ReadonlySet<PanelId>): Layout {
+  return onScreen.has(id) ? close(l, id) : showPanel(l, id);
+}
+
 /** Bring a docked panel's tab to the front. */
 export function activate(l: Layout, z: Zone, id: PanelId): Layout {
   const s = l.zones[z];
@@ -214,7 +257,8 @@ export function activate(l: Layout, z: Zone, id: PanelId): Layout {
 
 /** Show a zone's panels side by side, or as tabs. */
 export function setSplit(l: Layout, z: Zone, split: boolean): Layout {
-  return { ...l, zones: { ...l.zones, [z]: { ...l.zones[z], split } } };
+  const out = { ...l, zones: { ...l.zones, [z]: { ...l.zones[z], split, strip: false } } };
+  return l.zones[z].panels.some(isPicture) ? { ...out, view: undefined } : out;
 }
 
 export function setShare(l: Layout, z: Zone, share: number): Layout {
@@ -226,10 +270,14 @@ export function resizeZone(l: Layout, edge: keyof Layout["size"], px: number): L
   return { ...l, size: { ...l.size, [edge]: clamp(Math.round(px), SIZE_LIMITS.min, SIZE_LIMITS.max) } };
 }
 
+/** Auto's pick of the large stream: a shared screen, else the slides, else the speaker. */
+const AUTO_ORDER: readonly PanelId[] = ["screen", "slides", "camera"];
+
 /**
  * What the viewer sees, given the panels this room has (`available`): each zone's available panels and the one in
- * front, the floating windows of available panels. With nothing to show in the centre, the first floating picture
- * takes it (a room with a camera only, in "Slides focus"): the talk never plays in a small window over an empty stage.
+ * front, the floating windows of available panels. In Auto the stage puts what the speaker shows first. With nothing
+ * to show in the centre, the first floating picture takes it: the talk never plays in a small window over an empty
+ * stage.
  */
 export function resolve(l: Layout, available: ReadonlySet<PanelId>): Layout {
   const zones = { ...l.zones };
@@ -238,6 +286,15 @@ export function resolve(l: Layout, available: ReadonlySet<PanelId>): Layout {
     const panels = s.panels.filter((p) => available.has(p));
     const active = s.active !== undefined && panels.includes(s.active) ? s.active : panels[0];
     zones[z] = { ...s, panels, active };
+  }
+  if (l.view === "auto") {
+    const s = zones.centre;
+    const rank = (p: PanelId) => {
+      const i = AUTO_ORDER.indexOf(p);
+      return i < 0 ? AUTO_ORDER.length : i;
+    };
+    const panels = [...s.panels].sort((a, b) => rank(a) - rank(b));
+    zones.centre = { ...s, panels, active: panels[0] };
   }
   let floating = l.floating.filter((f) => available.has(f.id));
   if (zones.centre.panels.length === 0) {
@@ -264,7 +321,10 @@ export function visible(l: Layout): Set<PanelId> {
 
 // --- kept per browser -------------------------------------------------------------------------------
 
-export const LAYOUT_KEY = "tt.workspace.v1";
+/** v2: the Meet-style views (v1 held the workbench presets; those layouts are left behind, not converted). */
+export const LAYOUT_KEY = "tt.workspace.v2";
+
+const VIEWS = new Set<string>(PRESETS.map((p) => p.id));
 
 /** A saved layout, if it reads as one; anything else (an older shape, a hand edit) gives undefined. */
 export function parseLayout(raw: string | null | undefined): Layout | undefined {
@@ -284,6 +344,7 @@ export function parseLayout(raw: string | null | undefined): Layout | undefined 
         active: typeof s?.active === "string" && panels.includes(s.active) ? s.active : panels[0],
         split: s?.split === true,
         share: typeof s?.share === "number" ? clamp(s.share, SHARE_LIMITS.min, SHARE_LIMITS.max) : 0.5,
+        ...(s?.strip === true ? { strip: true } : {}),
       };
     }
     const floating = v.floating
@@ -299,7 +360,8 @@ export function parseLayout(raw: string | null | undefined): Layout | undefined 
     }
     const home: Layout["home"] = {};
     for (const [id, z] of Object.entries(v.home ?? {})) if (ZONES.includes(z as Zone)) home[id] = z as Zone;
-    return { zones, floating, size, home };
+    const view = typeof v.view === "string" && VIEWS.has(v.view) ? (v.view as PresetId) : undefined;
+    return { zones, floating, size, home, ...(view ? { view } : {}) };
   } catch {
     return undefined;
   }

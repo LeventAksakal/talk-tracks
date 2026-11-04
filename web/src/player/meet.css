@@ -1,0 +1,584 @@
+/* The Meet-style shell (owner QA, 2026-11-04: "check out how google meet does its layout"): a dark stage of rounded
+   tiles, one per stream of the speaker, each framed in its stream's colour with its name bottom left; a bar under the
+   stage with round controls in the centre and the side panel buttons on the right; the reading panels in one card on
+   the right with a title and a close button. Loaded after player.css and workspace.css, and wins over them. */
+
+.tt-player {
+  /* Meet's charcoal stage: the tiles' black reads as a picture, not as the page. */
+  --player-stage: #131316;
+  --player-tile: #000;
+  --player-card: #1d1d21;
+  --player-dock-reach: 108px;
+  --player-title-reach: 56px;
+  /* Each stream's frame colour, the same on its tile, its floating window, its tab and the view drawings. */
+  --stream-slides: #f2a93b;
+  --stream-screen: #2fc59a;
+  --stream-camera: #6d9bff;
+  --tile-radius: 14px;
+  --tile-frame: 2px;
+}
+[data-stream="slides"] {
+  --stream: var(--stream-slides);
+}
+[data-stream="screen"] {
+  --stream: var(--stream-screen);
+}
+[data-stream="camera"] {
+  --stream: var(--stream-camera);
+}
+
+/* Material Symbols are filled shapes. */
+.tt-icon {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* --- the stage: rounded tiles with room between them --- */
+.tt-ws {
+  --ws-gap: 10px;
+  padding: 2px 12px 0;
+}
+.tt-ws-zone,
+.tt-ws-pane,
+.tt-ws-float {
+  border-radius: var(--tile-radius);
+}
+.tt-ws-tile {
+  position: relative;
+  border: 0;
+  background: var(--player-tile);
+  overflow: hidden;
+  /* The frame is drawn inside the tile, over the picture's edge: tiles keep their size whatever the frame. */
+  box-shadow: inset 0 0 0 var(--tile-frame) var(--stream, var(--player-line));
+}
+.tt-ws-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 var(--tile-frame) var(--stream, var(--player-line));
+  pointer-events: none;
+}
+.tt-ws-zone.tt-ws-tile,
+.tt-ws-pane.tt-ws-tile {
+  display: flex;
+  flex-direction: column;
+}
+.tt-ws-tile > .tt-ws-body {
+  flex: 1;
+  border-radius: inherit;
+  overflow: hidden;
+}
+.tt-ws-zone[data-split] {
+  gap: var(--ws-gap);
+}
+
+/* Tiled with three streams: two over one, the last one centred (Meet's grid). */
+.tt-ws-zone[data-split][data-across][data-count="3"]:not([data-strip]),
+.tt-ws-zone[data-split][data-across][data-count="4"]:not([data-strip]) {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-auto-columns: unset;
+}
+.tt-ws-zone[data-split][data-count="3"]:not([data-strip]) > .tt-ws-pane,
+.tt-ws-zone[data-split][data-count="4"]:not([data-strip]) > .tt-ws-pane {
+  grid-column: span 2;
+}
+.tt-ws-zone[data-split][data-across][data-count="3"]:not([data-strip]) > .tt-ws-pane:nth-child(3) {
+  grid-column: 2 / span 2;
+}
+
+/* Sidebar (and Auto): the first stream large, the others in a column of small tiles beside it. */
+.tt-ws-zone[data-split][data-strip] {
+  grid-auto-flow: row;
+  grid-template-columns: minmax(0, 1fr) clamp(200px, 21%, 340px);
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-columns: unset;
+}
+.tt-ws-strip {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--ws-gap);
+  min-height: 0;
+}
+.tt-ws-strip > .tt-ws-pane {
+  flex: none;
+  aspect-ratio: 16 / 10;
+  min-height: 0;
+}
+
+/* A stream's name, bottom left (Meet's participant name). It is also the handle to drag the stream elsewhere. */
+.tt-ws-label {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  padding: 4px 10px 4px 8px;
+  border-radius: var(--tt-radius-full);
+  background: rgb(0 0 0 / 0.62);
+  color: #fff;
+  font: var(--tt-weight-strong) 13px / 1.2 var(--tt-font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.tt-ws-label .tt-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--stream);
+}
+/* The tile's own actions (move, close) show on hover or focus, top right, as Meet's tile menu does. */
+.tt-ws-tile-actions {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-ws-tile:hover > .tt-ws-tile-actions,
+.tt-ws-tile:focus-within > .tt-ws-tile-actions,
+.tt-ws-tile-actions:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+.tt-ws-tile-actions .tt-ws-actions {
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--tt-radius-full);
+  background: rgb(0 0 0 / 0.66);
+}
+.tt-ws-tile-actions .tt-ws-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.tt-ws-tile-actions .tt-icon-button {
+  border-radius: 50%;
+  color: #fff;
+}
+.tt-ws-tile-actions .tt-icon-button:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+/* Spotlight: the other streams' names as chips over the tile's top edge, to bring one forward. */
+.tt-ws-chips {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+}
+.tt-ws-chips .tt-ws-tabs {
+  gap: 6px;
+  height: auto;
+  overflow: visible;
+}
+.tt-ws-chips .tt-ws-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
+  border-radius: var(--tt-radius-full);
+  background: rgb(0 0 0 / 0.62);
+  color: rgb(255 255 255 / 0.8);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  font-size: 12px;
+}
+.tt-ws-chips .tt-ws-tab[aria-selected="true"] {
+  color: #fff;
+  box-shadow: inset 0 0 0 2px var(--stream);
+}
+.tt-ws-tab .tt-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--stream, currentColor);
+}
+/* The slide's own corner tag would say the name twice. */
+.tt-ws-tile .tt-source-tag {
+  display: none;
+}
+
+/* Floating stream windows: the same tile, lifted. */
+.tt-ws-float.tt-ws-tile {
+  border: 0;
+  box-shadow:
+    inset 0 0 0 var(--tile-frame) var(--stream),
+    0 12px 32px rgb(0 0 0 / 0.5);
+}
+.tt-ws-float.tt-ws-tile > .tt-ws-body {
+  flex: none;
+}
+
+/* --- the side panel card (Meet's chat and activities panel): a title, a close button, the panel --- */
+.tt-ws-card {
+  border: 0;
+  border-radius: 18px;
+  background: var(--player-card);
+}
+.tt-ws-card > .tt-ws-head {
+  height: 60px;
+  padding: 0 10px 0 20px;
+  border-bottom: 0;
+  background: none;
+}
+.tt-ws-card > .tt-ws-head .tt-ws-title {
+  margin: 0;
+  padding: 0;
+  color: var(--tt-color-text);
+  font: var(--tt-weight-strong) 18px / 1.2 var(--tt-font-ui);
+  cursor: default;
+}
+.tt-ws-card > .tt-ws-head .tt-icon-button.tt-small {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+.tt-ws-card > .tt-ws-head .tt-icon-button.tt-small .tt-icon {
+  width: 22px;
+  height: 22px;
+}
+.tt-ws-card > .tt-ws-head .tt-ws-tabs {
+  gap: 4px;
+}
+
+/* --- the bar: time and LIVE left, round controls centred, side panel buttons right --- */
+.tt-dock {
+  margin: 0;
+  padding: 0 16px 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--player-stage);
+  box-shadow: none;
+}
+.tt-bar-range {
+  padding: 2px 6px 0;
+}
+.tt-bar-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+}
+.tt-bar-side {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.tt-bar-right {
+  justify-content: flex-end;
+}
+.tt-bar-centre {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Round pill buttons, Meet's: a grey disc, white icon. */
+.tt-round,
+.tt-bar-centre .tt-bar-button {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--tt-radius-full);
+  background: #34343a;
+}
+.tt-mc-button.tt-round {
+  --media-control-padding: 13px;
+  --media-control-background: #34343a;
+  --media-control-hover-background: #45454c;
+  border-radius: var(--tt-radius-full);
+  display: inline-grid;
+  place-items: center;
+}
+.tt-bar-centre .tt-bar-button:hover,
+.tt-bar-centre .tt-bar-button[aria-expanded="true"] {
+  background: #45454c;
+}
+/* The play button leads: the one light disc. */
+media-play-button.tt-mc-button.tt-round {
+  width: 56px;
+  height: 48px;
+  --media-control-background: var(--tt-color-play);
+  --media-control-hover-background: #d7d7d4;
+  --media-icon-color: var(--tt-color-on-play);
+  color: var(--tt-color-on-play);
+}
+/* Subtitles on: the disc takes the accent, as Meet's captions button does. */
+.tt-bar-centre .tt-bar-button.tt-on {
+  background: var(--tt-color-accent);
+  color: var(--tt-color-on-accent);
+}
+.tt-bar-centre .tt-bar-button.tt-on::after {
+  content: none;
+}
+.tt-panel-button {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--tt-radius-full);
+}
+.tt-bar-button.tt-panel-button[aria-pressed="true"] {
+  background: var(--tt-color-accent-soft);
+  color: var(--tt-color-accent);
+}
+.tt-chapter-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-left: 1px solid var(--player-line);
+  border-radius: 0 var(--tt-radius-md) var(--tt-radius-md) 0;
+  padding-left: 12px;
+}
+.tt-chapter-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-chapter-name .tt-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.tt-time {
+  font-size: 15px;
+}
+
+/* Volume: a pill that grows a slider beside the speaker button on hover or focus. */
+.tt-volume {
+  display: inline-flex;
+  align-items: center;
+  height: 48px;
+  border-radius: var(--tt-radius-full);
+  background: #34343a;
+  transition: background var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-volume:hover,
+.tt-volume:focus-within {
+  background: #3d3d44;
+}
+.tt-volume .tt-mc-button.tt-round {
+  --media-control-background: transparent;
+}
+.tt-volume-range {
+  display: inline-flex;
+  width: 0;
+  height: 48px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  --media-control-background: transparent;
+  --media-control-hover-background: transparent;
+  --media-range-track-height: 4px;
+  --media-range-bar-color: var(--tt-color-text);
+  --media-range-thumb-background: var(--tt-color-text);
+  --media-range-track-background: rgb(255 255 255 / 0.25);
+  transition:
+    width var(--tt-duration-medium) var(--tt-ease-standard),
+    padding var(--tt-duration-medium) var(--tt-ease-standard);
+}
+.tt-volume:hover .tt-volume-range,
+.tt-volume:focus-within .tt-volume-range {
+  width: 96px;
+  padding: 0 16px 0 2px;
+}
+
+/* --- More options: Meet's ⋮ menu, above the button --- */
+.tt-more {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  padding: 8px 0;
+  border-radius: 12px;
+  background: var(--player-card);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.55);
+}
+.tt-more-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 20px;
+  border: 0;
+  background: none;
+  color: var(--tt-color-text);
+  font: var(--tt-text-body) var(--tt-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.tt-more-item:hover,
+.tt-more-item:focus-visible {
+  background: var(--player-hover);
+  outline: none;
+}
+.tt-more-item .tt-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--tt-color-text-muted);
+}
+.tt-bar-centre .tt-menu {
+  right: auto;
+  left: 50%;
+  translate: -50% 0;
+}
+
+/* Settings opens from More options, above the centre of the bar. */
+.tt-settings {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  translate: -50% 0;
+  bottom: calc(var(--player-dock-reach) + 4px);
+}
+
+/* --- Adjust view: Meet's dialog, centred over the stage --- */
+.tt-view-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.5);
+  pointer-events: auto;
+}
+.tt-view-dialog {
+  position: relative;
+  width: min(520px, calc(100% - 32px));
+  height: fit-content;
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 20px 24px 18px;
+  border-radius: 20px;
+  background: var(--player-card);
+  color: var(--tt-color-text);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.6);
+}
+.tt-view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tt-view-head h2 {
+  margin: 0;
+  font: var(--tt-weight-strong) 22px / 1.2 var(--tt-font-ui);
+}
+.tt-view-head .tt-icon-button {
+  border-radius: 50%;
+}
+.tt-view-sub {
+  margin: 2px 0 14px;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.tt-view-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tt-view-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tt-view-option:hover {
+  background: var(--player-hover);
+}
+.tt-view-option[aria-checked="true"] {
+  background: var(--tt-color-accent-soft);
+}
+.tt-view-radio {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--tt-color-text-muted);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.tt-view-option[aria-checked="true"] .tt-view-radio {
+  border-color: var(--tt-color-accent);
+  background: radial-gradient(circle, var(--tt-color-accent) 0 4.5px, transparent 5px);
+}
+.tt-view-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tt-view-name {
+  font: var(--tt-weight-strong) var(--tt-text-body) / 1.25 var(--tt-font-ui);
+}
+.tt-view-hint {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.tt-view-glyph {
+  width: 96px;
+  height: 59px;
+}
+.tt-view-glyph-stage {
+  fill: var(--player-stage);
+}
+.tt-view-glyph rect[data-stream] {
+  fill: #000;
+  stroke: var(--stream);
+  stroke-width: 1.6;
+}
+.tt-view-note {
+  margin: 12px 4px 0;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.tt-view-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+}
+.tt-view-reset,
+.tt-view-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: var(--tt-radius-full);
+  font: var(--tt-weight-strong) var(--tt-text-small) var(--tt-font-ui);
+  cursor: pointer;
+}
+.tt-view-reset {
+  background: none;
+  color: var(--tt-color-accent);
+}
+.tt-view-reset:hover {
+  background: var(--tt-color-accent-soft);
+}
+.tt-view-reset .tt-icon {
+  width: 18px;
+  height: 18px;
+}
+.tt-view-done {
+  background: var(--tt-color-accent);
+  color: var(--tt-color-on-accent);
+}
+
+/* The title bar sits on the stage's charcoal too. */
+.tt-titlebar {
+  background: var(--player-stage);
+}
