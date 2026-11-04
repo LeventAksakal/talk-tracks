@@ -105,10 +105,13 @@ export interface ArchivePlayback {
   close(): void;
 }
 
-/** hls.js where Media Source Extensions exist, else the browser's own HLS (Safari, iPhone). */
-export async function openArchive(video: HTMLVideoElement, url: string): Promise<ArchivePlayback> {
+/**
+ * hls.js where Media Source Extensions exist, else the browser's own HLS (Safari, iPhone). `startS`, when the caller
+ * knows the media time it will open at, is where hls.js starts loading: no first segment fetched only to seek away.
+ */
+export async function openArchive(video: HTMLVideoElement, url: string, startS?: number): Promise<ArchivePlayback> {
   const { default: Hls } = await import("hls.js");
-  if (Hls.isSupported()) return new HlsJsPlayback(Hls, video, url);
+  if (Hls.isSupported()) return new HlsJsPlayback(Hls, video, url, startS);
   if (video.canPlayType("application/vnd.apple.mpegurl")) return new NativePlayback(video, url);
   throw new Error("this browser cannot play the archived media");
 }
@@ -121,11 +124,15 @@ class HlsJsPlayback implements ArchivePlayback {
   #ready: Promise<void>;
   #error: string | undefined;
 
-  constructor(Hls: typeof HlsType, video: HTMLVideoElement, url: string) {
+  constructor(Hls: typeof HlsType, video: HTMLVideoElement, url: string, startS?: number) {
     this.element = video;
     this.#Hls = Hls;
     this.#url = url;
-    this.#hls = new Hls({ enableWorker: true, lowLatencyMode: false });
+    this.#hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false,
+      ...(startS !== undefined && startS >= 0 ? { startPosition: startS } : {}),
+    });
     this.#ready = new Promise((resolve, reject) => {
       this.#hls.once(Hls.Events.LEVEL_LOADED, () => resolve());
       this.#hls.on(Hls.Events.ERROR, (_e, data) => {
