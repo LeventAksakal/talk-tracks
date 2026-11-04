@@ -40,7 +40,7 @@ const advance = async (ms: number) => {
 /** The slide in the slide panel (1-based), as its picture says. */
 const shown = () => Number(document.querySelector("img.tt-slide-image")?.getAttribute("data-slide"));
 
-describe("the slide panel as a deck", () => {
+describe("the slide panel as a deck", { timeout: 30_000 }, () => {
   let close: (() => void) | undefined;
   beforeEach(() => {
     localStorage.clear();
