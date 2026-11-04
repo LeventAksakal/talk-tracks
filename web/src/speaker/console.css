@@ -418,6 +418,23 @@
 .setup-row[data-state="bad"] .setup-state {
   color: var(--tt-color-degraded);
 }
+/* The slides (SlidesSetup, slide-upload lane): the stage already shows the chosen slide large, so here the deck is
+   its name, the step buttons and the strip. */
+.setup-slides {
+  padding: var(--tt-space-3) 0;
+  border-top: 1px solid var(--tt-color-line);
+}
+.green-room .slides-preview,
+.side-body .slides-preview,
+.green-room .slides-status {
+  display: none;
+}
+.green-room .slides-drop {
+  padding: var(--tt-space-4);
+}
+.green-room .slides-drop-hint {
+  font-size: var(--tt-text-small);
+}
 .setup-extra {
   display: flex;
   flex-direction: column;

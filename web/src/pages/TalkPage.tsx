@@ -6,7 +6,7 @@ import { isValidRoom, slidesPath } from "../contracts/names";
 import { useLocation } from "../router";
 import { localEpoch } from "../speaker/clock";
 import { Console, type ConsoleDeps } from "../speaker/Console";
-import { openPdf } from "../speaker/deck";
+import { openSlides } from "../speaker/slideFiles";
 import { createSpeakerMedia } from "../speaker/media";
 import { forgetToken, speakerToken } from "../speaker/savedToken";
 import { relayNeedsToken } from "../speaker/token";
@@ -48,7 +48,7 @@ function LiveConsole({ room, token, localClock }: { room: string; token: string 
             publisherStatus: publisher,
             watcher,
             makeSink: () => moqBroadcast(publisher.origin, slidesPath(room)),
-            openDeck: openPdf,
+            openDeck: openSlides,
             createMedia: () => createSpeakerMedia(publisher, room),
             localEpochMs: epoch,
             // The speaker's session proves itself with the relay token; a local relay needs none, and the local
@@ -71,7 +71,7 @@ function OfflineConsole({ room }: { room: string }) {
   const [deps] = useState<ConsoleDeps>(() => ({
     watcher: new FakeTransport(),
     makeSink: () => new MemoryBroadcast(),
-    openDeck: openPdf,
+    openDeck: openSlides,
     createMedia: () => import("../speaker/previewMedia").then((m) => m.createPreviewMedia()),
     localEpochMs: localEpoch(Date.now()),
   }));

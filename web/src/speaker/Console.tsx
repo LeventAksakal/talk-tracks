@@ -35,6 +35,8 @@ import type { MediaSnapshot, SpeakerMedia } from "./media";
 import { LevelMeter, ScreenPreview, SelfView, useLevel } from "./MediaViews";
 import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
+import { SLIDE_ACCEPT } from "./slideFiles";
+import { SlidesSetup, useSlideDeck } from "./SlidesSetup";
 import { Questions, useQuestionCounts } from "./Questions";
 import { titleOf } from "./talkTitle";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
@@ -55,7 +57,8 @@ export interface ConsoleDeps {
   watcher: Transport;
   /** The slides broadcast, talk/<room>/slides. */
   makeSink: () => BroadcastSink;
-  openDeck: (file: File) => Promise<Deck>;
+  /** How chosen files become a deck (slideFiles.openSlides: PDF, PowerPoint, pictures). */
+  openDeck: (files: readonly File[]) => Promise<Deck>;
   /** Microphone and camera; absent where there are no devices (tests). */
   createMedia?: () => Promise<SpeakerMedia>;
   /** Development without a room service: E chosen locally, slides go out at once. */
@@ -213,7 +216,7 @@ function ConsoleView({
   const micHeard = !!snap?.micTrack && heard === snap.micTrack;
   const [withAudio, setWithAudio] = useState(false);
   // On air, one side panel at a time (Meet's people and chat): the audience, or their questions.
-  const [panel, setPanel] = useState<"audience" | "questions">();
+  const [panel, setPanel] = useState<"slides" | "audience" | "questions">();
 
   // --- on air: the relay must carry our own audio back (a refused publish is silent) ---------------
   const mediaOnAir = snap?.onAir ?? false;
@@ -297,16 +300,8 @@ function ConsoleView({
     return () => sub.close();
   }, [live, watcher, room]);
 
-  // --- the deck ------------------------------------------------------------------------------------
-  const [deck, setDeck] = useState<Deck>();
-  const [slides, setSlides] = useState<RenderedSlide[]>([]);
-  const [deckBusy, setDeckBusy] = useState(false);
-  const [deckError, setDeckError] = useState<string>();
-  const [index, setIndex] = useState(0);
-  const [hidden, setHidden] = useState(false);
-  const loading = useRef(0);
+  // --- the deck: SlidesSetup's state (slide-upload lane), shared by the green room, the stage and the keys ---------
   const fileInput = useRef<HTMLInputElement>(null);
-  useEffect(() => () => deck?.close(), [deck]);
 
   // --- the audience's questions (decision 0024): the console's session at the room service is the speaker's -----
   const roomService = useResource(() => deps.makeRoomService?.(loadName()), [deps]);
@@ -323,70 +318,16 @@ function ConsoleView({
     [publisher],
   );
 
-  const ensureSlide = useCallback(
-    async (d: Deck, i: number) => {
-      const s = await d.render(i);
-      if (publisher.deckId !== undefined && !publisher.hasImage(i)) publisher.addImage(s.image);
-      setSlides((prev) => {
-        const next = [...prev];
-        next[i] = s;
-        return next;
-      });
-      return s;
-    },
-    [publisher],
-  );
-
-  const goTo = useCallback(
-    async (i: number) => {
-      if (!deck || i < 0 || i >= deck.count) return;
-      const s = await ensureSlide(deck, i);
-      publisher.show(i);
-      sendFrame(s);
-      setIndex(i);
-      setHidden(false);
-    },
-    [deck, ensureSlide, publisher, sendFrame],
-  );
-
-  const loadFile = async (file: File | undefined) => {
-    if (!file) return;
-    const token = ++loading.current;
-    setDeckBusy(true);
-    setDeckError(undefined);
-    try {
-      const d = await deps.openDeck(file);
-      if (token !== loading.current) return d.close();
-      publisher.loadDeck({ kind: "deck", count: d.count, aspect: d.aspect, title: d.title });
-      setSlides([]);
-      setDeck(d);
-      const first = await ensureSlide(d, 0);
-      publisher.show(0);
-      sendFrame(first);
-      setIndex(0);
-      setHidden(false);
-      for (let i = 1; i < d.count && token === loading.current; i++) await ensureSlide(d, i);
-    } catch (e) {
-      if (token === loading.current) setDeckError(e instanceof Error ? e.message : String(e));
-    } finally {
-      if (token === loading.current) setDeckBusy(false);
-    }
-  };
+  const slideDeck = useSlideDeck({ publisher, openDeck: deps.openDeck, onShown: sendFrame });
+  const { deck, index, hidden, goTo } = slideDeck;
+  const toggleBlank = slideDeck.toggleHidden;
+  const loadFiles = (files: FileList | null | undefined) => void slideDeck.add(files ? Array.from(files) : []);
 
   // Once live, the describe agent gets the slide on screen.
   useEffect(() => {
-    if (live) sendFrame(slides[index]);
+    if (live) sendFrame(slideDeck.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on going live
   }, [live]);
-
-  const toggleBlank = useCallback(() => {
-    if (!deck) return;
-    if (hidden) void goTo(index);
-    else {
-      publisher.hide();
-      setHidden(true);
-    }
-  }, [deck, hidden, goTo, index, publisher]);
 
   // --- tools ---------------------------------------------------------------------------------------
   const [tool, setTool] = useState<Tool>("none");
@@ -518,18 +459,17 @@ function ConsoleView({
         retry={sayEnded}
         onAirMs={endedAt - startedAt}
         slideCount={deck?.count ?? 0}
-        still={slides[0]?.url}
+        still={slideDeck.thumbs[0]}
         made={features(catalog, now).map((f) => f.name)}
       />
     );
 
-  const current = slides[index];
+  const current = slideDeck.current;
   const aspect = deck?.aspect ?? 16 / 9;
   const slideLabel = deck ? `Slide ${index + 1} of ${deck.count}${hidden ? ", hidden from viewers" : ""}` : "No slides";
   const sharing = !!snap?.screenTrack;
   const frameAspect = sharing ? 16 / 9 : aspect;
   const openQuestions = [...questionCounts.values()].reduce((a, b) => a + b, 0);
-  const rendered = slides.filter(Boolean).length;
   const micState = snap?.micError ? "bad" : snap?.micOn ? (micHeard ? "ok" : "wait") : "off";
   const goLabel = !canPublish
     ? "Needs your speaker link: paste it above"
@@ -574,7 +514,7 @@ function ConsoleView({
           onDragOver={(e: DragEvent) => e.preventDefault()}
           onDrop={(e: DragEvent) => {
             e.preventDefault();
-            void loadFile(e.dataTransfer.files[0]);
+            loadFiles(e.dataTransfer.files);
           }}
         >
           <div className="stage-head">
@@ -602,7 +542,7 @@ function ConsoleView({
                   label={slideLabel}
                 />
               ) : (
-                <EmptyStage camera={snap?.cameraTrack} name={name} busy={deckBusy} />
+                <EmptyStage camera={snap?.cameraTrack} name={name} busy={!!slideDeck.busy} />
               )}
               {sharing || deck ? <SelfView track={snap?.cameraTrack} className="stage-camera" /> : null}
             </div>
@@ -798,28 +738,10 @@ function ConsoleView({
                   onChange={setWithAudio}
                 />
               </SetupRow>
-              {/* SLOT(slide-upload): the slide-upload lane's <SlidesSetup /> replaces this row. */}
-              <SetupRow
-                state={deckError ? "bad" : deck ? (rendered >= deck.count ? "ok" : "wait") : "off"}
-                control={
-                  <RoundButton
-                    icon="slideshow"
-                    label={deck ? "Change slides" : "Load slides"}
-                    pressed={!!deck}
-                    disabled={deckBusy}
-                    onClick={() => fileInput.current?.click()}
-                  />
-                }
-                title="Slides"
-                detail={
-                  deckError ??
-                  (deck
-                    ? `${deck.title || deck.name}, ${deck.count} slides${rendered < deck.count ? `: preparing ${rendered}` : ""}`
-                    : deckBusy
-                      ? "Opening the PDF…"
-                      : "Optional: a PDF, or drop one on the preview")
-                }
-              />
+              {/* The slides (slide-upload lane): add a PDF, PowerPoint or pictures, choose where to start. */}
+              <li className="setup-slides">
+                <SlidesSetup publisher={publisher} live={live} state={slideDeck} />
+              </li>
               {tokenRequired && tokenCheck.kind !== "ok" ? (
                 <SetupRow state="bad" title="Speaker link" detail={tokenText(tokenCheck, tokenRequired)[1]}>
                   <PasteSpeakerLink />
@@ -858,13 +780,15 @@ function ConsoleView({
         ) : panel ? (
           <aside className="side-panel" aria-labelledby="side-heading">
             <header className="side-head">
-              <h2 id="side-heading">{panel === "audience" ? "Audience" : "Questions"}</h2>
+              <h2 id="side-heading">{{ slides: "Slides", audience: "Audience", questions: "Questions" }[panel]}</h2>
               <button type="button" className="icon-btn" aria-label="Close panel" onClick={() => setPanel(undefined)}>
                 <Glyph name="close" />
               </button>
             </header>
             <div className="side-body">
-              {panel === "audience" ? (
+              {panel === "slides" ? (
+                <SlidesSetup publisher={publisher} live={live} state={slideDeck} />
+              ) : panel === "audience" ? (
                 <Audience catalog={catalog} now={now} chat={{ source: chatSource, room, talkClock: clockText }} />
               ) : roomService ? (
                 <Questions
@@ -929,6 +853,12 @@ function ConsoleView({
           </div>
           <div className="dock-side dock-panels">
             <PanelButton
+              icon="slideshow"
+              label="Slides"
+              pressed={panel === "slides"}
+              onClick={() => setPanel((p) => (p === "slides" ? undefined : "slides"))}
+            />
+            <PanelButton
               icon="group"
               label="Audience"
               pressed={panel === "audience"}
@@ -947,13 +877,14 @@ function ConsoleView({
       <input
         ref={fileInput}
         type="file"
-        accept="application/pdf,.pdf"
+        accept={SLIDE_ACCEPT}
+        multiple
         className="sr-only"
         tabIndex={-1}
-        aria-label="Choose a PDF deck"
+        aria-label="Choose slides"
         data-testid="deck-file"
         onChange={(e: ChangeEvent<HTMLInputElement>) => {
-          void loadFile(e.target.files?.[0]);
+          loadFiles(e.target.files);
           e.target.value = "";
         }}
       />
