@@ -279,7 +279,12 @@ const AUTO_ORDER: readonly PanelId[] = ["screen", "slides", "camera"];
  * to show in the centre, the first floating picture takes it: the talk never plays in a small window over an empty
  * stage.
  */
-export function resolve(l: Layout, available: ReadonlySet<PanelId>): Layout {
+export function resolve(
+  l: Layout,
+  available: ReadonlySet<PanelId>,
+  /** Streams with nothing to show right now (no slide up): Auto puts them after the others. */
+  quiet: ReadonlySet<PanelId> = new Set(),
+): Layout {
   const zones = { ...l.zones };
   for (const z of ZONES) {
     const s = zones[z];
@@ -291,7 +296,7 @@ export function resolve(l: Layout, available: ReadonlySet<PanelId>): Layout {
     const s = zones.centre;
     const rank = (p: PanelId) => {
       const i = AUTO_ORDER.indexOf(p);
-      return i < 0 ? AUTO_ORDER.length : i;
+      return (i < 0 ? AUTO_ORDER.length : i) + (quiet.has(p) ? 10 : 0);
     };
     const panels = [...s.panels].sort((a, b) => rank(a) - rank(b));
     zones.centre = { ...s, panels, active: panels[0] };

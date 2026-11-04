@@ -118,7 +118,7 @@ describe("a listener annotating and commenting (decision 0024)", () => {
     fireEvent.click(tool("Comment"));
     drag([0.6, 0.6], [0.8, 0.8]);
     await advance(50);
-    expect(screen.getByRole("tab", { name: "Discussion" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Discussion" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.change(screen.getByRole("textbox", { name: "Comment" }), { target: { value: "Why does it bend here?" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /Question for the speaker/ }));
     await act(async () => fireEvent.click(tool("Post")));
@@ -189,7 +189,7 @@ describe("a listener annotating and commenting (decision 0024)", () => {
     expect(screen.getByText(/Go live to draw/)).toBeTruthy();
 
     service.setNow(DEMO_START_MS + 1_000);
-    fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discussion" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Comment" }), { target: { value: "Back to this one" } });
     await act(async () => fireEvent.click(tool("Post")));
     const posted = service.writes.find((w) => w.track === "comments")!;

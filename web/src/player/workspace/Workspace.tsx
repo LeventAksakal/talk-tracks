@@ -71,7 +71,12 @@ export interface WorkspaceApi {
 }
 
 /** The workspace's state for a room: kept per browser, resolved against the panels the room has. */
-export function useWorkspace(available: readonly PanelId[], labels: Readonly<Record<string, string>>): WorkspaceApi {
+export function useWorkspace(
+  available: readonly PanelId[],
+  labels: Readonly<Record<string, string>>,
+  /** Streams with nothing to show right now, comma-separated: Auto puts them after the others. */
+  quiet = "",
+): WorkspaceApi {
   const [layout, setLayout] = useState(readLayout);
   const saved = useRef(false);
   useEffect(() => {
@@ -83,7 +88,10 @@ export function useWorkspace(available: readonly PanelId[], labels: Readonly<Rec
     writeLayout(layout);
   }, [layout]);
   const key = available.join(",");
-  const shown = useMemo(() => resolve(layout, new Set(available)), [layout, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = useMemo(
+    () => resolve(layout, new Set(available), new Set(quiet ? quiet.split(",") : [])),
+    [layout, key, quiet], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const onScreen = useMemo(() => visible(shown), [shown]);
   const change = useCallback((move: (l: Layout) => Layout) => setLayout((l) => move(l)), []);
   return useMemo(

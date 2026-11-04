@@ -49,7 +49,8 @@ function setup(props: Partial<PlayerProps> = {}) {
   };
 }
 
-const openDiscussion = () => fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
+const openDiscussion = () => fireEvent.click(screen.getByRole("button", { name: "Discussion" }));
+const discussion = () => screen.getByRole("region", { name: "Discussion" });
 
 describe("the player shell", () => {
   let close: (() => void) | undefined;
@@ -71,7 +72,7 @@ describe("the player shell", () => {
     await advance(300);
     expect(screen.queryByRole("button", { name: "Annotate" })).toBeNull();
     openDiscussion();
-    expect(within(screen.getByRole("tabpanel")).getByRole("status").textContent).toBeTruthy();
+    expect(within(discussion()).getByRole("status").textContent).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Comment" })).toBeNull();
 
     act(() => service.setStatus("open"));
@@ -85,7 +86,7 @@ describe("the player shell", () => {
     await advance(300);
     expect(screen.queryByRole("button", { name: "Annotate" })).toBeNull();
     openDiscussion();
-    expect(within(screen.getByRole("tabpanel")).getByRole("status").textContent).toBe("No room service here.");
+    expect(within(discussion()).getByRole("status").textContent).toBe("No room service here.");
   });
 
   it("shows an ended talk as a recording of known length that replays from the start", async () => {
@@ -124,68 +125,92 @@ describe("the player shell", () => {
     expect(main.querySelector("media-controller media-play-button")).toBeTruthy();
   });
 
-  it("reaches every tab of the right-hand panels by keyboard, closes one from its title bar and reopens it", async () => {
+  it("opens one reading panel at a time in the side card from its button, and closes it from its title bar", async () => {
     const room = setup({ noRoomService: "No room service here." });
     close = room.close;
     await advance(300);
-    const list = screen.getByRole("tablist", { name: "Right panels" });
-    // A tab list holds tabs only.
-    expect(within(list).queryAllByRole("button")).toEqual([]);
-    const tabs = within(list).getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toContain("Discussion");
-    // Arrow keys walk the tabs to the last one.
-    act(() => tabs[0]!.focus());
-    for (let i = 1; i < tabs.length; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: tabs.at(-1)!.textContent! }));
-    expect(screen.getByRole("tab", { name: tabs.at(-1)!.textContent! }).getAttribute("aria-selected")).toBe("true");
+    const panels = screen.getByRole("group", { name: "Side panels" });
+    // Listeners only listen and read: no microphone, camera or hand.
+    expect(
+      within(panels)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(expect.arrayContaining(["Transcript", "Chapters", "Discussion"]));
+    expect(screen.queryByRole("button", { name: /microphone|camera|raise hand/i })).toBeNull();
+    const button = (name: string) => within(panels).getByRole("button", { name });
+    fireEvent.click(button("Transcript"));
+    expect(button("Transcript").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { name: "Transcript" })).toBeTruthy();
+    // Another panel takes the card's place.
+    fireEvent.click(button("Discussion"));
+    expect(screen.getByRole("heading", { name: "Discussion" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Transcript" })).toBeNull();
+    expect(button("Transcript").getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: "Close Discussion" }));
-    expect(screen.queryByRole("tab", { name: "Discussion" })).toBeNull();
-    // The Layout menu lists every panel the room has; picking a closed one opens it where it was.
-    fireEvent.click(screen.getByRole("button", { name: "Layout" }));
-    const menu = screen.getByRole("dialog", { name: "Layout" });
-    fireEvent.click(within(menu).getByRole("button", { name: "Discussion" }));
-    expect(screen.getByRole("tab", { name: "Discussion" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("heading", { name: "Discussion" })).toBeNull();
+    // The button toggles: open, then closed again.
+    fireEvent.click(button("Chapters"));
+    expect(screen.getByRole("heading", { name: "Chapters" })).toBeTruthy();
+    fireEvent.click(button("Chapters"));
+    expect(screen.queryByRole("heading", { name: "Chapters" })).toBeNull();
   });
 
-  it("floats the camera in a small window without restarting it, docks it back, and keeps the layout", async () => {
+  it("floats the speaker in a small window without restarting it, docks it back, and keeps the layout", async () => {
     let room = setup({ sources: ["camera", "slides", "screen"] });
     close = room.close;
     await advance(300);
     expect(screen.getByRole("group", { name: "Shared screen" })).toBeTruthy();
     const camera = screen.getByRole("group", { name: "Speaker camera" });
-    fireEvent.click(screen.getByRole("button", { name: "Move Camera" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move Speaker" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Float in a small window" }));
-    const win = screen.getByRole("dialog", { name: "Camera (floating)" });
+    const win = screen.getByRole("dialog", { name: "Speaker (floating)" });
     // The same picture, moved: the live canvas and the recording's sound never restart.
     expect(within(win).getByRole("group", { name: "Speaker camera" })).toBe(camera);
-    // Kept per browser: a new page opens with the camera still floating.
+    // Kept per browser: a new page opens with the speaker still floating.
     room.close();
     room = setup({ sources: ["camera", "slides", "screen"] });
     close = room.close;
     await advance(300);
-    expect(screen.getByRole("dialog", { name: "Camera (floating)" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Move Camera" }));
+    expect(screen.getByRole("dialog", { name: "Speaker (floating)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Move Speaker" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Dock left" }));
-    expect(screen.queryByRole("dialog", { name: "Camera (floating)" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Speaker (floating)" })).toBeNull();
     expect(document.querySelector(".tt-ws-zone[data-zone='left'] [data-panel='camera']")).toBeTruthy();
   });
 
-  it("lays out the presets one click away, and resets the layout", async () => {
+  it("changes the view from More options, Adjust view, and resets the layout", async () => {
     const room = setup({ sources: ["camera", "slides"] });
     close = room.close;
     await advance(300);
-    const pick = (name: RegExp) => {
-      fireEvent.click(screen.getByRole("button", { name: "Layout" }));
-      fireEvent.click(within(screen.getByRole("dialog", { name: "Layout" })).getByRole("button", { name }));
-    };
-    pick(/Slides focus/);
-    expect(screen.getByRole("dialog", { name: "Camera (floating)" })).toBeTruthy();
-    pick(/Study/);
-    expect(screen.queryByRole("dialog", { name: "Camera (floating)" })).toBeNull();
-    expect(document.querySelector(".tt-ws-zone[data-zone='left'] [data-panel='chapters']")).toBeTruthy();
-    pick(/Reset layout/);
-    expect(document.querySelector(".tt-ws-zone[data-zone='left']")).toBeNull();
-    expect(localStorage.getItem("tt.workspace.v1")).toBeNull();
+    const shown = () =>
+      ["Speaker camera", "Slides"].filter((name) => screen.queryByRole("group", { name }) !== null).length;
+    // Auto: the slides and the speaker both on the stage.
+    expect(screen.getByRole("group", { name: "Speaker camera" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Adjust view" }));
+    const dialog = screen.getByRole("dialog", { name: "Adjust view" });
+    const view = (name: string) => within(dialog).getByRole("radio", { name: new RegExp(`^${name}`) });
+    expect(view("Auto").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(view("Spotlight"));
+    expect(view("Spotlight").getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByRole("group", { name: "Speaker camera" })).toBeNull();
+    fireEvent.click(view("Tiled"));
+    expect(screen.getByRole("group", { name: "Speaker camera" })).toBeTruthy();
+    // Moving a stream by hand leaves the views; Reset layout brings Auto back and forgets the saved one.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog", { name: "Adjust view" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Move Speaker" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Float in a small window" }));
+    expect(screen.getByRole("dialog", { name: "Speaker (floating)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Adjust view" }));
+    expect(
+      within(screen.getByRole("dialog", { name: "Adjust view" })).queryByRole("radio", { checked: true }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset layout" }));
+    expect(screen.queryByRole("dialog", { name: "Speaker (floating)" })).toBeNull();
+    expect(shown()).toBeGreaterThanOrEqual(1);
+    expect(localStorage.getItem("tt.workspace.v2")).toBeNull();
   });
 });
 

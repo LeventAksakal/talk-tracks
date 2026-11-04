@@ -293,11 +293,12 @@
 }
 .tt-mc-button.tt-round {
   --media-control-padding: 13px;
-  --media-control-background: #34343a;
-  --media-control-hover-background: #45454c;
   border-radius: var(--tt-radius-full);
   display: inline-grid;
   place-items: center;
+}
+.tt-mc-button.tt-round:hover {
+  background: #45454c;
 }
 .tt-bar-centre .tt-bar-button:hover,
 .tt-bar-centre .tt-bar-button[aria-expanded="true"] {
@@ -307,10 +308,12 @@
 media-play-button.tt-mc-button.tt-round {
   width: 56px;
   height: 48px;
-  --media-control-background: var(--tt-color-play);
-  --media-control-hover-background: #d7d7d4;
+  background: var(--tt-color-play);
   --media-icon-color: var(--tt-color-on-play);
   color: var(--tt-color-on-play);
+}
+media-play-button.tt-mc-button.tt-round:hover {
+  background: #d7d7d4;
 }
 /* Subtitles on: the disc takes the accent, as Meet's captions button does. */
 .tt-bar-centre .tt-bar-button.tt-on {
@@ -363,8 +366,9 @@ media-play-button.tt-mc-button.tt-round {
 .tt-volume:focus-within {
   background: #3d3d44;
 }
-.tt-volume .tt-mc-button.tt-round {
-  --media-control-background: transparent;
+.tt-volume .tt-mc-button.tt-round,
+.tt-volume .tt-mc-button.tt-round:hover {
+  background: transparent;
 }
 .tt-volume-range {
   display: inline-flex;

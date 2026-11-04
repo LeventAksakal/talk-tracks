@@ -152,6 +152,22 @@ describe("the player's controls", () => {
     expect(media().muted).toBe(false);
   });
 
+  it("sets the volume with the slider beside the speaker button, and turns it down with the down arrow", async () => {
+    close = setup();
+    await advance(300);
+    const volume = screen.getByRole("group", { name: "Volume" });
+    const slider = volume.querySelector("media-volume-range") as (HTMLElement & { range: HTMLInputElement }) | null;
+    expect(slider).toBeTruthy();
+    slider!.range.value = "0.3";
+    fireEvent.input(slider!.range);
+    await advance(50);
+    expect(media().volume).toBeCloseTo(0.3, 2);
+    expect(media().muted).toBe(false);
+    press("ArrowDown");
+    await advance(50);
+    expect(media().volume).toBeLessThan(0.3);
+  });
+
   it("asks for full screen on a double-click on the stage, for the whole player", async () => {
     const request = vi.fn(() => Promise.resolve());
     const original = HTMLElement.prototype.requestFullscreen;
@@ -185,6 +201,6 @@ describe("the player's controls", () => {
     const buttons = [...player.querySelectorAll("button, [role='button']")].filter((b) => !b.closest("[hidden]"));
     expect(buttons.length).toBeGreaterThan(8);
     expect(buttons.filter((b) => nameOf(b) === "").map((b) => b.outerHTML.slice(0, 80))).toEqual([]);
-    for (const name of ["Subtitles", "Layout"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    for (const name of ["Subtitles", "More options"]) expect(screen.getByRole("button", { name })).toBeTruthy();
   });
 });

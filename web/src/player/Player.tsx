@@ -234,7 +234,9 @@ export function Player(props: PlayerProps) {
   ].join(",");
   const available = useMemo<PanelId[]>(() => availableKey.split(","), [availableKey]);
   const labels = useMemo(() => Object.fromEntries(extraTabs.map((t) => [t.id, t.label])), [extraTabs]);
-  const workspace = useWorkspace(available, labels);
+  // Streams with nothing to show right now (the slides while the speaker shows none): Auto puts the speaker first.
+  const [quiet, setQuiet] = useState("");
+  const workspace = useWorkspace(available, labels, quiet);
   const onScreen = workspace.visible;
 
   // What is picked and open decides what is subscribed (decisions 0010, 0026), and a track let go lingers 30 s.
@@ -514,6 +516,9 @@ export function Player(props: PlayerProps) {
   const shownSlide = slidesShown && at !== undefined ? slides?.slideAt(at)?.slide : undefined;
   const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const slideNumber = shownSlide ? shownSlide.index + 1 : described ? described.id + 1 : undefined;
+  const quietNow =
+    slidesShown && sources.includes("camera") && at !== undefined && slideNumber === undefined ? "slides" : "";
+  if (quietNow !== quiet) setQuiet(quietNow);
 
   const ctx: PlayerCtx | undefined =
     view && timeline
