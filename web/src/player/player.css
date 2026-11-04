@@ -731,7 +731,8 @@
   translate: none;
 }
 
-/* --- subtitles: dragged anywhere, bottom centre anchored at (x, y) --- */
+/* --- subtitles: in one place under the speaker's content, bottom centre anchored at (x, y); never moved by the
+   pointer, which passes through them to the stage --- */
 .tt-subs {
   --sub-size: 20px;
   --sub-bg: 0.6;
@@ -749,24 +750,15 @@
   font-size: var(--sub-size);
   line-height: 1.3;
   text-align: center;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
+  pointer-events: none;
   background: rgb(0 0 0 / var(--sub-bg));
   color: #fff;
-}
-.tt-subs:active {
-  cursor: grabbing;
-}
-/* Where the viewer has not moved them, subtitles rise above the dock while it shows, and settle when it fades. */
-.tt-subs:not([data-placed]) {
-  transition: translate var(--tt-duration-medium) var(--tt-ease-standard);
 }
 .tt-subs[data-below] {
   translate: -50% 0;
 }
-.tt-controller:not([userinactive]) .tt-subs:not([data-placed], [data-below]),
-.tt-controller[mediapaused] .tt-subs:not([data-placed], [data-below]) {
+/* With no room kept under the picture they sit clear of the dock all the time, rather than rising when it shows. */
+.tt-subs:not([data-below]) {
   translate: -50% calc(-100% - var(--player-dock-reach) + 36px);
 }
 .tt-subs[data-preset="contrast"] {
@@ -779,21 +771,6 @@
 }
 .tt-subs[data-preset="large"] {
   font-weight: 500;
-}
-.tt-subs-grip {
-  position: absolute;
-  left: 50%;
-  top: -9px;
-  translate: -50%;
-  width: 28px;
-  height: 4px;
-  border-radius: 2px;
-  background: #fff8;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.tt-subs:hover .tt-subs-grip {
-  opacity: 1;
 }
 .tt-sub-line {
   display: block;

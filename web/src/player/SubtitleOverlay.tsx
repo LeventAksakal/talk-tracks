@@ -1,39 +1,30 @@
-import { type CSSProperties, type PointerEvent, type RefObject, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useState } from "react";
 import type { TrackView } from "../playback/aiTracks";
 import type { LineItem } from "../playback/wire";
 import { dirOf } from "../viewer/lang";
 import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import { languageOption } from "./languages";
-import { clamp, type Fraction, type Prefs, type SourceKind } from "./prefs";
+import { type Fraction, type Prefs, type SourceKind } from "./prefs";
 import { effectiveLayout, stageSources } from "./Stage";
 import { cuesAt } from "./subtitles";
 import { translationFor } from "./tracks";
 
-/** Where subtitles sit until moved: bottom centre of the canvas. */
+/** Where subtitles sit when the stage keeps no room for them under the main picture: bottom centre of the canvas. */
 export const DEFAULT_SUBTITLE_POS: Fraction = { x: 0.5, y: 0.93 };
-
-/** The safe area the subtitles' bottom centre stays in, as fractions of the canvas. */
-const SAFE = { x: [0.12, 0.88], y: [0.16, 0.97] } as const;
-
-/** A dragged position: `from` moved by a fraction of the canvas, kept in the safe area. */
-export function dragSubtitle(from: Fraction, dx: number, dy: number): Fraction {
-  return { x: clamp(from.x + dx, SAFE.x[0], SAFE.x[1]), y: clamp(from.y + dy, SAFE.y[0], SAFE.y[1]) };
-}
 
 /** The corner tile's margin from the stage's edge, as a fraction of its width (player.css: about 16 px of 1000). */
 const TILE_MARGIN = 0.02;
 
 /**
- * Where the subtitles go when the viewer has not moved them, and how wide they may be: bottom centre, or, with the
- * corner tile in the bottom half of the stage, centred in the room left of it (or right of it) so they never cover
- * the camera.
+ * Where the subtitles go when the stage keeps no room for them under the main picture, and how wide they may be:
+ * bottom centre, or, with the corner tile in the bottom half of the stage, centred in the room left of it (or right of
+ * it) so they never cover the camera.
  */
 export function subtitlePlace(
-  prefs: Pick<Prefs, "layout" | "board" | "pipPos" | "pipWidth" | "subtitlePos">,
+  prefs: Pick<Prefs, "layout" | "board" | "pipPos" | "pipWidth">,
   sources: readonly SourceKind[],
 ): { pos: Fraction; maxWidth: number | undefined } {
-  if (prefs.subtitlePos) return { pos: prefs.subtitlePos, maxWidth: undefined };
   const placed = stageSources(sources, prefs.board);
   if (effectiveLayout(prefs.layout, placed) !== "pip" || placed.length < 2)
     return { pos: DEFAULT_SUBTITLE_POS, maxWidth: undefined };
@@ -56,19 +47,19 @@ const sameLines = (a: LineItem[], b: LineItem[]) =>
 const sameShown = (a: Shown, b: Shown) => sameLines(a.original, b.original) && sameLines(a.translation, b.translation);
 
 /**
- * The subtitles (ui-design §4.1, §4.2; decision 0020): DOM text with `lang` and `dir` per block, on the
- * room time of the frame on screen, dragged anywhere with Pointer Events and remembered as fractions of the
- * canvas, so they keep their place through resizes and layout changes.
+ * The subtitles (ui-design §4.1, §4.2; decision 0020): DOM text with `lang` and `dir` per block, on the room time of
+ * the frame on screen. They sit in one place under the speaker's content and never move with the pointer (owner QA,
+ * 11-04): no drag, no hover, and the pointer passes through them to the stage.
  */
 export function SubtitleOverlay({
-  stageRef,
   below,
 }: {
-  stageRef: RefObject<HTMLDivElement | null>;
-  /** Where the stage keeps room for unmoved subtitles, under the main picture (stageFit), in px. */
+  /** Kept for the stage's call; the subtitles no longer read the stage's box. */
+  stageRef?: RefObject<HTMLDivElement | null>;
+  /** Where the stage keeps room for the subtitles, under the main picture (stageFit), in px. */
   below?: { x: number; top: number; maxWidth: number };
 }) {
-  const { tracks, prefs, update, clock, view, sources } = usePlayer();
+  const { tracks, prefs, clock, view, sources } = usePlayer();
   const live = view.timeline.mode === "live";
   const translating = prefs.subtitleLang !== "original";
   const trackFor = (lang: string) => (lang === "original" ? tracks.captions : translationFor(tracks, lang));
@@ -102,8 +93,6 @@ export function SubtitleOverlay({
 
   const place = subtitlePlace(prefs, sources);
   const pos = place.pos;
-  const box = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ id: number; x: number; y: number; from: Fraction; to: Fraction } | undefined>(undefined);
 
   const empty = shown.original.length === 0 && shown.translation.length === 0;
   const starting = standIn
@@ -132,37 +121,9 @@ export function SubtitleOverlay({
     return undefined;
   }
 
-  // Unmoved, they hang from the top of the room the stage keeps for them under the main picture, so they never
-  // cover it; moved, the viewer's place (their bottom centre), as fractions of the canvas.
-  const hang = !prefs.subtitlePos ? below : undefined;
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || !box.current) return;
-    box.current.setPointerCapture(e.pointerId);
-    // A drag starts from where the box is drawn: its bottom centre.
-    const rect = stageRef.current?.getBoundingClientRect();
-    const b = box.current.getBoundingClientRect();
-    const from =
-      hang && rect && rect.width > 0 && rect.height > 0
-        ? { x: (b.left + b.width / 2 - rect.left) / rect.width, y: (b.bottom - rect.top) / rect.height }
-        : pos;
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from, to: from };
-  };
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!d || d.id !== e.pointerId || !rect || rect.width === 0 || rect.height === 0 || !box.current) return;
-    d.to = dragSubtitle(d.from, (e.clientX - d.x) / rect.width, (e.clientY - d.y) / rect.height);
-    // Moved directly while dragging; saved (and re-rendered) once on release.
-    box.current.style.left = `${d.to.x * 100}%`;
-    box.current.style.top = `${d.to.y * 100}%`;
-    box.current.removeAttribute("data-below");
-  };
-  const endDrag = () => {
-    const d = drag.current;
-    drag.current = undefined;
-    if (d && (d.to.x !== d.from.x || d.to.y !== d.from.y)) update({ subtitlePos: d.to });
-  };
-
+  // They hang from the top of the room the stage keeps for them under the main picture, so they never cover it;
+  // with no such room, at the bottom centre of the canvas.
+  const hang = below;
   const style = {
     ...(hang
       ? { left: `${hang.x}px`, top: `${hang.top}px`, maxWidth: `${hang.maxWidth}px` }
@@ -179,21 +140,12 @@ export function SubtitleOverlay({
 
   return (
     <div
-      ref={box}
       className="tt-subs"
       data-preset={prefs.style.preset}
-      data-placed={prefs.subtitlePos ? "" : undefined}
       data-below={hang ? "" : undefined}
       style={style}
-      title="Drag to move the subtitles"
       aria-label="Subtitles"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onLostPointerCapture={endDrag}
     >
-      <span className="tt-subs-grip" aria-hidden="true" />
       {shown.original.map((l) => (
         <span
           key={`o${l.id}`}

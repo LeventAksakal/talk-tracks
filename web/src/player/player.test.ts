@@ -6,7 +6,6 @@ import { cameraNote } from "./CameraSurface";
 import { DEFAULT_PREFS, readPrefs } from "./prefs";
 import { playerState, type PlayerStateInput } from "./state";
 import { cuesAt } from "./subtitles";
-import { dragSubtitle } from "./SubtitleOverlay";
 import { chapterAt, chapterSegments, holesIn } from "./timeline";
 import { Linger, openTab, roomTracks, wantedTracks } from "./tracks";
 
@@ -166,17 +165,6 @@ describe("the camera tile without a picture", () => {
     // Archived media that plays with no picture is audio only; no archived media at all says so too.
     expect(cameraNote(false, "playing")).toBeDefined();
     expect(cameraNote(false, "no-media")).toBeDefined();
-  });
-});
-
-describe("subtitle position", () => {
-  it("moves by fractions of the canvas and stays in the safe area", () => {
-    const moved = dragSubtitle({ x: 0.5, y: 0.9 }, -0.2, -0.3);
-    expect(moved.x).toBeCloseTo(0.3);
-    expect(moved.y).toBeCloseTo(0.6);
-    const clamped = dragSubtitle({ x: 0.5, y: 0.9 }, 2, 2);
-    expect(clamped.x).toBeLessThan(1);
-    expect(clamped.y).toBeLessThan(1);
   });
 });
 

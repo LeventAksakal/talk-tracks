@@ -1,4 +1,4 @@
-// Per-device preferences (decision 0020): the stage layout, subtitle language, style and position, the side panel. There are no feature switches (decision 0026): a track is subscribed while what needs it is picked or
+// Per-device preferences (decision 0020): the stage layout, subtitle language and style, the side panel. There are no feature switches (decision 0026): a track is subscribed while what needs it is picked or
 // open (tracks.ts). Kept in localStorage, which can be missing or throw (private windows, blocked storage): every read
 // and write is guarded and the player works without it.
 
@@ -41,8 +41,6 @@ export interface Prefs {
    */
   subtitleRoom?: string;
   style: SubtitleStyle;
-  /** Where the subtitles' bottom centre sits, as fractions of the canvas; undefined: the default spot. */
-  subtitlePos: Fraction | undefined;
   /**
    * The stage (decision 0026): "pip" is the default, the slides filling it and the camera in a corner tile; "split"
    * puts them side by side; "single" shows one. With no deck the camera fills the stage whatever this says.
@@ -84,7 +82,6 @@ export const DEFAULT_PREFS: Prefs = {
   cc: false,
   subtitleLang: "original",
   style: DEFAULT_STYLE,
-  subtitlePos: undefined,
   layout: "pip",
   swap: false,
   single: "slides",
