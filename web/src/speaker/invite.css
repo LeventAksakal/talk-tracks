@@ -1,0 +1,172 @@
+/* The invitation (Invite.tsx): the audience link row, the QR, and the full-screen card to project. Loaded wherever
+   the invitation shows (the Start-a-talk dialog, the console's details panel). */
+
+.qr {
+  display: block;
+  border-radius: 6px;
+}
+
+/* --- the audience link: label, the short link, Copy, and a status line ------------------------------------------ */
+.link-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.link-row-label {
+  font-weight: var(--tt-weight-strong);
+  font-size: var(--tt-text-small);
+}
+.link-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tt-space-2) var(--tt-space-3);
+  min-width: 0;
+}
+/* The link is never cut: where it does not fit beside Copy it takes its own line. */
+.link-row-url {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--tt-color-accent);
+  font-size: 1rem;
+  text-decoration: none;
+}
+.link-row-url:hover {
+  text-decoration: underline;
+}
+.link-row-status {
+  min-height: 1lh;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-micro);
+}
+.link-row .glyph,
+.project-close .glyph {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* --- the card to project: white, the QR and the short link sized to the screen ----------------------------------- */
+.project-card {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  color: #141413;
+  color-scheme: light;
+}
+.project-card::backdrop {
+  background: #fff;
+}
+.project-inner {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  padding: clamp(16px, 3vh, 40px) clamp(20px, 4vw, 64px);
+  box-sizing: border-box;
+}
+.project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.project-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: var(--tt-weight-display);
+  font-size: clamp(1rem, 2.2vh, 1.5rem);
+}
+.project-brand .logomark {
+  width: 1.3em;
+  height: 1.3em;
+}
+.project-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid #dcdcd8;
+  border-radius: var(--tt-radius-full);
+  background: #fff;
+  color: #141413;
+  font: inherit;
+  cursor: pointer;
+}
+.project-close:hover {
+  background: #f1f1ee;
+}
+.project-close:focus-visible {
+  outline: 2px solid #3553c9;
+  outline-offset: 2px;
+}
+.project-close kbd {
+  padding: 0 6px;
+  border: 1px solid #dcdcd8;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.8em;
+  color: #5b5b57;
+}
+.project-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(24px, 5vw, 96px);
+  min-height: 0;
+}
+.project-card .project-qr {
+  width: min(64dvh, 40vw);
+  height: min(64dvh, 40vw);
+  flex: none;
+}
+.project-text {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 2vh, 24px);
+  min-width: 0;
+  max-width: 50vw;
+}
+.project-text p {
+  margin: 0;
+}
+.project-lead {
+  font-size: clamp(1.1rem, 3.2vh, 2.25rem);
+  color: #5b5b57;
+}
+.project-url {
+  font-size: clamp(1.75rem, min(6.5vh, 3.2vw), 5rem);
+  font-weight: var(--tt-weight-display);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  overflow-wrap: break-word;
+}
+.project-url span {
+  white-space: nowrap;
+}
+.project-code {
+  font-size: clamp(1rem, 3vh, 2rem);
+  color: #5b5b57;
+}
+.project-code strong {
+  color: #141413;
+}
+@media (max-aspect-ratio: 1/1) {
+  .project-main {
+    flex-direction: column;
+    text-align: center;
+  }
+  .project-card .project-qr {
+    width: min(48dvh, 80vw);
+    height: min(48dvh, 80vw);
+  }
+  .project-text {
+    max-width: 90vw;
+  }
+}

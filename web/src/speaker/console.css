@@ -1,59 +1,123 @@
-/* The speaker console (ui-design §7): desktop first. The hub's quiet language (decisions 0033, 0036): opaque panels
-   with a hairline on a plain ground, no glass or lane light; red only for on air. The panel rules are at the end of
-   this file. */
+/* The speaker console (ui-design §7), laid out like a call: a header with the time, the talk and its code; the
+   preview of what viewers see in the middle; before air a green-room column to set up and go on air, on air a dock
+   of round controls with End talk and the panel toggles (Meet's bottom bar). The hub's quiet language (decisions 0033,
+   0036): opaque surfaces with a hairline on a plain ground; red only for on air. Desktop first: the console fills the
+   window and never scrolls as a page. */
 
 .console {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
   background: var(--tt-color-ground);
+  color: var(--tt-color-text);
+}
+.console .glyph {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+.muted {
+  color: var(--tt-color-text-muted);
+}
+.small {
+  font-size: var(--tt-text-small);
+}
+.alert {
+  color: var(--tt-color-degraded);
+  margin: 0;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
+/* --- header: time | talk | code (i) ------------------------------------------------------------------------- */
 .console-bar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--tt-space-4);
-  min-height: 60px;
-  padding: 8px var(--tt-space-6);
-  background: var(--tt-color-ground);
+  height: 60px;
+  padding: 0 var(--tt-space-4) 0 var(--tt-space-5);
   border-bottom: 1px solid var(--tt-color-line);
 }
-.console .brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tt-space-2);
-  letter-spacing: var(--tt-tracking-tight);
+.console[data-phase="on-air"] .console-bar {
+  box-shadow: inset 0 -2px 0 var(--tt-color-live);
 }
-.console .brand .logomark {
+.console-meeting {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-3);
+  min-width: 0;
+  font-size: 1rem;
+}
+.console-home {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-inline-end: var(--tt-space-1);
+  border-radius: var(--tt-radius-sm);
   color: inherit;
 }
-.console[data-phase="on-air"] .console-bar {
-  border-bottom: 3px solid var(--tt-color-live);
+.console-home:focus-visible,
+.icon-btn:focus-visible,
+.round-btn:focus-visible,
+.panel-btn:focus-visible,
+.dock-pill:focus-visible {
+  outline: 2px solid var(--tt-color-focus);
+  outline-offset: 2px;
 }
-.console[data-phase="paused"] .console-bar {
-  border-bottom: 3px solid var(--tt-color-line);
+.console-clock {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.console-title {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
+.console-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--tt-color-line);
+  flex: none;
 }
-.console-title h1 {
+.console-talk {
   margin: 0;
-  font-size: var(--tt-text-h3);
-  font-weight: var(--tt-weight-regular);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+  font-weight: var(--tt-weight-strong);
 }
-.console-room {
-  font-weight: 700;
+.console-code {
+  color: var(--tt-color-text-muted);
+  white-space: nowrap;
 }
-.console-actions {
+.icon-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tt-radius-full);
+  background: transparent;
+  color: var(--tt-color-text);
+  cursor: pointer;
+}
+.icon-btn:hover,
+.icon-btn[aria-expanded="true"] {
+  background: var(--tt-color-raised);
+}
+.console-state {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--tt-space-3);
+  flex: none;
 }
 .on-air-badge {
   font-variant-numeric: tabular-nums;
@@ -84,112 +148,535 @@
   height: 18px;
 }
 
-.console-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(240px, 300px);
-  gap: var(--tt-space-4);
-  padding: var(--tt-space-4);
-  align-items: start;
-  flex: 1;
+/* The talk's details: a card from the (i), as Meet's meeting details. */
+.details-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: var(--tt-space-4);
+  z-index: 30;
+  width: 400px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 12px;
+  background: var(--tt-color-surface);
+  box-shadow: var(--tt-shadow-2);
 }
-.console-side,
-.console-presenter {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tt-space-4);
-  min-width: 0;
+.details-pop:focus {
+  outline: none;
 }
-.console-main {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-.console > .audience {
-  margin: 0 var(--tt-space-4) var(--tt-space-4);
-}
-
-.row {
+.details-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: var(--tt-space-2) var(--tt-space-2) var(--tt-space-2) var(--tt-space-5);
+  border-bottom: 1px solid var(--tt-color-line);
 }
-.alert {
-  color: var(--tt-color-degraded);
+.details-head h2 {
   margin: 0;
+  font-size: 1.05rem;
+  font-weight: var(--tt-weight-strong);
+}
+.details-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+  padding: var(--tt-space-4) var(--tt-space-5) var(--tt-space-5);
+}
+.details-qr {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: var(--tt-space-4);
+  align-items: start;
+  padding-top: var(--tt-space-4);
+  border-top: 1px solid var(--tt-color-line);
+}
+.details-qr .qr {
+  width: 132px;
+  height: 132px;
+  border: 1px solid var(--tt-color-line);
+}
+.details-qr-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tt-space-3);
+}
+.details-qr-text p {
+  margin: 0;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+  line-height: 1.45;
+}
+.details-qr-text strong {
+  color: var(--tt-color-text);
 }
 
-/* --- pre-flight checks --- */
-.checks {
+/* The rows are placed by name, so an empty alerts row never shifts the body into it. */
+.console > .console-bar {
+  grid-row: 1;
+}
+.console-alerts,
+.console-ended > .tt-banner {
+  grid-row: 2;
+}
+.console-body,
+.console-ended > .ended {
+  grid-row: 3;
+}
+.console-dock {
+  grid-row: 4;
+}
+.console-alerts:not(:empty) {
+  padding: var(--tt-space-3) var(--tt-space-4) 0;
+}
+
+/* --- body: the preview, and the green room or a side panel ------------------------------------------------- */
+.console-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-space-4);
+  padding: var(--tt-space-4);
+}
+.console-body:has(> aside) {
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+.console-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-3);
+}
+.stage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tt-space-4);
+}
+.stage-caption {
+  margin: 0;
+  font-size: var(--tt-text-small);
+  font-weight: var(--tt-weight-strong);
+}
+.stage-wire {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+  text-align: end;
+}
+/* The stage takes the room left and keeps the slide's shape: as wide as fits, never taller than the space. */
+.stage-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  container-type: size;
+  display: grid;
+  place-items: center;
+}
+.stage-frame {
+  position: relative;
+  width: min(100cqw, calc(100cqh * var(--aspect)));
+  aspect-ratio: var(--aspect);
+}
+.stage-frame > .stage {
+  width: 100%;
+  height: 100%;
+}
+/* The drawing tools, then the slide and drawing controls, on one line where they fit. */
+.stage-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tt-space-2) var(--tt-space-4);
+}
+.stage-tools .slide-row {
+  flex: 1 1 auto;
+}
+.end-confirm {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Before slides: the camera as viewers see it, or a quiet card; a line on dropping a PDF. */
+.console .stage-empty {
+  display: block;
+  padding: 0;
+  background: #000;
+  border: 1px solid var(--tt-color-line);
+}
+.stage-self {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.stage-nobody {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tt-space-3);
+  background: #1b1b1f;
+  color: #b9b9bd;
+}
+.stage-avatar {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: #34343a;
+  color: #fff;
+  font-size: 2.5rem;
+  font-weight: var(--tt-weight-strong);
+}
+.stage-drop {
+  position: absolute;
+  left: 50%;
+  bottom: var(--tt-space-4);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: var(--tt-radius-full);
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: var(--tt-text-small);
+  white-space: nowrap;
+}
+.stage-drop .glyph {
+  width: 18px;
+  height: 18px;
+}
+
+/* --- the green room: set up, then go on air ------------------------------------------------------------------ */
+.green-room {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+  padding: var(--tt-space-5);
+  border: 1px solid var(--tt-color-line);
+  border-radius: 12px;
+  background: var(--tt-color-surface);
+}
+.green-head h2 {
+  margin: 0;
+  font: var(--tt-weight-display) 1.5rem / 1.2 var(--tt-font-display);
+  letter-spacing: -0.02em;
+}
+.green-sub {
+  margin: 6px 0 0;
+  color: var(--tt-color-text-muted);
+}
+.setup-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
-.check {
+.setup-row {
+  padding: var(--tt-space-3) 0;
+  border-top: 1px solid var(--tt-color-line);
+}
+.setup-row:last-child {
+  border-bottom: 1px solid var(--tt-color-line);
+}
+.setup-main {
   display: grid;
-  grid-template-columns: 76px 1fr;
-  gap: 8px;
-  align-items: start;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tt-space-3);
 }
-.check-state {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding-top: 2px;
+.setup-icon {
+  width: 40px;
 }
-.check-ok .check-state {
-  color: var(--tt-color-ready);
-}
-.check-wait .check-state {
-  color: var(--tt-color-degraded);
-}
-.check-bad .check-state {
-  color: var(--tt-color-degraded);
-}
-.check-off .check-state {
-  color: var(--tt-color-text-muted);
-}
-.check-body {
+.setup-text {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-width: 0;
 }
-.check-body p {
-  margin: 0;
+.setup-title {
+  font-weight: var(--tt-weight-strong);
 }
-.check-title {
-  font-weight: 600;
+.setup-detail {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+  overflow-wrap: anywhere;
 }
-.device {
-  max-width: 100%;
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 4px;
-  border: 1px solid var(--tt-color-line);
-  border-radius: var(--tt-radius-sm);
-  background: var(--tt-color-surface);
-  color: inherit;
+.setup-detail .device {
+  margin-top: 2px;
+}
+/* A source's state is a dot and a word in its colour, in sentence case. */
+.setup-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--tt-text-micro);
+  font-weight: var(--tt-weight-strong);
+  white-space: nowrap;
+  color: var(--tt-color-text-muted);
+}
+.setup-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.setup-row[data-state="ok"] .setup-state {
+  color: var(--tt-color-ready);
+}
+.setup-row[data-state="wait"] .setup-state,
+.setup-row[data-state="bad"] .setup-state {
+  color: var(--tt-color-degraded);
+}
+/* The slides (SlidesSetup, slide-upload lane): the stage already shows the chosen slide large, so here the deck is
+   its name, the step buttons and the strip. */
+.setup-slides {
+  padding: var(--tt-space-3) 0;
+  border-top: 1px solid var(--tt-color-line);
+}
+.green-room .slides-preview,
+.side-body .slides-preview,
+.green-room .slides-status,
+.green-room .slides-nav {
+  display: none;
+}
+/* On air the Slides panel is a contact sheet: every slide at a glance, one click to show it. */
+.side-body .slides-nav {
+  display: none;
+}
+.side-body .slides-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  overflow: visible;
+}
+.side-body .slides-thumb {
+  width: 100%;
+}
+.green-room .slides-drop {
+  padding: var(--tt-space-4);
+}
+.green-room .slides-drop-hint {
+  font-size: var(--tt-text-small);
+}
+.setup-extra {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tt-space-2);
+  margin: var(--tt-space-2) 0 0 52px;
 }
 .name-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  font-size: var(--tt-text-small);
+  font-weight: var(--tt-weight-strong);
 }
-.name-field input {
+.name-field input,
+.device {
   font: inherit;
+  font-weight: var(--tt-weight-regular);
   padding: 6px 8px;
-  border: 1px solid var(--tt-color-line);
+  border: 1px solid var(--tt-color-field);
   border-radius: var(--tt-radius-sm);
   background: var(--tt-color-surface);
   color: inherit;
+  max-width: 100%;
+}
+.device {
+  padding: 2px 4px;
+  font-size: var(--tt-text-small);
+}
+.green-go {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+.green-note {
+  margin: 0;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+  text-align: center;
 }
 
+/* --- round controls (green room and dock) ------------------------------------------------------------------- */
+.round-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-full);
+  background: transparent;
+  color: var(--tt-color-text-muted);
+  cursor: pointer;
+}
+.round-btn.round-lg {
+  width: 48px;
+  height: 48px;
+}
+.round-btn.round-lg .glyph {
+  width: 24px;
+  height: 24px;
+}
+.round-btn:hover:not(:disabled) {
+  background: var(--tt-color-raised);
+}
+/* On: filled, so a device that is on reads at a glance; off: an outline and the struck-through icon. */
+.round-btn[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--tt-color-raised);
+  color: var(--tt-color-text);
+}
+.round-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- the dock: Meet's bottom bar --------------------------------------------------------------------------- */
+.console-dock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--tt-space-4);
+  height: 76px;
+  padding: 0 var(--tt-space-5);
+  border-top: 1px solid var(--tt-color-line);
+}
+.dock-centre {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-3);
+}
+.dock-side {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  min-width: 0;
+}
+.dock-panels {
+  justify-content: flex-end;
+}
+.dock-note {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+  font-variant-numeric: tabular-nums;
+}
+.dock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  height: 48px;
+  padding: 0 var(--tt-space-5) 0 var(--tt-space-4);
+  border: 0;
+  border-radius: var(--tt-radius-full);
+  font: inherit;
+  font-weight: var(--tt-weight-strong);
+  cursor: pointer;
+}
+.dock-pill .glyph {
+  width: 22px;
+  height: 22px;
+}
+.dock-end {
+  margin-inline-start: var(--tt-space-2);
+  background: var(--tt-color-live-fill);
+  color: var(--tt-color-on-live);
+}
+.dock-end:hover {
+  filter: brightness(1.08);
+}
+.dock-resume {
+  background: var(--tt-color-play);
+  color: var(--tt-color-on-play);
+}
+.panel-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tt-radius-full);
+  background: transparent;
+  color: var(--tt-color-text);
+  cursor: pointer;
+}
+.panel-btn:hover {
+  background: var(--tt-color-raised);
+}
+.panel-btn[aria-pressed="true"] {
+  background: var(--tt-color-accent-soft);
+  color: var(--tt-color-accent);
+}
+.panel-count {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--tt-color-accent);
+  color: var(--tt-color-on-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* --- side panel (on air): the audience, or their questions ------------------------------------------------- */
+.side-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 12px;
+  background: var(--tt-color-surface);
+}
+.side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--tt-space-2) var(--tt-space-2) var(--tt-space-2) var(--tt-space-5);
+  border-bottom: 1px solid var(--tt-color-line);
+}
+.side-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: var(--tt-weight-strong);
+}
+.side-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--tt-space-4) var(--tt-space-5);
+}
+/* The audience and question components carry their own panel chrome elsewhere; inside the side panel they are plain. */
+.side-body > .panel {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.side-body .panel-head,
+.side-body .questions-head > .panel-title {
+  display: none;
+}
+
+/* --- the microphone level, the camera and the shared screen --- */
 .level {
   display: flex;
   gap: 2px;
@@ -229,7 +716,6 @@
   object-fit: contain;
   aspect-ratio: 16 / 9;
 }
-
 /* --- the stage: the slide with ink, marks and laser --- */
 .stage-wrap {
   position: relative;
@@ -451,132 +937,6 @@
   background: currentColor;
 }
 
-/* --- presenter view --- */
-.next-slide {
-  width: 100%;
-  border: 1px solid var(--tt-color-line);
-  border-radius: var(--tt-radius-sm);
-  background: #fff;
-}
-.notes-text {
-  min-height: 160px;
-  resize: vertical;
-  font: inherit;
-  font-size: 1rem;
-  padding: 8px;
-  border: 1px solid var(--tt-color-line);
-  border-radius: var(--tt-radius-sm);
-  background: var(--tt-color-surface);
-  color: inherit;
-}
-.strip {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  max-height: 320px;
-  overflow: auto;
-}
-.strip-item {
-  position: relative;
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 4px;
-  background: none;
-  cursor: pointer;
-}
-.strip-item[aria-current="true"] {
-  border-color: var(--tt-color-accent);
-}
-.strip-item img,
-.strip-wait {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: contain;
-  background: var(--tt-color-ground);
-}
-.strip-num {
-  position: absolute;
-  left: 2px;
-  bottom: 2px;
-  font-size: 0.7rem;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-}
-
-/* --- invite --- */
-.invite-body {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-.invite .qr {
-  width: 112px;
-  height: 112px;
-  flex: none;
-}
-.invite-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.invite-text p {
-  margin: 0;
-}
-.invite-room {
-  font-size: 1.6rem;
-  font-weight: 700;
-  line-height: 1.1;
-  word-break: break-all;
-}
-.invite-url {
-  word-break: break-all;
-}
-.invite-card.open {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2vh;
-  background: #fff;
-  color: #111;
-  cursor: pointer;
-}
-.invite-card .qr {
-  width: min(55vh, 60vw);
-  height: min(55vh, 60vw);
-}
-.invite-card-lead {
-  margin: 0;
-  font-size: 3vh;
-}
-.invite-card-room {
-  margin: 0;
-  font-size: 9vh;
-  font-weight: 800;
-  line-height: 1;
-}
-.invite-card-url {
-  margin: 0;
-  font-size: 3vh;
-}
-.invite-card-hint {
-  margin: 0;
-  font-size: 1.6vh;
-  color: #666;
-}
-
 /* --- audience --- */
 .audience-total {
   font-variant-numeric: tabular-nums;
@@ -608,26 +968,7 @@
   margin-top: 8px;
 }
 
-.console-ended .ended-panel {
-  max-width: 640px;
-  margin: 32px auto;
-}
-
 /* --- the audience's questions (decision 0024) --- */
-.strip-questions {
-  position: absolute;
-  right: 2px;
-  top: 2px;
-  min-width: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
-  background: var(--tt-color-degraded);
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-}
 .questions-head {
   display: flex;
   flex-wrap: wrap;
@@ -722,23 +1063,233 @@
   color: var(--tt-color-degraded);
 }
 
-@media (max-width: 1100px) {
-  .console-grid {
-    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
-  }
-  .console-presenter {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  }
+/* --- the end of the talk ---------------------------------------------------------------------------------- */
+.console-ended {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.ended-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tt-color-text-muted);
+  font-weight: var(--tt-weight-strong);
+}
+.ended-state::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ended {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--tt-space-8);
+  width: min(1080px, 100% - 64px);
+  margin: 0 auto;
+  padding: var(--tt-space-8) 0;
+}
+.ended-title {
+  margin: 0;
+  font: var(--tt-weight-display) var(--tt-text-h1) / 1.1 var(--tt-font-display);
+  letter-spacing: -0.025em;
+}
+.ended-sub {
+  margin: var(--tt-space-2) 0 0;
+  color: var(--tt-color-text-muted);
+  font-size: 1.125rem;
+}
+.ended-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: var(--tt-space-8);
+  align-items: start;
+}
+.ended-replay {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-3);
+  min-width: 0;
+}
+.ended-still {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 10px;
+  background: #1b1b1f;
+  color: #fff;
+  text-decoration: none;
+}
+.ended-still img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+.ended-still-title {
+  padding: var(--tt-space-6);
+  font: var(--tt-weight-display) 1.75rem / 1.2 var(--tt-font-display);
+  text-align: center;
+}
+.ended-play {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.66);
+  color: #fff;
+}
+.ended-play .glyph {
+  width: 34px;
+  height: 34px;
+}
+.ended-still:hover .ended-play,
+.ended-still:focus-visible .ended-play {
+  background: rgb(0 0 0 / 0.82);
+}
+.ended-still:focus-visible {
+  outline: 2px solid var(--tt-color-focus);
+  outline-offset: 3px;
+}
+.ended-label {
+  margin: var(--tt-space-2) 0 0;
+  font-size: var(--tt-text-small);
+  font-weight: var(--tt-weight-strong);
+  color: var(--tt-color-text-muted);
+}
+.ended-link {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-3);
+  flex-wrap: wrap;
+}
+.ended-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.05rem;
+  font-weight: var(--tt-weight-strong);
+}
+.ended-open,
+.ended-hub {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tt-color-accent);
+  font-weight: var(--tt-weight-strong);
+  text-decoration: none;
+}
+.ended-open:hover,
+.ended-hub:hover {
+  text-decoration: underline;
+}
+.ended-open .glyph,
+.ended-hub .glyph {
+  width: 18px;
+  height: 18px;
+}
+.ended-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  height: 36px;
+  padding: 0 var(--tt-space-4) 0 var(--tt-space-3);
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-full);
+  background: transparent;
+  color: var(--tt-color-text);
+  font: inherit;
+  font-weight: var(--tt-weight-strong);
+  cursor: pointer;
+}
+.ended-btn:hover {
+  background: var(--tt-color-raised);
+}
+.ended-btn:focus-visible {
+  outline: 2px solid var(--tt-color-focus);
+  outline-offset: 2px;
+}
+.ended-btn .glyph {
+  width: 18px;
+  height: 18px;
+}
+.ended-btn-primary {
+  height: 44px;
+  padding: 0 var(--tt-space-5) 0 var(--tt-space-4);
+  border-color: transparent;
+  background: var(--tt-color-play);
+  color: var(--tt-color-on-play);
+}
+.ended-btn-primary:hover {
+  background: var(--tt-color-play);
+  filter: brightness(1.15);
+}
+.ended-copied {
+  min-height: 1lh;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-micro);
+}
+.ended-kept {
+  min-width: 0;
+}
+.kept-list {
+  list-style: none;
+  margin: var(--tt-space-3) 0 0;
+  padding: 0;
+}
+.kept-list li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: var(--tt-space-3);
+  row-gap: 2px;
+  padding: var(--tt-space-4) 0;
+  border-top: 1px solid var(--tt-color-line);
+}
+.kept-list li:last-child {
+  border-bottom: 1px solid var(--tt-color-line);
+}
+.kept-list .glyph {
+  grid-row: 1 / span 2;
+  width: 22px;
+  height: 22px;
+  color: var(--tt-color-text-muted);
+}
+.kept-what {
+  font-weight: var(--tt-weight-strong);
+}
+.kept-fact {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.ended-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-6);
+  padding-top: var(--tt-space-2);
 }
 
-/* --- panels (decision 0036): opaque surface, one hairline, 8 px corners ---------------------------------------- */
-.console .panel {
-  border-radius: 8px;
-  background: var(--tt-color-surface);
-  border: 1px solid var(--tt-color-line);
-  box-shadow: none;
+/* Paste your speaker link (pages/CreateTalk.tsx), in the green room's speaker-link row. */
+.paste-link-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--tt-space-2);
+  width: 100%;
+}
+.paste-link-form > button {
+  align-self: flex-start;
 }
 .console .panel-title {
   font-weight: var(--tt-weight-strong);
@@ -746,55 +1297,21 @@
 }
 .console .stage {
   border-radius: 8px;
-  border-color: var(--tt-color-line);
+  border: 1px solid var(--tt-color-line);
   box-shadow: none;
+  max-height: none;
 }
 /* On air, the stage is ringed in live red: what viewers see now. */
 .console[data-phase="on-air"] .stage {
   box-shadow: 0 0 0 2px var(--tt-color-live);
 }
-.console .stage-empty {
-  background: var(--tt-color-surface);
-  border: 1px dashed var(--tt-color-field);
-}
-.console .check {
-  grid-template-columns: 92px 1fr;
-}
-/* A check's state is a word in its colour after a small dot, in sentence case: not a chip. */
-.console .check-state {
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  padding: 0;
-  background: none;
-  font-size: var(--tt-text-micro);
-  font-weight: var(--tt-weight-strong);
-  letter-spacing: 0;
-  text-transform: none;
-}
-.console .check-state::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.console .strip-item {
-  border-radius: 6px;
-}
-/* Paste your speaker link (pages/CreateTalk.tsx), in the Speaker token check. */
-.paste-link-form {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--tt-space-2);
-}
-.paste-link-form > button {
-  align-self: flex-start;
-}
 /* Native checkboxes take the one primary colour, not the browser's blue. */
 .console input[type="checkbox"] {
   accent-color: var(--tt-color-play);
+}
+
+@media (max-width: 1280px) {
+  .console-body:has(> aside) {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
 }

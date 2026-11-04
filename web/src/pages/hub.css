@@ -641,69 +641,18 @@
   }
 }
 
-/* --- Start a talk ------------------------------------------------------------------------------------------- */
-.start-dialog {
-  width: min(600px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
-  margin: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--hub-text);
-  overflow: visible;
+/* --- Start a talk (in the app's Modal, brand/modal.css) --------------------------------------------------------- */
+.start-form {
+  display: contents;
 }
-.start-dialog::backdrop {
-  background: var(--tt-color-scrim);
-}
-.start-dialog[open] {
-  animation: start-in var(--tt-duration-medium) var(--tt-ease-standard) both;
-}
-.start-panel {
-  position: relative;
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-  padding: var(--tt-space-6) var(--tt-space-8) var(--tt-space-8);
-  border: 1px solid var(--hub-line);
-  border-radius: 12px;
-  background: var(--hub-surface);
-  box-shadow: 0 24px 64px rgb(0 0 0 / 0.32);
-}
-.start-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--tt-space-2);
-}
-.start-title {
-  margin: 0;
-  font: var(--tt-weight-display) 1.5rem / 1.2 var(--tt-font-display);
-  letter-spacing: -0.02em;
-}
-.start-close {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid var(--hub-line);
-  border-radius: var(--hub-radius);
-  background: transparent;
-  color: var(--hub-text);
-  font-size: 1.1rem;
-  cursor: pointer;
-}
-.start-close:hover {
-  background: var(--hub-raised);
-}
-.start-lead {
-  margin: 0 0 var(--tt-space-2);
-  color: var(--hub-muted);
-}
-.start-form,
-.start-created {
+.start-fields {
   display: flex;
   flex-direction: column;
   gap: var(--tt-space-4);
+}
+.start-lead {
+  margin: 0;
+  color: var(--hub-muted);
 }
 .start-pair {
   display: grid;
@@ -711,36 +660,63 @@
   gap: var(--tt-space-4);
   align-items: start;
 }
-.start-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--tt-space-4);
-  margin-top: var(--tt-space-2);
-}
-.start-foot > :last-child {
-  margin-inline-start: auto;
-}
-.start-hint {
-  margin: 0;
-  color: var(--hub-muted);
-  font-size: var(--tt-text-small);
-}
 .start-error {
   margin: 0;
   color: var(--tt-color-degraded);
 }
-.start-created-title {
+/* The room is ready: the QR to scan on the left, the code and the two links on the right. */
+.start-created {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--tt-space-6);
+  align-items: start;
+}
+.start-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tt-space-2);
   margin: 0;
-  font-size: var(--tt-text-h3);
+}
+.start-qr .qr {
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--hub-line);
+}
+.start-qr figcaption {
+  color: var(--hub-muted);
+  font-size: var(--tt-text-small);
+}
+.start-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+  min-width: 0;
+}
+.start-code {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.start-code-label {
+  color: var(--hub-muted);
+  font-size: var(--tt-text-small);
+}
+.start-code-value {
+  font: var(--tt-weight-display) 1.75rem / 1.1 var(--tt-font-display);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 .start-speaker-link {
   display: flex;
   flex-direction: column;
-  gap: var(--tt-space-2);
+  gap: 6px;
+  padding-top: var(--tt-space-4);
+  border-top: 1px solid var(--hub-line);
 }
 .start-speaker-link label {
   font-weight: var(--tt-weight-strong);
+  font-size: var(--tt-text-small);
 }
 .start-link-row {
   display: flex;
@@ -749,30 +725,32 @@
 .start-link-field {
   flex: 1 1 auto;
   min-width: 0;
-  padding: var(--tt-space-2) var(--tt-space-3);
+  padding: 6px var(--tt-space-3);
   border: 1px solid var(--tt-color-field);
   border-radius: var(--hub-radius);
   background: var(--hub-surface);
   color: var(--hub-text);
   font: inherit;
+  font-size: var(--tt-text-small);
 }
 .start-warning {
+  display: flex;
+  gap: var(--tt-space-2);
+  align-items: flex-start;
   margin: 0;
-  padding: var(--tt-space-2) var(--tt-space-3);
-  border-radius: var(--hub-radius);
-  background: color-mix(in srgb, var(--tt-color-degraded) 16%, transparent);
+  color: var(--hub-muted);
+  font-size: var(--tt-text-small);
+}
+.start-warning .glyph {
+  width: 18px;
+  height: 18px;
+  color: var(--tt-color-degraded);
 }
 .start-status {
   margin: 0;
   min-height: 1lh;
   color: var(--hub-muted);
-  font-size: var(--tt-text-small);
-}
-@keyframes start-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
+  font-size: var(--tt-text-micro);
 }
 
 @media (prefers-reduced-motion: reduce) {
