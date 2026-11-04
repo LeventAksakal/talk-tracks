@@ -163,7 +163,18 @@ function ProjectionCard({ room, open, onClose }: { room: string; open: boolean; 
             <QrCode text={url} label={`QR code for ${url}`} className="project-qr" />
             <div className="project-text">
               <p className="project-lead">Scan to watch, with subtitles in your language</p>
-              <p className="project-url">{shortUrl(url)}</p>
+              <p className="project-url">
+                {/* Broken only after a slash, never inside the room name. */}
+                {shortUrl(url)
+                  .split("/")
+                  .map((part, i) => (
+                    <span key={i}>
+                      {i ? "/" : ""}
+                      {i ? <wbr /> : null}
+                      {part}
+                    </span>
+                  ))}
+              </p>
               <p className="project-code">
                 Room <strong>{room}</strong>
               </p>

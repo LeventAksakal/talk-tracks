@@ -1,4 +1,4 @@
-import { AlertDialog, Badge, Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
+import { Badge, Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
 import {
   type ChangeEvent,
   type CSSProperties,
@@ -20,6 +20,7 @@ import { MoqHistorySource } from "../playback/moqSource";
 import { watchRoomCatalog } from "../playback/roomCatalog";
 import { Glyph, type GlyphName } from "../brand/Glyph";
 import { LogoMark } from "../brand/LogoMark";
+import { Modal, ModalBody, ModalFooter } from "../brand/Modal";
 import { Link, navigate } from "../router";
 import { useResource } from "../useResource";
 import { MoqTransport } from "../transport/moq";
@@ -459,7 +460,7 @@ function ConsoleView({
         retry={sayEnded}
         onAirMs={endedAt - startedAt}
         slideCount={deck?.count ?? 0}
-        still={slideDeck.thumbs[0]}
+        still={slideDeck.current?.url ?? slideDeck.thumbs[0]}
         made={features(catalog, now).map((f) => f.name)}
       />
     );
@@ -484,15 +485,25 @@ function ConsoleView({
       <ConsoleHeader room={room} title={talkTitle} now={now}>
         <OnAirBadge onAir={onAir} paused={phase === "paused"} elapsed={phase !== "preflight" ? now - startedAt : 0} />
       </ConsoleHeader>
-      <AlertDialog
-        isOpen={confirmEnd}
-        onOpenChange={setConfirmEnd}
+      <Modal
+        open={confirmEnd}
+        onClose={() => setConfirmEnd(false)}
         title="End the talk?"
-        description="Viewers see that the talk ended, and nothing more goes out. The recording, slides and everything drawn on them stay replayable."
-        cancelLabel="Keep talking"
-        actionLabel="End talk"
-        onAction={endTalk}
-      />
+        titleId="end-heading"
+        size="sm"
+        role="alertdialog"
+      >
+        <ModalBody>
+          <p className="end-confirm">
+            Viewers see that the talk ended, and nothing more goes out. The recording, the slides and everything drawn
+            on them stay replayable.
+          </p>
+        </ModalBody>
+        <ModalFooter>
+          <Button label="Keep talking" variant="secondary" onClick={() => setConfirmEnd(false)} />
+          <Button label="End talk" variant="destructive" onClick={endTalk} />
+        </ModalFooter>
+      </Modal>
       <div className="console-alerts">
         {onAir.kind === "refused" || onAir.kind === "error" ? (
           <Banner status="warning" title="Not on air" description={onAir.reason} role="alert" />

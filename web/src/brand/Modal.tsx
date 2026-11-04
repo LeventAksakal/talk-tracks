@@ -16,6 +16,7 @@ export function Modal({
   title,
   titleId,
   size = "md",
+  role,
   className,
   children,
 }: {
@@ -25,6 +26,8 @@ export function Modal({
   /** The heading's id, for aria-labelledby. */
   titleId: string;
   size?: "sm" | "md" | "lg";
+  /** "alertdialog" for a confirmation that interrupts (End the talk?). */
+  role?: "alertdialog";
   className?: string;
   children: ReactNode;
 }) {
@@ -36,7 +39,12 @@ export function Modal({
       if (typeof el.showModal === "function") el.showModal();
       else el.setAttribute("open", "");
       // The first field (or else the first action), not Close, takes focus.
-      (el.querySelector<HTMLElement>(".tt-modal-body input, .tt-modal-body button") ?? el)?.focus();
+      // A confirmation focuses its safe answer (the first action), so Enter never ends anything by accident.
+      (
+        el.querySelector<HTMLElement>(".tt-modal-body input, .tt-modal-body button") ??
+        el.querySelector<HTMLElement>(".tt-modal-actions button") ??
+        el
+      ).focus();
     } else if (!open && el.open) {
       if (typeof el.close === "function") el.close();
       else el.removeAttribute("open");
@@ -46,6 +54,7 @@ export function Modal({
     <dialog
       ref={dialog}
       className={`tt-modal tt-modal-${size}${className ? ` ${className}` : ""}`}
+      role={role}
       aria-labelledby={titleId}
       onClose={onClose}
       onCancel={(e) => {

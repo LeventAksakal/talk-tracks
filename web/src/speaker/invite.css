@@ -19,16 +19,16 @@
 }
 .link-row-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--tt-space-2);
+  gap: var(--tt-space-2) var(--tt-space-3);
   min-width: 0;
 }
+/* The link is never cut: where it does not fit beside Copy it takes its own line. */
 .link-row-url {
-  flex: 1 1 auto;
+  flex: 1 1 240px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   color: var(--tt-color-accent);
   font-size: 1rem;
   text-decoration: none;
@@ -121,7 +121,7 @@
   gap: clamp(24px, 5vw, 96px);
   min-height: 0;
 }
-.project-qr {
+.project-card .project-qr {
   width: min(64dvh, 40vw);
   height: min(64dvh, 40vw);
   flex: none;
@@ -131,7 +131,7 @@
   flex-direction: column;
   gap: clamp(8px, 2vh, 24px);
   min-width: 0;
-  max-width: 48vw;
+  max-width: 50vw;
 }
 .project-text p {
   margin: 0;
@@ -141,11 +141,14 @@
   color: #5b5b57;
 }
 .project-url {
-  font-size: clamp(1.75rem, min(6.5vh, 3.6vw), 5rem);
+  font-size: clamp(1.75rem, min(6.5vh, 3.2vw), 5rem);
   font-weight: var(--tt-weight-display);
   line-height: 1.1;
   letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+.project-url span {
+  white-space: nowrap;
 }
 .project-code {
   font-size: clamp(1rem, 3vh, 2rem);
@@ -159,7 +162,7 @@
     flex-direction: column;
     text-align: center;
   }
-  .project-qr {
+  .project-card .project-qr {
     width: min(48dvh, 80vw);
     height: min(48dvh, 80vw);
   }

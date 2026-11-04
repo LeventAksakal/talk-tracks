@@ -212,10 +212,22 @@
   color: var(--tt-color-text);
 }
 
-.console-alerts:empty {
-  display: none;
+/* The rows are placed by name, so an empty alerts row never shifts the body into it. */
+.console > .console-bar {
+  grid-row: 1;
 }
-.console-alerts {
+.console-alerts,
+.console-ended > .tt-banner {
+  grid-row: 2;
+}
+.console-body,
+.console-ended > .ended {
+  grid-row: 3;
+}
+.console-dock {
+  grid-row: 4;
+}
+.console-alerts:not(:empty) {
   padding: var(--tt-space-3) var(--tt-space-4) 0;
 }
 
@@ -270,10 +282,19 @@
   width: 100%;
   height: 100%;
 }
+/* The drawing tools, then the slide and drawing controls, on one line where they fit. */
 .stage-tools {
   display: flex;
-  flex-direction: column;
-  gap: var(--tt-space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tt-space-2) var(--tt-space-4);
+}
+.stage-tools .slide-row {
+  flex: 1 1 auto;
+}
+.end-confirm {
+  margin: 0;
+  line-height: 1.5;
 }
 
 /* Before slides: the camera as viewers see it, or a quiet card; a line on dropping a PDF. */
@@ -426,8 +447,21 @@
 }
 .green-room .slides-preview,
 .side-body .slides-preview,
-.green-room .slides-status {
+.green-room .slides-status,
+.green-room .slides-nav {
   display: none;
+}
+/* On air the Slides panel is a contact sheet: every slide at a glance, one click to show it. */
+.side-body .slides-nav {
+  display: none;
+}
+.side-body .slides-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  overflow: visible;
+}
+.side-body .slides-thumb {
+  width: 100%;
 }
 .green-room .slides-drop {
   padding: var(--tt-space-4);
