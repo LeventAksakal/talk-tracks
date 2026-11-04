@@ -96,25 +96,28 @@ const loadName = () => {
   }
 };
 
-/** The toolbar, in groups; the digit keys pick tools in this order (keys.ts TOOL_ORDER). */
-/** The drawing tools in their groups; `name` is the accessible name when the short label leaves out what it acts on. */
-const TOOLS: { tool: Tool; label: string; key: string; name?: string }[][] = [
+/**
+ * The drawing tools in their groups (pointing and freehand, shapes, text marks), drawn as icons in the stage's tool
+ * rail; the name and key show in the tooltip. `name` is the accessible name when the short label leaves out what it
+ * acts on.
+ */
+const TOOLS: { tool: Tool; label: string; key: string; icon: GlyphName; name?: string }[][] = [
   [
-    { tool: "laser", label: "Laser", key: "L" },
-    { tool: "pen", label: "Pen", key: "D" },
-    { tool: "highlighter", label: "Highlighter", key: "H" },
+    { tool: "laser", label: "Laser", key: "L", icon: "pointScan", name: "Laser pointer" },
+    { tool: "pen", label: "Pen", key: "D", icon: "stylus" },
+    { tool: "highlighter", label: "Highlighter", key: "H", icon: "inkHighlighter" },
   ],
   [
-    { tool: "rect", label: "Rectangle", key: "R" },
-    { tool: "ellipse", label: "Ellipse", key: "O" },
-    { tool: "arrow", label: "Arrow", key: "A" },
-    { tool: "line", label: "Line", key: "I" },
-    { tool: "diamond", label: "Diamond", key: "G" },
+    { tool: "rect", label: "Rectangle", key: "R", icon: "cropSquare" },
+    { tool: "ellipse", label: "Ellipse", key: "O", icon: "circle" },
+    { tool: "arrow", label: "Arrow", key: "A", icon: "arrowOutward" },
+    { tool: "line", label: "Line", key: "I", icon: "horizontalRule" },
+    { tool: "diamond", label: "Diamond", key: "G", icon: "diamond" },
   ],
   [
-    { tool: "underline", label: "Underline", key: "U", name: "Underline text" },
-    { tool: "highlight", label: "Highlight", key: "M", name: "Highlight text" },
-    { tool: "eraser", label: "Eraser", key: "E" },
+    { tool: "underline", label: "Underline", key: "U", icon: "formatUnderlined", name: "Underline text" },
+    { tool: "highlight", label: "Mark text", key: "M", icon: "formatInkHighlighter" },
+    { tool: "eraser", label: "Eraser", key: "E", icon: "inkEraser" },
   ],
 ];
 
@@ -536,53 +539,32 @@ function ConsoleView({
               <WireStatus live={live} clock={clock} echo={echo} phase={phase} />
             </span>
           </div>
-          <div className="stage-area" onPointerDownCapture={() => setOptionsOpen(false)}>
-            <div className="stage-frame" style={{ "--aspect": String(frameAspect) } as CSSProperties}>
-              {sharing ? (
-                // While a screen is shared, viewers see it in place of the slides (the camera stays in the corner).
-                <ScreenPreview track={snap?.screenTrack} className="stage stage-screen" />
-              ) : deck ? (
-                <Stage
-                  publisher={publisher}
-                  slide={current}
-                  aspect={aspect}
-                  tool={tool}
-                  colors={colors}
-                  width={width}
-                  hidden={hidden}
-                  label={slideLabel}
-                />
-              ) : (
-                <EmptyStage camera={snap?.cameraTrack} name={name} busy={!!slideDeck.busy} />
-              )}
-              {sharing || deck ? <SelfView track={snap?.cameraTrack} className="stage-camera" /> : null}
-            </div>
-          </div>
-          {/* The drawing tools and slide controls come with a deck: before one is loaded the stage asks for it, and a
-              row of disabled controls would only say the console is half built. */}
-          {deck ? (
-            <div className="stage-tools">
-              <div className="toolbar" role="toolbar" aria-label="Drawing tools">
+          <div className="stage-row">
+            {/* The drawing tools come with a deck, as a rail on the stage's left edge (Excalidraw's, tldraw's): before
+                one is loaded the stage asks for it, and a rail of disabled tools would only say the console is half
+                built. Undo, redo and clear close the rail: they act on the drawing. */}
+            {deck && !sharing ? (
+              <div className="tool-rail" role="toolbar" aria-label="Drawing tools" aria-orientation="vertical">
                 {TOOLS.map((group, i) => (
-                  <div key={i} className="toolbar-group">
+                  <div key={i} className="rail-group">
                     {group.map((t) => {
                       const options = tool === t.tool && hasOptions(t.tool);
                       return (
                         <span key={t.tool} className="tool-slot">
                           <ToggleButton
                             label={`${t.name ?? t.label} (${t.key})`}
-                            size="sm"
+                            isIconOnly
+                            icon={<Glyph name={t.icon} />}
                             isPressed={tool === t.tool}
                             onPressedChange={() => pickTool(t.tool)}
-                          >
-                            {t.label}
-                          </ToggleButton>
+                          />
                           {options ? (
                             <button
                               type="button"
                               className="tool-options-toggle"
                               aria-label={`${t.label} colour and width`}
                               aria-expanded={optionsOpen}
+                              title="Colour and width"
                               onClick={() => setOptionsOpen((o) => !o)}
                             >
                               <span
@@ -609,59 +591,64 @@ function ConsoleView({
                     })}
                   </div>
                 ))}
-              </div>
-              <div className="slide-row">
-                <nav className="slide-nav" aria-label="Slides">
-                  <Button
-                    label="Previous"
-                    size="sm"
-                    variant="secondary"
-                    isDisabled={index === 0}
-                    onClick={() => void goTo(index - 1)}
-                  />
-                  <span className="slide-count" aria-live="polite" data-testid="slide-count">
-                    {`${index + 1} / ${deck.count}`}
-                  </span>
-                  <Button
-                    label="Next"
-                    size="sm"
-                    variant="secondary"
-                    isDisabled={index + 1 >= deck.count}
-                    onClick={() => void goTo(index + 1)}
-                  />
-                  <Button
-                    label={hidden ? "Show slides (B)" : "Hide slides (B)"}
-                    size="sm"
-                    variant="secondary"
-                    onClick={toggleBlank}
-                  />
-                </nav>
-                <div className="slide-edit" role="group" aria-label="Drawing on this slide">
+                <div className="rail-group" role="group" aria-label="Drawing on this slide">
                   <Button
                     label="Undo"
                     tooltip="Undo (Ctrl+Z)"
-                    size="sm"
-                    variant="secondary"
+                    isIconOnly
+                    variant="ghost"
+                    icon={<Glyph name="undo" />}
                     isDisabled={hidden || !history.includes("u")}
                     onClick={() => publisher.undo()}
                   />
                   <Button
                     label="Redo"
                     tooltip="Redo (Ctrl+Y)"
-                    size="sm"
-                    variant="secondary"
+                    isIconOnly
+                    variant="ghost"
+                    icon={<Glyph name="redo" />}
                     isDisabled={hidden || !history.includes("r")}
                     onClick={() => publisher.redo()}
                   />
                   <Button
                     label="Clear slide"
-                    size="sm"
-                    variant="secondary"
+                    tooltip="Clear this slide's drawing"
+                    isIconOnly
+                    variant="ghost"
+                    icon={<Glyph name="deleteSweep" />}
                     isDisabled={hidden}
                     onClick={() => publisher.clearSlide()}
                   />
                 </div>
               </div>
+            ) : null}
+            <div className="stage-area" onPointerDownCapture={() => setOptionsOpen(false)}>
+              <div className="stage-frame" style={{ "--aspect": String(frameAspect) } as CSSProperties}>
+                {sharing ? (
+                  // While a screen is shared, viewers see it in place of the slides (the camera stays in the corner).
+                  <ScreenPreview track={snap?.screenTrack} className="stage stage-screen" />
+                ) : deck ? (
+                  <Stage
+                    publisher={publisher}
+                    slide={current}
+                    aspect={aspect}
+                    tool={tool}
+                    colors={colors}
+                    width={width}
+                    hidden={hidden}
+                    label={slideLabel}
+                  />
+                ) : (
+                  <EmptyStage camera={snap?.cameraTrack} name={name} busy={!!slideDeck.busy} />
+                )}
+                {sharing || deck ? <SelfView track={snap?.cameraTrack} className="stage-camera" /> : null}
+              </div>
+            </div>
+          </div>
+          {/* Before air the slide pager sits under the preview; on air it moves into the dock. */}
+          {deck && phase === "preflight" ? (
+            <div className="stage-foot">
+              <SlidePager index={index} count={deck.count} goTo={goTo} />
             </div>
           ) : null}
         </main>
@@ -817,7 +804,7 @@ function ConsoleView({
 
       {phase !== "preflight" ? (
         <div className="console-dock" role="group" aria-label="Talk controls">
-          <div className="dock-side">{deck ? <span className="dock-note">{slideLabel}</span> : null}</div>
+          <div className="dock-side">{deck ? <SlidePager index={index} count={deck.count} goTo={goTo} /> : null}</div>
           <div className="dock-centre">
             <RoundButton
               icon={snap?.micOn ? "mic" : "micOff"}
@@ -843,6 +830,16 @@ function ConsoleView({
               onClick={() => (sharing ? media?.stopScreen?.() : void media?.shareScreen?.(withAudio))}
               size="lg"
             />
+            {deck ? (
+              <RoundButton
+                icon={hidden ? "visibilityOff" : "visibility"}
+                label="Hide slides"
+                hint={hidden ? "Show the slides again (B)" : "Hide the slides from viewers (B)"}
+                pressed={hidden}
+                onClick={toggleBlank}
+                size="lg"
+              />
+            ) : null}
             {phase === "paused" ? (
               <button type="button" className="dock-pill dock-resume" onClick={resume}>
                 <Glyph name="playArrow" />
@@ -850,7 +847,7 @@ function ConsoleView({
               </button>
             ) : (
               <RoundButton
-                icon="pause"
+                icon="pauseFill"
                 label="Pause"
                 hint="Viewers see that you paused; nothing is lost"
                 onClick={pause}
@@ -1183,6 +1180,31 @@ function RoundButton({
     >
       <Glyph name={icon} />
     </button>
+  );
+}
+
+/** The one slide counter, with the steps either side: under the preview before air, in the dock on air. */
+function SlidePager({ index, count, goTo }: { index: number; count: number; goTo: (i: number) => unknown }) {
+  return (
+    <nav className="slide-pager" aria-label="Slides">
+      <RoundButton
+        icon="chevronLeft"
+        label="Previous slide"
+        hint="Previous slide (←)"
+        disabled={index === 0}
+        onClick={() => void goTo(index - 1)}
+      />
+      <span className="slide-count" aria-live="polite" data-testid="slide-count">
+        {`${index + 1} / ${count}`}
+      </span>
+      <RoundButton
+        icon="chevronRight"
+        label="Next slide"
+        hint="Next slide (→)"
+        disabled={index + 1 >= count}
+        onClick={() => void goTo(index + 1)}
+      />
+    </nav>
   );
 }
 

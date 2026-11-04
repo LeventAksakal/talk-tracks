@@ -280,15 +280,54 @@
   width: 100%;
   height: 100%;
 }
-/* The drawing tools, then the slide and drawing controls, on one line where they fit. */
-.stage-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--tt-space-2) var(--tt-space-4);
-}
-.stage-tools .slide-row {
+/* The stage with its tool rail at the left edge, as in Excalidraw and tldraw. */
+.stage-row {
   flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: var(--tt-space-3);
+}
+.stage-row > .stage-area {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tool-rail {
+  flex: none;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  padding: 4px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: 12px;
+  background: var(--tt-color-surface);
+}
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-group + .rail-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--tt-color-line);
+}
+.tool-rail .glyph {
+  width: 20px;
+  height: 20px;
+}
+/* Under the preview before air: the slide pager, centred. */
+.stage-foot {
+  display: flex;
+  justify-content: center;
+}
+.slide-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+}
+.slide-pager .round-btn {
+  border-color: transparent;
 }
 .end-confirm {
   margin: 0;
@@ -799,13 +838,6 @@
   background: #000;
 }
 
-.toolbar,
-.slide-nav {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
 .slide-count {
   min-width: 64px;
   text-align: center;
@@ -819,14 +851,19 @@
   align-items: center;
   gap: 2px;
 }
+/* The picked tool's colour, as a dot on the tool's corner: click it for the colour and width. */
 .tool-options-toggle {
-  display: inline-grid;
+  position: absolute;
+  right: -5px;
+  bottom: -3px;
+  z-index: 1;
+  display: grid;
   place-items: center;
-  width: 22px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: 1px solid var(--tt-color-line);
-  border-radius: var(--tt-radius-sm);
+  border-radius: 50%;
   background: var(--tt-color-surface);
   cursor: pointer;
 }
@@ -835,16 +872,16 @@
 }
 .tool-options-dot {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--tt-color-text-muted);
   box-shadow: 0 0 0 1px var(--tt-ink-casing);
 }
 .tool-popover {
   position: absolute;
-  top: calc(100% + var(--tt-space-2));
-  left: 0;
+  top: 0;
+  left: calc(100% + var(--tt-space-3));
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -875,39 +912,6 @@
 .swatch[aria-checked="true"] {
   outline: 3px solid var(--tt-color-focus);
   outline-offset: 1px;
-}
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.toolbar-group + .toolbar-group {
-  padding-inline-start: 6px;
-  border-inline-start: 1px solid var(--tt-color-line);
-}
-/* The tools as one hairline bar; the slide controls and the drawing's undo, redo and clear on the row below. */
-.toolbar {
-  flex-wrap: nowrap;
-  align-self: start;
-  max-width: 100%;
-  padding: 2px 4px;
-  border: 1px solid var(--tt-color-line);
-  border-radius: var(--tt-radius-md);
-}
-.slide-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-}
-.toolbar button:not(.tool-options-toggle) {
-  padding-inline: 7px;
-}
-.slide-edit {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 .widths {
   display: flex;
