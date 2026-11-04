@@ -356,6 +356,14 @@ export class SlideTracks {
     return undefined;
   }
 
+  /** The furthest slide of a deck seen on screen here (its index), or undefined before any: how far a live listener may page. */
+  furthestShown(deck: number): number | undefined {
+    let most: number | undefined;
+    for (const { slide } of this.#seen)
+      if (slide.deck === deck && (most === undefined || slide.index > most)) most = slide.index;
+    return most;
+  }
+
   /** The strokes on the slide on screen at t, everyone else's first and the speaker's on top; undefined: loading. */
   inkAt(t: number | undefined): StrokeRecord[] | undefined {
     const shown = this.#slide(t);

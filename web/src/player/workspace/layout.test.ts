@@ -40,6 +40,10 @@ describe("the workspace layout", () => {
   it("floats a panel as a small window and docks it back", () => {
     let l = float(preset("grid"), "camera");
     expect(where(l, "camera")).toBe("floating");
+    // Any picture floats as itself, beside the camera's window.
+    const both = float(l, "slides");
+    expect(both.floating.map((f) => f.id)).toEqual(["camera", "slides"]);
+    expect(where(both, "slides")).toBe("floating");
     expect(l.zones.centre.panels).not.toContain("camera");
     l = moveFloat(l, { id: "camera", x: 5, y: -1, w: 0.3, h: 0.3 });
     const box = l.floating[0]!;

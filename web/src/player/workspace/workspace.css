@@ -228,6 +228,11 @@
   display: none;
 }
 
+/* The slide toolbar (SlideNav.tsx) stays in a docked Slides panel; a small floating window shows the slide only. */
+.tt-ws-float .tt-slide-nav {
+  display: none;
+}
+
 /* --- floating windows: the viewer's own picture-in-picture --- */
 .tt-ws-float {
   position: absolute;

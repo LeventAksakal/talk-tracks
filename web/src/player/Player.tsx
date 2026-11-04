@@ -114,7 +114,7 @@ const MEDIA_KEYS = new Set([
  * The media player (ui-design §3–§4.8, decision 0020): title bar, the canvas with its sources and overlays,
  * the progress bar and control bar, the side panel. It shows the room's state at the playhead from all its
  * tracks, live or rewound, through the playback layer. Every AI feature is a player feature with no switch: a
- * subtitle language picked, a panel open or a sound chosen subscribes its track (decision 0026).
+ * subtitle language picked or a panel open subscribes its track (decision 0026).
  */
 export function Player(props: PlayerProps) {
   const { playback, room, transport, forceState, slides } = props;
@@ -255,7 +255,7 @@ export function Player(props: PlayerProps) {
         ...holds.flat(),
       ]),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the fields wantedTracks reads
-    [prefs.cc, prefs.subtitleLang, prefs.dual, prefs.sound, tracks, tabsKey, holds],
+    [prefs.cc, prefs.subtitleLang, tracks, tabsKey, holds],
   );
   const held = useLingered(wanted);
   const slidesShown = sources.includes("slides") && onScreen.has("slides");
@@ -513,8 +513,6 @@ export function Player(props: PlayerProps) {
   const shownSlide = slidesShown && at !== undefined ? slides?.slideAt(at)?.slide : undefined;
   const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const slideNumber = shownSlide ? shownSlide.index + 1 : described ? described.id + 1 : undefined;
-
-  useReadAloud(prefs.sound === "describe", tracks.describe?.sliced?.slide, timeline?.mode === "live");
 
   const ctx: PlayerCtx | undefined =
     view && timeline
@@ -817,22 +815,4 @@ function useLingered(wanted: Set<string>): Set<string> {
     return () => clearTimeout(timer);
   }, [linger, key]);
   return held;
-}
-
-/** Sound → Speaker and slide descriptions: each new slide's description, live, read aloud in the browser's voice. */
-function useReadAloud(on: boolean, slide: { id: number; description: string } | undefined, live: boolean): void {
-  const spoken = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (!slide) return;
-    const first = spoken.current === undefined;
-    if (spoken.current === slide.id) return;
-    spoken.current = slide.id;
-    if (!on || !live || first) return;
-    try {
-      speechSynthesis.cancel();
-      speechSynthesis.speak(new SpeechSynthesisUtterance(slide.description));
-    } catch {
-      // No speech synthesis: the description stays on the slide as text.
-    }
-  }, [on, slide, live]);
 }

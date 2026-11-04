@@ -167,7 +167,7 @@ export function float(l: Layout, id: PanelId, box?: Omit<FloatBox, "id">): Layou
   const out = detach(l, id);
   const home = from && from !== "floating" ? { ...out.home, [id]: from } : out.home;
   const b = box ?? (isPicture(id) ? cameraWindow() : { x: 0.3, y: 0.18, w: 0.26, h: 0.5 });
-  return { ...out, floating: [...out.floating, clampBox({ id, ...b })], home };
+  return { ...out, floating: [...out.floating, clampBox({ ...b, id })], home };
 }
 
 /** Move or resize a floating window, and bring it to the top. */

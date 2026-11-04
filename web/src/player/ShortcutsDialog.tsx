@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 export const SHORTCUTS: [string, string][] = [
   ["Space or K", "Play or pause"],
   ["J / L or ← / →", "Back or forward 10 s"],
+  ["← / → or PgUp / PgDn", "Previous or next slide (in the slide controls)"],
   ["↑ / ↓", "Louder or quieter"],
   ["M", "Mute"],
   ["< / >", "Slower or faster (rewound)"],

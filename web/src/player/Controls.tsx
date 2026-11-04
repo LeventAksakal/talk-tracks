@@ -182,7 +182,7 @@ function SettingsMenu({ quality }: { quality: boolean }) {
         </media-chrome-menu>
       </media-settings-menu-item>
       {prefs.style.size !== DEFAULT_STYLE.size || prefs.style.preset !== DEFAULT_STYLE.preset ? (
-        <media-chrome-menu-item onClick={() => update({ style: DEFAULT_STYLE, subtitlePos: undefined })}>
+        <media-chrome-menu-item onClick={() => update({ style: DEFAULT_STYLE })}>
           Reset subtitles
         </media-chrome-menu-item>
       ) : null}

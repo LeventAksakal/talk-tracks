@@ -107,27 +107,37 @@ describe("the player's controls", () => {
     expect(media().currentTime).toBeGreaterThan(back + 8);
   });
 
-  it("leaves playback alone while the viewer types K, J and Space into the language search", async () => {
+  it("finds a subtitle language by typing its name in the open menu, and leaves playback alone", async () => {
     close = setup();
     await advance(300);
     fireEvent.click(screen.getByRole("button", { name: "Subtitles" }));
     await advance(50);
-    const search = screen.getByPlaceholderText("Search any language");
-    search.focus();
+    const menu = screen.getByRole("dialog", { name: "Subtitles" });
+    // Off, the original, then the languages: no search field, no other sections.
+    expect(menu.querySelector("input")).toBeNull();
+    const rows = [...menu.querySelectorAll("button")].map((b) => b.textContent ?? "");
+    expect(rows[0]).toBe("Off");
+    expect(rows[1]).toMatch(/^Original/);
+    expect(rows.length).toBeGreaterThan(20);
     const before = media().currentTime;
-    for (const key of ["k", "j", " "]) {
-      fireEvent.keyDown(search, { key });
-      fireEvent.keyUp(search, { key });
+    const type = async (keys: string, gap = 0) => {
+      for (const key of keys) {
+        const at = document.activeElement ?? menu;
+        fireEvent.keyDown(at, { key });
+        fireEvent.keyUp(at, { key });
+        if (gap) await advance(gap);
+      }
       await advance(50);
-    }
+    };
+    // K and J are a pause and a rewind elsewhere on the page; here they are letters.
+    await type("kj", 1_000);
     expect(media().paused).toBe(false);
     expect(media().currentTime).toBeGreaterThanOrEqual(before);
-    // Out of the field, the keys work again.
-    search.blur();
-    press("k");
-    fireEvent.keyUp(document.body, { key: "k" });
+    await type("tu");
+    expect((document.activeElement as HTMLElement).dataset.lang).toBe("tr");
+    fireEvent.click(document.activeElement!);
     await advance(50);
-    expect(media().paused).toBe(true);
+    expect(document.activeElement?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("mutes and unmutes with M", async () => {
