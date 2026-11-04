@@ -612,7 +612,8 @@ function PaneActions({ id, zone: z, api, menu, setMenu }: PaneProps & { id: Pane
               Float in a small window
             </button>
           ) : null}
-          {s && s.panels.length > 1 ? (
+          {/* The stage's arrangement is Adjust view's; a side of reading panels shows as tabs or side by side. */}
+          {s && s.panels.length > 1 && !(picture && z === "centre") ? (
             <button type="button" role="menuitem" onClick={() => run((l) => setSplit(l, z as Zone, !s.split))}>
               {s.split ? "Show this side as tabs" : "Show this side side by side"}
             </button>

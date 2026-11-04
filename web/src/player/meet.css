@@ -65,6 +65,12 @@
   display: flex;
   flex-direction: column;
 }
+/* The picture is clipped to the tile's corners; the tile's own menu may reach past its edge. */
+.tt-ws-zone.tt-ws-tile,
+.tt-ws-pane.tt-ws-tile,
+.tt-ws-float.tt-ws-tile {
+  overflow: visible;
+}
 .tt-ws-tile > .tt-ws-body {
   flex: 1;
   border-radius: inherit;
@@ -208,6 +214,7 @@
 
 /* Floating stream windows: the same tile, lifted. */
 .tt-ws-float.tt-ws-tile {
+  position: absolute;
   border: 0;
   box-shadow:
     inset 0 0 0 var(--tile-frame) var(--stream),
