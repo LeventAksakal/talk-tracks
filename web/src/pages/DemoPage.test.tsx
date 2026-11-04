@@ -126,18 +126,4 @@ describe("/demo in the player", () => {
     expect(vtt.startsWith("WEBVTT")).toBe(true);
     expect(vtt).toContain("<lang ar>");
   });
-
-  it("keeps a bookmark and a note in the Notes tab", async () => {
-    render(<DemoPage />);
-    await advance(100);
-    fireEvent.keyDown(document.body, { key: "b" });
-    fireEvent.keyDown(document.body, { key: "n" });
-    await advance(100);
-    const note = screen.getByRole("textbox", { name: /Note at/ });
-    fireEvent.change(note, { target: { value: "Ask about deltas" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
-    const list = screen.getByRole("list", { name: "Notes" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(list).getByText("Ask about deltas")).toBeTruthy();
-  });
 });

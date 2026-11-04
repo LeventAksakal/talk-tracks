@@ -74,10 +74,10 @@ describe("the player's controls", () => {
     close = setup();
     await advance(300);
     expect(media().paused).toBe(false);
-    fireEvent.click(document.querySelector(".tt-stage")!);
+    fireEvent.click(document.querySelector(".tt-ws-body[data-picture]")!);
     await advance(400);
     expect(media().paused).toBe(true);
-    fireEvent.click(document.querySelector(".tt-stage")!);
+    fireEvent.click(document.querySelector(".tt-ws-body[data-picture]")!);
     await advance(400);
     expect(media().paused).toBe(false);
   });
@@ -149,7 +149,7 @@ describe("the player's controls", () => {
     try {
       close = setup();
       await advance(300);
-      fireEvent.dblClick(document.querySelector(".tt-stage")!);
+      fireEvent.dblClick(document.querySelector(".tt-ws-body[data-picture]")!);
       await advance(50);
       expect(request).toHaveBeenCalled();
       expect(request.mock.contexts[0]).toBe(document.querySelector(".tt-player"));
@@ -175,6 +175,6 @@ describe("the player's controls", () => {
     const buttons = [...player.querySelectorAll("button, [role='button']")].filter((b) => !b.closest("[hidden]"));
     expect(buttons.length).toBeGreaterThan(8);
     expect(buttons.filter((b) => nameOf(b) === "").map((b) => b.outerHTML.slice(0, 80))).toEqual([]);
-    for (const name of ["Subtitles", "Side panel (S)"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    for (const name of ["Subtitles", "Layout"]) expect(screen.getByRole("button", { name })).toBeTruthy();
   });
 });

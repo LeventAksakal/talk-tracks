@@ -49,10 +49,7 @@ function setup(props: Partial<PlayerProps> = {}) {
   };
 }
 
-const openDiscussion = () => {
-  if (!screen.queryByRole("tablist")) fireEvent.click(screen.getByRole("button", { name: /Side panel/ }));
-  fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
-};
+const openDiscussion = () => fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
 
 describe("the player shell", () => {
   let close: (() => void) | undefined;
@@ -127,12 +124,11 @@ describe("the player shell", () => {
     expect(main.querySelector("media-controller media-play-button")).toBeTruthy();
   });
 
-  it("reaches every side panel tab by keyboard, and closes the panel from outside the tab list", async () => {
+  it("reaches every tab of the right-hand panels by keyboard, closes one from its title bar and reopens it", async () => {
     const room = setup({ noRoomService: "No room service here." });
     close = room.close;
     await advance(300);
-    if (!screen.queryByRole("tablist")) fireEvent.click(screen.getByRole("button", { name: /Side panel/ }));
-    const list = screen.getByRole("tablist", { name: "Side panel" });
+    const list = screen.getByRole("tablist", { name: "Right panels" });
     // A tab list holds tabs only.
     expect(within(list).queryAllByRole("button")).toEqual([]);
     const tabs = within(list).getAllByRole("tab");
@@ -140,39 +136,56 @@ describe("the player shell", () => {
     // Arrow keys walk the tabs to the last one.
     act(() => tabs[0]!.focus());
     for (let i = 1; i < tabs.length; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(tabs.at(-1));
-    expect(tabs.at(-1)!.getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Close the side panel" }));
-    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: tabs.at(-1)!.textContent! }));
+    expect(screen.getByRole("tab", { name: tabs.at(-1)!.textContent! }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close Discussion" }));
+    expect(screen.queryByRole("tab", { name: "Discussion" })).toBeNull();
+    // The Layout menu lists every panel the room has; picking a closed one opens it where it was.
+    fireEvent.click(screen.getByRole("button", { name: "Layout" }));
+    const menu = screen.getByRole("dialog", { name: "Layout" });
+    fireEvent.click(within(menu).getByRole("button", { name: "Discussion" }));
+    expect(screen.getByRole("tab", { name: "Discussion" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("puts a shared screen on the main stage with the camera in the corner, and lets the listener swap them", async () => {
-    const room = setup({ sources: ["camera", "slides", "screen"] });
+  it("floats the camera in a small window without restarting it, docks it back, and keeps the layout", async () => {
+    let room = setup({ sources: ["camera", "slides", "screen"] });
     close = room.close;
     await advance(300);
     expect(screen.getByRole("group", { name: "Shared screen" })).toBeTruthy();
-    // The corner tile is the camera; swapping puts the screen there.
-    fireEvent.click(screen.getByRole("button", { name: "Swap: screen in the corner" }));
-    expect(screen.getByRole("button", { name: "Swap: camera in the corner" })).toBeTruthy();
-  });
-
-  it("lets the listener pick the slides as the main picture while a screen is shared, and the screen back", async () => {
-    const room = setup({ sources: ["camera", "slides", "screen"] });
+    const camera = screen.getByRole("group", { name: "Speaker camera" });
+    fireEvent.click(screen.getByRole("button", { name: "Move Camera" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Float in a small window" }));
+    const win = screen.getByRole("dialog", { name: "Camera (floating)" });
+    // The same picture, moved: the live canvas and the recording's sound never restart.
+    expect(within(win).getByRole("group", { name: "Speaker camera" })).toBe(camera);
+    // Kept per browser: a new page opens with the camera still floating.
+    room.close();
+    room = setup({ sources: ["camera", "slides", "screen"] });
     close = room.close;
     await advance(300);
-    fireEvent.click(screen.getByRole("button", { name: "Layout" }));
-    let menu = screen.getByRole("dialog", { name: "Layout" });
-    // The layouts name the shared screen, the main picture now.
-    expect(within(menu).getByRole("button", { name: /screen.*camera in a corner/i })).toBeTruthy();
-    fireEvent.click(within(menu).getByRole("button", { name: "Slides" }));
-    await advance(300);
-    // The slides are the main picture: the corner tile (the camera) swaps with them now.
-    expect(screen.getByRole("button", { name: "Swap: slides in the corner" })).toBeTruthy();
-    expect(within(menu).getByRole("button", { name: /slides.*camera in a corner/i })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Camera (floating)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Move Camera" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Dock left" }));
+    expect(screen.queryByRole("dialog", { name: "Camera (floating)" })).toBeNull();
+    expect(document.querySelector(".tt-ws-zone[data-zone='left'] [data-panel='camera']")).toBeTruthy();
+  });
 
-    menu = screen.getByRole("dialog", { name: "Layout" });
-    fireEvent.click(within(menu).getByRole("button", { name: "Screen" }));
-    expect(screen.getByRole("button", { name: "Swap: screen in the corner" })).toBeTruthy();
+  it("lays out the presets one click away, and resets the layout", async () => {
+    const room = setup({ sources: ["camera", "slides"] });
+    close = room.close;
+    await advance(300);
+    const pick = (name: RegExp) => {
+      fireEvent.click(screen.getByRole("button", { name: "Layout" }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Layout" })).getByRole("button", { name }));
+    };
+    pick(/Slides focus/);
+    expect(screen.getByRole("dialog", { name: "Camera (floating)" })).toBeTruthy();
+    pick(/Study/);
+    expect(screen.queryByRole("dialog", { name: "Camera (floating)" })).toBeNull();
+    expect(document.querySelector(".tt-ws-zone[data-zone='left'] [data-panel='chapters']")).toBeTruthy();
+    pick(/Reset layout/);
+    expect(document.querySelector(".tt-ws-zone[data-zone='left']")).toBeNull();
+    expect(localStorage.getItem("tt.workspace.v1")).toBeNull();
   });
 });
 

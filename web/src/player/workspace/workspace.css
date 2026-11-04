@@ -223,6 +223,10 @@
   top: 10px;
   left: 10px;
 }
+/* Each picture's panel names it in its title bar: the surfaces' own corner labels would say it twice. */
+.tt-ws .tt-source-tag {
+  display: none;
+}
 
 /* --- floating windows: the viewer's own picture-in-picture --- */
 .tt-ws-float {

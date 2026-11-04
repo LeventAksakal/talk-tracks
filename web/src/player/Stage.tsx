@@ -146,7 +146,9 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
 
   const extra = useMemo(() => Object.fromEntries(extraTabs.map((t) => [t.id, t.content])), [extraTabs]);
   const content: Record<string, ReactNode> = {
-    ...(sources.includes("camera") ? { camera: <CameraSurface offLayout={wholePicture(offLayout, sources)} /> } : {}),
+    ...(sources.includes("camera")
+      ? { camera: <CameraSurface offLayout={wholePicture(offLayout, sources)} alone /> }
+      : {}),
     ...(sources.includes("slides") ? { slides: <SlideSurface /> } : {}),
     ...(sources.includes("screen") ? { screen: <ScreenSurface /> } : {}),
     chat: <ChatTab />,

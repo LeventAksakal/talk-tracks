@@ -123,6 +123,7 @@ export function dropTarget(fx: number, fy: number): Zone | undefined {
 }
 
 const ZONE_NAME: Record<Zone, string> = { left: "left", centre: "centre", right: "right", bottom: "bottom" };
+const ZONE_LABEL: Record<Zone, string> = { left: "Left", centre: "Centre", right: "Right", bottom: "Bottom" };
 
 /**
  * The workspace: the zones with their panels, the floating windows, and a drag to move a panel. Each panel's content
@@ -337,6 +338,28 @@ function ZoneView({ zone: z, ...p }: PaneProps & { zone: Zone }) {
       onChange={(px) => api.change((l) => resizeZone(l, z as "left" | "right" | "bottom", px))}
     />
   ) : null;
+  const tabbed = s.panels.length > 1;
+  // Arrow keys walk the tabs (and show each), Home and End go to the ends.
+  const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const i = s.panels.indexOf(s.active ?? s.panels[0]!);
+    const n = s.panels.length;
+    const next =
+      e.key === "ArrowRight"
+        ? i + 1
+        : e.key === "ArrowLeft"
+          ? i - 1
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? n - 1
+              : undefined;
+    if (next === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = s.panels[(next + n) % n]!;
+    api.change((l) => activate(l, z, id));
+    document.getElementById(`tt-ws-tab-${id}`)?.focus();
+  };
   if (split) {
     const two = s.panels.length === 2;
     const across = z === "centre" || z === "bottom";
@@ -368,26 +391,40 @@ function ZoneView({ zone: z, ...p }: PaneProps & { zone: Zone }) {
   return (
     <section className="tt-ws-zone" data-zone={z}>
       <div className="tt-ws-head">
-        <div className="tt-ws-tabs" role="tablist" aria-label={`${z} panels`}>
-          {s.panels.map((id) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              className="tt-ws-tab"
-              aria-selected={s.active === id}
-              data-panel={id}
-              onPointerDown={(e) => p.startDrag(id, e)}
-              onClick={() => api.change((l) => activate(l, z, id))}
-            >
-              {api.label(id)}
-            </button>
-          ))}
-        </div>
+        {tabbed ? (
+          <div className="tt-ws-tabs" role="tablist" aria-label={`${ZONE_LABEL[z]} panels`} onKeyDown={onTabKey}>
+            {s.panels.map((id) => (
+              <button
+                key={id}
+                id={`tt-ws-tab-${id}`}
+                type="button"
+                role="tab"
+                className="tt-ws-tab"
+                aria-selected={s.active === id}
+                aria-controls={`tt-ws-panel-${id}`}
+                tabIndex={s.active === id ? 0 : -1}
+                data-panel={id}
+                title="Drag to dock or float"
+                onPointerDown={(e) => p.startDrag(id, e)}
+                onClick={() => api.change((l) => activate(l, z, id))}
+              >
+                {api.label(id)}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span
+            className="tt-ws-title"
+            onPointerDown={(e) => p.startDrag(s.panels[0]!, e)}
+            title="Drag to dock or float"
+          >
+            {api.label(s.panels[0]!)}
+          </span>
+        )}
         {s.active ? <PaneActions id={s.active} zone={z} {...p} /> : null}
       </div>
       {s.panels.map((id) => (
-        <PaneBody key={id} id={id} hidden={s.active !== id} {...p} />
+        <PaneBody key={id} id={id} hidden={s.active !== id} tab={tabbed} {...p} />
       ))}
       {resizer}
     </section>
@@ -404,14 +441,14 @@ function Pane({ id, zone: z, children, ...p }: PaneProps & { id: PanelId; zone: 
         </span>
         <PaneActions id={id} zone={z} {...p} />
       </div>
-      <PaneBody id={id} hidden={false} {...p} />
+      <PaneBody id={id} hidden={false} tab={false} {...p} />
       {children}
     </div>
   );
 }
 
 /** Where a panel's host is adopted; the main picture also holds the overlay (the subtitles). */
-function PaneBody({ id, hidden, ...p }: PaneProps & { id: PanelId; hidden: boolean }) {
+function PaneBody({ id, hidden, tab, ...p }: PaneProps & { id: PanelId; hidden: boolean; tab: boolean }) {
   const slot = useRef<HTMLDivElement>(null);
   const { host, park, overlayRef } = p;
   useLayoutEffect(() => {
@@ -437,8 +474,10 @@ function PaneBody({ id, hidden, ...p }: PaneProps & { id: PanelId; hidden: boole
       className={`tt-ws-body${picture ? " tt-cell" : " tt-tabpanel"}`}
       data-picture={picture ? "" : undefined}
       data-panel={id}
-      role={picture ? undefined : "tabpanel"}
-      aria-label={p.api.label(id)}
+      id={tab ? `tt-ws-panel-${id}` : undefined}
+      role={tab ? "tabpanel" : picture ? undefined : "region"}
+      aria-labelledby={tab ? `tt-ws-tab-${id}` : undefined}
+      aria-label={tab || picture ? undefined : p.api.label(id)}
       hidden={hidden}
     >
       {isMain ? p.overlay : null}
@@ -537,7 +576,7 @@ function FloatWindow({
         </span>
         <PaneActions id={box.id} zone="floating" {...p} />
       </div>
-      <PaneBody id={box.id} hidden={false} {...p} />
+      <PaneBody id={box.id} hidden={false} tab={false} {...p} />
       <span
         className="tt-ws-grip"
         title="Drag to resize"
@@ -697,9 +736,7 @@ export function WorkspaceMenu({ api, onDone }: { api: WorkspaceApi; onDone: () =
           <span>{api.label(id)}</span>
         </button>
       ))}
-      <p className="tt-muted tt-small-print tt-ws-hint">
-        Drag a panel by its title to dock it on any side or float it.
-      </p>
+      <p className="tt-muted tt-small-print tt-ws-hint">Drag a panel by its title to dock it or float it.</p>
       <button
         type="button"
         className="tt-menu-item tt-ws-reset"
