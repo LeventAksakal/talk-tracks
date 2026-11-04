@@ -274,8 +274,7 @@ function SlidesView({ state, live }: { state: SlideDeck; live: boolean }) {
         <div className="slides-drop" data-busy={busy ? true : undefined}>
           <p className="slides-drop-title">{busy ? `Opening ${busy}…` : "Add your slides"}</p>
           <p className="slides-drop-hint">
-            Drop a PDF, a PowerPoint file (.pptx) or pictures (PNG, JPG, WebP) here. From Keynote or Google Slides,
-            export a PDF first. Up to {MAX_DECK_MB} MB; it stays in this browser until you go on air.
+            PDF, PowerPoint or pictures, up to {MAX_DECK_MB} MB. Kept here until you go on air.
           </p>
           <Button label="Choose file" variant="primary" isDisabled={!!busy} onClick={pick} />
         </div>

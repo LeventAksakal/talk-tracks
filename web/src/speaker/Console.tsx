@@ -39,7 +39,7 @@ import { SlidesPublisher } from "./publisher";
 import { SLIDE_ACCEPT } from "./slideFiles";
 import { SlidesSetup, useSlideDeck } from "./SlidesSetup";
 import { Questions, useQuestionCounts } from "./Questions";
-import { titleOf } from "./talkTitle";
+import { speakerName, titleOf } from "./talkTitle";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
@@ -87,14 +87,8 @@ type Ending = "ending" | "ended" | "refused";
 
 type Phase = "preflight" | "on-air" | "paused" | "ended";
 
-const NAME_KEY = "tt.speaker.name";
-const loadName = () => {
-  try {
-    return localStorage.getItem(NAME_KEY) || "Speaker";
-  } catch {
-    return "Speaker";
-  }
-};
+/** The speaker's name as typed in Start a talk (talkTitle.ts), for their ink and their avatar. */
+const loadName = speakerName;
 
 /**
  * The drawing tools in their groups (pointing and freehand, shapes, text marks), drawn as icons in the stage's tool
@@ -169,7 +163,7 @@ function ConsoleView({
     [deps.chatSource, watcher],
   );
   const [phase, setPhase] = useState<Phase>("preflight");
-  const [name, setName] = useState(loadName);
+  const [name] = useState(loadName);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1_000);
@@ -205,6 +199,10 @@ function ConsoleView({
         off = m.onChange(setSnap);
         setMedia(m);
         setSnap(m.snapshot());
+        // The green room opens as Meet's does: your face and your level, both on. Nothing is published until Go on
+        // air (media.goOnAir), so this is a local preview only.
+        m.setMic(true);
+        m.setCamera(true);
       })
       .catch((e: unknown) => setMediaError(e instanceof Error ? e.message : String(e)));
     return () => {
@@ -389,11 +387,6 @@ function ConsoleView({
   // --- go on air, end ------------------------------------------------------------------------------
   const goOnAir = () => {
     if (!media) return;
-    try {
-      localStorage.setItem(NAME_KEY, name);
-    } catch {
-      // not kept: the name still goes out this time
-    }
     publisher.setAuthorName(name.trim().slice(0, 60) || "Speaker");
     if (!snap?.micOn) media.setMic(true);
     media.goOnAir();
@@ -642,6 +635,28 @@ function ConsoleView({
                   <EmptyStage camera={snap?.cameraTrack} name={name} busy={!!slideDeck.busy} />
                 )}
                 {sharing || deck ? <SelfView track={snap?.cameraTrack} className="stage-camera" /> : null}
+                {phase === "preflight" ? (
+                  <div className="preview-toggles" role="group" aria-label="Your microphone and camera">
+                    <RoundButton
+                      icon={snap?.micOn ? "mic" : "micOff"}
+                      label="Microphone"
+                      device
+                      pressed={snap?.micOn ?? false}
+                      disabled={!media}
+                      onClick={() => media?.setMic(!snap?.micOn)}
+                      size="lg"
+                    />
+                    <RoundButton
+                      icon={snap?.cameraOn ? "videocam" : "videocamOff"}
+                      label="Camera"
+                      device
+                      pressed={snap?.cameraOn ?? false}
+                      disabled={!media}
+                      onClick={() => media?.setCamera(!snap?.cameraOn)}
+                      size="lg"
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -662,15 +677,7 @@ function ConsoleView({
             <ul className="setup-list">
               <SetupRow
                 state={micState}
-                control={
-                  <RoundButton
-                    icon={snap?.micOn ? "mic" : "micOff"}
-                    label="Microphone"
-                    pressed={snap?.micOn ?? false}
-                    disabled={!media}
-                    onClick={() => media?.setMic(!snap?.micOn)}
-                  />
-                }
+                icon={snap?.micOn ? "mic" : "micOff"}
                 title="Microphone"
                 detail={
                   <DevicePicker
@@ -679,7 +686,7 @@ function ConsoleView({
                     value={snap?.micDevice}
                     onChange={(id) => media?.chooseMic(id)}
                     fallback={
-                      snap?.micError ?? (snap?.micOn ? "Say something: the bar moves" : "Off. Going on air turns it on")
+                      snap?.micError ?? (snap?.micOn ? "Say something: the bar moves" : "Off: going on air turns it on")
                     }
                   />
                 }
@@ -688,15 +695,7 @@ function ConsoleView({
               </SetupRow>
               <SetupRow
                 state={snap?.cameraError ? "bad" : snap?.cameraOn ? (snap.cameraTrack ? "ok" : "wait") : "off"}
-                control={
-                  <RoundButton
-                    icon={snap?.cameraOn ? "videocam" : "videocamOff"}
-                    label="Camera"
-                    pressed={snap?.cameraOn ?? false}
-                    disabled={!media}
-                    onClick={() => media?.setCamera(!snap?.cameraOn)}
-                  />
-                }
+                icon={snap?.cameraOn ? "videocam" : "videocamOff"}
                 title="Camera"
                 detail={
                   <DevicePicker
@@ -704,7 +703,10 @@ function ConsoleView({
                     devices={snap?.cameraDevices ?? []}
                     value={snap?.cameraDevice}
                     onChange={(id) => media?.chooseCamera(id)}
-                    fallback={snap?.cameraError ?? (snap?.cameraOn ? "Viewers see you beside the slides" : "Optional")}
+                    fallback={
+                      snap?.cameraError ??
+                      (snap?.cameraOn ? "Viewers see you in the corner of the slides" : "Off: viewers hear you only")
+                    }
                   />
                 }
               />
@@ -757,10 +759,6 @@ function ConsoleView({
                 />
               ) : null}
             </ul>
-            <label className="name-field">
-              <span>Your name on your ink</span>
-              <input type="text" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
-            </label>
             <div className="green-go">
               <Button
                 label="Go on air"
@@ -809,6 +807,7 @@ function ConsoleView({
             <RoundButton
               icon={snap?.micOn ? "mic" : "micOff"}
               label="Microphone"
+              device
               pressed={snap?.micOn ?? false}
               disabled={!media}
               onClick={() => media?.setMic(!snap?.micOn)}
@@ -817,6 +816,7 @@ function ConsoleView({
             <RoundButton
               icon={snap?.cameraOn ? "videocam" : "videocamOff"}
               label="Camera"
+              device
               pressed={snap?.cameraOn ?? false}
               disabled={!media}
               onClick={() => media?.setCamera(!snap?.cameraOn)}
@@ -1144,7 +1144,7 @@ function EmptyStage({ camera, name, busy }: { camera: MediaStreamTrack | undefin
       )}
       <p className="stage-drop">
         <Glyph name="uploadFile" />
-        {busy ? "Opening the PDF…" : "No slides yet. Drop a PDF here, or load one in Slides."}
+        {busy ? "Opening your slides…" : "Drop your slides here: PDF, PowerPoint or pictures"}
       </p>
     </div>
   );
@@ -1159,6 +1159,7 @@ function RoundButton({
   onClick,
   hint,
   size = "md",
+  device,
 }: {
   icon: GlyphName;
   label: string;
@@ -1167,11 +1168,14 @@ function RoundButton({
   onClick: () => void;
   hint?: string;
   size?: "md" | "lg";
+  /** A microphone or camera: off is Meet's solid red, so talking while muted can't go unnoticed. */
+  device?: boolean;
 }) {
   return (
     <button
       type="button"
       className={`round-btn round-${size}`}
+      data-device={device || undefined}
       aria-label={label}
       aria-pressed={pressed}
       title={hint ?? label}
@@ -1248,12 +1252,15 @@ const STATE_WORD: Record<SetupState, string> = { ok: "Ready", wait: "Waiting", b
 function SetupRow({
   state,
   control,
+  icon,
   title,
   detail,
   children,
 }: {
   state: SetupState;
   control?: React.ReactNode;
+  /** The source's glyph when its toggle lives elsewhere (the microphone and camera are on the preview). */
+  icon?: GlyphName;
   title: string;
   detail: React.ReactNode;
   children?: React.ReactNode;
@@ -1261,7 +1268,7 @@ function SetupRow({
   return (
     <li className="setup-row" data-state={state}>
       <div className="setup-main">
-        {control ?? <span className="setup-icon" aria-hidden="true" />}
+        {control ?? <span className="setup-icon">{icon ? <Glyph name={icon} /> : null}</span>}
         <div className="setup-text">
           <span className="setup-title">{title}</span>
           <span className="setup-detail">{detail}</span>

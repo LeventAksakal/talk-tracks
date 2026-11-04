@@ -347,7 +347,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
 }
 .stage-nobody {
   position: absolute;
@@ -374,7 +373,7 @@
 .stage-drop {
   position: absolute;
   left: 50%;
-  bottom: var(--tt-space-4);
+  top: var(--tt-space-4);
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
@@ -393,16 +392,24 @@
 }
 
 /* --- the green room: set up, then go on air ------------------------------------------------------------------ */
+/* The modals' shape: a fixed head, the setup list in the middle (it alone scrolls, and only if it must), and Go on
+   air in a fixed footer, so the primary action is on screen at every window size. */
 .green-room {
   min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--tt-space-4);
-  padding: var(--tt-space-5);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   border: 1px solid var(--tt-color-line);
   border-radius: 12px;
   background: var(--tt-color-surface);
+}
+.green-head {
+  padding: var(--tt-space-5) var(--tt-space-5) var(--tt-space-3);
+}
+.green-room > .setup-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--tt-space-5);
 }
 .green-head h2 {
   margin: 0;
@@ -424,9 +431,6 @@
   padding: var(--tt-space-3) 0;
   border-top: 1px solid var(--tt-color-line);
 }
-.setup-row:last-child {
-  border-bottom: 1px solid var(--tt-color-line);
-}
 .setup-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -434,7 +438,10 @@
   gap: var(--tt-space-3);
 }
 .setup-icon {
+  display: grid;
+  place-items: center;
   width: 40px;
+  color: var(--tt-color-text-muted);
 }
 .setup-text {
   display: flex;
@@ -500,11 +507,36 @@
 .side-body .slides-thumb {
   width: 100%;
 }
+/* No slides yet: one row, the title and a one-line hint beside Choose file. */
 .green-room .slides-drop {
-  padding: var(--tt-space-4);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title button" "hint button";
+  align-items: center;
+  column-gap: var(--tt-space-3);
+  padding: var(--tt-space-3) var(--tt-space-4);
+  text-align: start;
+}
+.green-room .slides-drop-title {
+  grid-area: title;
+  margin: 0;
 }
 .green-room .slides-drop-hint {
+  grid-area: hint;
+  margin: 0;
   font-size: var(--tt-text-small);
+}
+.green-room .slides-drop > button {
+  grid-area: button;
+}
+/* The deck's slides as a grid of three: every one visible, none clipped at the edge. */
+.green-room .slides-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: visible;
+}
+.green-room .slides-thumb {
+  width: 100%;
 }
 .setup-extra {
   display: flex;
@@ -513,14 +545,6 @@
   gap: var(--tt-space-2);
   margin: var(--tt-space-2) 0 0 52px;
 }
-.name-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: var(--tt-text-small);
-  font-weight: var(--tt-weight-strong);
-}
-.name-field input,
 .device {
   font: inherit;
   font-weight: var(--tt-weight-regular);
@@ -536,10 +560,11 @@
   font-size: var(--tt-text-small);
 }
 .green-go {
-  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: var(--tt-space-2);
+  padding: var(--tt-space-4) var(--tt-space-5) var(--tt-space-4);
+  border-top: 1px solid var(--tt-color-line);
 }
 .green-note {
   margin: 0;
@@ -578,6 +603,31 @@
   border-color: transparent;
   background: var(--tt-color-raised);
   color: var(--tt-color-text);
+}
+/* A microphone or camera that is off: Meet's solid red, unmissable while you talk. */
+.round-btn[data-device][aria-pressed="false"] {
+  border-color: transparent;
+  background: var(--tt-color-live-fill);
+  color: var(--tt-color-on-live);
+}
+.round-btn[data-device][aria-pressed="false"]:hover:not(:disabled) {
+  background: var(--tt-color-live-fill);
+  filter: brightness(1.08);
+}
+/* Before air, the microphone and camera toggles sit on the preview, bottom centre, as in Meet's green room. */
+.preview-toggles {
+  position: absolute;
+  left: 50%;
+  bottom: var(--tt-space-4);
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--tt-space-3);
+}
+.preview-toggles .round-btn[aria-pressed="true"] {
+  border-color: rgb(255 255 255 / 0.5);
+  background: rgb(0 0 0 / 0.45);
+  color: #fff;
 }
 .round-btn:disabled {
   opacity: 0.45;
@@ -833,7 +883,6 @@
   border-radius: var(--tt-radius-sm);
   border: 2px solid #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  transform: scaleX(-1);
   pointer-events: none;
   background: #000;
 }
