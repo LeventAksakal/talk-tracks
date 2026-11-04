@@ -141,7 +141,7 @@
 /* The tile's own actions (move, close) show on hover or focus, top right, as Meet's tile menu does. */
 .tt-ws-tile-actions {
   position: absolute;
-  bottom: 8px;
+  top: 8px;
   right: 8px;
   z-index: 5;
   opacity: 0;
@@ -159,8 +159,8 @@
   background: rgb(0 0 0 / 0.66);
 }
 .tt-ws-tile-actions .tt-ws-menu {
-  top: auto;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
+  bottom: auto;
 }
 .tt-ws-tile-actions .tt-icon-button {
   border-radius: 50%;
@@ -329,6 +329,9 @@ media-play-button.tt-mc-button.tt-round:hover {
   height: 44px;
   border-radius: var(--tt-radius-full);
 }
+.tt-bar-right .tt-panel-button:hover {
+  background: var(--player-hover);
+}
 .tt-bar-button.tt-panel-button[aria-pressed="true"] {
   background: var(--tt-color-accent-soft);
   color: var(--tt-color-accent);
@@ -337,9 +340,10 @@ media-play-button.tt-mc-button.tt-round:hover {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  border-left: 1px solid var(--player-line);
-  border-radius: 0 var(--tt-radius-md) var(--tt-radius-md) 0;
-  padding-left: 12px;
+  min-width: 0;
+  margin-left: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: var(--tt-radius-full);
 }
 .tt-chapter-name span {
   overflow: hidden;
@@ -397,7 +401,7 @@ media-play-button.tt-mc-button.tt-round:hover {
 /* --- More options: Meet's ⋮ menu, above the button --- */
 .tt-more {
   position: absolute;
-  bottom: calc(100% + 12px);
+  bottom: calc(100% + 34px);
   left: 50%;
   translate: -50% 0;
   z-index: 20;
@@ -435,6 +439,10 @@ media-play-button.tt-mc-button.tt-round:hover {
   right: auto;
   left: 50%;
   translate: -50% 0;
+  bottom: calc(100% + 34px);
+  max-height: min(560px, calc(100dvh - 240px));
+  border-radius: 12px;
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.55);
 }
 
 /* Settings opens from More options, above the centre of the bar. */
@@ -579,8 +587,8 @@ media-play-button.tt-mc-button.tt-round:hover {
   height: 18px;
 }
 .tt-view-done {
-  background: var(--tt-color-accent);
-  color: var(--tt-color-on-accent);
+  background: var(--tt-color-play);
+  color: var(--tt-color-on-play);
 }
 
 /* The title bar sits on the stage's charcoal too. */

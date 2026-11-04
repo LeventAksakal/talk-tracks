@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import "./slideNav.css";
+import { Icon } from "./icons";
 import { goTo, type NavRange, type SlideRef, step, stepKey } from "./deckNav";
 import type { SlideTracks } from "./slideTracks";
 import { isTyping } from "./typing";
 
 /**
- * The slide panel's deck controls (deckNav.ts): back and forward, the slide in view of how many, and while the
+ * The slide tile's deck controls (deckNav.ts), top centre of the slide: back and forward, the slide in view of how many, and while the
  * listener is on a slide of their own, where the speaker (live) or the playhead (a recording, a replay, rewound) is
  * and the one button that goes back to following. ← → and PageUp/PageDown step while focus is in these controls (the
  * player's own ← → seek everywhere else). "All slides" opens a strip of the pictures the deck already holds.
@@ -66,10 +67,10 @@ export function SlideNav({
   const who = live ? "speaker" : "playhead";
   const theirs = following
     ? following.index === view.index
-      ? `the ${who} is here too`
-      : `the ${who} is on ${following.index + 1}`
+      ? `${who} here too`
+      : `${who} on ${following.index + 1}`
     : live
-      ? "the speaker shows no slide"
+      ? "speaker shows no slide"
       : "no slide at the playhead";
 
   return (
@@ -92,10 +93,11 @@ export function SlideNav({
           type="button"
           className="tt-slide-nav-step"
           aria-label="Previous slide"
+          title="Previous slide (←)"
           disabled={back === undefined}
           onClick={() => go(back)}
         >
-          <Chevron dir={-1} />
+          <Icon name="chevronLeft" />
         </button>
         <span className="tt-slide-nav-where" aria-live="polite">
           {where}
@@ -105,13 +107,20 @@ export function SlideNav({
           type="button"
           className="tt-slide-nav-step"
           aria-label="Next slide"
+          title="Next slide (→)"
           disabled={ahead === undefined}
           onClick={() => go(ahead)}
         >
-          <Chevron dir={1} />
+          <Icon name="forward" />
         </button>
         {range && range.last > range.first ? (
-          <button type="button" className="tt-slide-nav-all" aria-expanded={strip} onClick={() => setStrip((s) => !s)}>
+          <button
+            type="button"
+            className="tt-slide-nav-all"
+            aria-expanded={strip}
+            title={strip ? "Hide the slide strip" : "Every slide of the deck"}
+            onClick={() => setStrip((s) => !s)}
+          >
             All slides
           </button>
         ) : null}
@@ -151,12 +160,4 @@ function indexes(range: NavRange): number[] {
   const out: number[] = [];
   for (let i = range.first; i <= range.last; i++) out.push(i);
   return out;
-}
-
-function Chevron({ dir }: { dir: -1 | 1 }) {
-  return (
-    <svg className="tt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d={dir < 0 ? "M14.5 6l-6 6 6 6" : "M9.5 6l6 6-6 6"} />
-    </svg>
-  );
 }

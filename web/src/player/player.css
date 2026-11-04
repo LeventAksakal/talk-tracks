@@ -1579,7 +1579,7 @@ img.tt-preview-thumb {
 .tt-transcript-tools {
   display: flex;
   gap: var(--tt-space-2);
-  align-items: center;
+  align-items: stretch;
 }
 .tt-transcript-tools > .tt-input {
   flex: 1;
@@ -1588,6 +1588,7 @@ img.tt-preview-thumb {
 .tt-download {
   position: relative;
   flex: none;
+  display: flex;
 }
 .tt-download > button {
   display: inline-flex;
