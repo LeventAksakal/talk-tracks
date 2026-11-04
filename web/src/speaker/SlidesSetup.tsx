@@ -76,9 +76,10 @@ export function useSlideDeck({ publisher, openDeck = openSlides, onShown }: Slid
 
   const add = useCallback(
     async (files: readonly File[]) => {
-      if (!files.length) return;
+      const [first] = files;
+      if (!first) return;
       const token = ++loading.current;
-      setBusy(files.length > 1 ? `${files.length} pictures` : files[0].name);
+      setBusy(files.length > 1 ? `${files.length} pictures` : first.name);
       setError(undefined);
       try {
         const d = await openDeck(files);

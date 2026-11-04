@@ -5,12 +5,12 @@ import threeSlides from "./fixtures/three-slides.pptx?inline";
 import { MAX_DECK_MB, checkSlideFiles, kindOf, openSlides } from "./slideFiles";
 
 // Generated decks (no real talk's slides): a 3-page PDF, a 3-slide PowerPoint file, a PDF locked with a password.
-const FIXTURES: Record<string, string> = {
+const FIXTURES = {
   "three-pages.pdf": threePages,
   "three-slides.pptx": threeSlides,
   "locked.pdf": lockedPdf,
 };
-const fixture = async (name: string, type = "") =>
+const fixture = async (name: keyof typeof FIXTURES, type = "") =>
   new File([await (await fetch(FIXTURES[name])).arrayBuffer()], name, { type });
 
 // The test runner's Node lacks JavaScript that PDF.js's modern build uses: the legacy build stands in. No worker

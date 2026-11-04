@@ -51,18 +51,19 @@ const EXPORT_PDF: Partial<Record<SlideFileKind, string>> = {
  * size limit. Returns the message to show, or undefined when the files can be opened.
  */
 export function checkSlideFiles(files: readonly Pick<File, "name" | "type" | "size">[]): string | undefined {
-  if (!files.length) return "No file was chosen.";
+  const [first] = files;
+  if (!first) return "No file was chosen.";
   const kinds = files.map(kindOf);
   for (const k of kinds) if (EXPORT_PDF[k]) return EXPORT_PDF[k];
   const images = kinds.every((k) => k === "image");
   if (!images && files.length > 1)
     return "Add one PDF or PowerPoint file at a time, or several pictures (PNG, JPG, WebP) together.";
-  if (kinds[0] === "other")
-    return `${files[0].name} isn't a slide file. Add a PDF, a PowerPoint (.pptx) file, or pictures (PNG, JPG, WebP).`;
+  if (kindOf(first) === "other")
+    return `${first.name} isn't a slide file. Add a PDF, a PowerPoint (.pptx) file, or pictures (PNG, JPG, WebP).`;
   const bytes = files.reduce((n, f) => n + f.size, 0);
   if (bytes > MAX_DECK_MB * 1024 * 1024) {
     const mb = Math.ceil(bytes / (1024 * 1024));
-    const what = files.length > 1 ? "These pictures are" : `${files[0].name} is`;
+    const what = files.length > 1 ? "These pictures are" : `${first.name} is`;
     return `${what} ${mb} MB; the limit is ${MAX_DECK_MB} MB. Export a smaller file (compress the pictures) and add it again.`;
   }
   return undefined;
@@ -72,10 +73,11 @@ export function checkSlideFiles(files: readonly Pick<File, "name" | "type" | "si
 export async function openSlides(input: File | readonly File[]): Promise<Deck> {
   const files = Array.isArray(input) ? [...(input as readonly File[])] : [input as File];
   const problem = checkSlideFiles(files);
-  if (problem) throw new Error(problem);
-  const kind = kindOf(files[0]);
-  if (kind === "pdf") return openPdf(files[0]);
-  if (kind === "pptx") return openPptx(files[0]);
+  const [first] = files;
+  if (problem || !first) throw new Error(problem);
+  const kind = kindOf(first);
+  if (kind === "pdf") return openPdf(first);
+  if (kind === "pptx") return openPptx(first);
   return openImages(files);
 }
 
@@ -164,19 +166,23 @@ export async function openImages(input: readonly File[]): Promise<Deck> {
       throw new Error(`${file.name} could not be read as a picture.`, { cause: e });
     }
   };
-  const first = await decode(files[0]);
+  const [one] = files;
+  if (!one) throw new Error("No picture was chosen.");
+  const first = await decode(one);
   const aspect = first.width / first.height;
   first.close();
   return canvasDeck(
     {
-      name: files.length === 1 ? files[0].name : `${files.length} pictures`,
-      title: files.length === 1 ? stem(files[0].name) : null,
+      name: files.length === 1 ? one.name : `${files.length} pictures`,
+      title: files.length === 1 ? stem(one.name) : null,
       count: files.length,
       aspect,
       fingerprint: `images:${files.map((f) => `${f.name}:${f.size}`).join("|")}`,
     },
     async (index, canvas, width) => {
-      const bitmap = await decode(files[index]);
+      const file = files[index];
+      if (!file) throw new RangeError(`no slide ${index + 1}`);
+      const bitmap = await decode(file);
       // Never larger than the picture itself.
       const w = Math.min(width, bitmap.width);
       canvas.width = w;

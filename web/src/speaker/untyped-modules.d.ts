@@ -1,4 +1,6 @@
-// pptx-browser ships plain JavaScript; the part of its API the console uses (slideFiles.ts).
+// Modules that ship plain JavaScript.
+
+// pptx-browser: the part of its API the console uses (slideFiles.ts).
 declare module "pptx-browser" {
   export class PptxRenderer {
     slideCount: number;
@@ -9,3 +11,6 @@ declare module "pptx-browser" {
     destroy(): void;
   }
 }
+
+// PDF.js's parser, run in the test runner's own thread (slideFiles.test.ts).
+declare module "pdfjs-dist/legacy/build/pdf.worker.mjs";
