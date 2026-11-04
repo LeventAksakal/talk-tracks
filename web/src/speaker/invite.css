@@ -36,6 +36,17 @@
 .link-row-url:hover {
   text-decoration: underline;
 }
+/* Compact: the link and its icon-only Copy on one line, the link cut with an ellipsis rather than wrapped. */
+.link-row[data-compact] .link-row-line {
+  flex-wrap: nowrap;
+}
+.link-row[data-compact] .link-row-url {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .link-row-status {
   min-height: 1lh;
   color: var(--tt-color-text-muted);

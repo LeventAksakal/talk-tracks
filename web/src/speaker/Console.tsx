@@ -1125,13 +1125,12 @@ function ConsoleHeader({
             </button>
           </header>
           <div className="details-body">
-            <AudienceLink room={room} label="Joining link" />
+            <AudienceLink room={room} label="Joining link" compact />
             <div className="details-qr">
               <QrCode text={watchUrl(room)} label={`QR code for ${watchUrl(room)}`} />
               <div className="details-qr-text">
                 <p>
-                  Viewers scan it, open the link, or type the room code <strong>{room}</strong> into Join on the Talk
-                  Tracks home page.
+                  Scan, open the link, or enter code <strong>{room}</strong>
                 </p>
                 <ProjectInvite room={room} />
               </div>

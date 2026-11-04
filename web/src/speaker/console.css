@@ -185,7 +185,7 @@
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr);
   gap: var(--tt-space-4);
-  align-items: start;
+  align-items: center;
   padding-top: var(--tt-space-4);
   border-top: 1px solid var(--tt-color-line);
 }
@@ -1139,11 +1139,12 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: var(--tt-space-8);
+  /* safe: when the window is short the page scrolls from its top instead of cutting the heading off. */
+  justify-content: safe center;
+  gap: var(--tt-space-6);
   width: min(1080px, 100% - 64px);
   margin: 0 auto;
-  padding: var(--tt-space-8) 0;
+  padding: var(--tt-space-6) 0;
 }
 .ended-title {
   margin: 0;
@@ -1167,8 +1168,10 @@
   gap: var(--tt-space-3);
   min-width: 0;
 }
+/* The still is as wide as the column, or narrower on a short window so the whole page fits without scrolling. */
 .ended-still {
   position: relative;
+  width: min(100%, (100dvh - 440px) * 16 / 9);
   display: grid;
   place-items: center;
   aspect-ratio: 16 / 9;
@@ -1230,7 +1233,7 @@
   flex-wrap: wrap;
 }
 .ended-url {
-  flex: 1 1 auto;
+  flex: 1 1 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

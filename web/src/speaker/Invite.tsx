@@ -60,23 +60,44 @@ export function useCopy(text: string) {
 }
 
 /** The audience link as one row: the short link, and Copy. */
-export function AudienceLink({ room, label = "Audience link" }: { room: string; label?: string }) {
+/** The audience link with Copy; `compact` (the console's details card, Meet's) puts an icon-only Copy on the link's line. */
+export function AudienceLink({
+  room,
+  label = "Audience link",
+  compact = false,
+}: {
+  room: string;
+  label?: string;
+  compact?: boolean;
+}) {
   const url = watchUrl(room);
   const { copied, copy } = useCopy(url);
   return (
-    <div className="link-row">
+    <div className="link-row" data-compact={compact || undefined}>
       <span className="link-row-label">{label}</span>
       <div className="link-row-line">
         <a className="link-row-url" href={url} target="_blank" rel="noreferrer">
           {shortUrl(url)}
         </a>
-        <Button
-          label={copied === "yes" ? "Copied" : "Copy audience link"}
-          size="sm"
-          variant="secondary"
-          icon={<Glyph name={copied === "yes" ? "checkCircle" : "contentCopy"} />}
-          clickAction={copy}
-        />
+        {compact ? (
+          <Button
+            label="Copy audience link"
+            tooltip="Copy audience link"
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            icon={<Glyph name={copied === "yes" ? "checkCircle" : "contentCopy"} />}
+            clickAction={copy}
+          />
+        ) : (
+          <Button
+            label={copied === "yes" ? "Copied" : "Copy audience link"}
+            size="sm"
+            variant="secondary"
+            icon={<Glyph name={copied === "yes" ? "checkCircle" : "contentCopy"} />}
+            clickAction={copy}
+          />
+        )}
       </div>
       <span className="link-row-status" aria-live="polite">
         {copied === "yes" ? "Audience link copied." : copied === "no" ? "Could not copy; select the link." : ""}
