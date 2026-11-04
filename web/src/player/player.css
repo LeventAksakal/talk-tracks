@@ -29,10 +29,6 @@
 .tt-player.tt-with-panel {
   grid-template-columns: minmax(0, 1fr) var(--tt-panel-width);
 }
-.tt-player :focus-visible {
-  outline: 2px solid var(--tt-color-accent);
-  outline-offset: 2px;
-}
 .tt-loading {
   padding: var(--tt-space-4);
 }
@@ -75,7 +71,7 @@
   --media-control-padding: 9px;
   --media-button-icon-width: 22px;
   --media-button-icon-height: 22px;
-  --media-focus-box-shadow: inset 0 0 0 2px var(--tt-color-accent);
+  --media-focus-box-shadow: inset 0 0 0 var(--tt-focus-width) var(--tt-color-focus);
   --media-control-transition-in: opacity var(--tt-duration-medium) var(--tt-ease-standard);
   --media-control-transition-out: opacity var(--tt-duration-slow) var(--tt-ease-exit);
 
@@ -735,7 +731,8 @@
   translate: none;
 }
 
-/* --- subtitles: dragged anywhere, bottom centre anchored at (x, y) --- */
+/* --- subtitles: in one place under the speaker's content, bottom centre anchored at (x, y); never moved by the
+   pointer, which passes through them to the stage --- */
 .tt-subs {
   --sub-size: 20px;
   --sub-bg: 0.6;
@@ -753,24 +750,15 @@
   font-size: var(--sub-size);
   line-height: 1.3;
   text-align: center;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
+  pointer-events: none;
   background: rgb(0 0 0 / var(--sub-bg));
   color: #fff;
-}
-.tt-subs:active {
-  cursor: grabbing;
-}
-/* Where the viewer has not moved them, subtitles rise above the dock while it shows, and settle when it fades. */
-.tt-subs:not([data-placed]) {
-  transition: translate var(--tt-duration-medium) var(--tt-ease-standard);
 }
 .tt-subs[data-below] {
   translate: -50% 0;
 }
-.tt-controller:not([userinactive]) .tt-subs:not([data-placed], [data-below]),
-.tt-controller[mediapaused] .tt-subs:not([data-placed], [data-below]) {
+/* With no room kept under the picture they sit clear of the dock all the time, rather than rising when it shows. */
+.tt-subs:not([data-below]) {
   translate: -50% calc(-100% - var(--player-dock-reach) + 36px);
 }
 .tt-subs[data-preset="contrast"] {
@@ -783,21 +771,6 @@
 }
 .tt-subs[data-preset="large"] {
   font-weight: 500;
-}
-.tt-subs-grip {
-  position: absolute;
-  left: 50%;
-  top: -9px;
-  translate: -50%;
-  width: 28px;
-  height: 4px;
-  border-radius: 2px;
-  background: #fff8;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.tt-subs:hover .tt-subs-grip {
-  opacity: 1;
 }
 .tt-sub-line {
   display: block;
@@ -1269,6 +1242,14 @@ img.tt-preview-thumb {
 }
 .tt-menu-wide {
   width: 330px;
+}
+/* The subtitle languages: one list that scrolls as a whole, its scrollbar hidden. */
+.tt-menu[data-type-ahead] {
+  gap: 0;
+  scrollbar-width: none;
+}
+.tt-menu[data-type-ahead]::-webkit-scrollbar {
+  display: none;
 }
 .tt-menu-heading {
   margin: 8px 8px 2px;

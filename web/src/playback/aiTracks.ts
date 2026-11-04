@@ -166,6 +166,8 @@ export class AiTracks {
   #view: AiTracksView | undefined;
   #notifyQueued = false;
   #closed = false;
+  /** The viewer paused: no live subscription and no fetch until play (owner QA, 11-04: everything lazy). */
+  #paused = false;
 
   constructor(source: HistorySource, room: string, options: AiTracksOptions = {}) {
     this.room = room;
@@ -209,6 +211,23 @@ export class AiTracks {
     }
     this.#syncSubscription(entry);
     this.#syncWhole(entry);
+    this.#plan();
+    this.#changed();
+  }
+
+  /**
+   * The viewer paused (true) or played (false). Paused, every live subscription is closed and nothing is fetched, so no
+   * line advances or appears; play subscribes again and fetches what the playhead needs, in sync with the media.
+   * Explicit reads (a missed stretch's transcript, a download) still run.
+   */
+  setPaused(paused: boolean): void {
+    if (paused === this.#paused) return;
+    this.#paused = paused;
+    if (paused) for (const job of [...this.#queue]) if (job.into === job.entry.log) this.#cancel(job);
+    for (const entry of this.#entries.values()) {
+      this.#syncSubscription(entry);
+      this.#syncWhole(entry);
+    }
     this.#plan();
     this.#changed();
   }
@@ -321,7 +340,8 @@ export class AiTracks {
 
   /** One subscription per opted-in track, opened once and never updated (design §5.2). */
   #syncSubscription(entry: Entry): void {
-    if (entry.enabled && !entry.subscription) {
+    const want = entry.enabled && !this.#paused;
+    if (want && !entry.subscription) {
       const priority = PRIORITY[entry.ref.kind ?? "unknown"];
       entry.subscription = this.#source.subscribe(
         entry.path,
@@ -329,7 +349,7 @@ export class AiTracks {
         ({ group, index, payload }) => this.#onLive(entry, group, index, payload),
         { priority },
       );
-    } else if (!entry.enabled && entry.subscription) {
+    } else if (!want && entry.subscription) {
       entry.subscription.close();
       entry.subscription = undefined;
       entry.firstLive = undefined;
@@ -376,7 +396,7 @@ export class AiTracks {
 
   /** Which slices each opted-in track needs now, nearest first; queue those not held or in flight. */
   #plan(): void {
-    if (this.#closed) return;
+    if (this.#closed || this.#paused) return;
     const wanted = new Map<Entry, number[]>();
     const edge = this.#edgeSlice();
     for (const entry of this.#entries.values()) {
@@ -503,7 +523,7 @@ export class AiTracks {
       return;
     }
     const edge = this.#edgeSlice();
-    if (edge === undefined || this.#closed) return;
+    if (edge === undefined || this.#closed || this.#paused) return;
     entry.whole ??= { log: new SliceLog(), controller: new AbortController(), upTo: 0, lines: undefined };
     if (entry.whole.upTo > edge) return;
     const from = entry.whole.upTo;

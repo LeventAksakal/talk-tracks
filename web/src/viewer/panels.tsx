@@ -1,5 +1,5 @@
-import { Badge, Button, StatusDot, Switch } from "@astryxdesign/core";
-import { useEffect, useId, useRef, useState } from "react";
+import { Badge, StatusDot, Switch } from "@astryxdesign/core";
+import { useId } from "react";
 import type {
   AgentView,
   CaptionsState,
@@ -10,7 +10,6 @@ import type {
 } from "../playback/agentViews";
 import { dirOf, formatMediaTime, languageName, nativeLanguageName } from "./lang";
 import { ScrollLog } from "./ScrollLog";
-import { useSpeech } from "./speech";
 
 export function stateOf<K extends AgentView["kind"]>(
   agent: AgentView | undefined,
@@ -146,36 +145,11 @@ export function SlidesPanel({ agent }: { agent: AgentView }) {
   const state = stateOf(agent, "slides");
   const slides = state?.slides ?? [];
   const lang = state?.lang;
-  const speech = useSpeech();
-  const [autoRead, setAutoRead] = useState(false);
-  const seen = useRef<number | undefined>(undefined);
   const newest = slides[slides.length - 1];
-
-  useEffect(() => {
-    if (!newest) return;
-    const first = seen.current === undefined;
-    if (seen.current === newest.id) return;
-    seen.current = newest.id;
-    if (!first && autoRead) speech.speak(newest.description, lang);
-  }, [newest, autoRead, lang, speech]);
 
   return (
     <section className="panel slides" aria-labelledby="slides-heading">
       <PanelHeader id="slides-heading" title={agent.label} health={agent.health} />
-      {speech.supported ? (
-        <div className="slides-controls">
-          <Switch
-            label="Read new slides aloud"
-            description="Uses your device's voice. Screen readers announce new slides anyway."
-            value={autoRead}
-            onChange={(checked) => {
-              setAutoRead(checked);
-              if (checked) speech.unlock();
-              else speech.cancel();
-            }}
-          />
-        </div>
-      ) : null}
       <div className="sr-only" aria-live="polite">
         {newest ? `Slide ${newest.id + 1}: ${newest.description}` : ""}
       </div>
@@ -185,15 +159,6 @@ export function SlidesPanel({ agent }: { agent: AgentView }) {
           <li key={s.id} className="slide-card">
             <div className="slide-card-head">
               <Badge label={`Slide ${s.id + 1}`} variant={s.id === newest?.id ? "info" : "neutral"} />
-              {speech.supported ? (
-                <Button
-                  label="Read aloud"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => speech.speak(s.description, lang)}
-                  aria-label={`Read slide ${s.id + 1} aloud`}
-                />
-              ) : null}
             </div>
             <p>{s.description}</p>
           </li>

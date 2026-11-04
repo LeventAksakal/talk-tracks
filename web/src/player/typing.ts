@@ -8,6 +8,8 @@ const NOT_TEXT = new Set(["button", "checkbox", "color", "file", "image", "radio
 export function isTypingNode(node: EventTarget | null | undefined): boolean {
   if (!node || typeof (node as Element).tagName !== "string") return false;
   const el = node as HTMLElement;
+  // A menu with type-ahead (the subtitle languages) takes the letters typed in it.
+  if (el.hasAttribute?.("data-type-ahead")) return true;
   if (el.isContentEditable || el.getAttribute("contenteditable") === "true") return true;
   const tag = el.tagName.toLowerCase();
   if (tag === "textarea" || tag === "select") return true;

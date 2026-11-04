@@ -6,7 +6,6 @@ import { cameraNote } from "./CameraSurface";
 import { DEFAULT_PREFS, readPrefs } from "./prefs";
 import { playerState, type PlayerStateInput } from "./state";
 import { cuesAt } from "./subtitles";
-import { dragSubtitle } from "./SubtitleOverlay";
 import { chapterAt, chapterSegments, holesIn } from "./timeline";
 import { Linger, openTab, roomTracks, wantedTracks } from "./tracks";
 
@@ -169,17 +168,6 @@ describe("the camera tile without a picture", () => {
   });
 });
 
-describe("subtitle position", () => {
-  it("moves by fractions of the canvas and stays in the safe area", () => {
-    const moved = dragSubtitle({ x: 0.5, y: 0.9 }, -0.2, -0.3);
-    expect(moved.x).toBeCloseTo(0.3);
-    expect(moved.y).toBeCloseTo(0.6);
-    const clamped = dragSubtitle({ x: 0.5, y: 0.9 }, 2, 2);
-    expect(clamped.x).toBeLessThan(1);
-    expect(clamped.y).toBeLessThan(1);
-  });
-});
-
 describe("preferences", () => {
   it("fall back to the defaults when storage is missing or broken", () => {
     expect(readPrefs(undefined)).toEqual(DEFAULT_PREFS);
@@ -208,18 +196,16 @@ describe("tracks the player subscribes", () => {
     expect([...wantedTracks(DEFAULT_PREFS, room, undefined)]).toEqual([]);
   });
 
-  it("follow the subtitle language picked, the tab open and the sound chosen", () => {
+  it("follow the subtitle language picked and the tab open", () => {
     const on = (p: Partial<typeof DEFAULT_PREFS>, tab?: string) =>
       [...wantedTracks({ ...DEFAULT_PREFS, ...p }, room, tab)].sort();
     expect(on({ cc: true })).toEqual(["captions/items"]);
     expect(on({ cc: true, subtitleLang: "ar" })).toEqual(["translate-ar/items"]);
-    expect(on({ cc: true, subtitleLang: "ar", dual: true })).toEqual(["captions/items", "translate-ar/items"]);
     expect(on({}, "transcript")).toEqual(["captions/items"]);
     expect(on({}, "chapters")).toEqual(["chapters/outline"]);
     expect(on({}, "glossary")).toEqual(["chapters/outline"]);
     expect(on({}, "descriptions")).toEqual(["describe/items"]);
     expect(on({}, "notes")).toEqual([]);
-    expect(on({ sound: "describe" })).toEqual(["describe/items"]);
     // A panel tab counts only while the panel is open.
     expect(openTab({ panel: false, tab: "chapters" })).toBeUndefined();
   });

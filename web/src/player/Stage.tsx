@@ -449,9 +449,8 @@ function useStageFit(
     return () => observer.disconnect();
   }, [stage]);
   const cornerAspect = (small && aspects[small]) || 16 / 9;
-  const translating = prefs.subtitleLang !== "original";
-  const lines = prefs.style.lines + (translating && prefs.dual ? 1 : 0);
-  const captions = prefs.cc && !prefs.subtitlePos ? Math.ceil(lines * prefs.style.size * 1.3 + 12) : undefined;
+  const lines = prefs.style.lines;
+  const captions = prefs.cc ? Math.ceil(lines * prefs.style.size * 1.3 + 12) : undefined;
   const layoutFit =
     size && size.width > 0 && size.height > 0
       ? fitStage({

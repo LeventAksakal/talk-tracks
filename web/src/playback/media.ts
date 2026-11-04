@@ -131,9 +131,11 @@ export class ClockMedia implements SpeakerMedia {
   error(): string | undefined {
     return undefined;
   }
+  /** Move the playhead; paused, it stays paused at the new place (a seek never plays). */
   seek(ms: number): void {
+    const paused = this.#mode === "rewound" && this.#frozen !== undefined;
     this.#mode = "rewound";
-    this.#frozen = undefined;
+    this.#frozen = paused ? ms : undefined;
     this.#anchor = { media: ms, wall: this.#now() };
     this.#listeners.emit();
   }
@@ -227,6 +229,8 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   #elements: RoomMediaElements | undefined;
   #mode: Mode = "live";
   #wantLive = false;
+  /** Paused by the viewer (stop): a seek moves the playhead and stays paused, the archive opens without playing. */
+  #held = false;
   #status: MediaStatus = "idle";
   #error: string | undefined;
   #listeners = new Listeners();
@@ -373,6 +377,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   /** Start live playback (call from a tap: browsers start sound only after a user gesture). */
   play(): void {
     this.#wantLive = true;
+    this.#held = false;
     if (this.#mode === "live") this.#startLive();
     else {
       this.#clock?.play();
@@ -406,6 +411,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   /** Stop all sound, live or rewound; the mode stays. */
   stop(): void {
     this.#wantLive = false;
+    this.#held = true;
     this.#stopLive();
     this.#archive?.pause();
     this.#clock?.pause();
@@ -599,6 +605,12 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#status = "playing";
     this.#error = undefined;
     video.muted = false;
+    if (this.#held) {
+      // Paused: the frame at the seek point shows, and play() starts it.
+      this.#status = "idle";
+      this.#listeners.emit();
+      return;
+    }
     await video.play().catch(() => {
       // Autoplay refused (no tap yet): the element waits for play().
       this.#status = "idle";
@@ -642,6 +654,7 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     if (edge !== undefined) clock.setLiveEdge(edge);
     clock.seek(ms);
     clock.setRate(this.#rate);
+    if (this.#held) clock.pause();
     this.#clock = clock;
     this.#status = status;
     this.#listeners.emit();

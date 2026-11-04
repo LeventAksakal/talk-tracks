@@ -89,6 +89,10 @@
   --tt-space-16: 64px;
 
   /* Shape and depth */
+  /* Keyboard focus: one ring, its width and its gap from a control's edge (app.css) */
+  --tt-focus-width: 2px;
+  --tt-focus-offset: 2px;
+
   --tt-radius-sm: 6px;
   --tt-radius-md: 10px;
   --tt-radius-lg: 14px;

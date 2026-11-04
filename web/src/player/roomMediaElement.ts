@@ -329,6 +329,7 @@ export class RoomMediaElement extends HTMLElement {
         pb.seek(resumeAt);
       }
     }
+    pb.tracks.setPaused(false);
     pb.media.play?.();
     if (this.#paused) {
       this.#paused = false;
@@ -343,6 +344,8 @@ export class RoomMediaElement extends HTMLElement {
     if (this.#paused || !pb) return;
     if (pb.media.mode() === "live") this.#pausedAt = pb.position() ?? pb.liveEdge();
     pb.media.pause?.();
+    // The AI tracks pause with the media: no line advances or appears, nothing is fetched.
+    pb.tracks.setPaused(true);
     this.#paused = true;
     this.#fire("pause");
     this.#onChange();
@@ -369,6 +372,8 @@ export class RoomMediaElement extends HTMLElement {
     if (!pb || !Number.isFinite(seconds)) return;
     const ms = seconds * 1000 + this.#span.origin;
     const edge = this.#span.recording ? undefined : pb.liveEdge();
+    // A seek from a recording's end card is its Replay: that one plays.
+    const replay = this.#ended;
     this.#pausedAt = undefined;
     this.#ended = false;
     this.#fire("seeking");
@@ -380,8 +385,12 @@ export class RoomMediaElement extends HTMLElement {
       this.#endArmed = false;
       pb.seek(ms);
     }
-    // A seek plays, as it always has here (the archive opens playing): the state says so.
-    if (this.#paused) void this.play();
+    // A seek never changes play or pause: paused, the media holds at the new place until the viewer presses play.
+    if (this.#paused && replay) void this.play();
+    else if (this.#paused) {
+      pb.media.pause?.();
+      if (pb.media.mode() === "live") this.#pausedAt = pb.liveEdge();
+    }
     this.#fire("seeked");
     this.#fire("timeupdate");
   }
