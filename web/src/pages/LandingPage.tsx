@@ -12,6 +12,7 @@ import { PlusIcon, SearchIcon } from "./hub/icons";
 import { hubRows } from "./hub/items";
 import { Row } from "./hub/Row";
 import { Tile } from "./hub/Tile";
+import { type CommunityRoom, fetchCommunityRooms } from "./communityRooms";
 import { type AnnounceSource, type RelayRooms, watchRelayRooms } from "./liveRooms";
 import { fetchRecordings, type Recording } from "./recordings";
 import { readRecent } from "./recentRooms";
@@ -25,6 +26,8 @@ export interface LandingPageProps {
   create?: CreateTalkProps["create"];
   /** The archive's room list, for the Recordings row; by default GET /archive/rooms.json. */
   recordings?: () => Promise<Recording[]>;
+  /** The rooms presenters made, for Live now and Recordings; by default GET /api/rooms. */
+  rooms?: () => Promise<CommunityRoom[]>;
 }
 
 /** The room a person typed or pasted: a room name, or a /watch/<room> link. */
@@ -41,12 +44,18 @@ export function roomFrom(input: string): string | null {
  * (the demo lectures and their recordings), so nothing moves when the relay and the archive answer. Join takes a room
  * name, an audience link or a speaker link; Start a talk opens its modal.
  */
-export function LandingPage({ transport, create, recordings: loadRecordings = fetchRecordings }: LandingPageProps) {
+export function LandingPage({
+  transport,
+  create,
+  recordings: loadRecordings = fetchRecordings,
+  rooms: loadRooms = fetchCommunityRooms,
+}: LandingPageProps) {
   const relay = useRelayRooms(transport);
-  const recordings = useRecordings(loadRecordings);
+  const recordings = useLoaded(loadRecordings);
+  const community = useLoaded(loadRooms);
   const [recent] = useState(() => readRecent());
   const [starting, setStarting] = useState(false);
-  const rows = useMemo(() => hubRows({ relay, recordings, recent }), [relay, recordings, recent]);
+  const rows = useMemo(() => hubRows({ relay, recordings, recent, community }), [relay, recordings, recent, community]);
   const relayDown = relay?.status === "failed" || relay?.status === "disconnected";
   const note = relayDown ? "Live status is unavailable right now." : undefined;
 
@@ -193,9 +202,9 @@ function useJoinShortcut(input: RefObject<HTMLInputElement | null>): void {
   }, [input]);
 }
 
-/** The archive's recordings; undefined while loading. */
-function useRecordings(load: () => Promise<Recording[]>): Recording[] | undefined {
-  const [list, setList] = useState<Recording[]>();
+/** A list the hub loads once (the archive's recordings, the presenters' rooms); undefined while loading, [] on error. */
+function useLoaded<T>(load: () => Promise<T[]>): T[] | undefined {
+  const [list, setList] = useState<T[]>();
   useEffect(() => {
     let live = true;
     load().then(

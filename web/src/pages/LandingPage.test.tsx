@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import languageList from "../../../contracts/languages.json";
 import { FakeTransport } from "../transport/fake";
+import { type CommunityRoom, parseCommunityRooms } from "./communityRooms";
 import { createRoom, speakerPathFrom } from "./createRoom";
 import { DEMO_ROOMS } from "./demoRooms";
 import { LandingPage } from "./LandingPage";
@@ -31,6 +32,7 @@ const RECORDINGS: Recording[] = [
 function setup(
   answer: (body: unknown) => Response | Promise<Response> = () => jsonResponse(500, {}),
   recordings: Recording[] = [],
+  rooms: CommunityRoom[] = [],
 ) {
   const transport = new FakeTransport();
   transport.setStatus("connecting");
@@ -45,6 +47,7 @@ function setup(
       transport={transport}
       create={(r) => createRoom(r, fetchImpl as typeof fetch)}
       recordings={async () => recordings}
+      rooms={async () => rooms}
     />,
   );
   return { transport, sent };
@@ -162,6 +165,61 @@ describe("the hub", () => {
     expect(
       within(card("Live now", DEMO_ROOMS[2]!.title)).queryByRole("link", { name: named("From the start") }),
     ).toBeNull();
+  });
+
+  it("lists the talks presenters gave: on air in Live now, recorded in Recordings, not yet started nowhere", async () => {
+    const rooms = parseCommunityRooms({
+      rooms: [
+        { room: "quantum-101", title: "Intro to Quantum Cryptography", speaker: "Ada", state: "live", started: 100 },
+        {
+          room: "physics-101",
+          title: "Waves",
+          state: "ended",
+          ended: 50,
+          duration: 1800,
+          recording: true,
+          still: "/archive/physics-101/r1/slides/ab.jpg",
+        },
+        { room: "walk-in", title: "Ended, nothing kept", state: "ended", recording: false },
+        { room: "rehearsal-1", title: "Not started", state: "upcoming", recording: false },
+      ],
+    });
+    const { transport } = setup(undefined, RECORDINGS, rooms);
+    act(() => {
+      transport.setStatus("connected");
+      transport.announce("talk/physics-101/teacher"); // ended with End talk, its broadcast on its way out
+    });
+    await settle();
+    const live = await within(row("Live now")).findByRole("article", { name: "Intro to Quantum Cryptography" });
+    expect(within(live).getByText("Ada")).toBeTruthy();
+    expect(hrefs(within(row("Live now")).getAllByRole("link", { name: named("Watch live") }))[0]).toBe(
+      "/watch/quantum-101",
+    );
+    const recorded = await within(row("Recordings")).findByRole("article", { name: "Waves" });
+    expect(
+      within(recorded)
+        .getByRole("link", { name: named("Play") })
+        .getAttribute("href"),
+    ).toBe("/watch/physics-101");
+    expect(within(recorded).getByText("30 min")).toBeTruthy();
+    expect(within(row("Live now")).queryByRole("article", { name: "Waves" })).toBeNull();
+    for (const title of ["Ended, nothing kept", "Not started"])
+      expect(screen.queryByRole("article", { name: title })).toBeNull();
+  });
+
+  it("keeps the hub as it was when the room list cannot be read", async () => {
+    expect(parseCommunityRooms({ error: "x" })).toEqual([]);
+    expect(
+      parseCommunityRooms({
+        rooms: [
+          { room: "Bad Name!", state: "live" },
+          { room: "ok-room", state: "?" },
+        ],
+      }),
+    ).toEqual([]);
+    setup(undefined, RECORDINGS, []);
+    await within(row("Recordings")).findAllByRole("link", { name: named("Play") });
+    expect(within(row("Recordings")).getAllByRole("article")).toHaveLength(RECORDINGS.length);
   });
 
   it("has no Recordings row when the archive has none", async () => {
