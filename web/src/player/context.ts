@@ -16,7 +16,7 @@ import type { PlayerState } from "./state";
 import type { RoomTracks } from "./tracks";
 import type { WorkspaceApi } from "./workspace/Workspace";
 
-export type MenuKind = "cc" | "layout";
+export type MenuKind = "cc" | "more" | "view";
 
 export interface UiState {
   menu: MenuKind | undefined;

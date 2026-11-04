@@ -70,7 +70,7 @@ describe("/demo in the player", () => {
     expect(slide()).toBe("5");
     expect(marks()).toEqual(["tt-textmark-underline", "tt-textmark-highlight"]);
     // A listener's highlight too, once the listener shows the audience's marks (slide comments are supplementary).
-    fireEvent.click(screen.getByRole("tab", { name: "Discussion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discussion" }));
     await advance(300);
     expect(marks()).toEqual(["tt-textmark-underline", "tt-textmark-highlight", "tt-textmark-highlight"]);
 
@@ -87,9 +87,9 @@ describe("/demo in the player", () => {
     const media = () => document.querySelector<RoomMediaElement>("tt-room-media")!;
     const chapters = () => [...media().textTracks].find((t) => t.kind === "chapters")?.cues?.length ?? 0;
     expect(chapters()).toBe(0);
-    fireEvent.click(screen.getByRole("tab", { name: "Chapters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chapters" }));
     await advance(2_000);
-    const panel = screen.getByRole("tabpanel");
+    const panel = screen.getByRole("region", { name: "Chapters" });
     expect(within(panel).getByText("Introduction")).toBeTruthy();
     expect(chapters()).toBeGreaterThan(1);
     fireEvent.click(within(panel).getByRole("button", { name: "Play from 1:01" }));
@@ -107,7 +107,8 @@ describe("/demo in the player", () => {
     Object.assign(URL, { createObjectURL: create, revokeObjectURL: () => undefined });
     render(<DemoPage />);
     await advance(30_000);
-    // The transcript tab is open by default.
+    // The reading panels open from their buttons beside the controls.
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     const popover = screen.getByRole("group", { name: "Download the transcript" });
     await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /\.txt/ })));

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dropTarget, mainPicture } from "./Workspace";
 import {
+  applyView,
   close,
   dock,
   float,
@@ -9,28 +10,71 @@ import {
   open,
   parseLayout,
   preset,
+  promote,
   readLayout,
   resizeZone,
   resolve,
   setSplit,
+  showPanel,
   SIZE_LIMITS,
   toggle,
+  togglePanel,
   visible,
   where,
   writeLayout,
 } from "./layout";
 
 const all = new Set(["slides", "camera", "chat", "transcript", "chapters", "discussion"]);
+const withScreen = new Set([...all, "screen"]);
 
 describe("the workspace layout", () => {
-  it("opens on slides and camera side by side, the reading panels as tabs on the right", () => {
-    const l = resolve(preset("grid"), all);
+  it("opens in Auto: the slides large, the speaker beside them, no reading panel open", () => {
+    const l = resolve(preset("auto"), all);
     expect(l.zones.centre.panels).toEqual(["slides", "camera"]);
-    expect([...visible(l)].sort()).toEqual(["camera", "chat", "slides"]);
+    expect([...visible(l)].sort()).toEqual(["camera", "slides"]);
+  });
+
+  it("follows the talk in Auto: a shared screen large, the speaker first while no slide is up, the speaker alone", () => {
+    expect(resolve(preset("auto"), withScreen).zones.centre.panels[0]).toBe("screen");
+    expect(resolve(preset("auto"), all, new Set(["slides"])).zones.centre.panels).toEqual(["camera", "slides"]);
+    expect(resolve(preset("auto"), new Set(["camera", "transcript"])).zones.centre.panels).toEqual(["camera"]);
+  });
+
+  it("arranges the streams as each view says, and leaves the reading panels where they are", () => {
+    const base = showPanel(preset("auto"), "transcript");
+    const tiled = resolve(applyView(base, "tiled"), withScreen);
+    expect([...visible(tiled)].sort()).toEqual(["camera", "screen", "slides", "transcript"]);
+    const spot = resolve(applyView(base, "spotlight"), withScreen);
+    expect([...visible(spot)].filter((p) => ["slides", "screen", "camera"].includes(p))).toHaveLength(1);
+    expect(where(spot, "transcript")).toBe("right");
+    // A stream floated or docked aside comes back to the stage.
+    const aside = dock(float(base, "camera"), "slides", "left");
+    const side = applyView(aside, "sidebar");
+    expect(where(side, "camera")).toBe("centre");
+    expect(where(side, "slides")).toBe("centre");
+    expect(side.floating).toEqual([]);
+    expect(side.view).toBe("sidebar");
+  });
+
+  it("opens one reading panel at a time in the side card, and a second press closes it", () => {
+    let l = showPanel(preset("auto"), "chat");
+    l = showPanel(l, "transcript");
+    expect(l.zones.right.panels).toEqual(["transcript"]);
+    const on = visible(resolve(l, all));
+    expect(where(togglePanel(l, "transcript", on), "transcript")).toBeUndefined();
+    expect(where(togglePanel(l, "chapters", on), "chapters")).toBe("right");
+  });
+
+  it("stops the view once a stream is moved by hand; making one large leaves Auto for Sidebar", () => {
+    expect(float(preset("tiled"), "camera").view).toBeUndefined();
+    expect(showPanel(preset("tiled"), "chat").view).toBe("tiled");
+    const big = promote(preset("auto"), "camera");
+    expect(big.view).toBe("sidebar");
+    expect(resolve(big, all).zones.centre.panels[0]).toBe("camera");
   });
 
   it("docks a panel on any side, in front, and takes it out of where it was", () => {
-    const l = dock(preset("grid"), "chapters", "left");
+    const l = dock(showPanel(preset("tiled"), "chapters"), "chapters", "left");
     expect(where(l, "chapters")).toBe("left");
     expect(l.zones.right.panels).not.toContain("chapters");
     expect(l.zones.left.active).toBe("chapters");
@@ -38,7 +82,7 @@ describe("the workspace layout", () => {
   });
 
   it("floats a panel as a small window and docks it back", () => {
-    let l = float(preset("grid"), "camera");
+    let l = float(preset("tiled"), "camera");
     expect(where(l, "camera")).toBe("floating");
     // Any picture floats as itself, beside the camera's window.
     const both = float(l, "slides");
@@ -55,7 +99,7 @@ describe("the workspace layout", () => {
   });
 
   it("closes a panel and reopens it where it was", () => {
-    let l = dock(preset("grid"), "transcript", "bottom");
+    let l = dock(preset("tiled"), "transcript", "bottom");
     l = close(l, "transcript");
     expect(where(l, "transcript")).toBeUndefined();
     l = open(l, "transcript");
@@ -64,29 +108,20 @@ describe("the workspace layout", () => {
   });
 
   it("shows a zone as tabs or side by side, and keeps sizes in bounds", () => {
-    const l = setSplit(preset("grid"), "right", true);
-    expect([...visible(resolve(l, all))]).toEqual(expect.arrayContaining(["chat", "transcript", "chapters"]));
+    const l = setSplit(dock(dock(preset("tiled"), "chat", "right"), "transcript", "right"), "right", true);
+    expect([...visible(resolve(l, all))]).toEqual(expect.arrayContaining(["chat", "transcript"]));
     expect(resizeZone(l, "right", 5_000).size.right).toBe(SIZE_LIMITS.max);
   });
 
-  it("has the three presets: camera floating over the slides, and chapters left for study", () => {
-    expect(where(preset("focus"), "camera")).toBe("floating");
-    const study = preset("study");
-    expect(where(study, "chapters")).toBe("left");
-    expect(where(study, "slides")).toBe("centre");
-    expect(where(study, "chat")).toBe("right");
-  });
-
-  it("shows only the panels a room has, and never plays the talk in a window over an empty centre", () => {
-    const camOnly = resolve(preset("focus"), new Set(["camera", "transcript"]));
+  it("never plays the talk in a window over an empty centre", () => {
+    const camOnly = resolve(float(preset("tiled"), "camera"), new Set(["camera", "transcript"]));
     expect(camOnly.zones.centre.panels).toEqual(["camera"]);
     expect(camOnly.floating).toEqual([]);
-    expect(camOnly.zones.right.active).toBe("transcript");
   });
 
   it("puts the subtitles over the centre's picture", () => {
-    expect(mainPicture(resolve(preset("grid"), all))).toBe("slides");
-    expect(mainPicture(resolve(close(preset("grid"), "slides"), all))).toBe("camera");
+    expect(mainPicture(resolve(preset("tiled"), all))).toBe("slides");
+    expect(mainPicture(resolve(close(preset("tiled"), "slides"), all))).toBe("camera");
   });
 
   it("docks where a panel is dropped: the edges, the centre, or floats it anywhere else", () => {
@@ -103,17 +138,20 @@ describe("the workspace layout", () => {
       getItem: (k: string) => store.get(k) ?? null,
       setItem: (k: string, v: string) => store.set(k, v),
     };
-    const l = float(dock(preset("grid"), "chat", "left"), "camera");
+    const l = float(dock(preset("tiled"), "chat", "left"), "camera");
     writeLayout(l, storage);
     expect(readLayout(storage)).toEqual(l);
+    const picked = applyView(l, "spotlight");
+    writeLayout(picked, storage);
+    expect(readLayout(storage).view).toBe("spotlight");
     store.set(LAYOUT_KEY, "{not json");
-    expect(readLayout(storage)).toEqual(preset("grid"));
+    expect(readLayout(storage)).toEqual(preset("auto"));
     const blocked = {
       getItem: () => {
         throw new Error("blocked");
       },
     };
-    expect(readLayout(blocked)).toEqual(preset("grid"));
+    expect(readLayout(blocked)).toEqual(preset("auto"));
     expect(() =>
       writeLayout(l, {
         setItem: () => {

@@ -43,6 +43,7 @@ import { Linger, type RoomTracks, roomSubtitles, roomTracks, wantedSlideTracks, 
 import { MoqTransport } from "../transport/moq";
 import { isPicture, type PanelId } from "./workspace/layout";
 import { useWorkspace } from "./workspace/Workspace";
+import "./meet.css";
 
 export interface PlayerProps {
   playback: Playback;
@@ -233,7 +234,9 @@ export function Player(props: PlayerProps) {
   ].join(",");
   const available = useMemo<PanelId[]>(() => availableKey.split(","), [availableKey]);
   const labels = useMemo(() => Object.fromEntries(extraTabs.map((t) => [t.id, t.label])), [extraTabs]);
-  const workspace = useWorkspace(available, labels);
+  // Streams with nothing to show right now (the slides while the speaker shows none): Auto puts the speaker first.
+  const [quiet, setQuiet] = useState("");
+  const workspace = useWorkspace(available, labels, quiet);
   const onScreen = workspace.visible;
 
   // What is picked and open decides what is subscribed (decisions 0010, 0026), and a track let go lingers 30 s.
@@ -513,6 +516,9 @@ export function Player(props: PlayerProps) {
   const shownSlide = slidesShown && at !== undefined ? slides?.slideAt(at)?.slide : undefined;
   const described = tracks.describe?.enabled ? tracks.describe.sliced?.slide : undefined;
   const slideNumber = shownSlide ? shownSlide.index + 1 : described ? described.id + 1 : undefined;
+  const quietNow =
+    slidesShown && sources.includes("camera") && at !== undefined && slideNumber === undefined ? "slides" : "";
+  if (quietNow !== quiet) setQuiet(quietNow);
 
   const ctx: PlayerCtx | undefined =
     view && timeline
@@ -592,8 +598,9 @@ export function Player(props: PlayerProps) {
             nomutedpref=""
             nosubtitleslangpref=""
             defaultstreamtype="live"
-            autohide={holdControls ? "-1" : "2"}
-            noautohide={holdControls ? "" : undefined}
+            // The bar sits under the stage, as Meet's does, and never hides: it covers nothing.
+            autohide="-1"
+            noautohide=""
           >
             <tt-room-media ref={bindEl} slot="media" className="tt-media-element">
               <Stage onToggle={togglePlay} onFullscreen={toggleFullscreen} />

@@ -72,14 +72,12 @@
   color: var(--tt-color-text);
   font-weight: var(--tt-weight-strong);
 }
+/* The player's icons are Material Symbols: filled shapes. */
 .console .tt-icon {
   width: 16px;
   height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  fill: currentColor;
+  stroke: none;
 }
 .on-air-live .tt-icon {
   width: 18px;
