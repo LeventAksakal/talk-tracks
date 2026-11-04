@@ -543,7 +543,12 @@ function ConsoleView({
               <WireStatus live={live} clock={clock} echo={echo} phase={phase} />
             </span>
           </div>
-          <div className="stage-row">
+          <div
+            className="stage-row"
+            data-rail={(deck && !sharing) || undefined}
+            data-pager={(deck && phase === "preflight") || undefined}
+            style={{ "--aspect": String(frameAspect) } as CSSProperties}
+          >
             {/* The drawing tools come with a deck, as a rail on the stage's left edge (Excalidraw's, tldraw's): before
                 one is loaded the stage asks for it, and a rail of disabled tools would only say the console is half
                 built. Undo, redo and clear close the rail: they act on the drawing. */}
@@ -669,14 +674,14 @@ function ConsoleView({
                   </div>
                 ) : null}
               </div>
+              {/* Before air the slide pager sits right under the preview; on air it moves into the dock. */}
+              {deck && phase === "preflight" ? (
+                <div className="stage-foot">
+                  <SlidePager index={index} count={deck.count} goTo={goTo} />
+                </div>
+              ) : null}
             </div>
           </div>
-          {/* Before air the slide pager sits under the preview; on air it moves into the dock. */}
-          {deck && phase === "preflight" ? (
-            <div className="stage-foot">
-              <SlidePager index={index} count={deck.count} goTo={goTo} />
-            </div>
-          ) : null}
         </main>
 
         {phase === "preflight" ? (
