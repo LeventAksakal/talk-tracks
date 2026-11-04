@@ -63,6 +63,7 @@ Captured from the live site at 1600×900, dark theme.
 ![Player in Auto view with Turkish subtitles: the slide large, the speaker beside it](docs/screenshots/02-player-tracks.png)
 ![Adjust view: Auto, Tiled, Spotlight or Sidebar](docs/screenshots/03-adjust-view.png)
 ![Transcript card with Turkish beside each line](docs/screenshots/04-transcript.png)
+![The speaker console on air: the slide with the drawing rail, and one dock with the slide pager, mic, camera, share and End talk](docs/screenshots/05-console.png)
 
 ## How it works
 
