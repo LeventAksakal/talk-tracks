@@ -241,31 +241,46 @@
   grid-template-columns: minmax(0, 1fr) 380px;
 }
 .console-main {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--tt-space-3);
 }
+/* The stage's caption is for screen readers: the stage itself, the green room's heading and the red on-air frame say
+   what it is. A note on what goes out (no clock yet, malformed objects) floats over the top right, only when there
+   is one. */
 .stage-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--tt-space-4);
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  max-width: 60%;
 }
 .stage-caption {
-  margin: 0;
-  font-size: var(--tt-text-small);
-  font-weight: var(--tt-weight-strong);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .stage-wire {
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-color-surface);
   color: var(--tt-color-text-muted);
   font-size: var(--tt-text-small);
-  text-align: end;
+}
+.stage-wire:empty {
+  display: none;
 }
 /* The stage takes the room left and keeps the slide's shape: as wide as fits, never taller than the space. */
 .stage-area {
-  flex: 1 1 auto;
+  position: relative;
   min-height: 0;
   container-type: size;
   display: grid;
@@ -280,23 +295,45 @@
   width: 100%;
   height: 100%;
 }
-/* The stage with its tool rail at the left edge, as in Excalidraw and tldraw. */
+/* The stage with its tool rail against its left edge, as in Excalidraw and tldraw. The row is a size container: the
+   stage area is exactly the slide (as wide as fits, never taller than the row), the rail sits one gap from it, and
+   the rail's room is kept on the right as well, so the slide stays centred at every width. A tool is 40 px where
+   the row is tall enough for fourteen of them and shrinks to 32 px on a 720p screen, so the rail never scrolls. */
 .stage-row {
+  --tool: clamp(32px, (100cqh - 72px) / 14, 40px);
+  --rail-room: 0px;
   flex: 1 1 auto;
   min-height: 0;
+  container-type: size;
   display: flex;
+  align-items: center;
+  justify-content: center;
   gap: var(--tt-space-3);
 }
+.stage-row[data-rail] {
+  --rail-room: calc(var(--tool) + 10px + var(--tt-space-3));
+}
 .stage-row > .stage-area {
-  flex: 1 1 auto;
-  min-width: 0;
+  --stage-w: min(100cqw - 2 * var(--rail-room), 100cqh * var(--aspect));
+  flex: none;
+  width: var(--stage-w);
+  height: calc(var(--stage-w) / var(--aspect));
+}
+.stage-row[data-rail] > .stage-area {
+  margin-inline-end: var(--rail-room);
+}
+/* Before air the pager hangs right under the slide: its height is kept free below, so slide and pager centre as one. */
+.stage-row[data-pager] > .stage-area {
+  --stage-w: min(100cqw - 2 * var(--rail-room), (100cqh - 52px) * var(--aspect));
+  margin-bottom: 52px;
 }
 .tool-rail {
   flex: none;
-  align-self: center;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  max-height: 100%;
+  align-items: center;
+  width: calc(var(--tool) + 10px);
   padding: 4px;
   border: 1px solid var(--tt-color-line);
   border-radius: 12px;
@@ -305,19 +342,41 @@
 .rail-group {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
 }
 .rail-group + .rail-group {
+  align-self: stretch;
   margin-top: 4px;
   padding-top: 4px;
   border-top: 1px solid var(--tt-color-line);
 }
+/* Every rail button one square size, its icon centred; the picked tool is a checked choice: the accent tint. */
+.tool-rail button:not(.tool-options-toggle) {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: var(--tool);
+  height: var(--tool);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 8px;
+}
+.tool-rail button:not(.tool-options-toggle)[aria-pressed="true"] {
+  background: var(--tt-color-accent-soft);
+  color: var(--tt-color-accent);
+}
 .tool-rail .glyph {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 /* Under the preview before air: the slide pager, centred. */
 .stage-foot {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
   display: flex;
   justify-content: center;
 }
@@ -328,6 +387,10 @@
 }
 .slide-pager .round-btn {
   border-color: transparent;
+  color: var(--tt-color-text);
+}
+.slide-pager .round-btn:disabled {
+  opacity: 0.3;
 }
 .end-confirm {
   margin: 0;
@@ -433,15 +496,31 @@
 }
 .setup-main {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--tt-space-3);
 }
-.setup-icon {
+/* Microphone, camera and screen share one icon cell: a 36 px disc, its top on the title's line. */
+.setup-icon,
+.setup-main > .round-btn {
   display: grid;
   place-items: center;
-  width: 40px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tt-color-raised);
   color: var(--tt-color-text-muted);
+}
+.setup-main > .round-btn[aria-pressed="true"] {
+  background: var(--tt-color-accent-soft);
+  color: var(--tt-color-accent);
+}
+.setup-text {
+  padding-top: 6px;
+}
+.setup-state {
+  padding-top: 9px;
 }
 .setup-text {
   display: flex;
@@ -543,7 +622,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--tt-space-2);
-  margin: var(--tt-space-2) 0 0 52px;
+  margin: var(--tt-space-2) 0 0 48px;
 }
 .device {
   font: inherit;
@@ -635,6 +714,21 @@
 }
 
 /* --- the dock: Meet's bottom bar --------------------------------------------------------------------------- */
+/* Every centre control one filled disc, as Meet's: a device that is off is red, a mode that is on (sharing, slides
+   hidden) the accent tint. */
+.dock-centre .round-btn {
+  border-color: transparent;
+  background: var(--tt-color-raised);
+  color: var(--tt-color-text);
+}
+.dock-centre .round-btn:hover:not(:disabled) {
+  background: var(--tt-color-raised);
+  filter: brightness(1.15);
+}
+.dock-centre .round-btn:not([data-device])[aria-pressed="true"] {
+  background: var(--tt-color-accent-soft);
+  color: var(--tt-color-accent);
+}
 .console-dock {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -903,34 +997,38 @@
 /* The picked tool's colour, as a dot on the tool's corner: click it for the colour and width. */
 .tool-options-toggle {
   position: absolute;
-  right: -5px;
-  bottom: -3px;
+  right: 0;
+  bottom: 0;
   z-index: 1;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
-  border: 1px solid var(--tt-color-line);
+  border: 0;
   border-radius: 50%;
-  background: var(--tt-color-surface);
+  background: transparent;
   cursor: pointer;
-}
-.tool-options-toggle[aria-expanded="true"] {
-  border-color: var(--tt-color-accent);
 }
 .tool-options-dot {
   display: block;
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--tt-color-text-muted);
-  box-shadow: 0 0 0 1px var(--tt-ink-casing);
+  box-shadow:
+    0 0 0 1.5px var(--tt-color-surface),
+    0 0 0 2.5px var(--tt-color-line);
+}
+.tool-options-toggle[aria-expanded="true"] .tool-options-dot {
+  box-shadow:
+    0 0 0 1.5px var(--tt-color-surface),
+    0 0 0 3px var(--tt-color-accent);
 }
 .tool-popover {
   position: absolute;
-  top: 0;
-  left: calc(100% + var(--tt-space-3));
+  top: -5px;
+  left: calc(100% + var(--tt-space-3) + 5px);
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -1318,6 +1416,7 @@
 }
 .fact-list .glyph {
   grid-row: 1 / span 2;
+  align-self: center;
   width: 22px;
   height: 22px;
   color: var(--tt-color-text-muted);
@@ -1380,4 +1479,56 @@
   .console-body:has(> aside) {
     grid-template-columns: minmax(0, 1fr) 340px;
   }
+}
+
+/* In the Slides panel the line on what viewers see reads with the panel: left, under the deck's name. */
+.side-body .slides-status {
+  text-align: start;
+}
+/* Talk details: "Copied" shows beside the link's label instead of keeping an empty line under the link. */
+.details-body .link-row {
+  position: relative;
+}
+.details-body .link-row-status {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-height: 0;
+}
+/* The microphone picker as a quiet field, not the system's grey control. */
+.setup-detail select.device {
+  appearance: none;
+  height: 30px;
+  margin-top: 6px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--tt-color-line);
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-color-raised)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23999' d='M12 15.4 6.6 10 8 8.6l4 4 4-4 1.4 1.4z'/%3E%3C/svg%3E")
+    no-repeat right 8px center / 16px;
+  color: var(--tt-color-text);
+  font-size: var(--tt-text-small);
+  cursor: pointer;
+}
+.setup-main > .round-btn {
+  color: var(--tt-color-text);
+  cursor: pointer;
+}
+/* The console's state when not live: a dot and a word, as Ended; amber when it needs the speaker. */
+.on-air-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tt-color-text-muted);
+  font-weight: var(--tt-weight-strong);
+}
+.on-air-state::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.on-air-state[data-tone="warning"] {
+  color: var(--tt-color-degraded);
 }
