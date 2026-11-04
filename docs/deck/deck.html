@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Talk Tracks · Why MoQT and how it runs</title>
+<!--
+  Source of docs/deck/talk-tracks-moqt.pdf and docs/deck/png/*.png (1920x1080, 16:9).
+  Every claim is backed by the repo: README.md, wiki/benchmark.md, wiki/howto/lazy-agents.md,
+  deploy/compose.vm.yml, deploy/Caddyfile and the decisions in wiki/decisions/. Export: bash docs/deck/export.sh.
+  Open with #3 to show slide 3 alone (used for the PNG export).
+-->
+<style>
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("fonts/atkinson-next-400.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("fonts/atkinson-next-600.woff2") format("woff2"); font-weight: 600; }
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("fonts/atkinson-next-700.woff2") format("woff2"); font-weight: 700; }
+
+:root {
+  --bg: #131316;        /* the player's stage */
+  --panel: #1d1d21;     /* the player's cards */
+  --panel-2: #26262c;
+  --line: #3b3b45;
+  --line-2: #55555f;
+  --text: #ededeb;
+  --muted: #a7a7b0;
+  --faint: #74747e;
+  --speaker: #6d9bff;   /* the app's Speaker/camera tile colour */
+  --slides: #f2a93b;    /* the app's Slides tile colour */
+  --screen: #2fc59a;    /* the app's Screen tile colour */
+  --ai: #c4a8ff;        /* AI agent tracks (deck only) */
+  --live: #ff6a5c;      /* live edge only */
+}
+
+@page { size: 1920px 1080px; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); }
+body {
+  color: var(--text);
+  font-family: "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.slide {
+  position: relative; width: 1920px; height: 1080px; overflow: hidden;
+  background: var(--bg); padding: 88px 120px 0;
+  break-after: page; page-break-after: always;
+}
+.slide:last-child { break-after: auto; page-break-after: auto; }
+body.one .slide { display: none; }
+body.one .slide.on { display: block; }
+
+.kicker { font-size: 26px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; margin: 0 0 14px; }
+.kicker b { color: var(--text); font-weight: 700; margin-right: 14px; }
+h1 { font-size: 62px; line-height: 1.08; font-weight: 700; margin: 0; letter-spacing: -0.01em; max-width: 1600px; }
+h1 .q { color: var(--muted); font-weight: 600; }
+.lede { font-size: 32px; line-height: 1.35; color: var(--muted); margin: 18px 0 0; max-width: 1500px; }
+.foot {
+  position: absolute; left: 120px; right: 120px; bottom: 40px;
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 21px; color: var(--faint);
+}
+.foot .brand { display: flex; align-items: center; gap: 12px; color: var(--muted); font-weight: 600; }
+.foot .src { flex: 1; margin: 0 40px; }
+.mark { width: 26px; height: 26px; }
+
+/* ---------- 1 title ---------- */
+.title-wrap { position: absolute; left: 120px; top: 190px; right: 120px; }
+.title-row { display: flex; align-items: center; gap: 44px; }
+.title-row svg { width: 150px; height: 150px; }
+.title-row .name { font-size: 150px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.subtitle { font-size: 48px; line-height: 1.25; margin: 56px 0 0; max-width: 1400px; }
+.subtitle .m { color: var(--muted); }
+
+/* ---------- 2 problem ---------- */
+.gaps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; margin-top: 96px; }
+.gap { border-top: 4px solid var(--line-2); padding-top: 26px; }
+.gap h2 { font-size: 46px; margin: 0 0 18px; font-weight: 700; }
+.gap p { font-size: 31px; line-height: 1.38; margin: 0; color: var(--muted); }
+.gap p strong { color: var(--text); font-weight: 600; }
+.thesis {
+  margin-top: 100px; display: grid; grid-template-columns: 1fr 1fr; gap: 36px;
+}
+.thesis div { background: var(--panel); border-radius: 14px; padding: 30px 36px; font-size: 31px; line-height: 1.38; }
+.thesis .k { display: block; font-size: 22px; font-weight: 600; color: var(--muted); margin-bottom: 10px; letter-spacing: 0.02em; }
+.thesis .ans { outline: 2px solid var(--text); outline-offset: -2px; }
+
+/* ---------- 3 comparison ---------- */
+table.cmp { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 40px; table-layout: fixed; }
+table.cmp th, table.cmp td { text-align: left; vertical-align: top; padding: 13px 20px; border-bottom: 1px solid var(--line); }
+table.cmp thead th { font-size: 27px; font-weight: 700; padding-bottom: 14px; border-bottom: 2px solid var(--line-2); }
+table.cmp thead th small { display: block; font-size: 19px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+table.cmp tbody th { font-size: 25px; font-weight: 600; line-height: 1.25; }
+table.cmp td { font-size: 22px; line-height: 1.3; color: var(--muted); }
+table.cmp td .g { display: inline-block; width: 19px; height: 19px; border-radius: 50%; border: 2.5px solid var(--text); margin-right: 12px; vertical-align: -2px; }
+table.cmp td .g.y { background: var(--text); }
+table.cmp td .g.p { background: linear-gradient(90deg, var(--text) 50%, transparent 50%); }
+table.cmp col.need { width: 400px; }
+table.cmp .us { background: var(--panel-2); color: var(--text); }
+table.cmp thead th.us { border-radius: 14px 14px 0 0; }
+table.cmp tbody tr:last-child .us { border-radius: 0 0 14px 14px; }
+table.cmp tbody tr:last-child th, table.cmp tbody tr:last-child td { border-bottom: none; }
+table.cmp .num { font-size: 26px; color: var(--text); font-weight: 600; }
+.accept { margin-top: 22px; font-size: 24px; line-height: 1.4; color: var(--muted); border-left: 4px solid var(--line-2); padding: 4px 0 4px 22px; }
+.accept b { color: var(--text); }
+
+/* ---------- svg diagrams ---------- */
+svg.dia { display: block; }
+svg.dia text { font-family: "Atkinson Hyperlegible Next", "Segoe UI", sans-serif; fill: var(--text); }
+svg.dia .m { fill: var(--muted); }
+svg.dia .f { fill: var(--faint); }
+svg.dia .b { font-weight: 700; }
+svg.dia .sb { font-weight: 600; }
+
+/* ---------- 7 models ---------- */
+table.models { width: 100%; border-collapse: collapse; margin-top: 44px; table-layout: fixed; }
+table.models th, table.models td { text-align: left; vertical-align: top; padding: 20px 22px; border-bottom: 1px solid var(--line); }
+table.models thead th { font-size: 22px; font-weight: 600; color: var(--muted); border-bottom: 2px solid var(--line-2); padding-top: 0; }
+table.models td { font-size: 25px; line-height: 1.34; color: var(--muted); }
+table.models td.t { color: var(--text); font-weight: 700; font-size: 27px; }
+table.models td.t small { display: block; color: var(--ai); font-weight: 400; font-size: 20px; margin-top: 4px; }
+table.models td.mdl { color: var(--text); font-weight: 600; }
+table.models td.mdl small { display: block; color: var(--muted); font-weight: 400; font-size: 20px; margin-top: 4px; }
+table.models tr:last-child td { border-bottom: none; }
+
+/* ---------- 8 close ---------- */
+.close-line { font-size: 84px; font-weight: 700; line-height: 1.08; letter-spacing: -0.015em; margin: 200px 0 0; max-width: 1720px; }
+.close-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 60px; margin-top: 120px; max-width: 1680px; }
+.close-grid div { font-size: 30px; line-height: 1.38; }
+.close-grid .k { display: block; font-size: 22px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 4px; }
+.close-grid .credits { grid-column: 1 / -1; font-size: 24px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="logomark" viewBox="5 2 60 60"><path d="M14 6L33.4 18H14ZM14 26H46.3L56 32L46.3 38H14ZM14 46H33.4L14 58Z" fill="#ededeb" stroke="#ededeb" stroke-width="3" stroke-linejoin="round"/></symbol>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#a7a7b0"/></marker>
+    <marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#ededeb"/></marker>
+    <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#6d9bff"/></marker>
+    <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#c4a8ff"/></marker>
+    <pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="10" height="10" fill="#1d1d21"/><line x1="0" y1="0" x2="0" y2="10" stroke="#c4a8ff" stroke-width="3" opacity="0.55"/></pattern>
+  </defs>
+</svg>
+
+<!-- =============================== 1 · TITLE =============================== -->
+<section class="slide" id="s1" data-name="title">
+  <div class="title-wrap">
+    <div class="title-row">
+      <svg viewBox="5 2 60 60" aria-hidden="true"><use href="#logomark"/></svg>
+      <div class="name">Talk Tracks</div>
+    </div>
+    <p class="subtitle">A live talk in any language, on Media over QUIC.<br>
+      <span class="m">Why we chose MoQT, how the system runs on one small server, and what Meta's models do in it.</span></p>
+  </div>
+
+  <svg class="dia" width="1680" height="190" viewBox="0 0 1680 190" style="position:absolute;left:120px;top:770px" aria-hidden="true">
+    <!-- five tracks of one room, as the app names them; group ticks every 4 s -->
+    <g font-size="21">
+      <text x="0" y="20" class="sb" style="fill:#6d9bff">teacher</text>
+      <text x="0" y="57" class="sb" style="fill:#f2a93b">slides</text>
+      <text x="0" y="94" class="sb" style="fill:#c4a8ff">captions</text>
+      <text x="0" y="131" class="sb" style="fill:#c4a8ff">translate-tr</text>
+      <text x="0" y="168" class="sb" style="fill:#c4a8ff">translate-ja</text>
+    </g>
+    <g stroke-width="3">
+      <line x1="180" y1="13" x2="1680" y2="13" stroke="#6d9bff"/>
+      <line x1="180" y1="50" x2="1680" y2="50" stroke="#f2a93b"/>
+      <line x1="180" y1="87" x2="1680" y2="87" stroke="#c4a8ff"/>
+      <line x1="780" y1="124" x2="1680" y2="124" stroke="#c4a8ff"/>
+      <line x1="1230" y1="161" x2="1680" y2="161" stroke="#c4a8ff"/>
+    </g>
+    <g stroke="#131316" stroke-width="5">
+      <line x1="330" y1="40" x2="330" y2="60"/><line x1="480" y1="40" x2="480" y2="60"/><line x1="630" y1="40" x2="630" y2="60"/><line x1="780" y1="40" x2="780" y2="60"/><line x1="930" y1="40" x2="930" y2="60"/><line x1="1080" y1="40" x2="1080" y2="60"/><line x1="1230" y1="40" x2="1230" y2="60"/><line x1="1380" y1="40" x2="1380" y2="60"/><line x1="1530" y1="40" x2="1530" y2="60"/>
+      <line x1="330" y1="77" x2="330" y2="97"/><line x1="480" y1="77" x2="480" y2="97"/><line x1="630" y1="77" x2="630" y2="97"/><line x1="780" y1="77" x2="780" y2="97"/><line x1="930" y1="77" x2="930" y2="97"/><line x1="1080" y1="77" x2="1080" y2="97"/><line x1="1230" y1="77" x2="1230" y2="97"/><line x1="1380" y1="77" x2="1380" y2="97"/><line x1="1530" y1="77" x2="1530" y2="97"/>
+      <line x1="930" y1="114" x2="930" y2="134"/><line x1="1080" y1="114" x2="1080" y2="134"/><line x1="1230" y1="114" x2="1230" y2="134"/><line x1="1380" y1="114" x2="1380" y2="134"/><line x1="1530" y1="114" x2="1530" y2="134"/>
+      <line x1="1380" y1="151" x2="1380" y2="171"/><line x1="1530" y1="151" x2="1530" y2="171"/>
+    </g>
+  </svg>
+
+  <div class="foot">
+    <span>Levent Aksakal · Meta Global AI Developer Hackathon · built 27 Oct – 4 Nov 2026</span>
+    <span>talk-tracks.leventaksakal.com</span>
+  </div>
+</section>
+
+<!-- =============================== 2 · PROBLEM =============================== -->
+<section class="slide" id="s2" data-name="problem">
+  <p class="kicker"><b>1</b>The problem</p>
+  <h1>A live talk reaches only part of its room.</h1>
+
+  <div class="gaps">
+    <div class="gap"><h2>Language</h2><p>Anyone who does not share the speaker's language <strong>gets nothing live</strong>.</p></div>
+    <div class="gap"><h2>Sight</h2><p>A slide nobody describes is <strong>lost to a listener who cannot see it</strong>.</p></div>
+    <div class="gap"><h2>Time</h2><p>Arrive late or look away, and a live stream <strong>has no way back</strong>.</p></div>
+  </div>
+
+  <div class="thesis">
+    <div><span class="k">AI CAN CLOSE EACH GAP, BUT</span>captions, translation, slide descriptions and chapters, run for every talk in every language all the time, pay for output nobody reads.</div>
+    <div class="ans"><span class="k">SO</span>each AI job is a <strong>track</strong> in the live broadcast, and it runs <strong>only while someone subscribes</strong> to it.</div>
+  </div>
+
+  <div class="foot">
+    <span class="brand"><svg class="mark" viewBox="5 2 60 60"><use href="#logomark"/></svg>Talk Tracks</span>
+    <span>2 / 8</span>
+  </div>
+</section>
+
+<!-- =============================== 3 · WHY MoQT =============================== -->
+<section class="slide" id="s3" data-name="why-moqt">
+  <p class="kicker"><b>2</b>The transport</p>
+  <h1>Why MoQT <span class="q">and not WebRTC, HLS or WebSockets</span></h1>
+
+  <table class="cmp">
+    <colgroup><col class="need"><col><col><col><col></colgroup>
+    <thead>
+      <tr>
+        <th>What the talk needs</th>
+        <th>WebRTC<small>an SFU, WHIP/WHEP</small></th>
+        <th>LL-HLS<small>segments over a CDN</small></th>
+        <th>WebSockets<small>a socket server</small></th>
+        <th class="us">MoQT<small>one relay, what we use</small></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>Named tracks for media and data, side by side</th>
+        <td><span class="g p"></span>tracks and data channels; naming is per SFU</td>
+        <td><span class="g"></span>one audio and one subtitle rendition at a time</td>
+        <td><span class="g p"></span>any bytes; the protocol is yours</td>
+        <td class="us"><span class="g y"></span>a broadcast is a set of named tracks</td>
+      </tr>
+      <tr>
+        <th>The publisher sees whether anyone listens</th>
+        <td><span class="g p"></span>depends on the SFU</td>
+        <td><span class="g"></span>the origin never knows who stopped</td>
+        <td><span class="g p"></span>you build it</td>
+        <td class="us"><span class="g y"></span>the relay subscribes upstream only on demand</td>
+      </tr>
+      <tr>
+        <th>Fan-out through a cache</th>
+        <td><span class="g p"></span>SFU cascades, no caching</td>
+        <td><span class="g y"></span>any HTTP CDN</td>
+        <td><span class="g"></span>every viewer is a socket on your server</td>
+        <td class="us"><span class="g y"></span>relays fan out and cache groups</td>
+      </tr>
+      <tr>
+        <th>Live and the past on the same track</th>
+        <td><span class="g"></span>real-time only</td>
+        <td><span class="g p"></span>a DVR window; text tied to segments</td>
+        <td><span class="g"></span>you build the history</td>
+        <td class="us"><span class="g y"></span>SUBSCRIBE the edge, FETCH a past group</td>
+      </tr>
+      <tr>
+        <th>Pushed as it is produced</th>
+        <td><span class="g y"></span>RTP and data channels</td>
+        <td><span class="g"></span>the player polls playlists</td>
+        <td><span class="g y"></span>pushed</td>
+        <td class="us"><span class="g y"></span>each group on its own QUIC stream</td>
+      </tr>
+      <tr>
+        <th>Glass-to-glass latency, p50 *</th>
+        <td><span class="num">336 ms</span></td>
+        <td><span class="num">907 ms</span></td>
+        <td>not measured</td>
+        <td class="us"><span class="num">570 ms</span>; text track <span class="num">11 ms</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="accept"><b>What we accept:</b> MoQT is still an IETF draft, so versions are pinned (moq-relay 0.17.8, agents on draft-18).
+    Safari and iOS reach the relay over a WebSocket fallback. One CDN offers MoQ so far, in beta.</p>
+
+  <div class="foot">
+    <span class="brand"><svg class="mark" viewBox="5 2 60 60"><use href="#logomark"/></svg>Talk Tracks</span>
+    <span class="src">* One-laptop harness check over loopback, MoQ player delay 500 ms (wiki/benchmark.md). Filled = yes, half = partly, empty = no. The WebSockets column is our reading.</span>
+    <span>3 / 8</span>
+  </div>
+</section>
+
+<!-- =============================== 4 · TRACKS =============================== -->
+<section class="slide" id="s4" data-name="tracks">
+  <p class="kicker"><b>3</b>Tracks are the containers</p>
+  <h1>Media, ink and every AI job are tracks of one broadcast</h1>
+
+  <svg class="dia" width="1680" height="760" viewBox="0 0 1680 760" style="margin-top:34px" role="img" aria-label="Tracks of one room as lanes of 4-second groups">
+    <!-- names -->
+    <text x="0" y="40" font-size="24" class="m sb">talk/&lt;room&gt;/</text>
+    <g font-size="25">
+      <text x="24" y="104" class="sb" style="fill:#6d9bff">teacher</text><text x="146" y="104" font-size="20" class="m">audio, video</text>
+      <text x="24" y="168" class="sb" style="fill:#f2a93b">slides</text><text x="124" y="168" font-size="20" class="m">deck, slide, ink, pointer</text>
+      <text x="24" y="232" class="sb" style="fill:#c4a8ff">agents/captions</text>
+      <text x="24" y="296" class="sb" style="fill:#c4a8ff">agents/translate-tr</text>
+      <text x="24" y="360" class="sb" style="fill:#c4a8ff">agents/translate-ja</text>
+      <text x="24" y="424" class="sb" style="fill:#c4a8ff">agents/describe</text>
+      <text x="24" y="488" class="sb" style="fill:#c4a8ff">agents/chapters</text>
+      <text x="24" y="552" class="sb">chat · stats</text><text x="170" y="552" font-size="20" class="m">room service</text>
+    </g>
+
+    <!-- room clock: groups 40..45, 4 s each, 160 px per group from x=520 -->
+    <g font-size="20" class="m">
+      <text x="600" y="40" text-anchor="middle" class="m">group 40</text>
+      <text x="760" y="40" text-anchor="middle" class="m">41</text>
+      <text x="920" y="40" text-anchor="middle" class="m">42</text>
+      <text x="1080" y="40" text-anchor="middle" class="m">43</text>
+      <text x="1240" y="40" text-anchor="middle" class="m">44</text>
+      <text x="1400" y="40" text-anchor="middle" class="m">45</text>
+    </g>
+    <line x1="520" y1="56" x2="1480" y2="56" stroke="#3b3b45" stroke-width="2"/>
+    <g stroke="#3b3b45" stroke-width="2"><line x1="520" y1="50" x2="520" y2="62"/><line x1="680" y1="50" x2="680" y2="62"/><line x1="840" y1="50" x2="840" y2="62"/><line x1="1000" y1="50" x2="1000" y2="62"/><line x1="1160" y1="50" x2="1160" y2="62"/><line x1="1320" y1="50" x2="1320" y2="62"/><line x1="1480" y1="50" x2="1480" y2="62"/></g>
+
+    <!-- live edge -->
+    <line x1="1468" y1="66" x2="1468" y2="580" stroke="#ff6a5c" stroke-width="3" stroke-dasharray="8 7"/>
+    <text x="1490" y="104" font-size="22" class="sb" style="fill:#ff6a5c">live edge</text>
+
+    <!-- teacher: media groups start at keyframes -->
+    <g fill="#6d9bff" fill-opacity="0.16" stroke="#6d9bff" stroke-width="2">
+      <rect x="524" y="80" width="232" height="36" rx="6"/><rect x="762" y="80" width="232" height="36" rx="6"/><rect x="1000" y="80" width="232" height="36" rx="6"/><rect x="1238" y="80" width="228" height="36" rx="6"/>
+    </g>
+    <!-- event + AI lanes: helper geometry, 4 s groups -->
+    <g id="lanes" stroke-width="2">
+      <!-- slides -->
+      <g fill="#f2a93b" fill-opacity="0.14" stroke="#f2a93b">
+        <rect x="524" y="144" width="152" height="36" rx="6"/><rect x="684" y="144" width="152" height="36" rx="6"/><rect x="844" y="144" width="152" height="36" rx="6"/><rect x="1004" y="144" width="152" height="36" rx="6"/><rect x="1164" y="144" width="152" height="36" rx="6"/><rect x="1324" y="144" width="142" height="36" rx="6"/>
+      </g>
+      <!-- captions -->
+      <g fill="#c4a8ff" fill-opacity="0.14" stroke="#c4a8ff">
+        <rect x="524" y="208" width="152" height="36" rx="6"/><rect x="684" y="208" width="152" height="36" rx="6"/><rect x="844" y="208" width="152" height="36" rx="6"/><rect x="1004" y="208" width="152" height="36" rx="6"/><rect x="1164" y="208" width="152" height="36" rx="6"/><rect x="1324" y="208" width="142" height="36" rx="6"/>
+      </g>
+      <!-- translate-tr -->
+      <g fill="#c4a8ff" fill-opacity="0.14" stroke="#c4a8ff">
+        <rect x="524" y="272" width="152" height="36" rx="6"/><rect x="684" y="272" width="152" height="36" rx="6"/><rect x="844" y="272" width="152" height="36" rx="6"/><rect x="1004" y="272" width="152" height="36" rx="6"/><rect x="1164" y="272" width="152" height="36" rx="6"/><rect x="1324" y="272" width="142" height="36" rx="6"/>
+      </g>
+      <!-- translate-ja: picked during group 43 -->
+      <g fill="#c4a8ff" fill-opacity="0.14" stroke="#c4a8ff">
+        <rect x="1004" y="336" width="152" height="36" rx="6"/><rect x="1164" y="336" width="152" height="36" rx="6"/><rect x="1324" y="336" width="142" height="36" rx="6"/>
+      </g>
+      <line x1="524" y1="354" x2="996" y2="354" stroke="#55555f" stroke-dasharray="4 8"/>
+      <!-- describe: one object per new slide -->
+      <g fill="#c4a8ff" fill-opacity="0.14" stroke="#c4a8ff">
+        <rect x="684" y="400" width="152" height="36" rx="6"/><rect x="1164" y="400" width="152" height="36" rx="6"/>
+      </g>
+      <!-- chapters -->
+      <g fill="#c4a8ff" fill-opacity="0.14" stroke="#c4a8ff">
+        <rect x="524" y="464" width="152" height="36" rx="6"/><rect x="684" y="464" width="152" height="36" rx="6"/><rect x="844" y="464" width="152" height="36" rx="6"/><rect x="1004" y="464" width="152" height="36" rx="6"/><rect x="1164" y="464" width="152" height="36" rx="6"/><rect x="1324" y="464" width="142" height="36" rx="6"/>
+      </g>
+      <!-- chat/stats -->
+      <g fill="#ededeb" fill-opacity="0.08" stroke="#74747e">
+        <rect x="524" y="528" width="152" height="36" rx="6"/><rect x="684" y="528" width="152" height="36" rx="6"/><rect x="844" y="528" width="152" height="36" rx="6"/><rect x="1004" y="528" width="152" height="36" rx="6"/><rect x="1164" y="528" width="152" height="36" rx="6"/><rect x="1324" y="528" width="142" height="36" rx="6"/>
+      </g>
+    </g>
+    <!-- object 0 = carry-in markers at each group start (one lane shown in full) -->
+    <g fill="#ededeb">
+      <rect x="530" y="217" width="12" height="18" rx="2"/><rect x="690" y="217" width="12" height="18" rx="2"/><rect x="850" y="217" width="12" height="18" rx="2"/><rect x="1010" y="217" width="12" height="18" rx="2"/><rect x="1170" y="217" width="12" height="18" rx="2"/><rect x="1330" y="217" width="12" height="18" rx="2"/>
+    </g>
+    <g fill="#c4a8ff">
+      <circle cx="568" cy="226" r="4"/><circle cx="604" cy="226" r="4"/><circle cx="650" cy="226" r="4"/>
+      <circle cx="724" cy="226" r="4"/><circle cx="790" cy="226" r="4"/>
+      <circle cx="880" cy="226" r="4"/><circle cx="912" cy="226" r="4"/><circle cx="960" cy="226" r="4"/>
+      <circle cx="1046" cy="226" r="4"/><circle cx="1110" cy="226" r="4"/>
+      <circle cx="1210" cy="226" r="4"/><circle cx="1250" cy="226" r="4"/><circle cx="1290" cy="226" r="4"/>
+      <circle cx="1372" cy="226" r="4"/><circle cx="1420" cy="226" r="4"/>
+    </g>
+    <!-- picked marker for JA -->
+    <text x="1004" y="394" font-size="19" class="m">made from the moment someone picked Japanese</text>
+
+    <!-- FETCH highlight on group 41 of translate-tr -->
+    <rect x="678" y="264" width="164" height="52" rx="9" fill="none" stroke="#ededeb" stroke-width="3"/>
+
+    <!-- callouts -->
+    <g font-size="23">
+      <path d="M760 612 V 322" stroke="#ededeb" stroke-width="2.5" fill="none" marker-end="url(#ahw)"/>
+      <text x="520" y="648" class="b">Rewind: FETCH group 41</text>
+      <text x="520" y="680" class="m">served by the relay's cache, else by the agent's</text>
+      <text x="520" y="708" class="m">archive. No new model call.</text>
+
+      <path d="M1468 612 V 586" stroke="#ff6a5c" stroke-width="2.5" fill="none" marker-end="url(#ahw)"/>
+      <text x="1080" y="648" class="b">Live: SUBSCRIBE at the edge</text>
+      <text x="1080" y="680" class="m">new groups are pushed as they are made;</text>
+      <text x="1080" y="708" class="m">the relay merges every viewer into one upstream.</text>
+
+      <rect x="0" y="618" width="12" height="18" rx="2" fill="#ededeb"/>
+      <text x="24" y="634" class="b">Object 0 = carry-in</text>
+      <text x="0" y="666" class="m">the state at the slice start,</text>
+      <text x="0" y="694" class="m">so any group is a join point.</text>
+      <text x="0" y="732" class="m">A group = 4 s of the room clock.</text>
+    </g>
+  </svg>
+
+  <div class="foot">
+    <span class="brand"><svg class="mark" viewBox="5 2 60 60"><use href="#logomark"/></svg>Talk Tracks</span>
+    <span class="src">Decisions 0010, 0012, 0017 · wiki/design/moq-track-system.md</span>
+    <span>4 / 8</span>
+  </div>
+</section>
+
+<!-- =============================== 5 · ARCHITECTURE =============================== -->
+<section class="slide" id="s5" data-name="architecture">
+  <p class="kicker"><b>4</b>The system</p>
+  <h1>One relay, four agents, one small VM</h1>
+
+  <svg class="dia" width="1680" height="790" viewBox="0 0 1680 790" style="margin-top:26px" role="img" aria-label="Architecture: browsers, one VM with Caddy, moq-relay, agents, room service and data, and the Meta Model API">
+    <!-- VM frame -->
+    <rect x="380" y="6" width="990" height="778" rx="18" fill="none" stroke="#55555f" stroke-width="2" stroke-dasharray="10 8"/>
+    <text x="410" y="44" font-size="22" class="m sb">ONE VM · Docker Compose (deploy/compose.vm.yml)</text>
+
+    <!-- browsers -->
+    <rect x="0" y="70" width="290" height="170" rx="14" fill="#1d1d21" stroke="#6d9bff" stroke-width="3"/>
+    <text x="22" y="110" font-size="27" class="b">Speaker's browser</text>
+    <text x="22" y="146" font-size="21" class="m">console: mic, camera,</text>
+    <text x="22" y="174" font-size="21" class="m">PDF slides, pen, laser</text>
+    <text x="22" y="214" font-size="19" class="f">publishes with a signed token</text>
+
+    <rect x="0" y="330" width="290" height="260" rx="14" fill="#1d1d21" stroke="#55555f" stroke-width="2"/>
+    <text x="22" y="370" font-size="27" class="b">Listeners' browsers</text>
+    <text x="22" y="406" font-size="21" class="m">the player subscribes</text>
+    <text x="22" y="434" font-size="21" class="m">to each track it shows</text>
+    <text x="22" y="474" font-size="19" class="f">WebTransport over QUIC;</text>
+    <text x="22" y="500" font-size="19" class="f">WebSocket fallback</text>
+    <text x="22" y="526" font-size="19" class="f">(Safari, iOS) via Caddy</text>
+
+    <!-- relay -->
+    <rect x="410" y="70" width="440" height="200" rx="14" fill="#26262c" stroke="#ededeb" stroke-width="3"/>
+    <text x="434" y="112" font-size="29" class="b">moq-relay 0.17.8</text>
+    <text x="434" y="146" font-size="21" class="m">443/udp · one relay, one cache</text>
+    <text x="434" y="176" font-size="21" class="m">merges subscriptions, caches groups</text>
+    <line x1="434" y1="196" x2="826" y2="196" stroke="#3b3b45"/>
+    <text x="434" y="226" font-size="20" class="sb">auth</text>
+    <text x="484" y="226" font-size="20" class="m">anyone subscribes to talk/**;</text>
+    <text x="484" y="252" font-size="20" class="m">publishing needs a signed token</text>
+
+    <!-- agents -->
+    <rect x="920" y="70" width="410" height="372" rx="14" fill="#1d1d21" stroke="#c4a8ff" stroke-width="2.5"/>
+    <text x="944" y="110" font-size="27" class="b">AI agents</text>
+    <text x="1080" y="110" font-size="20" class="m">one publisher each</text>
+    <g font-size="23">
+      <rect x="944" y="128" width="362" height="62" rx="9" fill="#26262c"/>
+      <text x="962" y="155" class="sb" style="fill:#c4a8ff">captions</text><text x="962" y="180" font-size="18" class="m">audio → caption lines</text>
+      <rect x="944" y="200" width="362" height="62" rx="9" fill="#26262c"/>
+      <text x="962" y="227" class="sb" style="fill:#c4a8ff">translate-any</text><text x="962" y="252" font-size="18" class="m">captions → one track per language</text>
+      <rect x="944" y="272" width="362" height="62" rx="9" fill="#26262c"/>
+      <text x="962" y="299" class="sb" style="fill:#c4a8ff">describe</text><text x="962" y="324" font-size="18" class="m">slide frames → descriptions</text>
+      <rect x="944" y="344" width="362" height="62" rx="9" fill="#26262c"/>
+      <text x="962" y="371" class="sb" style="fill:#c4a8ff">chapters</text><text x="962" y="396" font-size="18" class="m">captions → chapters, glossary, recap</text>
+    </g>
+    <text x="944" y="430" font-size="18" class="f">idle until their track is subscribed</text>
+
+    <!-- caddy -->
+    <rect x="410" y="350" width="440" height="160" rx="14" fill="#1d1d21" stroke="#55555f" stroke-width="2"/>
+    <text x="434" y="390" font-size="27" class="b">Caddy</text>
+    <text x="534" y="390" font-size="20" class="m">443/tcp, HTTPS</text>
+    <text x="434" y="424" font-size="20" class="m">the web app · /archive: recordings (HLS)</text>
+    <text x="434" y="452" font-size="20" class="m">and 4 s slices · /api → room service</text>
+    <text x="434" y="480" font-size="20" class="m">WebSocket fallback → relay</text>
+
+    <!-- room service -->
+    <rect x="920" y="476" width="410" height="168" rx="14" fill="#1d1d21" stroke="#55555f" stroke-width="2"/>
+    <text x="944" y="514" font-size="27" class="b">Room service + archive</text>
+    <text x="944" y="548" font-size="20" class="m">rooms, access codes, speaker tokens</text>
+    <text x="944" y="576" font-size="20" class="m">chat and stats tracks; listener writes</text>
+    <text x="944" y="604" font-size="20" class="m">records every track as it plays</text>
+
+    <!-- demo sessions -->
+    <rect x="530" y="546" width="320" height="98" rx="12" fill="#1d1d21" stroke="#3b3b45" stroke-width="2"/>
+    <text x="550" y="580" font-size="22" class="sb">Demo sessions</text>
+    <text x="550" y="610" font-size="19" class="m">4 lecture players, 4 recordings;</text>
+    <text x="550" y="634" font-size="19" class="m">publish like a speaker</text>
+
+    <!-- data volume -->
+    <rect x="410" y="676" width="920" height="88" rx="12" fill="#1d1d21" stroke="#3b3b45" stroke-width="2"/>
+    <text x="434" y="712" font-size="22" class="sb">/data</text>
+    <text x="434" y="742" font-size="19" class="m">disk volume</text>
+    <text x="560" y="712" font-size="21" class="sb">archive</text>
+    <text x="560" y="742" font-size="19" class="m">CMAF + HLS, AI-track slices</text>
+    <text x="860" y="712" font-size="21" class="sb">spend ledger</text>
+    <text x="860" y="742" font-size="19" class="m">every Meta call, with its room</text>
+    <text x="1130" y="712" font-size="21" class="sb">caps</text>
+    <text x="1130" y="742" font-size="19" class="m">room $2 · total $100</text>
+
+    <!-- Meta -->
+    <rect x="1420" y="70" width="260" height="372" rx="14" fill="#1d1d21" stroke="#55555f" stroke-width="2"/>
+    <text x="1442" y="110" font-size="27" class="b">Meta Model API</text>
+    <text x="1442" y="156" font-size="21" class="sb">Muse Voice</text>
+    <text x="1442" y="182" font-size="21" class="sb">Transcribe</text>
+    <text x="1442" y="208" font-size="18" class="m">realtime speech to text</text>
+    <text x="1442" y="258" font-size="21" class="sb">Muse Spark</text>
+    <text x="1442" y="284" font-size="18" class="m">text and vision</text>
+    <text x="1442" y="340" font-size="18" class="f">called only from the</text>
+    <text x="1442" y="364" font-size="18" class="f">agents, never a browser</text>
+
+    <!-- arrows -->
+    <g fill="none" stroke-width="2.5">
+      <!-- speaker -> relay -->
+      <path d="M290 140 H 404" stroke="#6d9bff" marker-end="url(#ahb)"/>
+      <!-- relay -> listeners -->
+      <path d="M410 236 H 330 V 380 H 296" stroke="#ededeb" marker-end="url(#ahw)"/>
+      <!-- listeners <-> caddy -->
+      <path d="M296 440 H 404" stroke="#a7a7b0" marker-start="url(#ah)" marker-end="url(#ah)"/>
+      <!-- caddy ws -> relay -->
+      <path d="M630 350 V 276" stroke="#a7a7b0" stroke-dasharray="7 6" marker-end="url(#ah)"/>
+      <!-- relay <-> agents -->
+      <path d="M856 120 H 914" stroke="#c4a8ff" marker-end="url(#aha)"/>
+      <path d="M914 168 H 856" stroke="#c4a8ff" marker-end="url(#aha)"/>
+      <!-- agents -> Meta -->
+      <path d="M1336 200 H 1414" stroke="#c4a8ff" marker-end="url(#aha)"/>
+      <!-- relay <-> room service -->
+      <path d="M856 250 H 885 V 540 H 914" stroke="#a7a7b0" marker-start="url(#ah)" marker-end="url(#ah)"/>
+      <!-- caddy -> room service (/api) -->
+      <path d="M850 490 H 870 V 600 H 914" stroke="#a7a7b0" marker-end="url(#ah)"/>
+      <!-- caddy reads /data archive -->
+      <path d="M470 670 V 516" stroke="#a7a7b0" marker-end="url(#ah)"/>
+      <!-- room service writes /data -->
+      <path d="M1125 650 V 670" stroke="#a7a7b0" marker-end="url(#ah)"/>
+      <!-- agents write slices + ledger -->
+      <path d="M1330 420 H 1350 V 720 H 1336" stroke="#c4a8ff" marker-end="url(#aha)"/>
+    </g>
+    <g font-size="18" class="m">
+      <text x="300" y="130" class="m">publish</text>
+      <text x="318" y="278" text-anchor="end" class="m">only the tracks</text>
+      <text x="318" y="300" text-anchor="end" class="m">a player asked for</text>
+      <text x="304" y="468" class="m">HTTPS</text>
+      <text x="1380" y="190" class="m">calls</text>
+    </g>
+  </svg>
+
+  <div class="foot">
+    <span class="brand"><svg class="mark" viewBox="5 2 60 60"><use href="#logomark"/></svg>Talk Tracks</span>
+    <span class="src">Decisions 0004, 0005, 0011, 0022, 0024 · deploy/compose.vm.yml, deploy/Caddyfile</span>
+    <span>5 / 8</span>
+  </div>
+</section>
+
+<!-- =============================== 6 · LAZY AI =============================== -->
+<section class="slide" id="s6" data-name="lazy-ai">
+  <p class="kicker"><b>5</b>AI on demand</p>
+  <h1>A model runs only while someone is listening</h1>
+
+  <svg class="dia" width="1680" height="660" viewBox="0 0 1680 660" style="margin-top:30px" role="img" aria-label="Timeline of the Turkish translation track: idle, started by the first listener, merged for the second, stopped after the last leaves, rewind served without a model call">
+    <!-- phase columns -->
+    <g stroke="#3b3b45" stroke-width="2" stroke-dasharray="4 6">
+      <line x1="560" y1="0" x2="560" y2="420"/><line x1="840" y1="0" x2="840" y2="420"/><line x1="1120" y1="0" x2="1120" y2="420"/><line x1="1400" y1="0" x2="1400" y2="420"/>
+    </g>
+    <g font-size="22" class="b">
+      <text x="300" y="26">① Nobody listens</text>
+      <text x="580" y="26">② First listener</text>
+      <text x="860" y="26">③ A second one</text>
+      <text x="1140" y="26">④ The last leaves</text>
+      <text x="1420" y="26">⑤ Rewind later</text>
+    </g>
+
+    <!-- lane labels -->
+    <g font-size="22">
+      <text x="0" y="96" class="sb">Listeners on Turkish</text>
+      <text x="0" y="176" class="sb">Relay → agent</text><text x="0" y="202" font-size="18" class="m">upstream subscription</text>
+      <text x="0" y="266" class="sb" style="fill:#c4a8ff">translate agent</text>
+      <text x="0" y="356" class="sb">Meta calls</text>
+    </g>
+
+    <!-- listeners step line: 0, 1, 2, 1, 0 -->
+    <path d="M300 106 H 580 V 86 H 860 V 66 H 1020 V 86 H 1140 V 106 H 1680" fill="none" stroke="#ededeb" stroke-width="3"/>
+    <g font-size="18" class="m"><text x="420" y="98">0</text><text x="700" y="78">1</text><text x="935" y="58">2</text><text x="1075" y="78">1</text><text x="1250" y="98">0</text></g>
+
+    <!-- upstream subscription -->
+    <rect x="582" y="160" width="562" height="30" rx="6" fill="#ededeb" fill-opacity="0.85"/>
+    <text x="600" y="182" font-size="18" style="fill:#131316" class="sb">one subscription, however many listen</text>
+    <line x1="300" y1="175" x2="578" y2="175" stroke="#55555f" stroke-width="2" stroke-dasharray="4 8"/>
+    <line x1="1148" y1="175" x2="1680" y2="175" stroke="#55555f" stroke-width="2" stroke-dasharray="4 8"/>
+
+    <!-- agent state -->
+    <rect x="300" y="246" width="276" height="30" rx="6" fill="none" stroke="#55555f" stroke-width="2"/>
+    <text x="318" y="268" font-size="18" class="m">idle, connected, $0</text>
+    <rect x="584" y="246" width="560" height="30" rx="6" fill="#c4a8ff" fill-opacity="0.85"/>
+    <text x="600" y="268" font-size="18" style="fill:#131316" class="sb">running</text>
+    <rect x="1146" y="246" width="100" height="30" rx="0" fill="url(#hatch)"/>
+    <text x="1150" y="302" font-size="18" class="m">10 s grace</text>
+    <rect x="1250" y="246" width="430" height="30" rx="6" fill="none" stroke="#55555f" stroke-width="2"/>
+    <text x="1266" y="268" font-size="18" class="m">idle again, $0</text>
+
+    <!-- meta call ticks -->
+    <g stroke="#c4a8ff" stroke-width="4">
+      <line x1="640" y1="336" x2="640" y2="366"/><line x1="690" y1="336" x2="690" y2="366"/><line x1="745" y1="336" x2="745" y2="366"/><line x1="800" y1="336" x2="800" y2="366"/>
+      <line x1="860" y1="336" x2="860" y2="366"/><line x1="915" y1="336" x2="915" y2="366"/><line x1="965" y1="336" x2="965" y2="366"/><line x1="1020" y1="336" x2="1020" y2="366"/><line x1="1075" y1="336" x2="1075" y2="366"/>
+      <line x1="1130" y1="336" x2="1130" y2="366"/><line x1="1185" y1="336" x2="1185" y2="366"/><line x1="1240" y1="336" x2="1240" y2="366"/>
+    </g>
+    <line x1="300" y1="351" x2="620" y2="351" stroke="#55555f" stroke-width="2" stroke-dasharray="4 8"/>
+    <line x1="1256" y1="351" x2="1680" y2="351" stroke="#55555f" stroke-width="2" stroke-dasharray="4 8"/>
+    <text x="1430" y="394" font-size="20" class="sb">no model call</text>
+
+    <!-- phase notes -->
+    <g font-size="21" class="m">
+      <text x="300" y="470">The track is announced,</text>
+      <text x="300" y="498">so a player can find it.</text>
+      <text x="300" y="526">Nothing is sent to Meta.</text>
+
+      <text x="580" y="470">The relay subscribes up-</text>
+      <text x="580" y="498">stream in 1–4 ms. Captions</text>
+      <text x="580" y="526">start too. First subtitle</text>
+      <text x="580" y="554">7.2 s after the pick.</text>
+
+      <text x="860" y="470">The relay merges it:</text>
+      <text x="860" y="498">nothing new upstream,</text>
+      <text x="860" y="526">no second model call</text>
+      <text x="860" y="554">per line.</text>
+
+      <text x="1140" y="470">Cancelled upstream in</text>
+      <text x="1140" y="498">7–12 ms (≈10 s if a tab</text>
+      <text x="1140" y="526">dies). After 10 s grace the</text>
+      <text x="1140" y="554">open slice closes; idle.</text>
+
+      <text x="1420" y="470">FETCH of a past group,</text>
+      <text x="1420" y="498">from the relay's cache</text>
+      <text x="1420" y="526">or the agent's archive:</text>
+      <text x="1420" y="554">paid for once.</text>
+    </g>
+
+    <!-- ledger band -->
+    <rect x="0" y="584" width="1680" height="76" rx="12" fill="#1d1d21"/>
+    <text x="24" y="630" font-size="23"><tspan class="b">Spend ledger:</tspan><tspan class="m"> each call is checked first against the room cap ($2) and the ceiling ($100). Measured: a language costs ≈ $0.025 per live minute.</tspan></text>
+  </svg>
+
+  <div class="foot">
+    <span class="brand"><svg class="mark" viewBox="5 2 60 60"><use href="#logomark"/></svg>Talk Tracks</span>
+    <span class="src">Decisions 0010, 0035 · wiki/howto/lazy-agents.md (relay timings measured on moq-relay 0.17.8) · README, measured runs</span>
+    <span>6 / 8</span>
+  </div>
+</section>
+
+<!-- =============================== 7 · META MODELS =============================== -->
+<section class="slide" id="s7" data-name="meta-models">
+  <p class="kicker"><b>6</b>Meta's models, per track</p>
+  <h1>Two Meta models make every AI track</h1>
+
+  <table class="models">
+    <colgroup><col style="width:330px"><col style="width:360px"><col><col style="width:330px"></colgroup>
+    <thead><tr><th>Track</th><th>Model</th><th>What it does</th><th>Runs while</th></tr></thead>
+    <tbody>
+      <tr><td class="t">Captions<small>agents/captions</small></td><td class="mdl">Muse Voice Transcribe<small>realtime, endpointing</small></td><td>Turns the speaker's audio into caption lines as they speak: the source text for every other AI track.</td><td>any AI track below has a listener</td></tr>
+      <tr><td class="t">Translation<small>agents/translate-&lt;lang&gt;</small></td><td class="mdl">Muse Spark<small>muse-spark-1.3, Standard</small></td><td>Translates each caption line into the language a listener picks, any of 50, with the three lines before it as context.</td><td>someone has that language on</td></tr>
+      <tr><td class="t">Slide descriptions<small>agents/describe</small></td><td class="mdl">Muse Spark<small>vision input</small></td><td>Describes each new slide for a listener who cannot see it; a slide shown again reuses its description.</td><td>someone has slide descriptions open</td></tr>
+      <tr><td class="t">Chapters<small>agents/chapters</small></td><td class="mdl">Muse Spark</td><td>Splits the talk into chapters as it goes, explains its terms in a glossary, writes a recap for late joiners.</td><td>someone has chapters open</td></tr>
+      <tr><td class="t">Recordings</td><td class="mdl">Muse Spark</td><td>Re-punctuates a recording's caption lines without changing a word, so subtitles break on sentences.</td><td>once per recording</td></tr>
+    </tbody>
+  </table>
+
+  <div class="foot">
+    <span class="brand"><svg class="mark" viewBox="5 2 60 60"><use href="#logomark"/></svg>Talk Tracks</span>
+    <span class="src">README, Meta models used · agents/src/talk_tracks/llm, asr</span>
+    <span>7 / 8</span>
+  </div>
+</section>
+
+<!-- =============================== 8 · CLOSE =============================== -->
+<section class="slide" id="s8" data-name="close">
+  <div class="title-row" style="gap:24px">
+    <svg viewBox="5 2 60 60" style="width:64px;height:64px" aria-hidden="true"><use href="#logomark"/></svg>
+    <div style="font-size:48px;font-weight:700">Talk Tracks</div>
+  </div>
+  <p class="close-line">Every AI job is a track you choose,<br>paid for only while someone listens.</p>
+
+  <div class="close-grid">
+    <div><span class="k">TRY IT LIVE</span>talk-tracks.leventaksakal.com</div>
+    <div><span class="k">THE CODE, APACHE-2.0</span>github.com/LeventAksakal/talk-tracks</div>
+    <div class="credits">Built from 27 Oct to 4 Nov 2026 for the Meta Global AI Developer Hackathon. Not built here, used under their licences:
+      moq-relay and the @moq libraries, aiomoqt, Media Chrome, hls.js, PDF.js, and Meta's models.</div>
+  </div>
+
+  <div class="foot">
+    <span>Levent Aksakal</span>
+    <span>8 / 8</span>
+  </div>
+</section>
+
+<script>
+  // #N shows slide N alone (the PNG export screenshots one slide per page load).
+  const n = parseInt(location.hash.slice(1), 10);
+  if (n) {
+    document.body.classList.add("one");
+    const s = document.getElementById("s" + n);
+    if (s) s.classList.add("on");
+  }
+</script>
+</body>
+</html>
