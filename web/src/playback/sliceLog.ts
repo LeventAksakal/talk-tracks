@@ -135,6 +135,11 @@ export class SliceLog {
     for (const [k, s] of this.#slices) if (s.origin === "fetch") this.#slices.delete(k);
   }
 
+  /** Drop every slice before `slice`, live or fetched. */
+  dropBefore(slice: number): void {
+    for (const k of this.#slices.keys()) if (k < slice) this.#slices.delete(k);
+  }
+
   /** Keep at most `max` slices, dropping those farthest from `around`. */
   trim(max: number, around: number): void {
     // Live slices stay: from the first live slice on, the subscription is the only source (a FETCH of

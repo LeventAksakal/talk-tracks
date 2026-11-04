@@ -347,8 +347,18 @@ export class AiTracks {
     }
     const o = parsed.value;
     entry.lastLiveAt = this.#now();
-    if (entry.ref.sliced && (entry.firstLive === undefined || group < entry.firstLive)) entry.firstLive = group;
     const before = entry.log.liveEdge();
+    // Live groups that skip ahead: the groups between never come live. On joining, the relay can open a subscription
+    // with an old group it still holds and then go on with the publisher's current one, minutes later; nothing fetched
+    // the slices between (they were past the first live slice), so the transcript jumped from that old minute to now.
+    // The current run of live groups starts here, so scrollback fetches the slices before it; a lone old group farther
+    // back than the scrollback is dropped, and the list reads like any join (what is held, then live), with no hole.
+    if (entry.ref.sliced && before !== undefined && group > before + 1) {
+      const lone = entry.firstLive === before;
+      entry.firstLive = group;
+      if (lone && group - before - 1 > this.#liveBack) entry.log.dropBefore(group);
+    }
+    if (entry.ref.sliced && (entry.firstLive === undefined || group < entry.firstLive)) entry.firstLive = group;
     if (o.kind === "snapshot") {
       if (!entry.outline || group >= entry.outline.group) entry.outline = { group, outline: o.outline };
     } else if (o.kind === "carry") {

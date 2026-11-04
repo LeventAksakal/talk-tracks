@@ -150,6 +150,35 @@ describe("AiTracks: joining a publisher that starts subscriptions at the next gr
   });
 });
 
+describe("AiTracks: a relay that opens a subscription with an old group", () => {
+  it("fetches the slices before the current live run, and drops the lone old group, so the transcript has no jump", async () => {
+    const source = new FakeHistorySource();
+    source.startAtNextGroup = true;
+    const room = new FakeRoom(source, ROOM);
+    room.start(200_000);
+    const path = room.path("captions");
+    const old = sliceOf(100_000);
+    const stale = await source.fetchGroup(path, ITEMS_TRACK, old, { priority: 0 });
+    source.fetches.length = 0;
+    // The relay hands over an old group it still holds first, then the publisher's current groups.
+    const subscribe = source.subscribe.bind(source);
+    source.subscribe = (p, track, onObject, options) => {
+      if (p === path) stale.forEach((payload, index) => onObject({ group: old, index, payload }));
+      return subscribe(p, track, onObject, options);
+    };
+    tracks = new AiTracks(source, ROOM, { liveBack: 3 });
+    tracks.setEnabled("captions/items", true);
+    await settle();
+    room.advanceTo(205_000);
+    await settle();
+    const k = sliceOf(205_000);
+    expect(source.fetchedGroups(path, ITEMS_TRACK)).toEqual(expect.arrayContaining([k - 1, k - 2, k - 3]));
+    const lines = view(tracks, "captions/items").sliced!.lines;
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.filter((l) => l.startMs < 150_000)).toEqual([]);
+  });
+});
+
 describe("AiTracks: FETCH on moq-relay 0.17.8", () => {
   it("never fetches the first live slice or a later one: those come from the subscription", async () => {
     const { source, room, tracks } = setup(100_000);
