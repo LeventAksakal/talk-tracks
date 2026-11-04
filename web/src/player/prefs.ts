@@ -1,5 +1,4 @@
-// Per-device preferences (decision 0020): the stage layout, subtitle language, style and position, the sound, the
-// side panel. There are no feature switches (decision 0026): a track is subscribed while what needs it is picked or
+// Per-device preferences (decision 0020): the stage layout, subtitle language, style and position, the side panel. There are no feature switches (decision 0026): a track is subscribed while what needs it is picked or
 // open (tracks.ts). Kept in localStorage, which can be missing or throw (private windows, blocked storage): every read
 // and write is guarded and the player works without it.
 
@@ -12,8 +11,6 @@ export type SourceKind = "camera" | "slides" | "screen";
 export type BoardKind = "slides" | "screen";
 export type SubtitlePreset = "default" | "large" | "contrast" | "light";
 export type PanelTab = "transcript" | "chapters" | "glossary" | "descriptions" | "notes" | (string & {});
-/** What you hear: the speaker, or the speaker with each new slide's description read aloud. */
-export type SoundKind = "speaker" | "describe";
 
 /** A point as fractions of a box, x from the left, y from the top. */
 export interface Fraction {
@@ -43,8 +40,6 @@ export interface Prefs {
    * nothing more there (tracks.roomSubtitles); a paid one is offered, never subscribed unasked.
    */
   subtitleRoom?: string;
-  /** The original, small, above the translation. */
-  dual: boolean;
   style: SubtitleStyle;
   /** Where the subtitles' bottom centre sits, as fractions of the canvas; undefined: the default spot. */
   subtitlePos: Fraction | undefined;
@@ -70,7 +65,6 @@ export interface Prefs {
   pipWidth: number;
   panel: boolean;
   tab: PanelTab;
-  sound: SoundKind;
   volume: number;
   muted: boolean;
 }
@@ -89,7 +83,6 @@ export const PIP_WIDTH = { min: 0.14, default: 0.24, max: 0.5 } as const;
 export const DEFAULT_PREFS: Prefs = {
   cc: false,
   subtitleLang: "original",
-  dual: false,
   style: DEFAULT_STYLE,
   subtitlePos: undefined,
   layout: "pip",
@@ -101,7 +94,6 @@ export const DEFAULT_PREFS: Prefs = {
   pipWidth: PIP_WIDTH.default,
   panel: true,
   tab: "transcript",
-  sound: "speaker",
   volume: 1,
   muted: false,
 };

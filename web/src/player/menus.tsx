@@ -1,28 +1,28 @@
-// The control bar's menus (ui-design §3.1, §4.1–§4.2, §4.7): subtitles with the language search and the
-// style submenu, layout, settings. Each is a small dialog of ordinary buttons and inputs, so Tab reaches
-// everything; the subtitle style previews live on the canvas while its menu is open.
+// The control bar's menus (ui-design §3.1, §4.1–§4.2, §4.7): subtitles (one list with type-ahead) and layout. Each
+// is a small dialog of ordinary buttons, so Tab reaches everything.
 
-import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { guardOf } from "../package/download";
 import { MoqHistorySource } from "../playback/moqSource";
 import { MoqTransport } from "../transport/moq";
 import type { Transport } from "../transport/types";
 import { usePlayer } from "./context";
-import { languageOption, searchLanguages, SUPPORTED_LANGUAGES } from "./languages";
+import { fold, languageOption, searchLanguages, SUPPORTED_LANGUAGES } from "./languages";
 import { type BoardKind, type LayoutKind } from "./prefs";
 import { StatsFeed } from "./roomStats";
 import { effectiveLayout, stageSources } from "./Stage";
 import { type LanguageReadiness, languageReadiness, translationFor } from "./tracks";
 
-/** What the subtitles menu says under a language, by how ready it is ("in this room" only for ready ones). */
+/** The quiet note beside a language the room already has: it shows at once. */
 const READINESS_NOTE: Record<LanguageReadiness, string | undefined> = {
-  running: "running in this room",
-  recorded: "recorded in this room",
-  // Said once, under the search field, rather than on every language row.
+  running: "running",
+  recorded: "recorded",
   "on-request": undefined,
   absent: undefined,
 };
-const READY_FIRST: Record<LanguageReadiness, number> = { running: 0, recorded: 0, "on-request": 1, absent: 2 };
+
+/** Keys typed this close together make one type-ahead prefix, ms. */
+const TYPE_AHEAD_MS = 800;
 
 /**
  * The tracks the room's stats track lists as running (decision 0028), read while the subtitles menu is open; undefined
@@ -48,7 +48,20 @@ function useStatsRunning(transport: Transport | undefined, room: string): Readon
   );
 }
 
-function Menu({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
+function Menu({
+  label,
+  children,
+  wide,
+  typeAhead,
+  onKeyDown,
+}: {
+  label: string;
+  children: ReactNode;
+  wide?: boolean;
+  /** Letters typed in it are its own (type-ahead), never the player's shortcuts (typing.ts). */
+  typeAhead?: boolean;
+  onKeyDown?: (e: KeyboardEvent<HTMLDivElement>) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Focus moves into the menu when it opens, onto its first control, and back to where it was (the menu's
@@ -63,7 +76,14 @@ function Menu({ label, children, wide }: { label: string; children: ReactNode; w
     };
   }, []);
   return (
-    <div ref={ref} className={`tt-menu${wide ? " tt-menu-wide" : ""}`} role="dialog" aria-label={label}>
+    <div
+      ref={ref}
+      className={`tt-menu${wide ? " tt-menu-wide" : ""}`}
+      role="dialog"
+      aria-label={label}
+      data-type-ahead={typeAhead ? "" : undefined}
+      onKeyDown={onKeyDown}
+    >
       {children}
     </div>
   );
@@ -74,117 +94,113 @@ function Choice({
   onClick,
   children,
   sub,
+  lang,
 }: {
   checked: boolean;
   onClick: () => void;
   children: ReactNode;
   sub?: string;
+  /** The language this row picks, for type-ahead. */
+  lang?: string;
 }) {
   return (
-    <button type="button" className="tt-menu-item" aria-pressed={checked} onClick={onClick}>
+    <button type="button" className="tt-menu-item" aria-pressed={checked} onClick={onClick} data-lang={lang}>
       <span>{children}</span>
       {sub ? <span className="tt-menu-sub">{sub}</span> : null}
     </button>
   );
 }
 
+/**
+ * Subtitles: one list, Off, the original, then every supported language A to Z (owner, 11-04). Typing while it is open
+ * jumps to the first language whose name starts with what was typed; the arrow keys move along the list.
+ */
 export function CaptionsMenu() {
   const ctx = usePlayer();
   const { prefs, update, tracks } = ctx;
-  const [query, setQuery] = useState("");
   const original = tracks.captions;
-  const originalName = languageOption(original?.lang ?? "en").local;
+  const originalLang = original?.lang ?? "en";
+  const originalName = languageOption(originalLang).local;
   const statsRunning = useStatsRunning(ctx.transport, ctx.roomName);
   const guard = guardOf(ctx);
   const readiness = (tag: string) => languageReadiness(translationFor(tracks, tag), guard, statsRunning);
-  const inRoom = tracks.translations.map((t) => t.lang!).filter(Boolean);
-  // Every language, by its name in the viewer's language (the name each row leads with), so the list reads A to Z.
-  const all = useMemo(
-    () => SUPPORTED_LANGUAGES.map((tag) => languageOption(tag)).sort((a, b) => a.local.localeCompare(b.local)),
-    [],
-  );
-  // The room's languages first, the ready ones at the top, each group A to Z; then every other language.
-  const roomOptions = inRoom
-    .map((tag) => ({ option: languageOption(tag), order: READY_FIRST[readiness(tag)] }))
-    .sort((a, b) => a.order - b.order || a.option.local.localeCompare(b.option.local))
-    .map((o) => o.option);
-  const others = all.filter((o) => !inRoom.some((tag) => tag.split("-")[0] === o.tag));
-  const results = searchLanguages([...roomOptions, ...others], query);
-  const translating = prefs.subtitleLang !== "original";
+  const roomKey = tracks.translations
+    .map((t) => t.lang)
+    .filter(Boolean)
+    .join(" ");
+  // Every supported language, a room's regional tag in its language's place, by its name in the viewer's language.
+  const options = useMemo(() => {
+    const room = roomKey ? roomKey.split(" ") : [];
+    const base = (tag: string) => tag.split("-")[0]!;
+    const extra = room.filter((tag) => !SUPPORTED_LANGUAGES.some((s) => s === tag || s === base(tag)));
+    const inRoom = (tag: string) => room.find((r) => r !== tag && base(r) === tag) ?? tag;
+    return [...new Set([...SUPPORTED_LANGUAGES.map(inRoom), ...extra])]
+      .filter((tag) => base(tag) !== base(originalLang))
+      .map((tag) => languageOption(tag))
+      .sort((a, b) => a.local.localeCompare(b.local));
+  }, [roomKey, originalLang]);
   const pick = (lang: string) => update({ cc: true, subtitleLang: lang });
+  const typed = useRef({ text: "", at: 0 });
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const menu = e.currentTarget;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>(".tt-menu-item")];
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const move = (i: number) => {
+      const item = items[Math.max(0, Math.min(items.length - 1, i))];
+      item?.focus({ preventScroll: true });
+      item?.scrollIntoView?.({ block: "nearest" });
+    };
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") move(at + (e.key === "ArrowDown" ? 1 : -1));
+    else if (e.key === "Home" || e.key === "End") move(e.key === "Home" ? 0 : items.length - 1);
+    else if (e.key.length === 1 && e.key !== " ") {
+      const t = typed.current;
+      const now = Date.now();
+      t.text = now - t.at < TYPE_AHEAD_MS ? t.text + e.key : e.key;
+      t.at = now;
+      const q = fold(t.text);
+      const hit = searchLanguages(options, t.text).find(
+        (o) => fold(o.local).startsWith(q) || fold(o.autonym).startsWith(q),
+      );
+      const button = hit && items.find((b) => b.dataset.lang === hit.tag);
+      if (button) move(items.indexOf(button));
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   return (
-    <Menu label="Subtitles" wide>
+    <Menu label="Subtitles" wide typeAhead onKeyDown={onKeyDown}>
       <Choice checked={!prefs.cc} onClick={() => update({ cc: false })}>
         Off
       </Choice>
       <Choice
-        checked={prefs.cc && !translating}
+        checked={prefs.cc && prefs.subtitleLang === "original"}
         onClick={() => pick("original")}
         sub={original ? undefined : "not in this room yet"}
       >
         Original ({originalName})
       </Choice>
-      <label className="tt-menu-heading" htmlFor="tt-lang-search">
-        Translate to…
-      </label>
-      <input
-        id="tt-lang-search"
-        className="tt-input"
-        type="search"
-        placeholder="Search any language"
-        value={query}
-        autoComplete="off"
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <p className="tt-menu-note">{all.length} languages. One not yet running starts a moment after you pick it.</p>
-      <div className="tt-menu-list" role="group" aria-label="Languages">
-        {results.map((o) => {
-          return (
-            <Choice
-              key={o.tag}
-              checked={prefs.cc && prefs.subtitleLang === o.tag}
-              onClick={() => pick(o.tag)}
-              sub={READINESS_NOTE[readiness(o.tag)]}
-            >
-              {o.local}
-              {o.local !== o.autonym ? (
-                <span className="tt-menu-local">
-                  {" · "}
-                  <span lang={o.tag} dir={o.dir}>
-                    {o.autonym}
-                  </span>
-                </span>
-              ) : null}
-            </Choice>
-          );
-        })}
-        {results.length === 0 ? <p className="tt-menu-note">No language matches “{query}”.</p> : null}
-      </div>
-      {translating ? (
-        <Choice checked={prefs.dual} onClick={() => update({ dual: !prefs.dual })}>
-          Dual subtitles: original above the translation
+      {options.map((o) => (
+        <Choice
+          key={o.tag}
+          lang={o.tag}
+          checked={prefs.cc && prefs.subtitleLang === o.tag}
+          onClick={() => pick(o.tag)}
+          sub={READINESS_NOTE[readiness(o.tag)]}
+        >
+          {o.local}
+          {o.local !== o.autonym ? (
+            <span className="tt-menu-local">
+              {" · "}
+              <span lang={o.tag} dir={o.dir}>
+                {o.autonym}
+              </span>
+            </span>
+          ) : null}
         </Choice>
-      ) : null}
-      {prefs.subtitlePos ? (
-        <button type="button" className="tt-menu-item" onClick={() => update({ subtitlePos: undefined })}>
-          Put the subtitles back in place
-        </button>
-      ) : null}
-      <span className="tt-menu-heading">Sound</span>
-      <Choice checked={prefs.sound === "speaker"} onClick={() => update({ sound: "speaker" })}>
-        Speaker
-      </Choice>
-      <Choice
-        checked={prefs.sound === "describe"}
-        onClick={() => {
-          unlockSpeech();
-          update({ sound: "describe" });
-        }}
-        sub={tracks.describe ? undefined : "not in this room yet"}
-      >
-        Slides read aloud too
-      </Choice>
+      ))}
     </Menu>
   );
 }
@@ -256,14 +272,4 @@ export function LayoutMenu() {
       )}
     </Menu>
   );
-}
-
-/** Some browsers speak later utterances only after one started inside a gesture. */
-function unlockSpeech(): void {
-  try {
-    if (typeof speechSynthesis !== "undefined" && typeof SpeechSynthesisUtterance !== "undefined")
-      speechSynthesis.speak(new SpeechSynthesisUtterance(""));
-  } catch {
-    // No speech here: the text stays.
-  }
 }

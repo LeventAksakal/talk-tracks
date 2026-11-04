@@ -87,9 +87,7 @@ describe("a subtitle language picked in another room", () => {
   it("is not subscribed where it would wake a paid agent: the original shows and the language is offered", () => {
     const shown = roomSubtitles(picked, ROOM, room, guard([]));
     expect(shown.subtitleLang).toBe("original");
-    expect(wantedTracks({ ...shown, dual: false, sound: "speaker" }, room, undefined)).toEqual(
-      new Set(["captions/items"]),
-    );
+    expect(wantedTracks(shown, room, undefined)).toEqual(new Set(["captions/items"]));
     expect(offeredLanguage(room, shown, "tr", false, undefined, guard([]), [])?.lang).toBe("tr");
     // Answered on this page: not offered again.
     expect(offeredLanguage(room, shown, "tr", true, undefined, guard([]), [])).toBeUndefined();

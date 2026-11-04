@@ -1,7 +1,7 @@
 // The room's AI tracks as player features (ui-design §4): subtitles in the original language or a translation,
 // chapters and glossary, slide descriptions. There are no switches (decision 0026): a track is subscribed while what
 // needs it is picked or open. A subtitle language pick subscribes and Off lets go; a side panel tab subscribes while
-// it is open; the sound "with slide descriptions" subscribes the descriptions. A track let go stays subscribed for
+// it is open. A track let go stays subscribed for
 // LINGER_MS, so changing back is free and the old line stays up until the new one lands.
 
 import { agentPath } from "../contracts/names";
@@ -94,17 +94,17 @@ export function openTab(prefs: Pick<Prefs, "panel" | "tab">): PanelTab | undefin
 
 /** Track ids that what is picked and open needs now. */
 export function wantedTracks(
-  prefs: Pick<Prefs, "cc" | "subtitleLang" | "dual" | "sound">,
+  prefs: Pick<Prefs, "cc" | "subtitleLang">,
   room: RoomTracks,
   tab: PanelTab | undefined,
 ): Set<string> {
   const want = new Set<string>();
   const translating = prefs.cc && prefs.subtitleLang !== "original";
   const translation = translating ? translationFor(room, prefs.subtitleLang) : undefined;
-  if (room.captions && ((prefs.cc && (!translating || prefs.dual)) || tab === "transcript")) want.add(room.captions.id);
+  if (room.captions && ((prefs.cc && !translating) || tab === "transcript")) want.add(room.captions.id);
   if (translation) want.add(translation.id);
   if (room.outline && (tab === "chapters" || tab === "glossary")) want.add(room.outline.id);
-  if (room.describe && (prefs.sound === "describe" || tab === "descriptions")) want.add(room.describe.id);
+  if (room.describe && tab === "descriptions") want.add(room.describe.id);
   return want;
 }
 

@@ -86,7 +86,7 @@ export function SubtitleOverlay({
     prefs.cc && !landedNow && stand !== undefined && stand !== prefs.subtitleLang && trackFor(stand)?.enabled
       ? stand
       : undefined;
-  const showOriginal = prefs.cc && !standIn && (!translating || prefs.dual);
+  const showOriginal = prefs.cc && !standIn && !translating;
   const original = showOriginal && tracks.captions?.enabled ? (tracks.captions.sliced?.lines ?? []) : [];
   const shownTrack = standIn ? trackFor(standIn) : translation;
   const translated = prefs.cc && shownTrack?.enabled ? (shownTrack.sliced?.lines ?? []) : [];

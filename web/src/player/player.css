@@ -1266,6 +1266,14 @@ img.tt-preview-thumb {
 .tt-menu-wide {
   width: 330px;
 }
+/* The subtitle languages: one list that scrolls as a whole, its scrollbar hidden. */
+.tt-menu[data-type-ahead] {
+  gap: 0;
+  scrollbar-width: none;
+}
+.tt-menu[data-type-ahead]::-webkit-scrollbar {
+  display: none;
+}
 .tt-menu-heading {
   margin: 8px 8px 2px;
   font-size: var(--tt-text-micro);

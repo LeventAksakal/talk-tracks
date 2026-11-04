@@ -208,18 +208,16 @@ describe("tracks the player subscribes", () => {
     expect([...wantedTracks(DEFAULT_PREFS, room, undefined)]).toEqual([]);
   });
 
-  it("follow the subtitle language picked, the tab open and the sound chosen", () => {
+  it("follow the subtitle language picked and the tab open", () => {
     const on = (p: Partial<typeof DEFAULT_PREFS>, tab?: string) =>
       [...wantedTracks({ ...DEFAULT_PREFS, ...p }, room, tab)].sort();
     expect(on({ cc: true })).toEqual(["captions/items"]);
     expect(on({ cc: true, subtitleLang: "ar" })).toEqual(["translate-ar/items"]);
-    expect(on({ cc: true, subtitleLang: "ar", dual: true })).toEqual(["captions/items", "translate-ar/items"]);
     expect(on({}, "transcript")).toEqual(["captions/items"]);
     expect(on({}, "chapters")).toEqual(["chapters/outline"]);
     expect(on({}, "glossary")).toEqual(["chapters/outline"]);
     expect(on({}, "descriptions")).toEqual(["describe/items"]);
     expect(on({}, "notes")).toEqual([]);
-    expect(on({ sound: "describe" })).toEqual(["describe/items"]);
     // A panel tab counts only while the panel is open.
     expect(openTab({ panel: false, tab: "chapters" })).toBeUndefined();
   });
