@@ -22,7 +22,7 @@ describe("/demo in the player", () => {
   // Long too: it plays 9 s of the live demo frame by frame (about 3 s on an idle machine, the file's first render
   // included). Past the 5 s default under load it timed out, and its still-running body failed every test after it.
   it(
-    "plays live with nothing subscribed until the viewer turns subtitles on, then in Arabic, side by side",
+    "plays live with nothing subscribed until the viewer turns subtitles on, then in Arabic",
     {
       timeout: 30_000,
     },
@@ -38,8 +38,7 @@ describe("/demo in the player", () => {
       await advance(3_000);
       expect(subtitles()?.textContent).toMatch(/\(\d+\)/);
 
-      // Any language by search; the demo room has an Arabic translation.
-      fireEvent.change(within(menu).getByRole("searchbox"), { target: { value: "arab" } });
+      // Every language is in the one list; the demo room has an Arabic translation.
       fireEvent.click(within(menu).getByRole("button", { name: /Arabic/ }));
       await advance(6_000);
       const arabic = subtitles()?.querySelector('[lang="ar"]');
