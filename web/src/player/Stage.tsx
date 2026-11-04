@@ -160,14 +160,20 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
       now !== undefined && !now.slide && described === undefined && !(holds && slides?.heldSlide(time) !== undefined)
     );
   });
-  const offWhole = wholePicture(offLayout, sources);
+  // The camera with no picture yet (before play, the first segment loading) is left out while there is another picture
+  // to show: an empty box labelled "Camera" is not one. It stays mounted, so the live canvas is never re-created.
+  const [cameraBlank, setCameraBlank] = useState(false);
+  const cameraOut =
+    cameraBlank && !wholePicture(offLayout, sources) && !cameraAlone(noSlide, sources) && sources.length > 1;
+  const pictured = cameraOut ? sources.filter((k) => k !== "camera") : sources;
+  const offWhole = wholePicture(offLayout, pictured);
   // Before the first slide the camera is the stage's only picture, but not a video call: centred, at most CAMERA_CAP of
   // the stage's width. Off its layout the recorded frame is one picture on purpose, shown whole.
-  const capped = !offWhole && cameraAlone(noSlide, sources);
+  const capped = !offWhole && cameraAlone(noSlide, pictured);
   const whole = offWhole || capped;
-  const placed = stageSources(sources, prefs.board);
+  const placed = stageSources(pictured, prefs.board);
   const layout = whole ? "single" : effectiveLayout(prefs.layout, placed);
-  const hasCamera = placed.includes("camera");
+  const hasCamera = sources.includes("camera");
   const hasSlides = sources.includes("slides");
   const hasScreen = sources.includes("screen");
   // The main picture and the corner one (the camera, or with no camera the other of slides and screen). The source
@@ -177,7 +183,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   // Which source is "first": the left one in split, the corner tile in the default layout.
   const first: SourceKind = prefs.swap ? board : cornerKind;
   // Until the room says what it sends, no picture: the tiles stay mounted (the live canvas with them), unseen.
-  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, sources, offLayout, noSlide);
+  const shown = (kind: SourceKind) => !sourcesPending && sourceShown(kind, prefs, pictured, offLayout, noSlide);
   const role = (kind: SourceKind) =>
     layout === "pip" ? (kind === first ? "small" : "main") : layout === "split" ? (kind === first ? "a" : "b") : "main";
 
@@ -202,6 +208,10 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
       : {}),
     ...(pip ? { "--pip-x": pip.x, "--pip-y": pip.y } : {}),
   } as CSSProperties;
+  // Low, under the main picture, while it leaves the subtitles clear; a caption that wraps taller than the band's
+  // estimate sends it to the top for the rest of this notice (it never moves back and forth).
+  const subsInWay = useSubtitlesInWay(stage, view.missed && fit.missedLow ? view.missed.fromMs : undefined);
+  const missedLow = fit.missedLow && !subsInWay;
   const card = state.card;
   // A card that replaces the talk (no room, connecting, failed) shows alone: no faint tiles or labels behind it.
   const covered = card !== undefined && !card.dim && !card.replay && view.timeline.liveEdge === undefined;
@@ -229,7 +239,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         {hasCamera ? (
           <div className={`tt-cell tt-cell-camera tt-cell-${role("camera")}${shown("camera") ? "" : " tt-hidden"}`}>
             {corner("camera")}
-            <CameraSurface offLayout={wholePicture(offLayout, sources)} alone={whole} />
+            <CameraSurface offLayout={wholePicture(offLayout, sources)} alone={whole} onBlank={setCameraBlank} />
           </div>
         ) : null}
         {layout === "split" ? <SplitDivider stageRef={stage} names={[cornerKind, board]} /> : null}
@@ -249,7 +259,7 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         <SubtitleOverlay stageRef={stage} below={fit.layout?.captions} />
 
         {view.missed && !card && !ui.stats ? (
-          <div className="tt-missed" role="status" data-low={fit.missedLow ? "" : undefined}>
+          <div className="tt-missed" role="status" data-low={missedLow ? "" : undefined}>
             <span>
               You missed {formatClock(view.missed.toMs - view.missed.fromMs)}
               {view.missed.chapters.length > 0
@@ -335,6 +345,39 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
       </div>
     </TileAspects.Provider>
   );
+}
+
+/** How often the low "What you missed" checks the subtitles beside it, ms. */
+const MISSED_CHECK_MS = 250;
+/** The space kept between the subtitles and "What you missed", px. */
+const MISSED_CLEAR = 4;
+
+/**
+ * Whether the subtitles reach into the low "What you missed" (keyed by the notice, undefined while it is not low): the
+ * band's room is an estimate, and a long caption can wrap taller. Once they do, it stays true for that notice.
+ */
+function useSubtitlesInWay(stage: RefObject<HTMLDivElement | null>, notice: number | undefined): boolean {
+  const [inWay, setInWay] = useState<number>();
+  const blocked = notice !== undefined && inWay === notice;
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || notice === undefined || blocked) return;
+    const check = () => {
+      const subs = el.querySelector(".tt-subs")?.getBoundingClientRect();
+      const note = el.querySelector(".tt-missed")?.getBoundingClientRect();
+      if (!subs || !note || subs.height === 0) return;
+      const overlaps =
+        subs.bottom + MISSED_CLEAR > note.top &&
+        subs.top < note.bottom + MISSED_CLEAR &&
+        subs.right > note.left &&
+        subs.left < note.right;
+      if (overlaps) setInWay(notice);
+    };
+    check();
+    const timer = setInterval(check, MISSED_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [stage, notice, blocked]);
+  return blocked;
 }
 
 /** The camera alone before the first slide: its widest, as a fraction of the stage (player.css .tt-camera-capped). */
