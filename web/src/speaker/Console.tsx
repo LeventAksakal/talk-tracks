@@ -12,6 +12,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { RoomService } from "../annotate/client";
+import { threadsAt } from "../annotate/threads";
 import { AUDIO_TRACK, HANG_CATALOG_TRACK, teacherPath } from "../contracts/names";
 import type { RoomCatalog } from "../contracts/types";
 import { type HangClock, hangClockOfPayload } from "../playback/roomClock";
@@ -325,6 +326,11 @@ function ConsoleView({
   const toggleBlank = slideDeck.toggleHidden;
   const loadFiles = (files: FileList | null | undefined) => void slideDeck.add(files ? Array.from(files) : []);
 
+  // The slides viewers were shown, for the end screen's "3 of 12 slides shown".
+  const [shown, setShown] = useState<ReadonlySet<number>>(() => new Set());
+  if (deck && !hidden && (phase === "on-air" || phase === "paused") && !shown.has(index))
+    setShown(new Set(shown).add(index));
+
   // Once live, the describe agent gets the slide on screen.
   useEffect(() => {
     if (live) sendFrame(slideDeck.current);
@@ -455,7 +461,8 @@ function ConsoleView({
         ending={ending}
         retry={sayEnded}
         onAirMs={endedAt - startedAt}
-        slideCount={deck?.count ?? 0}
+        slides={{ shown: shown.size, count: deck?.count ?? 0 }}
+        questions={questionsAsked(roomService)}
         still={slideDeck.current?.url ?? slideDeck.thumbs[0]}
         made={features(catalog, now).map((f) => f.name)}
       />
@@ -477,9 +484,13 @@ function ConsoleView({
         : undefined;
 
   return (
-    <div className="console" data-phase={phase}>
+    // data-live: the relay carries our audio back. The red marks (frame, header rule) wait for it, so the screen never
+    // says live while the badge still says Connecting.
+    <div className="console" data-phase={phase} data-live={onAir.kind === "on-air" || undefined}>
       <ConsoleHeader room={room} title={talkTitle} now={now}>
-        <OnAirBadge onAir={onAir} paused={phase === "paused"} elapsed={phase !== "preflight" ? now - startedAt : 0} />
+        {phase === "preflight" ? null : (
+          <OnAirBadge onAir={onAir} paused={phase === "paused"} elapsed={now - startedAt} />
+        )}
       </ConsoleHeader>
       <Modal
         open={confirmEnd}
@@ -914,7 +925,8 @@ function OnAirBadge({ onAir, paused, elapsed }: { onAir: OnAir; paused: boolean;
     : onAir.kind === "confirming" || onAir.kind === "starting"
       ? (["warning", "Connecting…"] as const)
       : onAir.kind === "off"
-        ? (["neutral", "Not on air yet"] as const)
+        ? // On air with the microphone off: the slides and camera still go out, the voice does not.
+          (["warning", `Muted · ${clockText(elapsed)}`] as const)
         : (["warning", "Not on air"] as const);
   return (
     <span role="status" className="on-air-badge" data-state={paused ? "paused" : onAir.kind}>
@@ -984,16 +996,15 @@ function WireStatus({
   echo: Echo | undefined;
   phase: Phase;
 }) {
+  // Before air nothing goes out (the green room says so); on air, only what needs the speaker is said here.
+  if (phase === "preflight") return null;
   if (!live) {
-    if (phase === "preflight") return <>Nothing goes out before you go on air.</>;
     if (clock.kind === "no-clock") return <>Your broadcast has no clock: reload and go on air again.</>;
     return <>Slides go out once the room clock starts…</>;
   }
-  const counts = Object.values(echo ?? {});
-  const ok = counts.reduce((n, c) => n + c.ok, 0);
-  const bad = counts.reduce((n, c) => n + c.bad, 0);
+  const bad = Object.values(echo ?? {}).reduce((n, c) => n + c.bad, 0);
   if (bad) return <span className="alert">{bad} slide objects came back malformed; please report this.</span>;
-  return ok ? <>Sending slides; viewers receive them ({ok} checked).</> : <>Sending slides…</>;
+  return null;
 }
 
 function tokenText(t: TokenCheck, required: boolean): [state: "ok" | "off" | "bad", text: string] {
@@ -1069,12 +1080,16 @@ function ConsoleHeader({
           {wallTime(now)}
         </time>
         <span className="console-sep" aria-hidden="true" />
-        <h1 className="console-talk">{title ?? "Untitled talk"}</h1>
-        <span className="console-sep" aria-hidden="true" />
-        <span className="console-code">
-          <span className="sr-only">Room code </span>
-          {room}
-        </span>
+        <h1 className="console-talk">{title ?? room}</h1>
+        {title && title !== room ? (
+          <>
+            <span className="console-sep" aria-hidden="true" />
+            <span className="console-code">
+              <span className="sr-only">Room code </span>
+              {room}
+            </span>
+          </>
+        ) : null}
         <button
           ref={button}
           type="button"
@@ -1324,9 +1339,17 @@ function DevicePicker({
   );
 }
 
+/** The audience's questions this talk, and how many have no reply from the speaker; undefined without a room service. */
+function questionsAsked(service: RoomService | undefined): { asked: number; open: number } | undefined {
+  if (!service) return undefined;
+  const qs = threadsAt(service.threads(), { filter: "questions" });
+  return { asked: qs.length, open: qs.filter((t) => !t.replies.some((r) => r.by.speaker)).length };
+}
+
 /**
- * The end of the talk: how long it ran, what the replay keeps, the replay link to copy or open, and the two ways on
- * (another talk, or the hub).
+ * The end of the talk: the replay (its still, its link to copy or open), how the talk went in facts the console
+ * counted (time on air, slides shown, questions and the ones left unanswered, what viewers turned on), and the two
+ * ways on (another talk, or the hub).
  */
 function Ended({
   room,
@@ -1335,7 +1358,8 @@ function Ended({
   ending,
   retry,
   onAirMs,
-  slideCount,
+  slides,
+  questions,
   still,
   made,
 }: {
@@ -1345,7 +1369,8 @@ function Ended({
   ending: Ending;
   retry: () => void;
   onAirMs: number;
-  slideCount: number;
+  slides: { shown: number; count: number };
+  questions: { asked: number; open: number } | undefined;
   still: string | undefined;
   made: string[];
 }) {
@@ -1371,10 +1396,7 @@ function Ended({
       <main id="main" className="ended">
         <div className="ended-head">
           <h1 className="ended-title">Talk ended</h1>
-          <p className="ended-sub">
-            {title ? <>{title} · </> : null}
-            {minutesText(onAirMs)} on air
-          </p>
+          <p className="ended-sub">{title ?? room}</p>
         </div>
         <div className="ended-grid">
           <section className="ended-replay" aria-labelledby="replay-heading">
@@ -1394,7 +1416,7 @@ function Ended({
                 <Glyph name={copied === "yes" ? "checkCircle" : "contentCopy"} />
                 {copied === "yes" ? "Copied" : "Copy replay link"}
               </button>
-              <a className="ended-open" href={url} target="_blank" rel="noreferrer">
+              <a className="ended-btn ended-btn-primary" href={url} target="_blank" rel="noreferrer">
                 <Glyph name="openInNew" />
                 Open replay
               </a>
@@ -1403,31 +1425,47 @@ function Ended({
               {copied === "yes" ? "Replay link copied." : copied === "no" ? "Could not copy; select the link." : ""}
             </span>
           </section>
-          <section className="ended-kept" aria-labelledby="kept-heading">
-            <h2 id="kept-heading" className="ended-label">
-              Kept in the replay
+          <section className="ended-facts" aria-labelledby="facts-heading">
+            <h2 id="facts-heading" className="ended-label">
+              How it went
             </h2>
-            <ul className="kept-list">
-              <li>
-                <Glyph name="mic" />
-                <span className="kept-what">Your voice and camera</span>
-                <span className="kept-fact">{minutesText(onAirMs)}</span>
-              </li>
-              <li>
+            <dl className="fact-list">
+              <div>
+                <Glyph name="timer" />
+                <dt>On air</dt>
+                <dd>{minutesText(onAirMs)}</dd>
+              </div>
+              <div>
                 <Glyph name="slideshow" />
-                <span className="kept-what">Slides, with everything you drew and pointed at</span>
-                <span className="kept-fact">{slideCount ? `${slideCount} slides` : "No slides"}</span>
-              </li>
-              <li>
-                <Glyph name="subtitles" />
-                <span className="kept-what">Subtitles, translations and chapters</span>
-                <span className="kept-fact">{made.length ? made.join(", ") : "Made as listeners turn them on"}</span>
-              </li>
-            </ul>
+                <dt>Slides shown</dt>
+                <dd>{slides.count ? `${slides.shown} of ${slides.count}` : "No slides, voice and camera only"}</dd>
+              </div>
+              {questions ? (
+                <div>
+                  <Glyph name="liveHelp" />
+                  <dt>Questions from viewers</dt>
+                  <dd>
+                    {questions.asked === 0
+                      ? "None asked"
+                      : `${questions.asked} asked${questions.open ? `, ${questions.open} without your reply` : ", all answered"}`}
+                    {questions.open ? (
+                      <a className="fact-link" href={url} target="_blank" rel="noreferrer">
+                        Answer them in the replay
+                      </a>
+                    ) : null}
+                  </dd>
+                </div>
+              ) : null}
+              <div>
+                <Glyph name="translate" />
+                <dt>Viewers turned on</dt>
+                <dd>{made.length ? made.join(", ") : "No subtitles or translations"}</dd>
+              </div>
+            </dl>
           </section>
         </div>
         <nav className="ended-actions" aria-label="What next">
-          <button type="button" className="ended-btn ended-btn-primary" onClick={() => navigate("/?start")}>
+          <button type="button" className="ended-btn" onClick={() => navigate("/?start")}>
             <Glyph name="add" />
             Start another talk
           </button>

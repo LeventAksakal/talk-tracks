@@ -296,6 +296,7 @@ describe("the speaker console", () => {
     await screen.findByRole("heading", { name: "Talk ended" });
     expect(screen.getByRole("button", { name: "Copy replay link" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start another talk" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open replay" })).toBeTruthy();
     expect(ended).toBe(1); // the room service is told, so the room says "ended" rather than "paused"
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);

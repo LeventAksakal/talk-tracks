@@ -46,7 +46,7 @@
   padding: 0 var(--tt-space-4) 0 var(--tt-space-5);
   border-bottom: 1px solid var(--tt-color-line);
 }
-.console[data-phase="on-air"] .console-bar {
+.console[data-live] .console-bar {
   box-shadow: inset 0 -2px 0 var(--tt-color-live);
 }
 .console-meeting {
@@ -1192,8 +1192,11 @@
   font: var(--tt-weight-display) 1.75rem / 1.2 var(--tt-font-display);
   text-align: center;
 }
+/* The play disc sits in the still's corner, off the slide's text. */
 .ended-play {
-  position: relative;
+  position: absolute;
+  left: var(--tt-space-4);
+  bottom: var(--tt-space-4);
   display: grid;
   place-items: center;
   width: 64px;
@@ -1279,9 +1282,8 @@
   height: 18px;
 }
 .ended-btn-primary {
-  height: 44px;
-  padding: 0 var(--tt-space-5) 0 var(--tt-space-4);
   border-color: transparent;
+  text-decoration: none;
   background: var(--tt-color-play);
   color: var(--tt-color-on-play);
 }
@@ -1294,15 +1296,13 @@
   color: var(--tt-color-text-muted);
   font-size: var(--tt-text-micro);
 }
-.ended-kept {
+.ended-facts {
   min-width: 0;
 }
-.kept-list {
-  list-style: none;
+.fact-list {
   margin: var(--tt-space-3) 0 0;
-  padding: 0;
 }
-.kept-list li {
+.fact-list > div {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   column-gap: var(--tt-space-3);
@@ -1310,20 +1310,30 @@
   padding: var(--tt-space-4) 0;
   border-top: 1px solid var(--tt-color-line);
 }
-.kept-list li:last-child {
+.fact-list > div:last-child {
   border-bottom: 1px solid var(--tt-color-line);
 }
-.kept-list .glyph {
+.fact-list .glyph {
   grid-row: 1 / span 2;
   width: 22px;
   height: 22px;
   color: var(--tt-color-text-muted);
 }
-.kept-what {
+.fact-list dt {
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.fact-list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--tt-space-3);
+  margin: 0;
+  font-size: 1.125rem;
   font-weight: var(--tt-weight-strong);
 }
-.kept-fact {
-  color: var(--tt-color-text-muted);
+.fact-link {
+  color: var(--tt-color-accent);
   font-size: var(--tt-text-small);
 }
 .ended-actions {
@@ -1354,8 +1364,8 @@
   box-shadow: none;
   max-height: none;
 }
-/* On air, the stage is ringed in live red: what viewers see now. */
-.console[data-phase="on-air"] .stage {
+/* Live (the relay carries the voice back), the stage is ringed in live red: what viewers see now. */
+.console[data-live] .stage {
   box-shadow: 0 0 0 2px var(--tt-color-live);
 }
 /* Native checkboxes take the one primary colour, not the browser's blue. */
