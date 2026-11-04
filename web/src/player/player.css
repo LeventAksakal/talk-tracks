@@ -29,10 +29,6 @@
 .tt-player.tt-with-panel {
   grid-template-columns: minmax(0, 1fr) var(--tt-panel-width);
 }
-.tt-player :focus-visible {
-  outline: 2px solid var(--tt-color-accent);
-  outline-offset: 2px;
-}
 .tt-loading {
   padding: var(--tt-space-4);
 }
@@ -75,7 +71,7 @@
   --media-control-padding: 9px;
   --media-button-icon-width: 22px;
   --media-button-icon-height: 22px;
-  --media-focus-box-shadow: inset 0 0 0 2px var(--tt-color-accent);
+  --media-focus-box-shadow: inset 0 0 0 var(--tt-focus-width) var(--tt-color-focus);
   --media-control-transition-in: opacity var(--tt-duration-medium) var(--tt-ease-standard);
   --media-control-transition-out: opacity var(--tt-duration-slow) var(--tt-ease-exit);
 

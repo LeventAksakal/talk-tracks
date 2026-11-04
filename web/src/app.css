@@ -9,9 +9,29 @@ body {
   line-height: 1.5;
 }
 
+/* One focus indicator site-wide: a ring in the focus colour (tokens.css), shown only for keyboard focus, never a glow.
+   Controls get it just outside their edge; text fields get it on their own edge, over the border, so a field never
+   shows a border, a gap and a ring. */
 :focus-visible {
-  outline: 3px solid var(--tt-color-focus);
-  outline-offset: 2px;
+  outline: var(--tt-focus-width) solid var(--tt-color-focus);
+  outline-offset: var(--tt-focus-offset);
+}
+:is(
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"]),
+  textarea,
+  select
+):focus-visible {
+  outline-offset: -1px;
+}
+/* Astryx's text field draws a borderless input inside a bordered box, and its own focus border and inner shadow:
+   the box carries the one ring instead. */
+.astryx-text-input:has(input:focus-visible) {
+  outline: var(--tt-focus-width) solid var(--tt-color-focus);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+.astryx-text-input input:focus-visible {
+  outline: none;
 }
 
 .sr-only {

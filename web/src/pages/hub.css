@@ -90,9 +90,12 @@
   color: var(--hub-muted);
   cursor: text;
 }
-.hub-join-field:focus-within {
-  border-color: var(--tt-color-focus);
-  box-shadow: 0 0 0 1px var(--tt-color-focus);
+.hub-join-field:has(input:focus-visible) {
+  outline: var(--tt-focus-width) solid var(--tt-color-focus);
+  outline-offset: -1px;
+}
+.hub-join-field input:focus-visible {
+  outline: none;
 }
 .hub-join-field input {
   flex: 1 1 auto;
@@ -583,8 +586,8 @@
   z-index: 1;
 }
 .tile-card:has(.tile-play:focus-visible) .tile-art {
-  outline: 2px solid var(--tt-color-focus);
-  outline-offset: 2px;
+  outline: var(--tt-focus-width) solid var(--tt-color-focus);
+  outline-offset: var(--tt-focus-offset);
 }
 /* The play link stands for the card: one ring, the card's. The card's second link keeps its own. */
 .tile-play:focus-visible {
