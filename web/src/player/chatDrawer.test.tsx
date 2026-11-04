@@ -87,7 +87,7 @@ describe("the chat drawer", () => {
     expect(screen.getByRole("status").textContent).toMatch(/Starting from now/);
   });
 
-  it("gives a listener a random name, sends what they type, and lets them change the name", async () => {
+  it("gives a listener a random name, sends what they type, and offers nothing to rename", async () => {
     const { service } = setup();
     await advance(10);
     const me = service.me()?.name;
@@ -100,11 +100,8 @@ describe("the chat drawer", () => {
     expect(service.writes).toEqual([{ track: "chat", data: { text: "Is the deck shared?" } }]);
     expect((box as HTMLTextAreaElement).value).toBe("");
 
-    fireEvent.click(screen.getByRole("button", { name: "Change name" }));
-    const name = screen.getByRole("textbox", { name: /Your name/ });
-    fireEvent.change(name, { target: { value: "Ada" } });
-    fireEvent.submit(name.closest("form")!);
-    expect(service.me()?.name).toBe("Ada");
+    expect(screen.queryByRole("button", { name: /name/i })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /Your name/ })).toBeNull();
   });
 
   it("rewound, shows the chat as it was at the playhead, fetched from the archive", async () => {
