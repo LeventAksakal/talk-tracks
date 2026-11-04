@@ -394,9 +394,13 @@ export class AiTracks {
 
   // --- fetching ------------------------------------------------------------------------------------
 
-  /** Which slices each opted-in track needs now, nearest first; queue those not held or in flight. */
+  /**
+   * Which slices each opted-in track needs now, nearest first; queue those not held or in flight. Paused, only what is
+   * already in memory (the whole-track read) is taken; nothing is fetched until play.
+   */
   #plan(): void {
-    if (this.#closed || this.#paused) return;
+    if (this.#closed) return;
+    const paused = this.#paused;
     const wanted = new Map<Entry, number[]>();
     const edge = this.#edgeSlice();
     for (const entry of this.#entries.values()) {
@@ -438,13 +442,13 @@ export class AiTracks {
           entry.log.addFetched(k, read.carry ? { items: read.carry, capped: read.capped } : undefined, read.items);
           continue;
         }
-        if (this.#queue.some((j) => j.entry === entry && j.slice === k && j.into === entry.log)) continue;
+        if (paused || this.#queue.some((j) => j.entry === entry && j.slice === k && j.into === entry.log)) continue;
         const missedAt = entry.missing.get(k);
         if (missedAt !== undefined && this.#now() - missedAt < this.#retryMissing) continue;
         void this.#enqueue(entry, k, entry.log);
       }
     }
-    this.#pump();
+    if (!paused) this.#pump();
   }
 
   /**

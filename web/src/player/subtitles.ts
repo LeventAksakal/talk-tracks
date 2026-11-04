@@ -31,3 +31,14 @@ export function cuesAt(lines: readonly LineItem[], t: number | undefined, live: 
 export function cueText(line: LineItem, showInterim: boolean): string | undefined {
   return line.final || showInterim ? line.text : undefined;
 }
+
+/**
+ * The room time the subtitles show: the frame's, except paused live, where they hold at the pause (the edge runs on).
+ * Paused rewound the frame clock holds at the playhead and moves with a seek, so it is read as is.
+ */
+export function subtitleTime(
+  now: number | undefined,
+  held: { t: number | undefined; live: boolean } | undefined,
+): number | undefined {
+  return held?.live ? held.t : now;
+}

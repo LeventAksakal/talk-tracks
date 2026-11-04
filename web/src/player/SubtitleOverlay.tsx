@@ -7,7 +7,7 @@ import { useFrameValue } from "./frameClock";
 import { languageOption } from "./languages";
 import { type Fraction, type Prefs, type SourceKind } from "./prefs";
 import { effectiveLayout, stageSources } from "./Stage";
-import { cuesAt } from "./subtitles";
+import { cuesAt, subtitleTime } from "./subtitles";
 import { translationFor } from "./tracks";
 
 /** Where subtitles sit when the stage keeps no room for them under the main picture: bottom centre of the canvas. */
@@ -82,15 +82,18 @@ export function SubtitleOverlay({
   const shownTrack = standIn ? trackFor(standIn) : translation;
   const translated = prefs.cc && shownTrack?.enabled ? (shownTrack.sliced?.lines ?? []) : [];
   const max = prefs.style.lines;
-  // Paused, the subtitles hold at the moment of the pause: a live room's edge runs on behind a pause, and lines must
-  // neither advance nor expire until play (owner QA, 11-04).
-  const [heldAt, setHeldAt] = useState<{ t: number | undefined }>();
-  if (!ui.playing && !heldAt) setHeldAt({ t: clock.now() });
+  // Paused live, the subtitles hold at the moment of the pause: a live room's edge runs on behind a pause, and lines
+  // must neither advance nor expire until play (owner QA, 11-04). Paused rewound, the frame clock itself holds and
+  // follows a seek, so the subtitles read it: a seek while paused never leaves the old position's lines up.
+  const [heldAt, setHeldAt] = useState<{ t: number | undefined; live: boolean }>();
+  if (!ui.playing && heldAt?.live !== live) setHeldAt({ t: clock.now(), live });
   if (ui.playing && heldAt) setHeldAt(undefined);
   const shown = useFrameValue(
     clock,
     (now): Shown => {
-      const t = heldAt ? heldAt.t : now;
+      const t = subtitleTime(now, heldAt);
+      // Paused rewound with no playhead yet (the archive opening after a seek): no line rather than any held one.
+      if (heldAt && !heldAt.live && t === undefined) return { original: [], translation: [] };
       return {
         original: cuesAt(original, t, live, translating ? 1 : max).filter((l) => l.final || prefs.style.interim),
         translation: cuesAt(translated, t, live, max).filter((l) => l.final || prefs.style.interim),
@@ -123,7 +126,8 @@ export function SubtitleOverlay({
     if (!track) return "This room has no subtitles yet.";
     if (!track.enabled) return undefined;
     if (track.sliced?.capped) return "Subtitles are unavailable right now.";
-    if (!live && track.sliced && !track.sliced.loaded)
+    // Paused, nothing loads until play: no "Loading" promise while it waits.
+    if (!live && track.sliced && !track.sliced.loaded && ui.playing)
       return translating ? "Translating earlier part…" : "Loading subtitles…";
     if (live && track.lastLiveAt === undefined) return "Subtitles start when the speaker speaks.";
     return undefined;
