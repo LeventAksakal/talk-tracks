@@ -870,7 +870,15 @@ function ConsoleView({
                 size="lg"
               />
             )}
-            <button type="button" className="dock-pill dock-end" onClick={() => setConfirmEnd(true)}>
+            <button
+              type="button"
+              className="dock-pill dock-end"
+              onClick={() => {
+                // The tool's options popover would otherwise stay open behind the confirm.
+                setOptionsOpen(false);
+                setConfirmEnd(true);
+              }}
+            >
               <Glyph name="callEnd" />
               End talk
             </button>
