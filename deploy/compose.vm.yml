@@ -215,6 +215,7 @@ services:
       TT_ROOM_CODES: /data/room-codes.json  # access codes, beside the archive, never in the folder Caddy serves
       TT_SIGNING_KEY: /keys/private.jwk
       TT_ROOMS_DIR: /data/rooms  # each created room's title and speaker
+      TT_ROOMS_HIDDEN: /data/rooms-hidden.txt  # rooms GET /api/rooms never lists (wiki/howto/tokens.md)
       TT_ROOM_TOKEN_HOURS: ${TT_ROOM_TOKEN_HOURS:-48}
       TT_DEMO_ROOMS: ${TT_DEMO_ROOMS:-virus,dataviz,rsa,qrcode,demo}  # never created by code
       TT_SPEAKER_KEY: /keys/public.jwk
