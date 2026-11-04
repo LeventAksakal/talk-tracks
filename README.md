@@ -57,18 +57,12 @@ fullscreen, M mute, I stats, ? every shortcut.
 
 ## Screenshots
 
-<!--
-  Placeholders: the coordinator adds the final screenshots from the QA run under docs/screenshots/ (file names and
-  what each shows are in docs/screenshots/README.md), then removes this comment and the line below it.
+Captured from the live site at 1600×900, dark theme.
 
-![Home: live sessions and recordings](docs/screenshots/01-hub.png)
-![Player: Arabic subtitles, chapters and a slide description](docs/screenshots/02-player-tracks.png)
-![Rewind: "You missed" and Go live](docs/screenshots/03-rewind.png)
-![Speaker console on air, drawing on a slide](docs/screenshots/04-console.png)
-![Stats for nerds: tracks and subscribers](docs/screenshots/05-stats.png)
--->
-
-_Screenshots of the final build are added after the QA run; until then the title card above shows the idea._
+![Home: the featured talk, then every live and recorded talk](docs/screenshots/01-hub.png)
+![Player in Auto view with Turkish subtitles: the slide large, the speaker beside it](docs/screenshots/02-player-tracks.png)
+![Adjust view: Auto, Tiled, Spotlight or Sidebar](docs/screenshots/03-adjust-view.png)
+![Transcript card with Turkish beside each line](docs/screenshots/04-transcript.png)
 
 ## How it works
 
