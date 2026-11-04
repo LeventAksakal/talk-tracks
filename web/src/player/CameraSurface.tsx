@@ -1,10 +1,11 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import type { RoomTt } from "../contracts/types";
 import type { MediaStatus } from "../playback/media";
 import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import { useSlideTime } from "./SlideSurface";
 import { SourceTile } from "./SourceTile";
+import { cropSpanAt, speakerAt, speakerCropsFor, speakerFor } from "./speakerCrop";
 
 /** [x, y, w, h], fractions of the video frame. */
 export type Rect = readonly [number, number, number, number];
@@ -120,7 +121,8 @@ export function CameraSurface({
   /** Told whether the tile has no picture yet (a room's media, no frame painted): the stage then leaves it out. */
   onBlank?: (blank: boolean) => void;
 }) {
-  const { media, view, prefs, state } = usePlayer();
+  const { media, view, prefs, state, roomName, clock, origin } = usePlayer();
+  const frameTime = useSlideTime();
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const live = view.timeline.mode === "live";
@@ -172,6 +174,24 @@ export function CameraSurface({
     return () => clearInterval(timer);
   }, [media, live]);
 
+  // A demo talk's video is the conference's produced feed: where the speaker is in it changes over the talk (a box in
+  // the corner, the stage camera full frame, nobody on a full-frame slide), measured per talk (speakerCrop.ts). The
+  // span changes a few times a talk: React re-renders then, not per frame.
+  const crops = useMemo(() => (media ? speakerCropsFor(roomName) : undefined), [media, roomName]);
+  const span = useFrameValue(clock, (t) => {
+    if (!crops) return -1;
+    const at = frameTime(t);
+    return cropSpanAt(crops, at === undefined ? undefined : at - origin);
+  });
+  // Until the time is known, the talk's first speaker box: the tile never opens on the whole frame (the slides).
+  const speaker = crops ? (span >= 0 ? speakerAt(crops, span) : speakerFor(crops, undefined)) : undefined;
+  const shown = crops ? speaker?.region : region;
+  // The measured crops know the stage shots and the full-frame slides themselves: with them the tile is the speaker
+  // all through (owner, 2026-11-04: the slides have their own tile, the camera tile is only the speaker).
+  const whole = offLayout && !crops;
+  // Nobody on camera (a full-frame slide): the tile keeps its shape and says so, rather than show a corner of a slide.
+  const offCamera = speaker?.off === true;
+
   // No picture yet (before play, or while the first segment loads): an empty black box labelled "Camera" says
   // nothing, so the stage leaves the tile out until a frame is there. With no media at all, the tile says so.
   const blank = media !== undefined && aspect === undefined;
@@ -191,7 +211,7 @@ export function CameraSurface({
   const note = state.card ? undefined : cameraNote(live, status);
   // A recorded talk's video is the whole composed frame: the tile shows only its webcam inset, once the frame is known,
   // and the whole picture while the video is off its layout (the stage camera), when the stage shows it large.
-  const framed = aspect === undefined ? undefined : framing(aspect, offLayout ? undefined : region);
+  const framed = aspect === undefined ? undefined : framing(aspect, whole ? undefined : shown);
   return (
     <SourceTile kind="camera" aspect={framed?.aspect ?? 16 / 9} label="Speaker camera">
       <canvas
@@ -209,10 +229,14 @@ export function CameraSurface({
       />
       {aspect === undefined && (note !== undefined || !live) ? (
         <div className="tt-camera-empty">{note ? <span className="tt-camera-note">{note}</span> : null}</div>
+      ) : offCamera && aspect !== undefined ? (
+        <div className="tt-camera-empty" role="status">
+          <span className="tt-camera-note">Speaker off camera</span>
+        </div>
       ) : null}
       {/* Alone on the stage the picture needs no label: there is nothing beside it to tell it from. Off its layout it is
           the whole recorded frame (a stage shot, a slide with the event's logo), which "Camera" would misname. */}
-      {alone || offLayout ? null : <span className="tt-source-tag">Camera</span>}
+      {alone || whole ? null : <span className="tt-source-tag">Camera</span>}
     </SourceTile>
   );
 }
