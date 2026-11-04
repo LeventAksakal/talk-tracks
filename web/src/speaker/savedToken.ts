@@ -31,6 +31,19 @@ function remember(room: string, token: string): void {
   }
 }
 
+/**
+ * Keep a new room's speaker link the moment Start a talk makes it, before the speaker opens it: a closed tab or a
+ * misclick on the "ready" screen then still leaves /talk/<room> opening the console in this browser.
+ */
+export function keepSpeakerLink(room: string, speakerPath: string): void {
+  try {
+    const token = new URL(speakerPath, "http://x").searchParams.get("token");
+    if (token) remember(room, token);
+  } catch {
+    // not a path: nothing kept
+  }
+}
+
 /** The speaker token for this room: the link's (and keep it), else the one this browser kept, if still good. */
 export function speakerToken(room: string, fromLink: string | undefined, nowMs = Date.now()): string | undefined {
   if (fromLink) {

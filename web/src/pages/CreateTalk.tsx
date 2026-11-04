@@ -4,7 +4,8 @@ import { Glyph } from "../brand/Glyph";
 import { Modal, ModalBody, ModalFooter } from "../brand/Modal";
 import { navigate } from "../router";
 import { AudienceLink, ProjectInvite, QrCode, useCopy, watchUrl } from "../speaker/Invite";
-import { rememberTitle } from "../speaker/talkTitle";
+import { keepSpeakerLink } from "../speaker/savedToken";
+import { rememberSpeakerName, rememberTitle } from "../speaker/talkTitle";
 import {
   type CreatedRoom,
   type CreateRoomError,
@@ -57,8 +58,10 @@ export function StartTalkDialog({ open, onClose, create }: CreateTalkProps & { o
       titleId="start-heading"
       size={created ? "lg" : "md"}
       className="start-dialog"
+      // The speaker link is shown once: the ready screen leaves only through its own buttons, never by a stray click.
+      dismissible={!created}
     >
-      {created ? <Created created={created} /> : <CreateTalk create={create} onCreated={setCreated} />}
+      {created ? <Created created={created} onDone={close} /> : <CreateTalk create={create} onCreated={setCreated} />}
     </Modal>
   );
 }
@@ -90,6 +93,8 @@ export function CreateTalk({ create = createRoom, onCreated }: CreateTalkFormPro
     setBusy(false);
     if (result.ok) {
       rememberTitle(result.created.room, title.trim());
+      rememberSpeakerName(speaker);
+      keepSpeakerLink(result.created.room, result.created.speaker_path);
       onCreated(result.created);
       return;
     }
@@ -186,7 +191,7 @@ export function PasteSpeakerLink() {
 }
 
 /** The new room: its code, the audience link and QR to share, the private speaker link, then into the console. */
-function Created({ created }: { created: CreatedRoom }) {
+function Created({ created, onDone }: { created: CreatedRoom; onDone: () => void }) {
   const speakerUrl = new URL(created.speaker_path, location.origin).toString();
   const audienceUrl = watchUrl(created.room);
   const { copied, copy } = useCopy(speakerUrl);
@@ -224,7 +229,8 @@ function Created({ created }: { created: CreatedRoom }) {
             </div>
             <p className="start-warning" role="note">
               <Glyph name="info" />
-              Keep it private: anyone with it can speak in this room. Save it now; this page does not keep it.
+              Keep it private: anyone with it can speak in this room. This browser keeps it; copy it to speak from
+              another device.
             </p>
             <p className="start-status" role="status">
               {copied === "yes" ? "Speaker link copied." : copied === "no" ? "Could not copy; select the link." : ""}
@@ -232,7 +238,8 @@ function Created({ created }: { created: CreatedRoom }) {
           </div>
         </div>
       </ModalBody>
-      <ModalFooter note="The console opens with your microphone and camera off.">
+      <ModalFooter note="Nothing goes out until you go on air.">
+        {copied === "yes" ? <Button label="Done" variant="secondary" onClick={onDone} /> : null}
         <Button label="Open console" variant="primary" onClick={() => navigate(created.speaker_path)} />
       </ModalFooter>
     </>

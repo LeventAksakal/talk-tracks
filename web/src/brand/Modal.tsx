@@ -7,6 +7,9 @@ import "./modal.css";
  * title and Close), a body and a fixed footer for the actions. The body is sized to fit the viewport, so ordinary
  * content never scrolls; only an unusually long body scrolls, between the header and the footer.
  *
+ * A modal that holds something the page cannot give back (the one-time speaker link) is `dismissible={false}`: then
+ * Escape, the backdrop and Close do nothing, and only the footer's actions leave it.
+ *
  * The body and footer are the caller's (`ModalBody`, `ModalFooter`), so a form can wrap both and its submit button
  * sits in the footer.
  */
@@ -18,6 +21,7 @@ export function Modal({
   size = "md",
   role,
   className,
+  dismissible = true,
   children,
 }: {
   open: boolean;
@@ -29,6 +33,8 @@ export function Modal({
   /** "alertdialog" for a confirmation that interrupts (End the talk?). */
   role?: "alertdialog";
   className?: string;
+  /** False: no Close, and Escape and the backdrop do nothing (default true). */
+  dismissible?: boolean;
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -59,11 +65,11 @@ export function Modal({
       onClose={onClose}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        if (dismissible) onClose();
       }}
       onClick={(e) => {
         // A click on the backdrop (the dialog element itself, outside its panel) closes it.
-        if (e.target === dialog.current) onClose();
+        if (dismissible && e.target === dialog.current) onClose();
       }}
     >
       {open ? (
@@ -72,9 +78,11 @@ export function Modal({
             <h2 id={titleId} className="tt-modal-title">
               {title}
             </h2>
-            <button type="button" className="tt-modal-close" aria-label="Close" onClick={onClose}>
-              <Glyph name="close" />
-            </button>
+            {dismissible ? (
+              <button type="button" className="tt-modal-close" aria-label="Close" onClick={onClose}>
+                <Glyph name="close" />
+              </button>
+            ) : null}
           </header>
           {children}
         </div>

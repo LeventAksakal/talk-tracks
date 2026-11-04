@@ -18,3 +18,22 @@ export function titleOf(room: string): string | undefined {
     return undefined;
   }
 }
+
+const NAME_KEY = "tt.speaker.name";
+
+/** The speaker's name as typed in Start a talk: the console signs the speaker's ink and avatar with it. */
+export function rememberSpeakerName(name: string): void {
+  try {
+    if (name.trim()) localStorage.setItem(NAME_KEY, name.trim().slice(0, 60));
+  } catch {
+    // not kept: the console says "Speaker"
+  }
+}
+
+export function speakerName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) || "Speaker";
+  } catch {
+    return "Speaker";
+  }
+}

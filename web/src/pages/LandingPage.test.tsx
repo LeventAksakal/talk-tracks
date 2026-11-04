@@ -303,6 +303,15 @@ describe("Start a talk", () => {
     for (const name of ["Copy speaker link", "Copy audience link", "Show full screen"])
       expect(screen.getByRole("button", { name })).toBeTruthy();
 
+    // The one-time speaker link cannot be lost to a stray Escape or click: no Close, and this browser keeps it.
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    fireEvent.keyDown(speakerLink.closest("dialog")!, { key: "Escape" });
+    fireEvent.click(speakerLink.closest("dialog")!);
+    expect(screen.getByLabelText("Your speaker link")).toBeTruthy();
+    expect(localStorage.getItem("tt.speaker.token.quantum-101")).toBe(
+      new URLSearchParams(CREATED.speaker_path.split("?")[1]).get("token"),
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "Open console" }));
     expect(location.pathname + location.search).toBe(CREATED.speaker_path);
   });
