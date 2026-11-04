@@ -1,4 +1,4 @@
-import { Badge, Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
+import { Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
 import {
   type ChangeEvent,
   type CSSProperties,
@@ -925,17 +925,23 @@ function OnAirBadge({ onAir, paused, elapsed }: { onAir: OnAir; paused: boolean;
         LIVE <span className="on-air-time">{clockText(elapsed)}</span>
       </span>
     );
-  const [variant, label] = paused
+  // The other states have LIVE's and the end screen's shape: a dot and a word, amber when it needs the speaker.
+  const [tone, label] = paused
     ? (["neutral", `Paused · ${clockText(elapsed)}`] as const)
     : onAir.kind === "confirming" || onAir.kind === "starting"
-      ? (["warning", "Connecting…"] as const)
+      ? (["neutral", "Connecting…"] as const)
       : onAir.kind === "off"
         ? // On air with the microphone off: the slides and camera still go out, the voice does not.
           (["warning", `Muted · ${clockText(elapsed)}`] as const)
         : (["warning", "Not on air"] as const);
   return (
-    <span role="status" className="on-air-badge" data-state={paused ? "paused" : onAir.kind}>
-      <Badge variant={variant} label={label} />
+    <span
+      role="status"
+      className="on-air-badge on-air-state"
+      data-tone={tone}
+      data-state={paused ? "paused" : onAir.kind}
+    >
+      {label}
     </span>
   );
 }
