@@ -1,0 +1,152 @@
+/* The slide panel's deck controls (SlideNav.tsx): top right of the slide, out of the subtitles' way. Shown while the
+   pointer is on the slide, while focus is in them, and always while the listener stays on a slide of their own. */
+.tt-slide-nav {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  max-width: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  color: var(--tt-color-text);
+  font: var(--tt-text-small) / 1.3 var(--tt-font-ui);
+}
+.tt-slide-nav-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-sm);
+  background: var(--player-panel);
+  box-shadow: var(--tt-shadow-2);
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-tile:hover .tt-slide-nav-bar,
+.tt-slide-nav:focus-within .tt-slide-nav-bar,
+.tt-slide-nav[data-pinned] .tt-slide-nav-bar,
+.tt-slide-nav[data-strip] .tt-slide-nav-bar {
+  opacity: 1;
+}
+/* The corner tile is too small for them: the listener pages the slides on the main picture. */
+.tt-cell-small .tt-slide-nav {
+  display: none;
+}
+.tt-slide-nav-where {
+  padding: 0 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tt-slide-nav-theirs {
+  color: var(--tt-color-text-muted);
+}
+.tt-slide-nav button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.tt-slide-nav-step,
+.tt-slide-nav-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-sm);
+  background: transparent;
+}
+.tt-slide-nav-step .tt-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tt-slide-nav-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.tt-slide-nav-all[aria-expanded="true"] {
+  border-color: var(--tt-color-accent);
+}
+.tt-slide-nav-follow {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-color-play);
+  color: var(--tt-color-on-play) !important;
+  font-weight: var(--tt-weight-strong) !important;
+}
+.tt-slide-nav button:focus-visible {
+  outline: 2px solid var(--tt-color-accent);
+  outline-offset: 1px;
+}
+
+/* All slides: the deck's pictures in a row, the one in view outlined, the speaker's (or the playhead's) marked. */
+.tt-slide-strip {
+  display: flex;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-x: auto;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-sm);
+  background: var(--player-panel);
+  box-shadow: var(--tt-shadow-2);
+  pointer-events: auto;
+  scrollbar-width: thin;
+}
+.tt-slide-thumb {
+  position: relative;
+  display: block;
+  width: 96px;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: #000;
+  overflow: hidden;
+}
+.tt-slide-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+.tt-slide-thumb span {
+  color: var(--tt-color-text-muted);
+}
+.tt-slide-thumb[aria-current="true"] {
+  border-color: var(--tt-color-accent);
+}
+.tt-slide-thumb[data-theirs]::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tt-color-play);
+  box-shadow: 0 0 0 1px #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-slide-nav-bar {
+    transition: none;
+  }
+}
