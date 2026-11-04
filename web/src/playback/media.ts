@@ -2,7 +2,7 @@
 // archive's HLS. Every position is room time: the wall time of a media timestamp − E. A room with no
 // archived media still rewinds its AI tracks: the playhead then runs on a clock of its own, silent.
 
-import { agentsPrefix, recordingOf, teacherPath } from "../contracts/names";
+import { agentsPrefix, RECORDING_SUFFIX, recordingOf, teacherPath } from "../contracts/names";
 import type { Closable } from "../transport/types";
 import type { MoqTransport } from "../transport/moq";
 import type { Mode } from "./aiTracks";
@@ -187,6 +187,8 @@ export interface RoomMediaOptions {
   fetchFn?: typeof fetch;
   /** How often the archive's playlist is read again for what it holds, ms. */
   refreshMs?: number;
+  /** Opens an HLS archive on the video element (tests stand in for hls.js). */
+  openArchive?: (video: HTMLVideoElement, url: string, startS?: number) => Promise<ArchivePlayback>;
   /**
    * How long the first playlist read waits for the teacher's hang catalog, which says whether the room
    * loops (a looped room has no playlist), ms. A room whose speaker has left never sends one.
@@ -221,6 +223,11 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
   #now: () => number;
   #archiveUrl: string;
   #loopUrl: string;
+  /** A demo session's recording room (`<room>-recording`, decision 0032): its HLS, when the lecture file is missing. */
+  #recordingUrl: string;
+  /** The session's lecture file could not be loaded: rewinds play the recording room's HLS straight away. */
+  #loopFileMissing = false;
+  #openArchive: (video: HTMLVideoElement, url: string, startS?: number) => Promise<ArchivePlayback>;
   /** A looped room's loop, from the teacher's hang catalog, and when it was last seen (this device's ms). */
   #loop: { loop: NonNullable<ReturnType<typeof loopOf>>; seen: number } | undefined;
   /** A demo session's id and clock, from the teacher's hang catalog (decision 0032). */
@@ -275,6 +282,8 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#now = options.now ?? Date.now;
     this.#archiveUrl = hlsUrl(room, options.archiveBase);
     this.#loopUrl = loopUrl(room, options.archiveBase);
+    this.#recordingUrl = hlsUrl(`${room}${RECORDING_SUFFIX}`, options.archiveBase);
+    this.#openArchive = options.openArchive ?? openArchive;
     this.#fetch = options.fetchFn ?? ((...args) => fetch(...args));
     this.#loopKnown = new Promise((resolve) => (this.#setLoopKnown = resolve));
     // No teacher catalog after the short wait: the room does not loop (its speaker left), unless the relay has not
@@ -588,11 +597,12 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#clock = undefined;
     this.#awaiting = false;
     try {
-      this.#archive ??= loop
-        ? new LoopPlayback(video, this.#loopUrl, loop)
-        : await openArchive(video, this.#archiveUrl);
-      if (generation !== this.#archiveGeneration) return;
-      await this.#archive.open(ms + e);
+      if (loop) await this.#openLoop(video, loop, ms + e, generation);
+      else {
+        this.#archive ??= await this.#openArchive(video, this.#archiveUrl);
+        if (generation !== this.#archiveGeneration) return;
+        await this.#archive.open(ms + e);
+      }
     } catch (err) {
       if (generation !== this.#archiveGeneration) return;
       this.#error = err instanceof Error ? err.message : String(err);
@@ -616,6 +626,42 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
       this.#status = "idle";
     });
     this.#listeners.emit();
+  }
+
+  /**
+   * Open a looped or session room's rewind at wall time `wallMs`: its lecture file (`archive/<room>/lecture.mp4`). A
+   * demo session whose file the archive does not serve (a 404: the media element reports a format error) plays its
+   * recording room's HLS instead, the same lecture: session time t is lecture time t, and the recording room's media
+   * starts at lecture 00:00 on its own wall clock (its playlist's first PROGRAM-DATE-TIME). Without that fallback the
+   * rewind ran on a silent clock: captions moved, with no sound and no picture.
+   */
+  async #openLoop(video: HTMLVideoElement, loop: LoopInfo, wallMs: number, generation: number): Promise<void> {
+    if (!this.#archive && !this.#loopFileMissing) this.#archive = new LoopPlayback(video, this.#loopUrl, loop);
+    if (this.#archive) {
+      try {
+        await this.#archive.open(wallMs);
+        return;
+      } catch (err) {
+        if (!this.#session || !(this.#archive instanceof LoopPlayback) || generation !== this.#archiveGeneration)
+          throw err;
+        this.#archive.close();
+        this.#archive = undefined;
+        this.#loopFileMissing = true;
+      }
+    }
+    if (!this.#session) throw new Error("the recording could not be loaded");
+    const start = (await archiveState(this.#recordingUrl, this.#fetch))?.ranges[0]?.start;
+    if (generation !== this.#archiveGeneration) return;
+    if (start === undefined) throw new Error("the recording could not be loaded");
+    const shift = loop.wallZeroMs - start;
+    // The recording's media time is lecture time: hls.js starts loading at the seek point, not at 00:00.
+    const hls = await this.#openArchive(video, this.#recordingUrl, Math.max(0, (wallMs - shift - start) / 1000));
+    if (generation !== this.#archiveGeneration) {
+      hls.close();
+      return;
+    }
+    this.#archive = new ShiftedPlayback(hls, shift);
+    await this.#archive.open(wallMs);
   }
 
   #closeArchive(): void {
@@ -723,5 +769,46 @@ export class RoomMedia implements SpeakerMedia, SessionSource {
     this.#liveGeneration++;
     this.#live?.close();
     this.#live = undefined;
+  }
+}
+
+/**
+ * An archive playback whose media sits `shiftMs` earlier on the wall clock than the room it plays for: a demo session's
+ * recording room, built once from the same lecture, for the session's own wall clock.
+ */
+export class ShiftedPlayback implements ArchivePlayback {
+  readonly #inner: ArchivePlayback;
+  readonly #shift: number;
+  constructor(inner: ArchivePlayback, shiftMs: number) {
+    this.#inner = inner;
+    this.#shift = shiftMs;
+  }
+  get element(): HTMLVideoElement {
+    return this.#inner.element;
+  }
+  get error(): string | undefined {
+    return this.#inner.error;
+  }
+  open(wallMs: number): Promise<void> {
+    return this.#inner.open(wallMs - this.#shift);
+  }
+  seek(wallMs: number): void {
+    this.#inner.seek(wallMs - this.#shift);
+  }
+  reload(): void {
+    this.#inner.reload();
+  }
+  position(): number | undefined {
+    const p = this.#inner.position();
+    return p === undefined ? undefined : p + this.#shift;
+  }
+  buffered(): Range[] {
+    return this.#inner.buffered().map((r) => ({ start: r.start + this.#shift, end: r.end + this.#shift }));
+  }
+  pause(): void {
+    this.#inner.pause();
+  }
+  close(): void {
+    this.#inner.close();
   }
 }
