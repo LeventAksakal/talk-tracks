@@ -65,8 +65,22 @@ export function speakerAt(crops: SpeakerCrops, index: number): { region: Fractio
   return undefined;
 }
 
-/** The tile's shape before the time is known: the talk's first speaker rectangle's (width / height, source pixels). */
+/** The tile's shape: the talk's first speaker rectangle's (width / height, source pixels). */
 export function speakerAspect(crops: SpeakerCrops): number | undefined {
   const r = crops.spans.find((s) => s[2])?.[2];
   return r ? r[2] / r[3] : undefined;
+}
+
+/**
+ * What the tile shows at lecture time `ms`: as speakerAt; before the time is known, the talk's first speaker rectangle,
+ * on camera (the tile never opens on the whole frame, nor claims the speaker is away before it knows).
+ */
+export function speakerFor(
+  crops: SpeakerCrops,
+  ms: number | undefined,
+): { region: Fraction; off: boolean } | undefined {
+  const index = cropSpanAt(crops, ms);
+  if (index >= 0) return speakerAt(crops, index);
+  const first = crops.spans.find((s) => s[2])?.[2];
+  return first ? { region: fraction(crops, first), off: false } : undefined;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_ROOMS, recordingRoom } from "../pages/demoRooms";
 import { framing } from "./CameraSurface";
-import { cropSpanAt, speakerAspect, speakerAt, speakerCropsFor } from "./speakerCrop";
+import { cropSpanAt, speakerAspect, speakerAt, speakerCropsFor, speakerFor } from "./speakerCrop";
 
 const at = (room: string, ms: number | undefined) => {
   const crops = speakerCropsFor(room)!;
@@ -76,5 +76,15 @@ describe("the speaker crop of a demo talk's produced video", () => {
     expect(cropSpanAt(crops, 10 * 3600_000)).toBe(crops.spans.length - 1);
     expect(cropSpanAt(crops, undefined)).toBe(-1);
     expect(speakerAt(crops, -1)).toBeUndefined();
+  });
+
+  it("opens on the speaker's box before the time is known, even in a talk that starts on a slide", () => {
+    for (const room of ["qrcode", "rsa"]) {
+      const crops = speakerCropsFor(room)!;
+      expect(speakerFor(crops, 0)!.off).toBe(true);
+      const unknown = speakerFor(crops, undefined)!;
+      expect(unknown.off).toBe(false);
+      expect(framing(16 / 9, unknown.region).aspect).toBeCloseTo(speakerAspect(crops)!, 2);
+    }
   });
 });

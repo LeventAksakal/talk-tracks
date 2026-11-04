@@ -5,7 +5,7 @@ import { usePlayer } from "./context";
 import { useFrameValue } from "./frameClock";
 import { useSlideTime } from "./SlideSurface";
 import { SourceTile } from "./SourceTile";
-import { cropSpanAt, speakerAt, speakerCropsFor } from "./speakerCrop";
+import { cropSpanAt, speakerAt, speakerCropsFor, speakerFor } from "./speakerCrop";
 
 /** [x, y, w, h], fractions of the video frame. */
 export type Rect = readonly [number, number, number, number];
@@ -184,10 +184,13 @@ export function CameraSurface({
     return cropSpanAt(crops, at === undefined ? undefined : at - origin);
   });
   // Until the time is known, the talk's first speaker box: the tile never opens on the whole frame (the slides).
-  const speaker = crops ? (speakerAt(crops, span) ?? speakerAt(crops, 0)) : undefined;
+  const speaker = crops ? (span >= 0 ? speakerAt(crops, span) : speakerFor(crops, undefined)) : undefined;
   const shown = crops ? speaker?.region : region;
+  // The measured crops know the stage shots and the full-frame slides themselves: with them the tile is the speaker
+  // all through (owner, 2026-11-04: the slides have their own tile, the camera tile is only the speaker).
+  const whole = offLayout && !crops;
   // Nobody on camera (a full-frame slide): the tile keeps its shape and says so, rather than show a corner of a slide.
-  const offCamera = !offLayout && speaker?.off === true;
+  const offCamera = speaker?.off === true;
 
   // No picture yet (before play, or while the first segment loads): an empty black box labelled "Camera" says
   // nothing, so the stage leaves the tile out until a frame is there. With no media at all, the tile says so.
@@ -208,7 +211,7 @@ export function CameraSurface({
   const note = state.card ? undefined : cameraNote(live, status);
   // A recorded talk's video is the whole composed frame: the tile shows only its webcam inset, once the frame is known,
   // and the whole picture while the video is off its layout (the stage camera), when the stage shows it large.
-  const framed = aspect === undefined ? undefined : framing(aspect, offLayout ? undefined : shown);
+  const framed = aspect === undefined ? undefined : framing(aspect, whole ? undefined : shown);
   return (
     <SourceTile kind="camera" aspect={framed?.aspect ?? 16 / 9} label="Speaker camera">
       <canvas
@@ -233,7 +236,7 @@ export function CameraSurface({
       ) : null}
       {/* Alone on the stage the picture needs no label: there is nothing beside it to tell it from. Off its layout it is
           the whole recorded frame (a stage shot, a slide with the event's logo), which "Camera" would misname. */}
-      {alone || offLayout ? null : <span className="tt-source-tag">Camera</span>}
+      {alone || whole ? null : <span className="tt-source-tag">Camera</span>}
     </SourceTile>
   );
 }
