@@ -222,6 +222,10 @@
   object-fit: cover;
   background: var(--hub-raised);
 }
+/* A talk's own slide is shown whole, on the raised field, never cropped. */
+.still-slide {
+  object-fit: contain;
+}
 .still-blank {
   display: flex;
   align-items: flex-end;

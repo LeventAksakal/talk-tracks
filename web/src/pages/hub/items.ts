@@ -13,6 +13,7 @@ import {
   recordingRoom,
   SUBTITLE_LANGUAGE_COUNT,
 } from "../demoRooms";
+import type { CommunityRoom } from "../communityRooms";
 import type { RelayRooms } from "../liveRooms";
 import type { Recording } from "../recordings";
 import type { RecentRoom } from "../recentRooms";
@@ -33,6 +34,8 @@ export interface HubItem {
   onAir?: boolean;
   /** A frame of the lecture's own recording; a talk without one shows its title on a plain field. */
   still?: LectureStill;
+  /** A talk's own first slide, from the archive (an /archive/ path), shown when it has no lecture still. */
+  slide?: string;
   credit?: string;
   /** The language the talk is spoken in, when known. */
   spoken?: Language;
@@ -95,6 +98,17 @@ function talkItem(room: string, title?: string): HubItem {
   return { room, kind: "talk", title: title ?? room, subtitleLanguages: SUBTITLE_LANGUAGE_COUNT, tracks: TALK_TRACKS };
 }
 
+/** A room a presenter made (GET /api/rooms): its title, speaker, length and first slide. */
+function communityItem(r: CommunityRoom, kind: "talk" | "recording"): HubItem {
+  return {
+    ...talkItem(r.room, r.title),
+    kind,
+    speaker: r.speaker,
+    minutes: r.durationS ? Math.max(1, Math.round(r.durationS / 60)) : undefined,
+    slide: r.still,
+  };
+}
+
 /** The item for any room the hub knows of by name (Continue watching). */
 export function itemFor(room: string, recordings: ReadonlySet<string> | undefined, title?: string): HubItem {
   const known = lectureOf(room);
@@ -105,22 +119,36 @@ export function hubRows({
   relay,
   recordings,
   recent,
+  community = [],
 }: {
   relay: RelayRooms | undefined;
   /** undefined while the archive's list is loading. */
   recordings: readonly Recording[] | undefined;
   recent: readonly RecentRoom[];
+  /** The rooms presenters made (GET /api/rooms); [] while loading or when the room service is out of reach. */
+  community?: readonly CommunityRoom[];
 }): HubRows {
   const connected = relay?.status === "connected";
   const onAir = (room: string) => (connected ? relay.live.has(room) : undefined);
   const recorded = recordings ? new Set(recordings.map((r) => r.room)) : undefined;
+  const made = new Map(community.filter((r) => !lectureOf(r.room)).map((r) => [r.room, r]));
 
-  const talks = connected
+  // On air: what the room service says is live (newest first), then what the relay announces that the room service
+  // has not ended (a talk it does not know, or one that went on air since its list was made).
+  const newest = (a: CommunityRoom, b: CommunityRoom) => (b.started ?? 0) - (a.started ?? 0);
+  const saidLive = [...made.values()].filter((r) => r.state === "live").sort(newest);
+  const announced = connected
     ? [...relay.live]
-        .filter((room) => !lectureOf(room))
+        .filter((room) => !lectureOf(room) && made.get(room)?.state !== "live" && made.get(room)?.state !== "ended")
         .sort()
-        .map((room) => ({ ...talkItem(room), onAir: true }))
     : [];
+  const talks = [
+    ...saidLive.map((r) => ({ ...communityItem(r, "talk"), onAir: true })),
+    ...announced.map((room) => {
+      const known = made.get(room);
+      return { ...(known ? communityItem(known, "talk") : talkItem(room)), onAir: true };
+    }),
+  ];
   const sessions = DEMO_ROOMS.map((d) => ({ ...lectureItem(d, "live", recorded), onAir: onAir(d.room) }));
 
   const order = (r: Recording) => {
@@ -137,6 +165,11 @@ export function hubRows({
             : { ...talkItem(r.room, r.of), kind: "recording" as const };
         })
     : DEMO_ROOMS.map((d) => lectureItem(d, "recording", recorded));
+  // The talks presenters gave, after the demo lectures (so nothing on the first paint moves), newest first.
+  const talksRecorded = [...made.values()]
+    .filter((r) => r.state === "ended" && r.recording)
+    .sort((a, b) => (b.ended ?? b.started ?? 0) - (a.ended ?? a.started ?? 0))
+    .map((r) => communityItem(r, "recording"));
 
   const recentItems = recent.map((r) => {
     const item = itemFor(r.room, recorded, r.title);
@@ -144,5 +177,5 @@ export function hubRows({
   });
 
   const [featured, ...others] = sessions;
-  return { live: [...talks, ...others], recordings: recs, recent: recentItems, featured };
+  return { live: [...talks, ...others], recordings: [...recs, ...talksRecorded], recent: recentItems, featured };
 }

@@ -124,6 +124,21 @@ never in the repo. The room service reads it again whenever it changes, so addin
 Locally (`deploy/compose.local.yml`, `TT_OPEN_SPEAKER=1`) any code is accepted, and with no `TT_SIGNING_KEY` the
 speaker link has no token (a local relay needs none).
 
+### The public room list, and hiding a room
+
+`GET /api/rooms` (same port, `archive.listing`) lists every room presenters made, for the hub's Live now and
+Recordings rows: the rooms codes created, the rooms of minted judge batches, and any other room the archive recorded.
+The demo lectures, their `-recording` rooms and the looped or skipped rooms are left out. Each entry is `{"room",
+"title", "speaker", "state": "upcoming" | "live" | "ended", "created", "started", "ended", "duration", "recording",
+"still"}` (Unix seconds, seconds, `still` the first slide the archive kept). It never carries a code, a label, a cap,
+a token or an address. `live` is the room's own state track (on air while the speaker's media flows, ended after End
+talk). The list is rebuilt at most every 5 s and sent with `Cache-Control: public, max-age=10`.
+
+Everything is listed, rehearsals too. To hide a room, add its name (or a glob such as `rehearsal-*`) on a line of its
+own to `$TT_DATA/rooms-hidden.txt` (`TT_ROOMS_HIDDEN`; `#` starts a comment). The room service reads the file again
+when it changes, so hiding needs no restart; the hub drops the room within about 15 s. The room itself stays
+reachable at `/watch/<room>` for anyone who has the link.
+
 ## Run with tokens locally
 
 ```bash

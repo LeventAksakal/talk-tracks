@@ -70,6 +70,7 @@ IP_LIMIT = (1 / 20, 5.0)  # (per second, burst): five tries at once, then one ev
 CODE_LIMIT = (1 / 10, 10.0)  # rooms a code creates: ten at once, then one every 10 s
 IPS_KEPT = 4096
 READ_TIMEOUT_S = 10.0
+LIST_MAX_AGE_S = 10  # GET /api/rooms: browsers and Caddy may keep the room list this long
 
 
 # --- the room key: ES256 signing ----------------------------------------------------------------------------------
@@ -217,6 +218,7 @@ class CreatedRoom:
     group: str
     title: str
     speaker: str | None
+    created: int | None = None  # Unix seconds
 
 
 class Registry:
@@ -229,7 +231,14 @@ class Registry:
     def created(self, room: str) -> CreatedRoom | None:
         try:
             doc = json.loads((self.rooms_dir / f"{room}.json").read_text(encoding="utf-8"))
-            return CreatedRoom(str(doc["room"]), str(doc["group"]), str(doc["title"]), doc.get("speaker"))
+            made = doc.get("created")
+            return CreatedRoom(
+                str(doc["room"]),
+                str(doc["group"]),
+                str(doc["title"]),
+                doc.get("speaker"),
+                made if isinstance(made, int) else None,
+            )
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
@@ -250,6 +259,17 @@ class Registry:
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         return None
+
+    def batch_rooms(self) -> list[str]:
+        """Every room of every caps batch: the codes' and the minted judge batches'."""
+        found: set[str] = set()
+        for path in sorted(self.caps_dir.glob("*.json")) if self.caps_dir.is_dir() else []:
+            try:
+                rooms = json.loads(path.read_text(encoding="utf-8"))["rooms"]
+                found.update(r for r in rooms if isinstance(r, str) and ROOM.fullmatch(r))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return sorted(found)
 
     def rooms_of(self, group: str) -> list[str]:
         try:
@@ -417,10 +437,18 @@ REASONS = {
 
 class CreateServer:
     """A minimal HTTP/1.1 server for ``POST /api/rooms`` (one request per connection), with CORS for the allowed
-    origins (the dev server runs on another port). ``proxied``: the client's address is the last X-Forwarded-For."""
+    origins (the dev server runs on another port). ``proxied``: the client's address is the last X-Forwarded-For.
+    ``listing``: ``GET /api/rooms`` answers the public room list (``archive.listing``), cached briefly; None: 405."""
 
-    def __init__(self, creation: RoomCreation, *, origins: Iterable[str] | None = None, proxied: bool = False) -> None:
-        self.creation, self.proxied = creation, proxied
+    def __init__(
+        self,
+        creation: RoomCreation,
+        *,
+        origins: Iterable[str] | None = None,
+        proxied: bool = False,
+        listing: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
+        self.creation, self.proxied, self.listing = creation, proxied, listing
         self.origins = frozenset(origins) if origins else None
         self.port: int | None = None
 
@@ -440,7 +468,8 @@ class CreateServer:
             status, body, extra = 400, {"error": "invalid", "message": "Not an HTTP request"}, {}
         try:
             data = b"" if status == 204 else json.dumps(body, separators=(",", ":")).encode()
-            head = [f"HTTP/1.1 {status} {REASONS.get(status, 'Error')}", "Connection: close", "Cache-Control: no-store"]
+            cache = extra.pop("Cache-Control", "no-store")
+            head = [f"HTTP/1.1 {status} {REASONS.get(status, 'Error')}", "Connection: close", f"Cache-Control: {cache}"]
             if data:
                 head += ["Content-Type: application/json", f"Content-Length: {len(data)}"]
             head += [f"{k}: {v}" for k, v in extra.items()]
@@ -469,8 +498,11 @@ class CreateServer:
             return 404, {"error": "not-found", "message": "Not found"}, cors
         if method == "OPTIONS":
             return 204, {}, cors
+        if method == "GET" and self.listing is not None:
+            return 200, self.listing(), {**cors, "Cache-Control": f"public, max-age={LIST_MAX_AGE_S}"}
         if method != "POST":
-            return 405, {"error": "method", "message": "POST a room"}, {**cors, "Allow": "POST, OPTIONS"}
+            allow = "GET, POST, OPTIONS" if self.listing is not None else "POST, OPTIONS"
+            return 405, {"error": "method", "message": "POST a room"}, {**cors, "Allow": allow}
         if headers.get("origin") and self.origins is not None and headers["origin"] not in self.origins:
             return 403, {"error": "forbidden", "message": "Not from this site"}, {}
         length = int(headers.get("content-length", "0"))
@@ -485,7 +517,7 @@ class CreateServer:
             return {}
         return {
             "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
             "Vary": "Origin",
         }
@@ -514,6 +546,7 @@ class CreateConfig:
     default_cap_usd: float = 2.0
     token_hours: float = TOKEN_HOURS
     demo_rooms: tuple[str, ...] = ()
+    hidden: Path | None = None  # the rooms GET /api/rooms never lists (archive.listing.Denylist)
 
     @staticmethod
     def from_env(listen: str, archive_dir: Path) -> CreateConfig:
@@ -533,12 +566,18 @@ class CreateConfig:
             default_cap_usd=float(os.environ.get("TT_ROOM_CAP_USD", "2")),
             token_hours=float(os.environ.get("TT_ROOM_TOKEN_HOURS", str(TOKEN_HOURS))),
             demo_rooms=tuple(r.strip() for r in os.environ.get("TT_DEMO_ROOMS", "").split(",") if r.strip()),
+            hidden=Path(os.environ.get("TT_ROOMS_HIDDEN") or archive_dir.parent / "rooms-hidden.txt"),
         )
 
     def registry(self) -> Registry:
         return Registry(self.caps_dir, self.rooms_dir)
 
-    async def run(self, taken: Callable[[str], bool], on_created: Callable[[str, str, str | None], None]) -> None:
+    async def run(
+        self,
+        taken: Callable[[str], bool],
+        on_created: Callable[[str, str, str | None], None],
+        listing: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
         key = SigningKey.read(self.signing_key) if self.signing_key is not None else None
         if key is None and not self.open_mode:
             log.warning("no signing key (TT_SIGNING_KEY): rooms cannot be created")
@@ -555,5 +594,5 @@ class CreateConfig:
             demo_rooms=self.demo_rooms,
             token_hours=self.token_hours,
         )
-        server = CreateServer(creation, origins=self.origins or None, proxied=self.proxied)
+        server = CreateServer(creation, origins=self.origins or None, proxied=self.proxied, listing=listing)
         await server.serve(self.host, self.port)

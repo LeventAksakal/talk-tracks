@@ -40,9 +40,11 @@ from ..room_catalog import catalog_path, speaker_sources, stats_track
 from ..runtime import now_ms
 from .audience import Audience
 from .catalog import REFRESH_S, CatalogFeed
-from .create import CreateConfig, CreatedRoom
+from .create import DEMO_ROOMS, CreateConfig, CreatedRoom
 from .events import RoomEvents
 from .listeners import EndpointConfig
+from .listing import Denylist, RoomListing
+from .listing import RoomState as RoomStateKind
 from .looped import LoopedRoom
 from .stats import RelayCounts, StatsTrack, snapshot
 from .store import Archive, RoomArchive, RoomFilter
@@ -184,6 +186,16 @@ class Archiver:
         if state is None or not self.wanted(room):
             return None
         return await state.events.audience_tracks()
+
+    def room_state(self, room: str) -> RoomStateKind | None:
+        """What the room's state track says now (``on_air`` while a teacher broadcast sends media, ``ended`` after End
+        talk); before the track exists, ``on_air`` when the archive sees the broadcast live. None: nothing yet."""
+        state = self.rooms.get(room)
+        track = state.events.state if state is not None else None
+        if track is not None and track.records:
+            return track.records[-1].data.state
+        archived = self.archive.rooms.get(room)
+        return "on_air" if archived is not None and archived.live else None
 
     def holds(self, room: str) -> bool:
         """The room is in use: a speaker opened it or the archive keeps it (room creation's ``taken``)."""
@@ -404,7 +416,17 @@ async def archive_rooms(
         archiver.listeners = endpoint.listeners
         servers.append(asyncio.create_task(listeners.serve(endpoint)))
     if creation is not None:
-        servers.append(asyncio.create_task(creation.run(archiver.holds, archiver.created)))
+        assert registry is not None
+        demo = DEMO_ROOMS | set(creation.demo_rooms)
+        listing = RoomListing(
+            registry,
+            archive.root,
+            archived_rooms=archive.known_rooms,
+            room_state=archiver.room_state,
+            listed=lambda room: room not in demo and archiver.wanted(room),
+            hidden=Denylist(creation.hidden),
+        )
+        servers.append(asyncio.create_task(creation.run(archiver.holds, archiver.created, listing.answer)))
     for server in servers:
         server.add_done_callback(_log_failure)
     try:
