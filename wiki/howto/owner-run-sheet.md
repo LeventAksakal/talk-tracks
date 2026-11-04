@@ -120,29 +120,37 @@ terminal shows nothing → wrong `--room` or ssh dropped; restart it (permission
 
 ---
 
-## 3 · The shoot: alone, one take, four windows (updated 11-04 night)
+## 3 · The shoot: alone, one take, four windows (updated 11-05 00:45)
 
 **Why.** The video is one real live talk recorded in one OBS take: the speaker console, two muted incognito
 listeners (Turkish and Japanese) and a terminal of live Meta API calls; it scores under Demo (25 %), and judges stop
 at 3:00 ([rules](../workstreams/07-submission.md#the-rules-checked-2026-11-02)). No friends, no phone, no clap.
 
+**The talk you give is the deck about the system.** Upload
+[`docs/deck/talk-tracks-moqt.pdf`](../../docs/deck/talk-tracks-moqt.pdf) (8 pages: the problem, why MoQT, the
+tracks, the architecture, AI on demand, Meta's models, close) in the console's green room: **Slides → drop the PDF**
+(or pick it in the file dialog), check eight thumbnails, then **Go on air**. Explain it page by page with the lines in
+[The lecture the owner gives](../submission-video.md#the-lecture-the-owner-gives), so the listeners get the
+architecture in Turkish and Japanese and the describe agent describes the diagram. On page 5 circle the *moq-relay*
+box with the pen. The same pages as 1920×1080 PNGs (`docs/deck/png/`) are the full-screen inserts in the edit.
+
 **Follow [the script's Shot order](../submission-video.md#shot-order-one-take-top-to-bottom) top to bottom while
-OBS records.** It lists the setup before OBS starts (room, windows, mute, terminal command), the 19 steps of the
-take, and the pickups. The beats, borders and labels for DaVinci are in the same file
+OBS records.** It lists the setup before OBS starts (room, windows, mute, terminal command, the deck PDF at hand), the
+20 steps of the take, and the pickups. The beats, borders and labels for DaVinci are in the same file
 ([Beats](../submission-video.md#beats), [the four windows](../submission-video.md#the-four-windows-povs-and-their-davinci-frames)).
 
 | Time | What | Done when |
 |---|---|---|
 | 0:00–0:10 | Setup before OBS: room, Speaker window, two muted incognito listeners, terminal, OBS quadrants | every quadrant shows a picture, address bars cropped |
-| 0:10–0:20 | The take (steps 1–19) | OBS stopped after the hub pickup |
+| 0:10–0:20 | The take (steps 1–20): the deck PDF dropped in, pages 1–8 talked through | OBS stopped after the hub pickup |
 | 0:20–0:25 | Scrub the recording: Turkish and Japanese arrived, `translate` lines in the terminal, the circle reached the listener | keep, or one more take in a new room |
-| 0:25–0:35 | Voice-over, 11 clips, one per beat | each clip within its beat's length |
+| 0:25–0:35 | Voice-over, 13 clips, one per beat (358 words) | each clip within its beat's length |
 
-**Good looks like:** Turkish within ~15 s of the pick; JA's subtitles and `translate ja` lines stop while paused; a
-`describe slide` line within 15 s of the page turn; no new `translate ja` line during the rewind; the replay plays
+**Good looks like:** eight thumbnails before Go on air; Turkish within ~15 s of the pick; JA's subtitles and `translate ja` lines stop while paused; a
+`describe slide` line within 15 s of the turn to page 5 (the architecture); no new `translate ja` line during the rewind; the replay plays
 Turkish at once; no code, speaker link, token, hostname, e-mail or notification in any frame.
 
-**If it goes wrong:** no subtitle after 20 s → reload that listener and pick again, keep recording, cut the miss.
+**If it goes wrong:** the deck shows fewer than eight thumbnails or a blank page → remove it and drop the PDF again; still wrong → present your old 4-page PDF and keep the deck only as the edit's inserts. No subtitle after 20 s → reload that listener and pick again, keep recording, cut the miss.
 The console will not go on air → reload it; still failing → shoot the listeners on a demo talk under *Live now* and
 drop beats 2, 6 and 10's speaker shots. *Capped* → new room, new take.
 
