@@ -10,14 +10,16 @@ import { openPdf } from "../speaker/deck";
 import { createSpeakerMedia } from "../speaker/media";
 import { forgetToken, speakerToken } from "../speaker/savedToken";
 import { relayNeedsToken } from "../speaker/token";
-import { moqBroadcast } from "../speaker/sink";
+import { MemoryBroadcast, moqBroadcast } from "../speaker/sink";
+import { FakeTransport } from "../transport/fake";
 import { useMoqTransport } from "../transport/useTransport";
 import { NotFound } from "./NotFound";
 
 /**
  * The speaker console (ui-design §7) at /talk/<room>?token=…: microphone, camera and a PDF deck with
  * pen, highlighter, text marks and laser, published as the room's tracks. In development,
- * `?clock=local` stands in for the room service's clock, so slides go out with no room service.
+ * `?clock=local` stands in for the room service's clock, so slides go out with no room service, and `?offline` runs
+ * the console with no relay at all (the browser's devices, nothing published) to see and try it.
  */
 export function TalkPage({ room }: { room: string }) {
   const { search } = useLocation();
@@ -29,6 +31,7 @@ export function TalkPage({ room }: { room: string }) {
   }, [room, search]);
   const localClock = import.meta.env.DEV && params.get("clock") === "local";
   if (!isValidRoom(room)) return <NotFound what={`"${room}" is not a room name.`} />;
+  if (import.meta.env.DEV && params.has("offline")) return <OfflineConsole room={room} />;
   return <LiveConsole room={room} token={token} localClock={localClock} />;
 }
 
@@ -61,4 +64,16 @@ function LiveConsole({ room, token, localClock }: { room: string; token: string 
   );
   if (!deps) return <Loading>Connecting to the relay…</Loading>;
   return <Console room={room} token={token} deps={deps} />;
+}
+
+/** Development only: the console on a fake relay, with the browser's devices and nothing published. */
+function OfflineConsole({ room }: { room: string }) {
+  const [deps] = useState<ConsoleDeps>(() => ({
+    watcher: new FakeTransport(),
+    makeSink: () => new MemoryBroadcast(),
+    openDeck: openPdf,
+    createMedia: () => import("../speaker/previewMedia").then((m) => m.createPreviewMedia()),
+    localEpochMs: localEpoch(Date.now()),
+  }));
+  return <Console room={room} token={undefined} deps={deps} />;
 }

@@ -242,6 +242,8 @@ describe("Start a talk", () => {
     const speakerLink = screen.getByLabelText("Your speaker link") as HTMLInputElement;
     expect(new URL(speakerLink.value).pathname + new URL(speakerLink.value).search).toBe(CREATED.speaker_path);
     expect(screen.getByRole("img", { name: /QR code for .*\/watch\/quantum-101/ })).toBeTruthy();
+    for (const name of ["Copy speaker link", "Copy audience link", "Show full screen"])
+      expect(screen.getByRole("button", { name })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Open console" }));
     expect(location.pathname + location.search).toBe(CREATED.speaker_path);

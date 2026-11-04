@@ -1,0 +1,127 @@
+/* The app's modal (Modal.tsx): a fixed header, a body that fits the viewport, a fixed footer for the actions. One
+   opaque surface, a hairline and one shadow (design intent: something that floats over content). */
+
+.tt-modal {
+  width: min(var(--tt-modal-width, 560px), calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tt-color-text);
+  overflow: visible;
+}
+.tt-modal-sm {
+  --tt-modal-width: 440px;
+}
+.tt-modal-lg {
+  --tt-modal-width: 760px;
+}
+.tt-modal::backdrop {
+  background: var(--tt-color-scrim);
+}
+.tt-modal[open] {
+  animation: tt-modal-in var(--tt-duration-medium, 200ms) var(--tt-ease-standard, ease) both;
+}
+.tt-modal-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+  border: 1px solid var(--tt-color-line);
+  border-radius: 12px;
+  background: var(--tt-color-surface);
+  box-shadow: var(--tt-shadow-3);
+  overflow: hidden;
+}
+/* A form that wraps the body and the footer keeps the same column. */
+.tt-modal-panel > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.tt-modal-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-space-4);
+  padding: var(--tt-space-4) var(--tt-space-4) var(--tt-space-4) var(--tt-space-6);
+  border-bottom: 1px solid var(--tt-color-line);
+}
+.tt-modal-title {
+  margin: 0;
+  font: var(--tt-weight-display) 1.25rem / 1.25 var(--tt-font-display);
+  letter-spacing: -0.015em;
+}
+.tt-modal-close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tt-radius-full);
+  background: transparent;
+  color: var(--tt-color-text-muted);
+  cursor: pointer;
+}
+.tt-modal-close:hover {
+  background: var(--tt-color-raised);
+  color: var(--tt-color-text);
+}
+.tt-modal-close:focus-visible {
+  outline: 2px solid var(--tt-color-focus);
+  outline-offset: 2px;
+}
+.tt-modal-close .glyph {
+  width: 22px;
+  height: 22px;
+}
+.tt-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--tt-space-6);
+}
+.tt-modal-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-4);
+  padding: var(--tt-space-3) var(--tt-space-6);
+  border-top: 1px solid var(--tt-color-line);
+  background: var(--tt-color-surface);
+}
+.tt-modal-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--tt-color-text-muted);
+  font-size: var(--tt-text-small);
+}
+.tt-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  margin-inline-start: auto;
+}
+
+.glyph {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: currentColor;
+}
+
+@keyframes tt-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-modal[open] {
+    animation: none;
+  }
+}

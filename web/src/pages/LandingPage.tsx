@@ -45,7 +45,8 @@ export function LandingPage({ transport, create, recordings: loadRecordings = fe
   const relay = useRelayRooms(transport);
   const recordings = useRecordings(loadRecordings);
   const [recent] = useState(() => readRecent());
-  const [starting, setStarting] = useState(false);
+  // `/?start` (the console's "Start another talk") opens Start a talk at once.
+  const [starting, setStarting] = useState(() => new URLSearchParams(location.search).has("start"));
   const rows = useMemo(() => hubRows({ relay, recordings, recent }), [relay, recordings, recent]);
   const relayDown = relay?.status === "failed" || relay?.status === "disconnected";
   const note = relayDown ? "Live status is unavailable right now." : undefined;

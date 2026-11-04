@@ -1,6 +1,7 @@
 import { AlertDialog, Badge, Banner, Button, Switch, ToggleButton } from "@astryxdesign/core";
 import {
   type ChangeEvent,
+  type CSSProperties,
   type DragEvent,
   useCallback,
   useEffect,
@@ -17,24 +18,25 @@ import { type HangClock, hangClockOfPayload } from "../playback/roomClock";
 import type { HistorySource } from "../playback/source";
 import { MoqHistorySource } from "../playback/moqSource";
 import { watchRoomCatalog } from "../playback/roomCatalog";
+import { Glyph, type GlyphName } from "../brand/Glyph";
 import { LogoMark } from "../brand/LogoMark";
-import { Link } from "../router";
+import { Link, navigate } from "../router";
 import { useResource } from "../useResource";
 import { MoqTransport } from "../transport/moq";
 import type { ConnectionStatus, Transport } from "../transport/types";
-import { Audience } from "./Audience";
+import { Audience, features } from "./Audience";
 import { type ClockState, clockState, roomNowFn, wallNowMs } from "./clock";
 import type { Deck, RenderedSlide } from "./deck";
 import { type Echo, watchEcho } from "./echo";
 import { type EndOutcome, endRoomOnce, untilAnswered } from "./endRoom";
-import { Invite, watchUrl } from "./Invite";
+import { AudienceLink, ProjectInvite, QrCode, shortUrl, useCopy, watchUrl } from "./Invite";
 import { type Tool, isShapeTool, keyAction } from "./keys";
 import type { MediaSnapshot, SpeakerMedia } from "./media";
 import { LevelMeter, ScreenPreview, SelfView, useLevel } from "./MediaViews";
-import { useNotes } from "./notes";
 import { FRESH_AUDIO_MS, isOwnAudio, onAirState, type OnAir } from "./onair";
 import { SlidesPublisher } from "./publisher";
 import { Questions, useQuestionCounts } from "./Questions";
+import { titleOf } from "./talkTitle";
 import { type BroadcastSink, lazyBroadcast } from "./sink";
 import { Stage, type ToolColors, type WidthStep, colorKey } from "./Stage";
 import { type TokenCheck, checkToken } from "./token";
@@ -205,6 +207,13 @@ function ConsoleView({
     };
   }, [deps]);
   const level = useLevel(snap?.micTrack);
+  // Once this microphone has been heard it stays heard: speech has pauses.
+  const [heard, setHeard] = useState<MediaStreamTrack>();
+  if (snap?.micTrack && level > 0.25 && heard !== snap.micTrack) setHeard(snap.micTrack);
+  const micHeard = !!snap?.micTrack && heard === snap.micTrack;
+  const [withAudio, setWithAudio] = useState(false);
+  // On air, one side panel at a time (Meet's people and chat): the audience, or their questions.
+  const [panel, setPanel] = useState<"audience" | "questions">();
 
   // --- on air: the relay must carry our own audio back (a refused publish is silent) ---------------
   const mediaOnAir = snap?.onAir ?? false;
@@ -297,7 +306,6 @@ function ConsoleView({
   const [hidden, setHidden] = useState(false);
   const loading = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [notes, setNote] = useNotes(deck?.fingerprint);
   useEffect(() => () => deck?.close(), [deck]);
 
   // --- the audience's questions (decision 0024): the console's session at the room service is the speaker's -----
@@ -462,6 +470,9 @@ function ConsoleView({
     setPhase("on-air");
   };
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [endedAt, setEndedAt] = useState(0);
+  const [savedTitle] = useState(() => titleOf(room));
+  const talkTitle = savedTitle ?? deck?.title ?? undefined;
   const [ending, setEnding] = useState<Ending>("ended");
   // Stops End talk's retries when the console goes away.
   const endAbort = useRef<AbortController | undefined>(undefined);
@@ -493,68 +504,46 @@ function ConsoleView({
     setSnap(undefined);
     setConfirmEnd(false);
     setLive(false);
+    setEndedAt(Date.now());
     setPhase("ended");
   };
 
-  if (phase === "ended") return <Ended room={room} ending={ending} retry={sayEnded} />;
+  if (phase === "ended")
+    return (
+      <Ended
+        room={room}
+        title={talkTitle}
+        now={now}
+        ending={ending}
+        retry={sayEnded}
+        onAirMs={endedAt - startedAt}
+        slideCount={deck?.count ?? 0}
+        still={slides[0]?.url}
+        made={features(catalog, now).map((f) => f.name)}
+      />
+    );
 
   const current = slides[index];
-  const next = deck && index + 1 < deck.count ? slides[index + 1] : undefined;
   const aspect = deck?.aspect ?? 16 / 9;
   const slideLabel = deck ? `Slide ${index + 1} of ${deck.count}${hidden ? ", hidden from viewers" : ""}` : "No slides";
+  const sharing = !!snap?.screenTrack;
+  const frameAspect = sharing ? 16 / 9 : aspect;
+  const openQuestions = [...questionCounts.values()].reduce((a, b) => a + b, 0);
+  const rendered = slides.filter(Boolean).length;
+  const micState = snap?.micError ? "bad" : snap?.micOn ? (micHeard ? "ok" : "wait") : "off";
+  const goLabel = !canPublish
+    ? "Needs your speaker link: paste it above"
+    : mediaError
+      ? `The microphone and camera could not load: ${mediaError}`
+      : !media
+        ? "Waiting for the microphone and camera to load"
+        : undefined;
 
   return (
     <div className="console" data-phase={phase}>
-      <header className="console-bar">
-        <div className="console-title">
-          <Link href="/" className="brand">
-            <LogoMark />
-            Talk Tracks
-          </Link>
-          <h1>
-            Speaking in <span className="console-room">{room}</span>
-          </h1>
-        </div>
-        <div className="console-actions">
-          <OnAirBadge onAir={onAir} paused={phase === "paused"} elapsed={phase !== "preflight" ? now - startedAt : 0} />
-          {phase === "preflight" ? (
-            <Button
-              label="Go on air"
-              variant="primary"
-              icon={<Icon name="live" />}
-              isDisabled={!media || !!mediaError || !canPublish}
-              tooltip={
-                !canPublish
-                  ? "Needs your speaker link: see Speaker token"
-                  : !media
-                    ? "Waiting for the microphone and camera to load"
-                    : undefined
-              }
-              onClick={goOnAir}
-            />
-          ) : (
-            <>
-              {phase === "paused" ? (
-                <Button label="Resume" variant="primary" icon={<Icon name="play" />} onClick={resume} />
-              ) : (
-                <Button
-                  label="Pause"
-                  variant="secondary"
-                  icon={<Icon name="pause" />}
-                  tooltip="Viewers see that you paused; nothing is lost"
-                  onClick={pause}
-                />
-              )}
-              <Button
-                label="End talk"
-                variant="destructive"
-                icon={<Icon name="stop" />}
-                onClick={() => setConfirmEnd(true)}
-              />
-            </>
-          )}
-        </div>
-      </header>
+      <ConsoleHeader room={room} title={talkTitle} now={now}>
+        <OnAirBadge onAir={onAir} paused={phase === "paused"} elapsed={phase !== "preflight" ? now - startedAt : 0} />
+      </ConsoleHeader>
       <AlertDialog
         isOpen={confirmEnd}
         onOpenChange={setConfirmEnd}
@@ -564,54 +553,21 @@ function ConsoleView({
         actionLabel="End talk"
         onAction={endTalk}
       />
-      {onAir.kind === "refused" || onAir.kind === "error" ? (
-        <Banner status="warning" title="Not on air" description={onAir.reason} role="alert" />
-      ) : null}
-      {connection.status === "disconnected" && phase === "on-air" ? (
-        <Banner
-          status="warning"
-          title="Connection dropped"
-          description="Reconnecting. Keep talking: the console sends again as soon as it is back."
-          role="alert"
-        />
-      ) : null}
-
-      <div className="console-grid">
-        <aside className="console-side">
-          <Sources
-            phase={phase}
-            media={media}
-            snap={snap}
-            mediaError={mediaError}
-            level={level}
-            name={name}
-            setName={setName}
-            deck={deck}
-            deckBusy={deckBusy}
-            deckError={deckError}
-            rendered={slides.filter(Boolean).length}
-            pickFile={() => fileInput.current?.click()}
-            tokenCheck={tokenCheck}
-            tokenRequired={tokenRequired}
-            connection={connection.status}
-            clock={clock}
+      <div className="console-alerts">
+        {onAir.kind === "refused" || onAir.kind === "error" ? (
+          <Banner status="warning" title="Not on air" description={onAir.reason} role="alert" />
+        ) : null}
+        {connection.status === "disconnected" && phase === "on-air" ? (
+          <Banner
+            status="warning"
+            title="Connection dropped"
+            description="Reconnecting. Keep talking: the console sends again as soon as it is back."
+            role="alert"
           />
-          <input
-            ref={fileInput}
-            type="file"
-            accept="application/pdf,.pdf"
-            className="sr-only"
-            tabIndex={-1}
-            aria-label="Choose a PDF deck"
-            data-testid="deck-file"
-            onChange={(e: ChangeEvent<HTMLInputElement>) => {
-              void loadFile(e.target.files?.[0]);
-              e.target.value = "";
-            }}
-          />
-          <Invite room={room} />
-        </aside>
+        ) : null}
+      </div>
 
+      <div className="console-body">
         <main
           id="main"
           className="console-main"
@@ -621,201 +577,386 @@ function ConsoleView({
             void loadFile(e.dataTransfer.files[0]);
           }}
         >
-          <div className="panel-head">
-            <h2 className="panel-title">What viewers see</h2>
-            <span className="muted small" data-testid="wire-status">
+          <div className="stage-head">
+            <h2 className="stage-caption">
+              {phase === "preflight" ? "Preview: what viewers will see" : "What viewers see"}
+            </h2>
+            <span className="stage-wire" data-testid="wire-status">
               <WireStatus live={live} clock={clock} echo={echo} phase={phase} />
             </span>
           </div>
-          <div className="stage-wrap" onPointerDownCapture={() => setOptionsOpen(false)}>
-            {snap?.screenTrack ? (
-              // While a screen is shared, viewers see it in place of the slides (the camera stays in the corner).
-              <ScreenPreview track={snap.screenTrack} className="stage stage-screen" />
-            ) : deck ? (
-              <Stage
-                publisher={publisher}
-                slide={current}
-                aspect={aspect}
-                tool={tool}
-                colors={colors}
-                width={width}
-                hidden={hidden}
-                label={slideLabel}
-              />
-            ) : (
-              <div className="stage stage-empty" style={{ aspectRatio: String(aspect) }}>
-                <p>Load your slides as a PDF (export from PowerPoint, Keynote or Google Slides), or drop one here.</p>
-                <Button label="Load slides" variant="primary" onClick={() => fileInput.current?.click()} />
-              </div>
-            )}
-            <SelfView track={snap?.cameraTrack} className="stage-camera" />
+          <div className="stage-area" onPointerDownCapture={() => setOptionsOpen(false)}>
+            <div className="stage-frame" style={{ "--aspect": String(frameAspect) } as CSSProperties}>
+              {sharing ? (
+                // While a screen is shared, viewers see it in place of the slides (the camera stays in the corner).
+                <ScreenPreview track={snap?.screenTrack} className="stage stage-screen" />
+              ) : deck ? (
+                <Stage
+                  publisher={publisher}
+                  slide={current}
+                  aspect={aspect}
+                  tool={tool}
+                  colors={colors}
+                  width={width}
+                  hidden={hidden}
+                  label={slideLabel}
+                />
+              ) : (
+                <EmptyStage camera={snap?.cameraTrack} name={name} busy={deckBusy} />
+              )}
+              {sharing || deck ? <SelfView track={snap?.cameraTrack} className="stage-camera" /> : null}
+            </div>
           </div>
           {/* The drawing tools and slide controls come with a deck: before one is loaded the stage asks for it, and a
               row of disabled controls would only say the console is half built. */}
           {deck ? (
-            <div className="toolbar" role="toolbar" aria-label="Drawing tools">
-              {TOOLS.map((group, i) => (
-                <div key={i} className="toolbar-group">
-                  {group.map((t) => {
-                    const options = tool === t.tool && hasOptions(t.tool);
-                    return (
-                      <span key={t.tool} className="tool-slot">
-                        <ToggleButton
-                          label={`${t.name ?? t.label} (${t.key})`}
-                          size="sm"
-                          isPressed={tool === t.tool}
-                          isDisabled={!deck}
-                          onPressedChange={() => pickTool(t.tool)}
-                        >
-                          {t.label}
-                        </ToggleButton>
-                        {options ? (
-                          <button
-                            type="button"
-                            className="tool-options-toggle"
-                            aria-label={`${t.label} colour and width`}
-                            aria-expanded={optionsOpen}
-                            onClick={() => setOptionsOpen((o) => !o)}
+            <div className="stage-tools">
+              <div className="toolbar" role="toolbar" aria-label="Drawing tools">
+                {TOOLS.map((group, i) => (
+                  <div key={i} className="toolbar-group">
+                    {group.map((t) => {
+                      const options = tool === t.tool && hasOptions(t.tool);
+                      return (
+                        <span key={t.tool} className="tool-slot">
+                          <ToggleButton
+                            label={`${t.name ?? t.label} (${t.key})`}
+                            size="sm"
+                            isPressed={tool === t.tool}
+                            onPressedChange={() => pickTool(t.tool)}
                           >
-                            <span
-                              className="tool-options-dot"
-                              style={colorTool ? { background: colors[colorTool] } : undefined}
-                            />
-                          </button>
-                        ) : null}
-                        {options && optionsOpen ? (
-                          <div className="tool-popover" role="group" aria-label={`${t.label} options`}>
-                            {colorTool ? (
-                              <Swatches
-                                tool={colorTool}
-                                value={colors[colorTool]}
-                                onChange={(c) => setColors((prev) => ({ ...prev, [colorTool]: c }))}
+                            {t.label}
+                          </ToggleButton>
+                          {options ? (
+                            <button
+                              type="button"
+                              className="tool-options-toggle"
+                              aria-label={`${t.label} colour and width`}
+                              aria-expanded={optionsOpen}
+                              onClick={() => setOptionsOpen((o) => !o)}
+                            >
+                              <span
+                                className="tool-options-dot"
+                                style={colorTool ? { background: colors[colorTool] } : undefined}
                               />
-                            ) : null}
-                            {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
-                            <span className="tool-popover-hint">Closes when you draw</span>
-                          </div>
-                        ) : null}
-                      </span>
-                    );
-                  })}
+                            </button>
+                          ) : null}
+                          {options && optionsOpen ? (
+                            <div className="tool-popover" role="group" aria-label={`${t.label} options`}>
+                              {colorTool ? (
+                                <Swatches
+                                  tool={colorTool}
+                                  value={colors[colorTool]}
+                                  onChange={(c) => setColors((prev) => ({ ...prev, [colorTool]: c }))}
+                                />
+                              ) : null}
+                              {hasWidth(tool) ? <Widths value={width} onChange={setWidth} /> : null}
+                              <span className="tool-popover-hint">Closes when you draw</span>
+                            </div>
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className="slide-row">
+                <nav className="slide-nav" aria-label="Slides">
+                  <Button
+                    label="Previous"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={index === 0}
+                    onClick={() => void goTo(index - 1)}
+                  />
+                  <span className="slide-count" aria-live="polite" data-testid="slide-count">
+                    {`${index + 1} / ${deck.count}`}
+                  </span>
+                  <Button
+                    label="Next"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={index + 1 >= deck.count}
+                    onClick={() => void goTo(index + 1)}
+                  />
+                  <Button
+                    label={hidden ? "Show slides (B)" : "Hide slides (B)"}
+                    size="sm"
+                    variant="secondary"
+                    onClick={toggleBlank}
+                  />
+                </nav>
+                <div className="slide-edit" role="group" aria-label="Drawing on this slide">
+                  <Button
+                    label="Undo"
+                    tooltip="Undo (Ctrl+Z)"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={hidden || !history.includes("u")}
+                    onClick={() => publisher.undo()}
+                  />
+                  <Button
+                    label="Redo"
+                    tooltip="Redo (Ctrl+Y)"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={hidden || !history.includes("r")}
+                    onClick={() => publisher.redo()}
+                  />
+                  <Button
+                    label="Clear slide"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={hidden}
+                    onClick={() => publisher.clearSlide()}
+                  />
                 </div>
-              ))}
-            </div>
-          ) : null}
-          {deck ? (
-            <div className="slide-row">
-              <nav className="slide-nav" aria-label="Slides">
-                <Button
-                  label="Previous"
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!deck || index === 0}
-                  onClick={() => void goTo(index - 1)}
-                />
-                <span className="slide-count" aria-live="polite" data-testid="slide-count">
-                  {deck ? `${index + 1} / ${deck.count}` : "No slides"}
-                </span>
-                <Button
-                  label="Next"
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!deck || index + 1 >= deck.count}
-                  onClick={() => void goTo(index + 1)}
-                />
-                <Button
-                  label={hidden ? "Show slides (B)" : "Hide slides (B)"}
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!deck}
-                  onClick={toggleBlank}
-                />
-              </nav>
-              <div className="slide-edit" role="group" aria-label="Drawing on this slide">
-                <Button
-                  label="Undo"
-                  tooltip="Undo (Ctrl+Z)"
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!deck || hidden || !history.includes("u")}
-                  onClick={() => publisher.undo()}
-                />
-                <Button
-                  label="Redo"
-                  tooltip="Redo (Ctrl+Y)"
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!deck || hidden || !history.includes("r")}
-                  onClick={() => publisher.redo()}
-                />
-                <Button
-                  label="Clear slide"
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!deck || hidden}
-                  onClick={() => publisher.clearSlide()}
-                />
               </div>
             </div>
           ) : null}
         </main>
 
-        <aside className="console-presenter" aria-label="Presenter view (only you see this)">
-          <section className="panel">
-            <h2 className="panel-title">Next</h2>
-            {next ? (
-              <img className="next-slide" src={next.url} alt={`Slide ${index + 2}`} />
-            ) : (
-              <p className="muted small">{deck ? "This is the last slide." : "No slides yet."}</p>
-            )}
-          </section>
-          <section className="panel notes">
-            <label htmlFor="notes" className="panel-title">
-              {deck ? `Your notes for slide ${index + 1}` : "Your notes"}
+        {phase === "preflight" ? (
+          <aside className="green-room" aria-labelledby="ready-heading">
+            <div className="green-head">
+              <h2 id="ready-heading">Ready to go on air?</h2>
+              <p className="green-sub">{readiness(snap, micHeard, !!deck, canPublish)}</p>
+            </div>
+            <ul className="setup-list">
+              <SetupRow
+                state={micState}
+                control={
+                  <RoundButton
+                    icon={snap?.micOn ? "mic" : "micOff"}
+                    label="Microphone"
+                    pressed={snap?.micOn ?? false}
+                    disabled={!media}
+                    onClick={() => media?.setMic(!snap?.micOn)}
+                  />
+                }
+                title="Microphone"
+                detail={
+                  <DevicePicker
+                    label="Microphone"
+                    devices={snap?.micDevices ?? []}
+                    value={snap?.micDevice}
+                    onChange={(id) => media?.chooseMic(id)}
+                    fallback={
+                      snap?.micError ?? (snap?.micOn ? "Say something: the bar moves" : "Off. Going on air turns it on")
+                    }
+                  />
+                }
+              >
+                <LevelMeter level={level} label="Microphone level" />
+              </SetupRow>
+              <SetupRow
+                state={snap?.cameraError ? "bad" : snap?.cameraOn ? (snap.cameraTrack ? "ok" : "wait") : "off"}
+                control={
+                  <RoundButton
+                    icon={snap?.cameraOn ? "videocam" : "videocamOff"}
+                    label="Camera"
+                    pressed={snap?.cameraOn ?? false}
+                    disabled={!media}
+                    onClick={() => media?.setCamera(!snap?.cameraOn)}
+                  />
+                }
+                title="Camera"
+                detail={
+                  <DevicePicker
+                    label="Camera"
+                    devices={snap?.cameraDevices ?? []}
+                    value={snap?.cameraDevice}
+                    onChange={(id) => media?.chooseCamera(id)}
+                    fallback={snap?.cameraError ?? (snap?.cameraOn ? "Viewers see you beside the slides" : "Optional")}
+                  />
+                }
+              />
+              <SetupRow
+                state={snap?.screenError ? "bad" : sharing ? "ok" : snap?.screenStarting ? "wait" : "off"}
+                control={
+                  <RoundButton
+                    icon={sharing ? "cancelPresentation" : "presentToAll"}
+                    label={sharing ? "Stop sharing" : "Share screen"}
+                    pressed={sharing}
+                    disabled={!media?.shareScreen || (!sharing && !!snap?.screenStarting)}
+                    onClick={() => (sharing ? media?.stopScreen?.() : void media?.shareScreen?.(withAudio))}
+                  />
+                }
+                title="Screen"
+                detail={
+                  snap?.screenError ??
+                  (sharing
+                    ? `Shown in place of the slides${snap?.screenAudio ? ", with its sound" : ""}`
+                    : snap?.screenStarting
+                      ? "Pick what to share in your browser's window"
+                      : "Optional: a demo or code")
+                }
+              >
+                <Switch
+                  label="With its sound"
+                  value={withAudio}
+                  isDisabled={!media?.shareScreen || sharing || snap?.screenStarting}
+                  onChange={setWithAudio}
+                />
+              </SetupRow>
+              {/* SLOT(slide-upload): the slide-upload lane's <SlidesSetup /> replaces this row. */}
+              <SetupRow
+                state={deckError ? "bad" : deck ? (rendered >= deck.count ? "ok" : "wait") : "off"}
+                control={
+                  <RoundButton
+                    icon="slideshow"
+                    label={deck ? "Change slides" : "Load slides"}
+                    pressed={!!deck}
+                    disabled={deckBusy}
+                    onClick={() => fileInput.current?.click()}
+                  />
+                }
+                title="Slides"
+                detail={
+                  deckError ??
+                  (deck
+                    ? `${deck.title || deck.name}, ${deck.count} slides${rendered < deck.count ? `: preparing ${rendered}` : ""}`
+                    : deckBusy
+                      ? "Opening the PDF…"
+                      : "Optional: a PDF, or drop one on the preview")
+                }
+              />
+              {tokenRequired && tokenCheck.kind !== "ok" ? (
+                <SetupRow state="bad" title="Speaker link" detail={tokenText(tokenCheck, tokenRequired)[1]}>
+                  <PasteSpeakerLink />
+                </SetupRow>
+              ) : null}
+              {connection.status !== "connected" ? (
+                <SetupRow
+                  state={connection.status === "failed" ? "bad" : "wait"}
+                  title="Connection"
+                  detail={
+                    connection.status === "failed"
+                      ? "Talk Tracks refused the connection. Check your speaker link."
+                      : "Connecting…"
+                  }
+                />
+              ) : null}
+            </ul>
+            <label className="name-field">
+              <span>Your name on your ink</span>
+              <input type="text" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
             </label>
-            <textarea
-              id="notes"
-              className="notes-text"
-              disabled={!deck}
-              value={notes[index] ?? ""}
-              onChange={(e) => setNote(index, e.target.value)}
-              placeholder="Only you see these. They stay in this browser and are never sent."
-            />
-          </section>
-          <Questions
-            service={roomService}
-            slide={deck && publisher.deckId !== undefined ? { deck: publisher.deckId, index } : undefined}
-            onSlide={(i) => void goTo(i)}
-          />
-          {deck ? (
-            <section className="panel">
-              <h2 className="panel-title">All slides</h2>
-              <ol className="strip">
-                {Array.from({ length: deck.count }, (_, i) => (
-                  <li key={i}>
-                    <button
-                      type="button"
-                      className="strip-item"
-                      aria-current={i === index ? "true" : undefined}
-                      onClick={() => void goTo(i)}
-                      aria-label={`Show slide ${i + 1}${questionCounts.get(i) ? `, ${questionCounts.get(i)} questions` : ""}`}
-                    >
-                      {slides[i] ? <img src={slides[i].url} alt="" /> : <span className="strip-wait" />}
-                      <span className="strip-num">{i + 1}</span>
-                      {questionCounts.get(i) ? (
-                        <span className="strip-questions" aria-hidden="true">
-                          {questionCounts.get(i)}
-                        </span>
-                      ) : null}
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          ) : null}
-        </aside>
+            <div className="green-go">
+              <Button
+                label="Go on air"
+                variant="primary"
+                size="lg"
+                width="100%"
+                icon={<Icon name="live" />}
+                isDisabled={!media || !!mediaError || !canPublish}
+                tooltip={goLabel}
+                onClick={goOnAir}
+              />
+              <p className="green-note">{goLabel ?? "Nothing goes out before you go on air."}</p>
+            </div>
+          </aside>
+        ) : panel ? (
+          <aside className="side-panel" aria-labelledby="side-heading">
+            <header className="side-head">
+              <h2 id="side-heading">{panel === "audience" ? "Audience" : "Questions"}</h2>
+              <button type="button" className="icon-btn" aria-label="Close panel" onClick={() => setPanel(undefined)}>
+                <Glyph name="close" />
+              </button>
+            </header>
+            <div className="side-body">
+              {panel === "audience" ? (
+                <Audience catalog={catalog} now={now} chat={{ source: chatSource, room, talkClock: clockText }} />
+              ) : roomService ? (
+                <Questions
+                  service={roomService}
+                  slide={deck && publisher.deckId !== undefined ? { deck: publisher.deckId, index } : undefined}
+                  onSlide={(i) => void goTo(i)}
+                />
+              ) : (
+                <p className="muted small">Questions need the room service, which this console runs without.</p>
+              )}
+            </div>
+          </aside>
+        ) : null}
       </div>
-      <Audience catalog={catalog} now={now} chat={{ source: chatSource, room, talkClock: clockText }} />
+
+      {phase !== "preflight" ? (
+        <div className="console-dock" role="group" aria-label="Talk controls">
+          <div className="dock-side">{deck ? <span className="dock-note">{slideLabel}</span> : null}</div>
+          <div className="dock-centre">
+            <RoundButton
+              icon={snap?.micOn ? "mic" : "micOff"}
+              label="Microphone"
+              pressed={snap?.micOn ?? false}
+              disabled={!media}
+              onClick={() => media?.setMic(!snap?.micOn)}
+              size="lg"
+            />
+            <RoundButton
+              icon={snap?.cameraOn ? "videocam" : "videocamOff"}
+              label="Camera"
+              pressed={snap?.cameraOn ?? false}
+              disabled={!media}
+              onClick={() => media?.setCamera(!snap?.cameraOn)}
+              size="lg"
+            />
+            <RoundButton
+              icon={sharing ? "cancelPresentation" : "presentToAll"}
+              label={sharing ? "Stop sharing" : "Share screen"}
+              pressed={sharing}
+              disabled={!media?.shareScreen || (!sharing && !!snap?.screenStarting)}
+              onClick={() => (sharing ? media?.stopScreen?.() : void media?.shareScreen?.(withAudio))}
+              size="lg"
+            />
+            {phase === "paused" ? (
+              <button type="button" className="dock-pill dock-resume" onClick={resume}>
+                <Glyph name="playArrow" />
+                Resume
+              </button>
+            ) : (
+              <RoundButton
+                icon="pause"
+                label="Pause"
+                hint="Viewers see that you paused; nothing is lost"
+                onClick={pause}
+                size="lg"
+              />
+            )}
+            <button type="button" className="dock-pill dock-end" onClick={() => setConfirmEnd(true)}>
+              <Glyph name="callEnd" />
+              End talk
+            </button>
+          </div>
+          <div className="dock-side dock-panels">
+            <PanelButton
+              icon="group"
+              label="Audience"
+              pressed={panel === "audience"}
+              onClick={() => setPanel((p) => (p === "audience" ? undefined : "audience"))}
+            />
+            <PanelButton
+              icon="liveHelp"
+              label="Questions"
+              count={openQuestions}
+              pressed={panel === "questions"}
+              onClick={() => setPanel((p) => (p === "questions" ? undefined : "questions"))}
+            />
+          </div>
+        </div>
+      ) : null}
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="Choose a PDF deck"
+        data-testid="deck-file"
+        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+          void loadFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }
@@ -916,27 +1057,6 @@ function WireStatus({
   return ok ? <>Sending slides; viewers receive them ({ok} checked).</> : <>Sending slides…</>;
 }
 
-function Check({
-  state,
-  title,
-  children,
-}: {
-  state: "ok" | "wait" | "bad" | "off";
-  title: string;
-  children?: React.ReactNode;
-}) {
-  const word = { ok: "Ready", wait: "Waiting", bad: "Needs you", off: "Off" }[state];
-  return (
-    <li className={`check check-${state}`}>
-      <span className="check-state">{word}</span>
-      <div className="check-body">
-        <span className="check-title">{title}</span>
-        {children}
-      </div>
-    </li>
-  );
-}
-
 function tokenText(t: TokenCheck, required: boolean): [state: "ok" | "off" | "bad", text: string] {
   switch (t.kind) {
     case "none":
@@ -957,211 +1077,266 @@ function tokenText(t: TokenCheck, required: boolean): [state: "ok" | "off" | "ba
   }
 }
 
-function Sources(props: {
-  phase: Phase;
-  media: SpeakerMedia | undefined;
-  snap: MediaSnapshot | undefined;
-  mediaError: string | undefined;
-  level: number;
-  name: string;
-  setName: (name: string) => void;
-  deck: Deck | undefined;
-  deckBusy: boolean;
-  deckError: string | undefined;
-  rendered: number;
-  pickFile: () => void;
-  tokenCheck: TokenCheck;
-  tokenRequired: boolean;
-  connection: ConnectionStatus;
-  clock: ClockState;
+/** The wall clock as Meet shows it in its header: "9:40 PM". */
+const wallTime = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+/** A length on air in words for the end screen: "42 min", "1 h 05 min", "under a minute". */
+const minutesText = (ms: number) => {
+  const m = Math.floor(Math.max(0, ms) / 60_000);
+  if (m < 1) return "under a minute";
+  const h = Math.floor(m / 60);
+  return h ? `${h} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`;
+};
+
+/**
+ * The console's header, as a call's: top left the time, the talk's title and its room code, and (i) for the talk's
+ * details (the audience link, Copy, the QR and the full-screen card to project). Top right, the talk's state.
+ */
+function ConsoleHeader({
+  room,
+  title,
+  now,
+  children,
+}: {
+  room: string;
+  title: string | undefined;
+  now: number;
+  children?: React.ReactNode;
 }) {
-  const { media, snap, deck } = props;
-  const [tokenState, tokenMessage] = tokenText(props.tokenCheck, props.tokenRequired);
-  // Once this microphone has been heard it stays ready: speech has pauses.
-  const [heard, setHeard] = useState<MediaStreamTrack>();
-  const micTrack = snap?.micTrack;
-  if (micTrack && props.level > 0.25 && heard !== micTrack) setHeard(micTrack);
-  const micState = snap?.micError ? "bad" : snap?.micOn ? (micTrack && heard === micTrack ? "ok" : "wait") : "off";
+  const [details, setDetails] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!details) return;
+    pop.current?.focus();
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!pop.current?.contains(t) && !button.current?.contains(t)) setDetails(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [details]);
+  const close = () => {
+    setDetails(false);
+    button.current?.focus();
+  };
   return (
-    <section className="panel sources" aria-labelledby="sources-heading">
-      <h2 id="sources-heading" className="panel-title">
-        {props.phase === "preflight" ? "Before going on air" : "Sources"}
-      </h2>
-      {props.mediaError ? (
-        <p className="alert" role="alert">
-          The microphone and camera could not load: {props.mediaError}
-        </p>
-      ) : null}
-      <ul className="checks">
-        <Check state={micState} title="Microphone">
-          <div className="row">
-            <Switch
-              label="Microphone on"
-              isLabelHidden
-              value={snap?.micOn ?? false}
-              isDisabled={!media}
-              onChange={(on) => media?.setMic(on)}
-            />
-            <LevelMeter level={props.level} label="Microphone level" />
-          </div>
-          <DevicePicker
-            label="Microphone"
-            devices={snap?.micDevices ?? []}
-            value={snap?.micDevice}
-            onChange={(id) => media?.chooseMic(id)}
-          />
-          <p className="muted small">
-            {snap?.micError ??
-              (snap?.micOn
-                ? micState === "ok"
-                  ? "We hear you."
-                  : "Say something: the bar should move."
-                : "Turn it on to check your level. Going on air needs it.")}
-          </p>
-        </Check>
-        <Check
-          state={snap?.cameraError ? "bad" : snap?.cameraOn ? (snap.cameraTrack ? "ok" : "wait") : "off"}
-          title="Camera"
+    <header className="console-bar">
+      <div className="console-meeting">
+        <Link href="/" className="console-home" aria-label="Talk Tracks home">
+          <LogoMark size={22} />
+        </Link>
+        <time className="console-clock" dateTime={new Date(now).toISOString()}>
+          {wallTime(now)}
+        </time>
+        <span className="console-sep" aria-hidden="true" />
+        <h1 className="console-talk">{title ?? "Untitled talk"}</h1>
+        <span className="console-sep" aria-hidden="true" />
+        <span className="console-code">
+          <span className="sr-only">Room code </span>
+          {room}
+        </span>
+        <button
+          ref={button}
+          type="button"
+          className="icon-btn"
+          aria-label="Talk details"
+          aria-expanded={details}
+          aria-controls="talk-details"
+          onClick={() => setDetails((d) => !d)}
         >
-          <div className="row">
-            <Switch
-              label="Camera on"
-              isLabelHidden
-              value={snap?.cameraOn ?? false}
-              isDisabled={!media}
-              onChange={(on) => media?.setCamera(on)}
-            />
-            <span className="muted small">{snap?.cameraOn ? "Viewers see you beside the slides." : "Optional."}</span>
-          </div>
-          <SelfView track={snap?.cameraTrack} />
-          <DevicePicker
-            label="Camera"
-            devices={snap?.cameraDevices ?? []}
-            value={snap?.cameraDevice}
-            onChange={(id) => media?.chooseCamera(id)}
-          />
-          {snap?.cameraError ? <p className="alert small">{snap.cameraError}</p> : null}
-        </Check>
-        <ScreenCheck media={media} snap={snap} />
-        <Check
-          state={props.deckError ? "bad" : deck ? (props.rendered >= deck.count ? "ok" : "wait") : "off"}
-          title="Slides"
-        >
-          <p className="small">
-            {props.deckError ??
-              (deck
-                ? `${deck.name}: ${deck.count} slides${props.rendered < deck.count ? `, preparing ${props.rendered} of ${deck.count}` : ""}.`
-                : props.deckBusy
-                  ? "Opening the PDF…"
-                  : "No slides. Optional: you can talk without them.")}
-          </p>
-          {/* Loading the first deck is the stage's one button; changing it is here. */}
-          {deck ? (
-            <div className="row">
-              <Button label="Change slides" size="sm" variant="secondary" onClick={props.pickFile} />
-            </div>
-          ) : null}
-        </Check>
-        <Check state={tokenState} title="Speaker token">
-          <p className="small">{tokenMessage}</p>
-          {props.tokenRequired && props.tokenCheck.kind !== "ok" && props.phase === "preflight" ? (
-            <PasteSpeakerLink />
-          ) : null}
-        </Check>
-        <Check
-          state={props.connection === "connected" ? "ok" : props.connection === "failed" ? "bad" : "wait"}
-          title="Connection"
-        >
-          <p className="small">
-            {props.connection === "connected"
-              ? "Connected to Talk Tracks."
-              : props.connection === "failed"
-                ? "Talk Tracks refused the connection. Check your speaker link."
-                : "Connecting…"}
-          </p>
-        </Check>
-        {props.phase === "on-air" || props.clock.kind === "ready" ? (
-          <Check
-            state={props.clock.kind === "ready" ? "ok" : props.clock.kind === "no-clock" ? "bad" : "wait"}
-            title="Room clock"
-          >
-            <p className="small">
-              {props.clock.kind === "ready"
-                ? props.clock.local
-                  ? "Local clock (development: no room service)."
-                  : "Running: slides, ink and laser line up with your voice."
-                : props.clock.kind === "no-clock"
-                  ? "Your broadcast carries no clock. Reload the page and go on air again."
-                  : "Starting the room clock…"}
-            </p>
-          </Check>
-        ) : null}
-      </ul>
-      <label className="name-field">
-        <span className="small">Your name, as viewers see it on your ink</span>
-        <input
-          type="text"
-          value={props.name}
-          maxLength={60}
-          disabled={props.phase !== "preflight"}
-          onChange={(e) => props.setName(e.target.value)}
-        />
-      </label>
-    </section>
-  );
-}
-
-/** Share a screen, window or tab, optionally with its sound; stop it here or from the browser's own bar. */
-function ScreenCheck({ media, snap }: { media: SpeakerMedia | undefined; snap: MediaSnapshot | undefined }) {
-  const [withAudio, setWithAudio] = useState(false);
-  const sharing = !!snap?.screenTrack;
-  const canShare = !!media?.shareScreen;
-  return (
-    <Check state={snap?.screenError ? "bad" : sharing ? "ok" : snap?.screenStarting ? "wait" : "off"} title="Screen">
-      <div className="row">
-        {sharing ? (
-          <Button label="Stop sharing" size="sm" variant="secondary" onClick={() => media?.stopScreen?.()} />
-        ) : (
-          <Button
-            label="Share screen"
-            size="sm"
-            variant="secondary"
-            isDisabled={!canShare || snap?.screenStarting}
-            onClick={() => void media?.shareScreen?.(withAudio)}
-          />
-        )}
-        <Switch
-          label="With its sound"
-          value={withAudio}
-          isDisabled={!canShare || sharing || snap?.screenStarting}
-          onChange={setWithAudio}
-        />
+          <Glyph name="info" />
+        </button>
       </div>
-      <p className="muted small">
-        {snap?.screenError ??
-          (sharing
-            ? `Viewers see your screen in place of the slides${snap?.screenAudio ? ", and hear its sound" : ""}.`
-            : snap?.screenStarting
-              ? "Pick what to share in your browser's window."
-              : "Optional: a demo or code. Its sound goes out only with a tab, or a whole screen on Windows.")}
-      </p>
-    </Check>
+      <div className="console-state">{children}</div>
+      {details ? (
+        <section
+          ref={pop}
+          id="talk-details"
+          className="details-pop"
+          role="dialog"
+          aria-labelledby="details-heading"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !e.defaultPrevented) {
+              e.stopPropagation();
+              close();
+            }
+          }}
+        >
+          <header className="details-head">
+            <h2 id="details-heading">Talk details</h2>
+            <button type="button" className="icon-btn" aria-label="Close talk details" onClick={close}>
+              <Glyph name="close" />
+            </button>
+          </header>
+          <div className="details-body">
+            <AudienceLink room={room} label="Joining link" />
+            <div className="details-qr">
+              <QrCode text={watchUrl(room)} label={`QR code for ${watchUrl(room)}`} />
+              <div className="details-qr-text">
+                <p>
+                  Viewers scan it, open the link, or type the room code <strong>{room}</strong> into Join on the Talk
+                  Tracks home page.
+                </p>
+                <ProjectInvite room={room} />
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </header>
   );
 }
 
+/** Before slides or a screen: viewers see the camera, or a quiet card with the speaker's name. */
+function EmptyStage({ camera, name, busy }: { camera: MediaStreamTrack | undefined; name: string; busy: boolean }) {
+  return (
+    <div className="stage stage-empty">
+      {camera ? (
+        <SelfView track={camera} className="stage-self" />
+      ) : (
+        <div className="stage-nobody">
+          <span className="stage-avatar" aria-hidden="true">
+            {(name.trim() || "S").slice(0, 1).toUpperCase()}
+          </span>
+          <span>Your camera is off</span>
+        </div>
+      )}
+      <p className="stage-drop">
+        <Glyph name="uploadFile" />
+        {busy ? "Opening the PDF…" : "No slides yet. Drop a PDF here, or load one in Slides."}
+      </p>
+    </div>
+  );
+}
+
+/** A round icon button (Meet's device toggles): the icon says the state, the name says the device. */
+function RoundButton({
+  icon,
+  label,
+  pressed,
+  disabled,
+  onClick,
+  hint,
+  size = "md",
+}: {
+  icon: GlyphName;
+  label: string;
+  pressed?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  hint?: string;
+  size?: "md" | "lg";
+}) {
+  return (
+    <button
+      type="button"
+      className={`round-btn round-${size}`}
+      aria-label={label}
+      aria-pressed={pressed}
+      title={hint ?? label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Glyph name={icon} />
+    </button>
+  );
+}
+
+/** A panel toggle at the dock's right (Meet's people and chat buttons), with a count when there is news. */
+function PanelButton({
+  icon,
+  label,
+  pressed,
+  count = 0,
+  onClick,
+}: {
+  icon: GlyphName;
+  label: string;
+  pressed: boolean;
+  count?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="panel-btn"
+      aria-label={count ? `${label} (${count} open)` : label}
+      aria-pressed={pressed}
+      title={label}
+      onClick={onClick}
+    >
+      <Glyph name={icon} />
+      {count ? (
+        <span className="panel-count" aria-hidden="true">
+          {count}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+type SetupState = "ok" | "wait" | "bad" | "off";
+const STATE_WORD: Record<SetupState, string> = { ok: "Ready", wait: "Waiting", bad: "Needs you", off: "Off" };
+
+/** One source in the green room: its toggle, its name and device, its state, and what else it needs. */
+function SetupRow({
+  state,
+  control,
+  title,
+  detail,
+  children,
+}: {
+  state: SetupState;
+  control?: React.ReactNode;
+  title: string;
+  detail: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <li className="setup-row" data-state={state}>
+      <div className="setup-main">
+        {control ?? <span className="setup-icon" aria-hidden="true" />}
+        <div className="setup-text">
+          <span className="setup-title">{title}</span>
+          <span className="setup-detail">{detail}</span>
+        </div>
+        <span className="setup-state">{STATE_WORD[state]}</span>
+      </div>
+      {children ? <div className="setup-extra">{children}</div> : null}
+    </li>
+  );
+}
+
+/** The green room's one sentence: what is left before going on air. */
+function readiness(snap: MediaSnapshot | undefined, heard: boolean, deck: boolean, canPublish: boolean): string {
+  if (!canPublish) return "This link cannot go on air yet: it needs your speaker link.";
+  if (!snap) return "Starting your microphone and camera…";
+  if (snap.micError) return "Your microphone needs you before you go on air.";
+  if (!snap.micOn) return "Turn on your microphone to check your level, or go on air: it turns on then.";
+  if (!heard) return "Say a few words: the level bar should move.";
+  return deck
+    ? "We hear you and your slides are in. Go on air when you are ready."
+    : "We hear you. Slides are optional.";
+}
+
+/** The device in use: a picker when there is a choice, else the words for its state. */
 function DevicePicker({
   label,
   devices,
   value,
   onChange,
+  fallback,
 }: {
   label: string;
   devices: MediaDeviceInfo[];
   value: string | undefined;
   onChange: (id: string) => void;
+  fallback: string;
 }) {
   const named = devices.filter((d) => d.deviceId);
-  if (named.length < 2) return null;
+  if (named.length < 2) return <>{fallback}</>;
   return (
     <select
       className="device"
@@ -1178,25 +1353,41 @@ function DevicePicker({
   );
 }
 
-function Ended({ room, ending, retry }: { room: string; ending: Ending; retry: () => void }) {
+/**
+ * The end of the talk: how long it ran, what the replay keeps, the replay link to copy or open, and the two ways on
+ * (another talk, or the hub).
+ */
+function Ended({
+  room,
+  title,
+  now,
+  ending,
+  retry,
+  onAirMs,
+  slideCount,
+  still,
+  made,
+}: {
+  room: string;
+  title: string | undefined;
+  now: number;
+  ending: Ending;
+  retry: () => void;
+  onAirMs: number;
+  slideCount: number;
+  still: string | undefined;
+  made: string[];
+}) {
   const url = watchUrl(room);
+  const { copied, copy } = useCopy(url);
   return (
-    <div className="console console-ended">
-      <header className="console-bar">
-        <div className="console-title">
-          <Link href="/" className="brand">
-            <LogoMark />
-            Talk Tracks
-          </Link>
-          <h1>
-            Talk ended in <span className="console-room">{room}</span>
-          </h1>
-        </div>
-        <span role="status">
+    <div className="console console-ended" data-phase="ended">
+      <ConsoleHeader room={room} title={title} now={now}>
+        <span role="status" className="ended-state">
           {/* Until the room service acknowledges, viewers may still see "Paused". */}
-          <Badge variant="neutral" label={ending === "ending" ? "Ending…" : "Ended"} />
+          {ending === "ending" ? "Ending…" : "Ended"}
         </span>
-      </header>
+      </ConsoleHeader>
       {ending === "refused" ? (
         <Banner
           status="warning"
@@ -1206,18 +1397,75 @@ function Ended({ room, ending, retry }: { room: string; ending: Ending; retry: (
           endContent={<Button label="Try again" size="sm" variant="secondary" onClick={retry} />}
         />
       ) : null}
-      <section className="panel ended-panel">
-        <h2 className="panel-title">What is kept</h2>
-        <ul>
-          <li>The recording of your voice and camera.</li>
-          <li>Your slides, with everything you drew, underlined and pointed at, in time with your voice.</li>
-          <li>Subtitles, translations and chapters that listeners turned on.</li>
-        </ul>
-        <p>
-          Anyone can replay it at <a href={url}>{url}</a>.
-        </p>
-        <p className="muted small">Your notes stay in this browser; they were never sent.</p>
-      </section>
+      <main id="main" className="ended">
+        <div className="ended-head">
+          <h1 className="ended-title">Talk ended</h1>
+          <p className="ended-sub">
+            {title ? <>{title} · </> : null}
+            {minutesText(onAirMs)} on air
+          </p>
+        </div>
+        <div className="ended-grid">
+          <section className="ended-replay" aria-labelledby="replay-heading">
+            <a className="ended-still" href={url} target="_blank" rel="noreferrer" aria-label="Open the replay">
+              {still ? <img src={still} alt="" /> : <span className="ended-still-title">{title ?? room}</span>}
+              <span className="ended-play" aria-hidden="true">
+                <Glyph name="playArrow" />
+              </span>
+            </a>
+            <h2 id="replay-heading" className="ended-label">
+              Replay
+            </h2>
+            <div className="ended-link">
+              <span className="ended-url">{shortUrl(url)}</span>
+              {/* Plain buttons: the page's one live region is the talk's state ("Ending…", "Ended"). */}
+              <button type="button" className="ended-btn" onClick={() => void copy()}>
+                <Glyph name={copied === "yes" ? "checkCircle" : "contentCopy"} />
+                {copied === "yes" ? "Copied" : "Copy replay link"}
+              </button>
+              <a className="ended-open" href={url} target="_blank" rel="noreferrer">
+                <Glyph name="openInNew" />
+                Open replay
+              </a>
+            </div>
+            <span className="ended-copied" aria-live="polite">
+              {copied === "yes" ? "Replay link copied." : copied === "no" ? "Could not copy; select the link." : ""}
+            </span>
+          </section>
+          <section className="ended-kept" aria-labelledby="kept-heading">
+            <h2 id="kept-heading" className="ended-label">
+              Kept in the replay
+            </h2>
+            <ul className="kept-list">
+              <li>
+                <Glyph name="mic" />
+                <span className="kept-what">Your voice and camera</span>
+                <span className="kept-fact">{minutesText(onAirMs)}</span>
+              </li>
+              <li>
+                <Glyph name="slideshow" />
+                <span className="kept-what">Slides, with everything you drew and pointed at</span>
+                <span className="kept-fact">{slideCount ? `${slideCount} slides` : "No slides"}</span>
+              </li>
+              <li>
+                <Glyph name="subtitles" />
+                <span className="kept-what">Subtitles, translations and chapters</span>
+                <span className="kept-fact">{made.length ? made.join(", ") : "Made as listeners turn them on"}</span>
+              </li>
+            </ul>
+          </section>
+        </div>
+        <nav className="ended-actions" aria-label="What next">
+          <button type="button" className="ended-btn ended-btn-primary" onClick={() => navigate("/?start")}>
+            <Glyph name="add" />
+            Start another talk
+          </button>
+          <Link href="/" className="ended-hub">
+            <Glyph name="arrowBack" />
+            Back to the hub
+          </Link>
+        </nav>
+      </main>
     </div>
   );
 }

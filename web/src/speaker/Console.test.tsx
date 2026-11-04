@@ -161,15 +161,6 @@ describe("the speaker console", () => {
     expect(shown.filter((v, i) => v !== shown[i - 1])).toEqual([0, 1, 2, 1, "hide"]);
   });
 
-  it("keeps notes private: typing them publishes nothing", async () => {
-    const { sink } = setup();
-    await loadDeck();
-    const before = sink().written.length;
-    fireEvent.change(screen.getByLabelText(/Your notes for slide 1/), { target: { value: "Mention the 1918 flu" } });
-    expect(sink().written.length).toBe(before);
-    expect(JSON.stringify(sink().objects(SLIDE_TRACK, sink().groups(SLIDE_TRACK)[0]!))).not.toContain("1918");
-  });
-
   it("draws with the pen, points the laser, underlines text and clears the slide, all as contract records", async () => {
     // The room clock holds still for the test: on a loaded machine the run crossed a 4 s slice boundary, and the new
     // slice's carry-in (the stroke drawn so far, kind "stroke") read as one record more. The records are the subject
@@ -275,10 +266,16 @@ describe("the speaker console", () => {
     expect(screen.getByTestId("stage")).toBeTruthy(); // the slides are back
   });
 
-  it("shows the invitation with the room's watch link", () => {
+  it("shows the invitation with the room's watch link in the talk's details, and closes them", async () => {
     setup();
-    expect(screen.getAllByRole("img", { name: /QR code for .*\/watch\/physics-101/ }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
+    expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Talk details" })));
+    const details = screen.getByRole("dialog", { name: "Talk details" });
+    expect(within(details).getByRole("img", { name: /QR code for .*\/watch\/physics-101/ })).toBeTruthy();
+    expect(within(details).getByRole("button", { name: "Copy audience link" })).toBeTruthy();
+    expect(within(details).getByRole("button", { name: "Show full screen" })).toBeTruthy();
+    fireEvent.keyDown(details, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Talk details" })).toBeNull();
   });
 
   it("goes on air with the microphone, and ends the talk only after one confirmation", async () => {
@@ -296,7 +293,9 @@ describe("the speaker console", () => {
     expect(ended).toBe(0);
     const dialog = await screen.findByRole("alertdialog");
     await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "End talk" })));
-    await screen.findByText("What is kept");
+    await screen.findByRole("heading", { name: "Talk ended" });
+    expect(screen.getByRole("button", { name: "Copy replay link" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start another talk" })).toBeTruthy();
     expect(ended).toBe(1); // the room service is told, so the room says "ended" rather than "paused"
     expect(sink().closed).toBe(true);
     expect(media.closed).toBe(true);
@@ -368,8 +367,13 @@ describe("the speaker console", () => {
   it("lists the audience's questions, counts them per slide, and replies to or hides one as the speaker", async () => {
     const ada = { id: "u1", name: "Ada" };
     const service = new FakeRoomService({ me: { id: "speaker", name: "Speaker", speaker: true }, now: 60_000 });
-    const { sink } = setup({ makeRoomService: () => service });
+    const { sink } = setup({ makeRoomService: () => service, createMedia: async () => fakeMedia() });
     await loadDeck();
+    // The questions are a panel of the on-air console, opened from its dock.
+    const goLive = await screen.findByRole("button", { name: "Go on air" });
+    await waitFor(() => expect(goLive.hasAttribute("disabled")).toBe(false));
+    await act(async () => fireEvent.click(goLive));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Questions" })));
     // The audience anchors questions on the deck the console published. Its id is the room-clock slice it went out
     // in, so it is 0 only when the deck loads within the room's first 4 s: read it, never assume it.
     await waitFor(() => expect(sink().groups(DECK_TRACK)).toHaveLength(1));
@@ -397,7 +401,7 @@ describe("the speaker console", () => {
     const list = screen.getByRole("region", { name: "Questions from the audience" });
     expect(within(list).getByText("Is RNA a virus?")).toBeTruthy();
     expect(within(list).queryByText("Nice slide")).toBeNull(); // a comment, not a question
-    expect(screen.getByRole("button", { name: "Show slide 2, 1 questions" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Questions (1 open)" })).toBeTruthy();
 
     fireEvent.change(within(list).getByRole("textbox", { name: "Reply to Ada" }), {
       target: { value: "It carries one" },

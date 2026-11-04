@@ -1,7 +1,10 @@
 import { Button, TextInput } from "@astryxdesign/core";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
+import { Glyph } from "../brand/Glyph";
+import { Modal, ModalBody, ModalFooter } from "../brand/Modal";
 import { navigate } from "../router";
-import { Invite } from "../speaker/Invite";
+import { AudienceLink, ProjectInvite, QrCode, useCopy, watchUrl } from "../speaker/Invite";
+import { rememberTitle } from "../speaker/talkTitle";
 import {
   type CreatedRoom,
   type CreateRoomError,
@@ -11,7 +14,6 @@ import {
   slugify,
   speakerPathFrom,
 } from "./createRoom";
-import { CloseIcon } from "./hub/icons";
 
 type Field = "title" | "speaker" | "room" | "code";
 
@@ -30,60 +32,39 @@ export interface CreateTalkProps {
   create?: (request: Parameters<typeof createRoom>[0]) => Promise<CreateRoomResult>;
 }
 
+/** The modal's title is the dialog's: the form says when the room is made. */
+interface CreateTalkFormProps extends CreateTalkProps {
+  onCreated: (created: CreatedRoom) => void;
+}
+
 /**
  * Start a talk (J5, decisions 0025 and 0033): one modal with title, speaker, room name and access code, and one
- * primary button. The room service mints the speaker link; its cap is the operator's concern and never shown. Then
- * the private speaker link, the audience link with its QR, and the way into the console.
+ * primary button in its footer. The room service mints the speaker link; its cap is the operator's concern and never
+ * shown. Then the room is ready: its code, the audience link with its QR (and a full-screen card to project), the
+ * private speaker link, and the way into the console.
  */
 export function StartTalkDialog({ open, onClose, create }: CreateTalkProps & { open: boolean; onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const el = dialog.current;
-    if (!el) return;
-    if (open && !el.open) {
-      if (typeof el.showModal === "function") el.showModal();
-      else el.setAttribute("open", "");
-      // The first field, not the close button, takes focus.
-      el.querySelector<HTMLInputElement>("input")?.focus();
-    } else if (!open && el.open) {
-      if (typeof el.close === "function") el.close();
-      else el.removeAttribute("open");
-    }
-  }, [open]);
+  const [created, setCreated] = useState<CreatedRoom>();
+  const close = () => {
+    setCreated(undefined);
+    onClose();
+  };
   return (
-    <dialog
-      ref={dialog}
+    <Modal
+      open={open}
+      onClose={close}
+      title={created ? "Your talk is ready" : "Start a talk"}
+      titleId="start-heading"
+      size={created ? "lg" : "md"}
       className="start-dialog"
-      aria-labelledby="start-heading"
-      onClose={onClose}
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-      onClick={(e) => {
-        // A click on the backdrop (the dialog element itself, outside its panel) closes it.
-        if (e.target === dialog.current) onClose();
-      }}
     >
-      {open ? (
-        <div className="start-panel">
-          <header className="start-head">
-            <h2 id="start-heading" className="start-title">
-              Start a talk
-            </h2>
-            <button type="button" className="start-close" aria-label="Close" onClick={onClose}>
-              <CloseIcon />
-            </button>
-          </header>
-          <CreateTalk create={create} />
-        </div>
-      ) : null}
-    </dialog>
+      {created ? <Created created={created} /> : <CreateTalk create={create} onCreated={setCreated} />}
+    </Modal>
   );
 }
 
-/** The form, then the new room's links. */
-export function CreateTalk({ create = createRoom }: CreateTalkProps) {
+/** The form: four fields in the body, Start in the footer. */
+export function CreateTalk({ create = createRoom, onCreated }: CreateTalkFormProps) {
   const [title, setTitle] = useState("");
   const [speaker, setSpeaker] = useState("");
   const [room, setRoom] = useState("");
@@ -91,7 +72,6 @@ export function CreateTalk({ create = createRoom }: CreateTalkProps) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<Field | "form", string>>>({});
-  const [created, setCreated] = useState<CreatedRoom>();
 
   const slug = roomEdited ? room : slugify(title);
 
@@ -109,66 +89,66 @@ export function CreateTalk({ create = createRoom }: CreateTalkProps) {
     const result = await create({ code: code.trim(), room: slug, title: title.trim(), speaker: speaker.trim() });
     setBusy(false);
     if (result.ok) {
-      setCreated(result.created);
+      rememberTitle(result.created.room, title.trim());
+      onCreated(result.created);
       return;
     }
     const { field, message } = ERRORS[result.error];
     setErrors({ [field ?? "form"]: message });
   };
 
-  if (created) return <Created created={created} />;
-
   const status = (field: Field) => (errors[field] ? { type: "error" as const, message: errors[field] } : undefined);
   return (
     <form className="start-form" onSubmit={(e) => void submit(e)} aria-label="Start a talk" noValidate>
-      <p className="start-lead">You get a private speaker link for the console and an audience link to share.</p>
-      <TextInput
-        label="Talk title"
-        value={title}
-        onChange={(v) => setTitle(v)}
-        status={status("title")}
-        htmlName="title"
-      />
-      <TextInput
-        label="Speaker"
-        value={speaker}
-        onChange={(v) => setSpeaker(v)}
-        status={status("speaker")}
-        htmlName="speaker"
-        autoComplete="name"
-      />
-      <div className="start-pair">
+      <ModalBody className="start-fields">
+        <p className="start-lead">You get a private speaker link for the console and an audience link to share.</p>
         <TextInput
-          label="Room name"
-          description="Part of the audience link."
-          value={slug}
-          onChange={(v) => {
-            setRoom(v.toLowerCase());
-            setRoomEdited(true);
-          }}
-          status={status("room")}
-          htmlName="room"
+          label="Talk title"
+          value={title}
+          onChange={(v) => setTitle(v)}
+          status={status("title")}
+          htmlName="title"
         />
         <TextInput
-          label="Access code"
-          description="From the organisers."
-          type="password"
-          value={code}
-          onChange={(v) => setCode(v)}
-          status={status("code")}
-          htmlName="code"
-          autoComplete="off"
+          label="Speaker"
+          value={speaker}
+          onChange={(v) => setSpeaker(v)}
+          status={status("speaker")}
+          htmlName="speaker"
+          autoComplete="name"
         />
-      </div>
-      {errors.form ? (
-        <p className="start-error" role="alert">
-          {errors.form}
-        </p>
-      ) : null}
-      <div className="start-foot">
-        <p className="start-hint">Have a speaker link already? Paste it into Join a room.</p>
-        <Button label="Start" type="submit" variant="primary" size="lg" width="140px" isLoading={busy} />
-      </div>
+        <div className="start-pair">
+          <TextInput
+            label="Room name"
+            description="Part of the audience link."
+            value={slug}
+            onChange={(v) => {
+              setRoom(v.toLowerCase());
+              setRoomEdited(true);
+            }}
+            status={status("room")}
+            htmlName="room"
+          />
+          <TextInput
+            label="Access code"
+            description="From the organisers."
+            type="password"
+            value={code}
+            onChange={(v) => setCode(v)}
+            status={status("code")}
+            htmlName="code"
+            autoComplete="off"
+          />
+        </div>
+        {errors.form ? (
+          <p className="start-error" role="alert">
+            {errors.form}
+          </p>
+        ) : null}
+      </ModalBody>
+      <ModalFooter note="Have a speaker link already? Paste it into Join a room.">
+        <Button label="Start" type="submit" variant="primary" width="120px" isLoading={busy} />
+      </ModalFooter>
     </form>
   );
 }
@@ -205,46 +185,56 @@ export function PasteSpeakerLink() {
   );
 }
 
-/** The new room: the private speaker link first, then the audience link and QR, then into the console. */
+/** The new room: its code, the audience link and QR to share, the private speaker link, then into the console. */
 function Created({ created }: { created: CreatedRoom }) {
   const speakerUrl = new URL(created.speaker_path, location.origin).toString();
-  const [copied, setCopied] = useState<"yes" | "no">();
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(speakerUrl);
-      setCopied("yes");
-    } catch {
-      setCopied("no");
-    }
-  };
+  const audienceUrl = watchUrl(created.room);
+  const { copied, copy } = useCopy(speakerUrl);
   return (
-    <section className="start-created" aria-labelledby="created-heading">
-      <h3 id="created-heading" className="start-created-title">
-        Room {created.room} is ready
-      </h3>
-      <div className="start-speaker-link">
-        <label htmlFor="speaker-link">Your speaker link</label>
-        <div className="start-link-row">
-          <input
-            id="speaker-link"
-            className="start-link-field"
-            readOnly
-            value={speakerUrl}
-            onFocus={(e) => e.target.select()}
-          />
-          <Button label="Copy speaker link" size="sm" clickAction={copy} />
+    <>
+      <ModalBody className="start-created">
+        <figure className="start-qr">
+          <QrCode text={audienceUrl} label={`QR code for ${audienceUrl}`} />
+          <figcaption>Viewers scan it to watch</figcaption>
+          <ProjectInvite room={created.room} />
+        </figure>
+        <div className="start-links">
+          <div className="start-code">
+            <span className="start-code-label">Room code</span>
+            <span className="start-code-value">{created.room}</span>
+          </div>
+          <AudienceLink room={created.room} label="Audience link, to share" />
+          <div className="start-speaker-link">
+            <label htmlFor="speaker-link">Your speaker link</label>
+            <div className="start-link-row">
+              <input
+                id="speaker-link"
+                className="start-link-field"
+                readOnly
+                value={speakerUrl}
+                onFocus={(e) => e.target.select()}
+              />
+              <Button
+                label={copied === "yes" ? "Copied" : "Copy speaker link"}
+                size="sm"
+                variant="secondary"
+                icon={<Glyph name={copied === "yes" ? "checkCircle" : "contentCopy"} />}
+                clickAction={copy}
+              />
+            </div>
+            <p className="start-warning" role="note">
+              <Glyph name="info" />
+              Keep it private: anyone with it can speak in this room. Save it now; this page does not keep it.
+            </p>
+            <p className="start-status" role="status">
+              {copied === "yes" ? "Speaker link copied." : copied === "no" ? "Could not copy; select the link." : ""}
+            </p>
+          </div>
         </div>
-        <p className="start-warning" role="note">
-          Keep it private: anyone with it can speak in this room. Save it now; this page does not keep it.
-        </p>
-        <p className="start-status" role="status">
-          {copied === "yes" ? "Speaker link copied." : copied === "no" ? "Could not copy; select the link above." : ""}
-        </p>
-      </div>
-      <Invite room={created.room} />
-      <div className="start-foot">
-        <Button label="Open console" variant="primary" size="lg" onClick={() => navigate(created.speaker_path)} />
-      </div>
-    </section>
+      </ModalBody>
+      <ModalFooter note="The console opens with your microphone and camera off.">
+        <Button label="Open console" variant="primary" onClick={() => navigate(created.speaker_path)} />
+      </ModalFooter>
+    </>
   );
 }
