@@ -137,9 +137,12 @@ export function Workspace({
   overlay,
   overlayRef,
   onCaption,
+  aspects = {},
 }: {
   api: WorkspaceApi;
   content: Readonly<Record<string, ReactNode>>;
+  /** The pictures' shapes (width / height), for a floating window of the picture's own shape. */
+  aspects?: Readonly<Record<string, number>>;
   /** Over the main picture: the subtitles and notices that belong to the talk's picture. */
   overlay?: ReactNode;
   overlayRef?: RefObject<HTMLDivElement | null>;
@@ -267,18 +270,25 @@ export function Workspace({
         <ZoneView key={z} zone={z} {...paneProps} />
       ))}
       {shown.floating.map((f, i) => (
-        <FloatWindow key={f.id} box={f} top={i === shown.floating.length - 1} {...paneProps} root={root} />
+        <FloatWindow
+          key={f.id}
+          box={f}
+          top={i === shown.floating.length - 1}
+          aspect={aspects[f.id]}
+          {...paneProps}
+          root={root}
+        />
       ))}
       {drag?.moved ? (
         <div className="tt-ws-drop" aria-hidden="true">
           {ZONES.map((z) => (
             <span key={z} className="tt-ws-target" data-zone={z} data-over={target === z ? "" : undefined}>
-              Dock {ZONE_NAME[z]}
+              <span className="tt-ws-chip">Dock {ZONE_NAME[z]}</span>
             </span>
           ))}
           {!target && !drag.grab && hover ? (
             <span className="tt-ws-ghost" style={{ left: `${hover.fx * 100}%`, top: `${hover.fy * 100}%` }}>
-              Float here
+              <span className="tt-ws-chip">Float here</span>
             </span>
           ) : null}
         </div>
@@ -539,9 +549,13 @@ function FloatWindow({
   box,
   top,
   root,
+  aspect,
   ...p
-}: PaneProps & { box: FloatBox; top: boolean; root: RefObject<HTMLDivElement | null> }) {
+}: PaneProps & { box: FloatBox; top: boolean; aspect: number | undefined; root: RefObject<HTMLDivElement | null> }) {
   const picture = isPicture(box.id);
+  // A picture's window is as tall as a 16:9 one of its width, and as wide as the picture's own shape: a narrow webcam
+  // crop is a narrow window, never a strip in a wide black one.
+  const ar = picture && aspect && Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9;
   const size = useRef<{ x: number; y: number; w: number; h: number; pointer: number } | undefined>(undefined);
   const resize = (e: ReactPointerEvent<HTMLElement>) => {
     const s = size.current;
@@ -566,8 +580,9 @@ function FloatWindow({
       style={{
         left: `${box.x * 100}%`,
         top: `${box.y * 100}%`,
-        width: `${box.w * 100}%`,
+        width: picture ? `calc(${box.w * 100}% * ${Math.min(1, (ar * 9) / 16)})` : `${box.w * 100}%`,
         height: picture ? undefined : `${box.h * 100}%`,
+        ...({ "--ws-ar": ar } as CSSProperties),
       }}
     >
       <div className="tt-ws-head">

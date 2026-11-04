@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatClock } from "../playback/timeline";
 import { Link } from "../router";
 import { CameraSurface, useOffLayout } from "./CameraSurface";
@@ -9,6 +9,7 @@ import type { BoardKind, LayoutKind, Prefs, SourceKind } from "./prefs";
 import { ScreenSurface } from "./ScreenSurface";
 import { ChaptersPanel, TranscriptPanel } from "./SidePanel";
 import { SlideSurface } from "./SlideSurface";
+import { TileAspects } from "./SourceTile";
 import { StatsForNerds } from "./StatsForNerds";
 import { SubtitleOverlay } from "./SubtitleOverlay";
 import { Workspace } from "./workspace/Workspace";
@@ -108,6 +109,11 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
   } = usePlayer();
   const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const overlayRef = useRef<HTMLDivElement>(null);
+  // The pictures tell their shapes (SourceTile), so a floating window takes the picture's own shape.
+  const [aspects, setAspects] = useState<Record<string, number>>({});
+  const report = useCallback((kind: string, aspect: number) => {
+    setAspects((a) => (Math.abs((a[kind] ?? 0) - aspect) < 1e-3 ? a : { ...a, [kind]: aspect }));
+  }, []);
   useEffect(() => () => clearTimeout(clickTimer.current), []);
   // Click plays or pauses, double-click is full screen (any streaming player), on a picture only: a panel to read or
   // type in is not the talk. A click on something of the picture's own (a button, the subtitles, the annotation
@@ -217,7 +223,9 @@ export function Stage({ onToggle, onFullscreen }: { onToggle: () => void; onFull
         setUi((u) => ({ stats: !u.stats, menu: undefined }));
       }}
     >
-      <Workspace api={workspace} content={content} overlay={overlay} overlayRef={overlayRef} />
+      <TileAspects.Provider value={report}>
+        <Workspace api={workspace} content={content} overlay={overlay} overlayRef={overlayRef} aspects={aspects} />
+      </TileAspects.Provider>
 
       {ui.stats ? <StatsForNerds /> : null}
 

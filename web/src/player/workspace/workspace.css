@@ -242,7 +242,7 @@
 }
 .tt-ws-float[data-picture] > .tt-ws-body {
   flex: none;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--ws-ar, 16 / 9);
 }
 .tt-ws-grip {
   position: absolute;
@@ -321,55 +321,68 @@
   z-index: 6;
   pointer-events: none;
 }
+/* Each target is an outline with a solid label; the one under the pointer darkens what it would cover (the scrim)
+   and takes the accent edge. */
 .tt-ws-target,
 .tt-ws-ghost {
   position: absolute;
   display: grid;
   place-items: center;
-  border: 1px solid var(--player-line);
+  margin: 6px;
+  border: 1px solid rgb(255 255 255 / 0.22);
   border-radius: var(--tt-radius-md);
+  transition:
+    background var(--tt-duration-fast) var(--tt-ease-standard),
+    border-color var(--tt-duration-fast) var(--tt-ease-standard);
+}
+.tt-ws-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--player-line);
+  border-radius: var(--tt-radius-sm);
   background: var(--player-panel);
   color: var(--tt-color-text-muted);
   font: var(--tt-weight-strong) var(--tt-text-micro) var(--tt-font-ui);
-}
-.tt-ws-target {
-  opacity: 0.92;
+  white-space: nowrap;
 }
 .tt-ws-target[data-zone="left"] {
   left: 0;
   top: 0;
   bottom: 0;
-  width: 14%;
+  width: calc(14% - 12px);
 }
 .tt-ws-target[data-zone="right"] {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 14%;
+  width: calc(14% - 12px);
 }
 .tt-ws-target[data-zone="bottom"] {
   left: 14%;
   right: 14%;
   bottom: 0;
-  height: 20%;
+  height: calc(20% - 12px);
 }
 .tt-ws-target[data-zone="centre"] {
   left: 32%;
   top: 28%;
-  width: 36%;
-  height: 34%;
+  width: calc(36% - 12px);
+  height: calc(34% - 12px);
 }
 .tt-ws-target[data-over] {
-  border-color: var(--tt-color-accent);
+  border: 2px solid var(--tt-color-accent);
+  background: var(--tt-color-scrim, rgb(0 0 0 / 0.55));
+}
+.tt-ws-target[data-over] .tt-ws-chip,
+.tt-ws-ghost .tt-ws-chip {
   color: var(--tt-color-text);
-  background: color-mix(in srgb, var(--tt-color-accent) 22%, var(--player-panel));
 }
 .tt-ws-ghost {
   width: 168px;
   height: 96px;
+  margin: 0;
   translate: -50% 0;
-  border-color: var(--tt-color-text-muted);
-  color: var(--tt-color-text);
+  border: 2px solid var(--tt-color-accent);
+  background: var(--tt-color-scrim, rgb(0 0 0 / 0.55));
 }
 
 /* --- the Layout menu --- */
