@@ -28,6 +28,8 @@ describe("the lecture package in the offline demo", () => {
       Object.assign(URL, { createObjectURL: create, revokeObjectURL: () => undefined });
       render(<DemoPage />);
       await advance(30_000);
+      // The download lives in the Transcript card, which opens from the bottom-right panel buttons.
+      fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
       fireEvent.click(screen.getByRole("button", { name: "Download" }));
       const popover = screen.getByRole("group", { name: "Download the transcript" });
       await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /Lecture package/ })));
@@ -72,6 +74,8 @@ describe("the lecture package in the offline demo", () => {
       });
       render(<DemoPage />);
       await advance(10_000);
+      // The download lives in the Transcript card, which opens from the bottom-right panel buttons.
+      fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
       fireEvent.click(screen.getByRole("button", { name: "Download" }));
       const popover = screen.getByRole("group", { name: "Download the transcript" });
       await act(async () => fireEvent.click(within(popover).getByRole("button", { name: /Lecture package/ })));
