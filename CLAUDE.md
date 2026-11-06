@@ -1,5 +1,8 @@
 # Talk Tracks
 
+**Shelved 2026-11-06.** The entry missed the submission deadline; the VM, the GCP project and the public site are
+torn down and the GitHub repo is archived. Reviving it means a new VM per `wiki/howto/deploy.md` and a new Meta key.
+
 Hackathon build (Meta Global AI Developer Hackathon, due 2026-11-04). Public repo: nothing private (IPs, hostnames,
 keys, account details) goes in it. No CI.
 

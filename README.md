@@ -2,9 +2,9 @@
 
 AI agents that publish into a live talk over Media over QUIC.
 
-**Live: [talk-tracks.leventaksakal.com](https://talk-tracks.leventaksakal.com)** · Built for the Meta Global AI
-Developer Hackathon (Oct 26 – Nov 4, 2026) · Status: the submitted build, running live. Best in desktop Chrome or
-Edge; Safari and older Firefox reach the relay over the WebSocket fallback.
+**Status: shelved (2026-11-06).** Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026); the
+entry was not submitted before the deadline. The public site and its VM are taken down; everything below about the
+live site describes it as it ran until 2026-11-06. To try it now, [run it locally](#run-it-locally).
 
 ![Talk Tracks: live lectures you can rewind, with AI tracks you pick](web/public/brand/video/title.png)
 
@@ -18,8 +18,8 @@ tracks serve rewind and the recording after the talk ends.
 
 ## Try it
 
-Open [talk-tracks.leventaksakal.com](https://talk-tracks.leventaksakal.com) in desktop Chrome. Nothing needs an
-account.
+The public site is down (see Status above). [Run it locally](#run-it-locally) and open the same paths on
+`http://localhost:5173`; the table describes the site as it ran.
 
 | What | Where | What to look at |
 |---|---|---|
